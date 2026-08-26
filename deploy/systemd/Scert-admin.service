@@ -1,0 +1,27 @@
+[Unit]
+Description=Scert-admin 本地密码重置服务
+Documentation=file:///scert/docs/Scert-admin服务管理说明.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/scert/conf/scert.json
+
+[Service]
+Type=simple
+User=Scert
+Group=Scert
+WorkingDirectory=/scert
+ExecStart=/scert/scert-admin --config /scert/conf/scert.json
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=no
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/scert/conf /scert/data /scert/log /scert/backups
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Scert-admin 由程序层强制只允许监听回环地址；本服务不创建公网防火墙规则。
+# 刻意不提供 [Install] 段，禁止通过 systemctl enable 纳入开机启动。
+# 不配置 ExecReload，reload 不属于受支持的控制操作。

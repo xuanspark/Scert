@@ -18,11 +18,19 @@ const (
 	CertificateSAN      CertificateType = "san"
 )
 
+const (
+	ACMEEnvironmentStaging    = "staging"
+	ACMEEnvironmentProduction = "production"
+)
+
 type Domain struct {
 	ID              string          `json:"id"`
 	Name            string          `json:"name"`
 	CertificateType CertificateType `json:"certificate_type"`
 	SANs            []string        `json:"sans"`
+	AutoRenew       bool            `json:"auto_renew"`
+	ACMEEnvironment string          `json:"acme_environment"`
+	DNSProvider     string          `json:"dns_provider,omitempty"`
 	Status          string          `json:"status"`
 	ExpiresAt       *time.Time      `json:"expires_at,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
@@ -30,6 +38,10 @@ type Domain struct {
 }
 
 func NewDomain(name string, certificateType CertificateType, sans []string) (Domain, error) {
+	return NewDomainWithOptions(name, certificateType, sans, true, ACMEEnvironmentStaging, "")
+}
+
+func NewDomainWithOptions(name string, certificateType CertificateType, sans []string, autoRenew bool, acmeEnvironment string, dnsProvider string) (Domain, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if !IsValidName(name) {
 		return Domain{}, fmt.Errorf("域名格式无效：%s", name)
@@ -37,6 +49,11 @@ func NewDomain(name string, certificateType CertificateType, sans []string) (Dom
 	if certificateType != CertificateSingle && certificateType != CertificateWildcard && certificateType != CertificateSAN {
 		return Domain{}, fmt.Errorf("证书类型无效：%s", certificateType)
 	}
+	acmeEnvironment = strings.ToLower(strings.TrimSpace(acmeEnvironment))
+	if !IsValidACMEEnvironment(acmeEnvironment) {
+		return Domain{}, fmt.Errorf("ACME 环境无效：%s", acmeEnvironment)
+	}
+	dnsProvider = strings.ToLower(strings.TrimSpace(dnsProvider))
 	cleanSANs := normalizeSANs(sans)
 	if certificateType == CertificateSAN {
 		cleanSANs = normalizeSANs(append([]string{name}, cleanSANs...))
@@ -60,7 +77,22 @@ func NewDomain(name string, certificateType CertificateType, sans []string) (Dom
 		return Domain{}, fmt.Errorf("只有泛域名证书类型允许使用 *. 域名")
 	}
 	now := time.Now().UTC()
-	return Domain{ID: NewID(), Name: name, CertificateType: certificateType, SANs: cleanSANs, Status: "pending", CreatedAt: now, UpdatedAt: now}, nil
+	return Domain{
+		ID:              NewID(),
+		Name:            name,
+		CertificateType: certificateType,
+		SANs:            cleanSANs,
+		AutoRenew:       autoRenew,
+		ACMEEnvironment: acmeEnvironment,
+		DNSProvider:     dnsProvider,
+		Status:          "pending",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, nil
+}
+
+func IsValidACMEEnvironment(value string) bool {
+	return value == ACMEEnvironmentStaging || value == ACMEEnvironmentProduction
 }
 
 func IsValidName(name string) bool {

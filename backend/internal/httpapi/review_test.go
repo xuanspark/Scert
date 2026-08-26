@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -18,9 +19,18 @@ import (
 type stubDomainRepository struct {
 	items     []domain.Domain
 	created   domain.Domain
+	loaded    domain.Domain
+	updated   domain.Domain
 	listErr   error
 	createErr error
+	getErr    error
+	updateErr error
 	deleteErr error
+	stateErr  error
+}
+
+func (r *stubDomainRepository) UpdateCertificateState(_ context.Context, id, status string, expiresAt *time.Time) error {
+	return r.stateErr
 }
 
 func (r *stubDomainRepository) Create(_ context.Context, item domain.Domain) error {
@@ -29,7 +39,13 @@ func (r *stubDomainRepository) Create(_ context.Context, item domain.Domain) err
 }
 
 func (r *stubDomainRepository) GetByID(_ context.Context, _ string) (domain.Domain, error) {
-	return domain.Domain{}, sql.ErrNoRows
+	if r.getErr != nil {
+		return domain.Domain{}, r.getErr
+	}
+	if r.loaded.ID == "" {
+		return domain.Domain{}, sql.ErrNoRows
+	}
+	return r.loaded, nil
 }
 
 func (r *stubDomainRepository) List(_ context.Context) ([]domain.Domain, error) {
@@ -38,6 +54,11 @@ func (r *stubDomainRepository) List(_ context.Context) ([]domain.Domain, error) 
 
 func (r *stubDomainRepository) Delete(_ context.Context, _ string) error {
 	return r.deleteErr
+}
+
+func (r *stubDomainRepository) Update(_ context.Context, item domain.Domain) error {
+	r.updated = item
+	return r.updateErr
 }
 
 func TestStatusReturnsApplicationAndConfigVersions(t *testing.T) {
@@ -100,5 +121,48 @@ func TestDeleteMissingDomainReturnsNotFound(t *testing.T) {
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/api/v1/domains/missing", nil))
 	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), "detail") {
 		t.Fatalf("删除不存在域名响应不正确：%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUpdateDomainAPI(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	loaded := domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle, SANs: []string{"example.com"}, Status: "active"}
+	repo := &stubDomainRepository{loaded: loaded}
+	server := New(Dependencies{Config: cfg, Repository: repo})
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["www.example.com"],"auto_renew":false,"acme_environment":"production","dns_provider":"cloudflare"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("更新域名响应错误：%d %s", response.Code, response.Body.String())
+	}
+	if repo.updated.ID != loaded.ID || repo.updated.Status != "pending" || repo.updated.AutoRenew || repo.updated.ACMEEnvironment != domain.ACMEEnvironmentProduction || len(repo.updated.SANs) != 2 {
+		t.Fatalf("更新域名参数不正确：%+v", repo.updated)
+	}
+}
+
+func TestCreateDomainConflictReturnsConflict(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	repo := &stubDomainRepository{createErr: errors.New("UNIQUE constraint failed: domains.name")}
+	server := New(Dependencies{Config: cfg, Repository: repo})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("重复域名响应错误：%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestUpdateDomainRejectsInvalidEnvironment(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	loaded := domain.Domain{ID: "domain-1", Name: "example.com"}
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{loaded: loaded}})
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"single","acme_environment":"invalid"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("非法 ACME 环境响应错误：%d %s", response.Code, response.Body.String())
 	}
 }

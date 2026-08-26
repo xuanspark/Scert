@@ -1,0 +1,3 @@
+ALTER TABLE domains ADD COLUMN auto_renew BOOLEAN NOT NULL DEFAULT 1;
+ALTER TABLE domains ADD COLUMN acme_environment TEXT NOT NULL DEFAULT 'staging';
+ALTER TABLE domains ADD COLUMN dns_provider TEXT NOT NULL DEFAULT '';

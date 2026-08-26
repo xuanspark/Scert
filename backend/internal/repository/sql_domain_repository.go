@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
@@ -28,11 +29,36 @@ func (r *SQLDomainRepository) Create(ctx context.Context, item domain.Domain) er
 		return fmt.Errorf("编码 SAN 域名失败：%w", err)
 	}
 	_, err = r.db.ExecContext(ctx, `INSERT INTO domains
-		(id, name, certificate_type, sans_json, status, expires_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, item.ID, item.Name, item.CertificateType, string(payload), item.Status,
-		nullableTime(item.ExpiresAt), item.CreatedAt, item.UpdatedAt)
+		(id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
+		item.ACMEEnvironment, item.DNSProvider, item.Status, nullableTime(item.ExpiresAt), item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("保存域名失败：%w", err)
+	}
+	return nil
+}
+
+func (r *SQLDomainRepository) Update(ctx context.Context, item domain.Domain) error {
+	if r == nil || r.db == nil {
+		return errors.New("数据库连接不能为空")
+	}
+	payload, err := json.Marshal(item.SANs)
+	if err != nil {
+		return fmt.Errorf("编码 SAN 域名失败：%w", err)
+	}
+	result, err := r.db.ExecContext(ctx, `UPDATE domains SET
+		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?
+		WHERE id = ?`, item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
+		item.DNSProvider, item.UpdatedAt, item.ID)
+	if err != nil {
+		return fmt.Errorf("更新域名失败：%w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取更新结果失败：%w", err)
+	}
+	if count == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
@@ -41,7 +67,7 @@ func (r *SQLDomainRepository) GetByID(ctx context.Context, id string) (domain.Do
 	if r == nil || r.db == nil {
 		return domain.Domain{}, errors.New("数据库连接不能为空")
 	}
-	row := r.db.QueryRowContext(ctx, `SELECT id, name, certificate_type, sans_json, status, expires_at, created_at, updated_at
+	row := r.db.QueryRowContext(ctx, `SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
 		FROM domains WHERE id = ?`, id)
 	return scanDomain(row)
 }
@@ -50,7 +76,7 @@ func (r *SQLDomainRepository) List(ctx context.Context) ([]domain.Domain, error)
 	if r == nil || r.db == nil {
 		return nil, errors.New("数据库连接不能为空")
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, certificate_type, sans_json, status, expires_at, created_at, updated_at
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
 		FROM domains ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("查询域名失败：%w", err)
@@ -88,6 +114,29 @@ func (r *SQLDomainRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *SQLDomainRepository) UpdateCertificateState(ctx context.Context, id, status string, expiresAt *time.Time) error {
+	if r == nil || r.db == nil {
+		return errors.New("数据库连接不能为空")
+	}
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return errors.New("证书状态不能为空")
+	}
+	result, err := r.db.ExecContext(ctx, `UPDATE domains SET status = ?, expires_at = ?, updated_at = ? WHERE id = ?`,
+		status, nullableTime(expiresAt), time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("更新证书状态失败：%w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取证书状态更新结果失败：%w", err)
+	}
+	if count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -96,8 +145,11 @@ func scanDomain(row scanner) (domain.Domain, error) {
 	var item domain.Domain
 	var certificateType string
 	var sansJSON string
+	var autoRenew bool
+	var acmeEnvironment string
+	var dnsProvider string
 	var expiresAt sql.NullTime
-	if err := row.Scan(&item.ID, &item.Name, &certificateType, &sansJSON, &item.Status, &expiresAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &certificateType, &sansJSON, &autoRenew, &acmeEnvironment, &dnsProvider, &item.Status, &expiresAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Domain{}, sql.ErrNoRows
 		}
@@ -107,6 +159,9 @@ func scanDomain(row scanner) (domain.Domain, error) {
 		return domain.Domain{}, fmt.Errorf("解析 SAN 域名失败：%w", err)
 	}
 	item.CertificateType = domain.CertificateType(certificateType)
+	item.AutoRenew = autoRenew
+	item.ACMEEnvironment = acmeEnvironment
+	item.DNSProvider = dnsProvider
 	if expiresAt.Valid {
 		value := expiresAt.Time
 		item.ExpiresAt = &value
@@ -123,4 +178,14 @@ func nullableTime(value *time.Time) any {
 
 func IsNotFound(err error) bool {
 	return err != nil && errors.Is(err, sql.ErrNoRows)
+}
+
+func IsConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "duplicate") ||
+		strings.Contains(message, "unique constraint") ||
+		strings.Contains(message, "constraint failed")
 }

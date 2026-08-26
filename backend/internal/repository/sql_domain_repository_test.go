@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
@@ -64,6 +65,20 @@ func TestRepositoryCRUD(t *testing.T) {
 	}
 	if loaded.Name != item.Name || len(loaded.SANs) != 2 {
 		t.Fatalf("读取域名内容不正确：%+v", loaded)
+	}
+	item.Name = "www.example.com"
+	item.CertificateType = domain.CertificateSingle
+	item.SANs = []string{"www.example.com"}
+	item.AutoRenew = false
+	item.ACMEEnvironment = domain.ACMEEnvironmentProduction
+	item.DNSProvider = "cloudflare"
+	item.UpdatedAt = item.UpdatedAt.Add(time.Minute)
+	if err := repo.Update(context.Background(), item); err != nil {
+		t.Fatalf("更新域名失败：%v", err)
+	}
+	loaded, err = repo.GetByID(context.Background(), item.ID)
+	if err != nil || loaded.Name != item.Name || loaded.AutoRenew || loaded.ACMEEnvironment != domain.ACMEEnvironmentProduction || loaded.DNSProvider != "cloudflare" {
+		t.Fatalf("更新后的域名内容不正确：%v，%+v", err, loaded)
 	}
 	items, err := repo.List(context.Background())
 	if err != nil || len(items) != 1 {

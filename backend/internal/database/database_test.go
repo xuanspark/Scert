@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -24,7 +25,11 @@ func TestOpenAndMigrateSQLite(t *testing.T) {
 	if err := db.DB.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("读取迁移版本失败：%v", err)
 	}
-	if count != 1 {
+	if count != 2 {
 		t.Fatalf("迁移版本数量错误：%d", count)
+	}
+	var autoRenew bool
+	if err := db.DB.QueryRow("SELECT auto_renew FROM domains LIMIT 1").Scan(&autoRenew); err != nil && err != sql.ErrNoRows {
+		t.Fatalf("检查域名选项字段失败：%v", err)
 	}
 }

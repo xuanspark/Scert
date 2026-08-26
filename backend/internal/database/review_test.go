@@ -52,7 +52,7 @@ func TestSQLiteMigrationIsIdempotentAndCreatesBaseTables(t *testing.T) {
 	if err := db.DB.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&versions); err != nil {
 		t.Fatalf("读取迁移版本失败：%v", err)
 	}
-	if versions != 1 {
+	if versions != 2 {
 		t.Fatalf("重复迁移写入了多条版本记录：%d", versions)
 	}
 	var tables int

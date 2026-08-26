@@ -2,12 +2,38 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 )
+
+type cliFakeFirewallManager struct {
+	result       firewall.Result
+	openErr      error
+	rollbackErr  error
+	openedPort   int
+	rollbackCall bool
+}
+
+func (f *cliFakeFirewallManager) OpenTCP(_ context.Context, port int) (firewall.Result, error) {
+	f.openedPort = port
+	if f.result.Port == 0 {
+		f.result.Port = port
+	}
+	return f.result, f.openErr
+}
+
+func (f *cliFakeFirewallManager) Rollback(_ context.Context, _ firewall.Result) error {
+	f.rollbackCall = true
+	return f.rollbackErr
+}
 
 func TestHelpIsLocalizedAndHasNoDuplicateCommands(t *testing.T) {
 	configPath = ""
@@ -56,5 +82,59 @@ func TestCommandStatusUsesApplicationVersion(t *testing.T) {
 	status := commandStatus(cfg)
 	if status["version"] != buildinfo.Version || status["config_version"] != config.CurrentVersion {
 		t.Fatalf("状态版本字段不正确：%+v", status)
+	}
+}
+
+func TestSaveSetupWithFirewallOpensOnlyMainPort(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Server.Port = 8443
+	cfg.Admin.ResetServicePort = 8091
+	manager := &cliFakeFirewallManager{result: firewall.Result{
+		Backend: "windows", RuleName: "Scert Web TCP 8443", Created: true, Message: "已创建测试规则",
+	}}
+	path := filepath.Join(t.TempDir(), "config", "scert.json")
+	result, err := saveSetupWithFirewall(context.Background(), cfg, path, manager)
+	if err != nil {
+		t.Fatalf("保存初始化配置失败：%v", err)
+	}
+	if manager.openedPort != 8443 || manager.rollbackCall || !result.Created {
+		t.Fatalf("CLI 防火墙事务不正确：port=%d rollback=%t result=%+v", manager.openedPort, manager.rollbackCall, result)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("初始化配置未保存：%v", err)
+	}
+}
+
+func TestSaveSetupWithFirewallRollsBackNewRuleOnSaveFailure(t *testing.T) {
+	baseDir := t.TempDir()
+	blockedParent := filepath.Join(baseDir, "blocked")
+	if err := os.WriteFile(blockedParent, []byte("占位"), 0o600); err != nil {
+		t.Fatalf("创建阻塞路径失败：%v", err)
+	}
+	manager := &cliFakeFirewallManager{result: firewall.Result{
+		Backend: "ufw", RuleName: "Scert Web TCP 8080", Port: 8080, Created: true,
+	}}
+	_, err := saveSetupWithFirewall(context.Background(), config.Default(baseDir), filepath.Join(blockedParent, "scert.json"), manager)
+	if err == nil {
+		t.Fatal("配置保存失败应返回错误")
+	}
+	if !manager.rollbackCall {
+		t.Fatal("配置保存失败时应回滚本次新建的防火墙规则")
+	}
+}
+
+func TestSaveSetupWithFirewallReportsRollbackFailure(t *testing.T) {
+	baseDir := t.TempDir()
+	blockedParent := filepath.Join(baseDir, "blocked")
+	if err := os.WriteFile(blockedParent, []byte("占位"), 0o600); err != nil {
+		t.Fatalf("创建阻塞路径失败：%v", err)
+	}
+	manager := &cliFakeFirewallManager{
+		result:      firewall.Result{Backend: "ufw", RuleName: "Scert Web TCP 8080", Port: 8080, Created: true},
+		rollbackErr: errors.New("rollback denied"),
+	}
+	_, err := saveSetupWithFirewall(context.Background(), config.Default(baseDir), filepath.Join(blockedParent, "scert.json"), manager)
+	if err == nil || !strings.Contains(err.Error(), "手动检查本机防火墙") {
+		t.Fatalf("防火墙回滚失败应返回明确错误：%v", err)
 	}
 }

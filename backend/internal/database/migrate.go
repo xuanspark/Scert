@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed migrations/sqlite/0001_initial.sql migrations/mysql/0001_initial.sql
+//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -29,13 +29,18 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	if err == sql.ErrNoRows {
 		version = 0
 	}
-	if version >= 1 {
-		return nil
+	for nextVersion := version + 1; nextVersion <= latestMigrationVersion; nextVersion++ {
+		if err := applyMigration(ctx, db, driver, nextVersion); err != nil {
+			return err
+		}
 	}
-	path := "migrations/sqlite/0001_initial.sql"
-	if driver == "mysql" {
-		path = "migrations/mysql/0001_initial.sql"
-	}
+	return nil
+}
+
+const latestMigrationVersion = 2
+
+func applyMigration(ctx context.Context, db *sql.DB, driver string, version int) error {
+	path := fmt.Sprintf("migrations/%s/%04d_%s.sql", driver, version, migrationName(version))
 	content, err := migrationFiles.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("读取迁移文件失败：%w", err)
@@ -47,7 +52,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 				return fmt.Errorf("执行数据库迁移失败：%w", err)
 			}
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (1)"); err != nil {
+		if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
 			return fmt.Errorf("记录迁移版本失败：%w", err)
 		}
 		return nil
@@ -62,7 +67,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 			return fmt.Errorf("执行数据库迁移失败：%w", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (1)"); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("记录迁移版本失败：%w", err)
 	}
@@ -70,6 +75,17 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 		return fmt.Errorf("提交数据库迁移失败：%w", err)
 	}
 	return nil
+}
+
+func migrationName(version int) string {
+	switch version {
+	case 1:
+		return "initial"
+	case 2:
+		return "domain_options"
+	default:
+		return "unknown"
+	}
 }
 
 func migrationStatements(content []byte) []string {

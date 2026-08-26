@@ -1,0 +1,26 @@
+[Unit]
+Description=Scert SSL 证书管理核心服务
+Documentation=file:///scert/docs/Scert服务管理说明.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/scert/conf/scert.json
+
+[Service]
+Type=simple
+User=Scert
+Group=Scert
+WorkingDirectory=/scert
+ExecStart=/scert/scert --config /scert/conf/scert.json serve
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/ssl /scert/conf /scert/data /scert/log /scert/backups
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

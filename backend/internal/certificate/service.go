@@ -1,0 +1,231 @@
+package certificate
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/go-acme/lego/v5/challenge"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+)
+
+type DomainStateRepository interface {
+	GetByID(ctx context.Context, id string) (domain.Domain, error)
+	UpdateCertificateState(ctx context.Context, id, status string, expiresAt *time.Time) error
+}
+
+type CredentialReader interface {
+	Get(ctx context.Context, reference string) (map[string]string, error)
+}
+
+type ProviderFactory interface {
+	Create(providerID string, credentials map[string]string) (challenge.Provider, error)
+}
+
+type AccountManager interface {
+	LoadOrCreate(ctx context.Context, environment, email string) (*AccountUser, error)
+	Save(ctx context.Context, environment string, user *AccountUser) error
+}
+
+type IssuerFactory func(user *AccountUser, provider challenge.Provider, environment string) Issuer
+
+type Service struct {
+	config         config.Config
+	repository     DomainStateRepository
+	credentials    CredentialReader
+	providers      ProviderFactory
+	accounts       AccountManager
+	store          FileStore
+	newIssuer      IssuerFactory
+	preferredChain string
+}
+
+type IssueResult struct {
+	DomainID string        `json:"domain_id"`
+	Domains  []string      `json:"domains"`
+	Saved    SavedResource `json:"saved"`
+}
+
+type ImportRequest struct {
+	DomainID     string
+	Certificate  string
+	PrivateKey   string
+	IssuerBundle string
+}
+
+func NewService(cfg config.Config, repository DomainStateRepository, credentials CredentialReader, providers ProviderFactory, accounts AccountManager) *Service {
+	return &Service{
+		config: cfg, repository: repository, credentials: credentials, providers: providers, accounts: accounts,
+		store: FileStore{Root: cfg.Paths.Certificate, BackupRoot: cfg.Paths.Backup},
+		newIssuer: func(user *AccountUser, provider challenge.Provider, environment string) Issuer {
+			return &LegoIssuer{User: user, Provider: provider, Environment: environment}
+		},
+	}
+}
+
+func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, error) {
+	if s == nil || s.repository == nil || s.credentials == nil || s.providers == nil || s.accounts == nil || s.newIssuer == nil {
+		return IssueResult{}, errors.New("证书申请服务未初始化")
+	}
+	domainID = strings.TrimSpace(domainID)
+	if domainID == "" {
+		return IssueResult{}, errors.New("域名 ID 不能为空")
+	}
+	item, err := s.repository.GetByID(ctx, domainID)
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("读取域名配置失败：%w", err)
+	}
+	domains, err := requestedDomains(item)
+	if err != nil {
+		return IssueResult{}, err
+	}
+	providerID := strings.ToLower(strings.TrimSpace(item.DNSProvider))
+	if providerID == "" {
+		providerID = strings.ToLower(strings.TrimSpace(s.config.DNS.Provider))
+	}
+	if providerID == "" || strings.TrimSpace(s.config.DNS.CredentialRef) == "" {
+		return IssueResult{}, errors.New("DNS Provider 或凭据引用未配置")
+	}
+	if configured := strings.ToLower(strings.TrimSpace(s.config.DNS.Provider)); configured != "" && providerID != configured {
+		return IssueResult{}, fmt.Errorf("域名配置的 DNS Provider %s 尚未绑定独立凭据，当前初始化凭据属于 %s", providerID, configured)
+	}
+	if s.config.DNS.VerificationState != "verified" {
+		return IssueResult{}, errors.New("DNS API 尚未通过验证")
+	}
+	if err := s.repository.UpdateCertificateState(ctx, item.ID, "issuing", item.ExpiresAt); err != nil {
+		return IssueResult{}, fmt.Errorf("更新证书申请状态失败：%w", err)
+	}
+	fail := func(cause error) (IssueResult, error) {
+		if stateErr := s.repository.UpdateCertificateState(context.Background(), item.ID, "failed", item.ExpiresAt); stateErr != nil {
+			return IssueResult{}, fmt.Errorf("%v；更新失败状态时发生错误：%w", cause, stateErr)
+		}
+		return IssueResult{}, cause
+	}
+
+	credentials, err := s.credentials.Get(ctx, s.config.DNS.CredentialRef)
+	if err != nil {
+		return fail(fmt.Errorf("读取 DNS 凭据失败：%w", err))
+	}
+	provider, err := s.providers.Create(providerID, credentials)
+	if err != nil {
+		return fail(fmt.Errorf("创建 DNS Provider 失败：%w", err))
+	}
+	email := strings.TrimSpace(s.config.ACME.AccountEmail)
+	if email == "" && len(s.config.Notification.Recipients) > 0 {
+		email = strings.TrimSpace(s.config.Notification.Recipients[0])
+	}
+	user, err := s.accounts.LoadOrCreate(ctx, item.ACMEEnvironment, email)
+	if err != nil {
+		return fail(err)
+	}
+	issuer := s.newIssuer(user, provider, item.ACMEEnvironment)
+	resource, issueErr := issuer.Obtain(ctx, ObtainRequest{
+		Domains: domains, AccountEmail: email, Environment: item.ACMEEnvironment, PreferredChain: s.preferredChain,
+	})
+	if saveErr := s.accounts.Save(ctx, item.ACMEEnvironment, user); saveErr != nil {
+		if issueErr != nil {
+			return fail(fmt.Errorf("%v；保存 ACME 账户状态失败：%w", issueErr, saveErr))
+		}
+		return fail(saveErr)
+	}
+	if issueErr != nil {
+		return fail(issueErr)
+	}
+	resource, err = ValidateResourceForDomains(resource, domains)
+	if err != nil {
+		return fail(err)
+	}
+	saved, err := s.store.Save(ctx, item.Name, resource)
+	if err != nil {
+		return fail(fmt.Errorf("保存证书文件失败：%w", err))
+	}
+	if err := s.repository.UpdateCertificateState(ctx, item.ID, "valid", &saved.NotAfter); err != nil {
+		return IssueResult{}, fmt.Errorf("证书已保存，但更新域名状态失败：%w", err)
+	}
+	return IssueResult{DomainID: item.ID, Domains: domains, Saved: saved}, nil
+}
+
+func (s *Service) Import(ctx context.Context, request ImportRequest) (IssueResult, error) {
+	if s == nil || s.repository == nil {
+		return IssueResult{}, errors.New("证书导入服务未初始化")
+	}
+	item, err := s.repository.GetByID(ctx, strings.TrimSpace(request.DomainID))
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("读取域名配置失败：%w", err)
+	}
+	certificatePath, err := cleanInputPath(request.Certificate, "证书文件")
+	if err != nil {
+		return IssueResult{}, err
+	}
+	privateKeyPath, err := cleanInputPath(request.PrivateKey, "私钥文件")
+	if err != nil {
+		return IssueResult{}, err
+	}
+	certificateData, err := os.ReadFile(certificatePath)
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("读取证书文件失败：%w", err)
+	}
+	privateKeyData, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("读取私钥文件失败：%w", err)
+	}
+	var issuerData []byte
+	if strings.TrimSpace(request.IssuerBundle) != "" {
+		issuerPath, err := cleanInputPath(request.IssuerBundle, "签发者证书文件")
+		if err != nil {
+			return IssueResult{}, err
+		}
+		issuerData, err = os.ReadFile(issuerPath)
+		if err != nil {
+			return IssueResult{}, fmt.Errorf("读取签发者证书文件失败：%w", err)
+		}
+	}
+	domains := requestedDomainsForImport(item)
+	resource, err := ValidateResourceForDomains(Resource{
+		Domains: domains, Certificate: certificateData, IssuerCertificate: issuerData, PrivateKey: privateKeyData,
+	}, domains)
+	if err != nil {
+		return IssueResult{}, err
+	}
+	saved, err := s.store.Save(ctx, item.Name, resource)
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("保存导入证书失败：%w", err)
+	}
+	if err := s.repository.UpdateCertificateState(ctx, item.ID, "valid", &saved.NotAfter); err != nil {
+		return IssueResult{}, fmt.Errorf("证书已保存，但更新域名状态失败：%w", err)
+	}
+	return IssueResult{DomainID: item.ID, Domains: resource.Domains, Saved: saved}, nil
+}
+
+func cleanInputPath(value, label string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("%s不能为空", label)
+	}
+	path := filepath.Clean(value)
+	if path == "." {
+		return "", fmt.Errorf("%s路径无效", label)
+	}
+	return path, nil
+}
+
+func requestedDomainsForImport(item domain.Domain) []string {
+	if item.CertificateType == domain.CertificateSAN && len(item.SANs) > 0 {
+		return item.SANs
+	}
+	return []string{item.Name}
+}
+
+func requestedDomains(item domain.Domain) ([]string, error) {
+	values := item.SANs
+	if item.CertificateType != domain.CertificateSAN {
+		values = []string{item.Name}
+	}
+	return NormalizeDomains(values)
+}

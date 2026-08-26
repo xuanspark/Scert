@@ -30,6 +30,9 @@ func TestNewDomainTypes(t *testing.T) {
 			if result.Name == "" || len(result.SANs) != 1 || result.SANs[0] != result.Name {
 				t.Fatalf("域名规范化结果不正确：%+v", result)
 			}
+			if !result.AutoRenew || result.ACMEEnvironment != ACMEEnvironmentStaging {
+				t.Fatalf("默认域名选项不正确：%+v", result)
+			}
 		})
 	}
 }
@@ -53,5 +56,18 @@ func TestNewDomainSANValidation(t *testing.T) {
 	}
 	if _, err := NewDomain("example.com", CertificateSAN, []string{"bad_domain"}); err == nil {
 		t.Fatal("非法 SAN 域名未被拒绝")
+	}
+}
+
+func TestNewDomainOptionsValidation(t *testing.T) {
+	item, err := NewDomainWithOptions("example.com", CertificateSingle, nil, false, ACMEEnvironmentProduction, "cloudflare")
+	if err != nil {
+		t.Fatalf("带选项创建域名失败：%v", err)
+	}
+	if item.AutoRenew || item.ACMEEnvironment != ACMEEnvironmentProduction || item.DNSProvider != "cloudflare" {
+		t.Fatalf("域名选项保存不正确：%+v", item)
+	}
+	if _, err := NewDomainWithOptions("example.com", CertificateSingle, nil, true, "invalid", ""); err == nil {
+		t.Fatal("非法 ACME 环境未被拒绝")
 	}
 }

@@ -11,21 +11,45 @@ import (
 
 const CurrentVersion = 1
 const ConfigFormat = "json"
+const LinuxInstallationMetadataPath = "/scert/conf/installation.json"
+
+type installationMetadata struct {
+	CertificateRoot string `json:"certificate_root"`
+}
 
 type Config struct {
 	Version      int                `json:"version"`
 	SetupReady   bool               `json:"setup_ready"`
+	Admin        AdminConfig        `json:"admin"`
 	Server       ServerConfig       `json:"server"`
+	Web          WebConfig          `json:"web"`
 	Database     DatabaseConfig     `json:"database"`
 	Paths        PathsConfig        `json:"paths"`
 	ACME         ACMEConfig         `json:"acme"`
+	DNS          DNSConfig          `json:"dns"`
 	Notification NotificationConfig `json:"notification"`
+}
+
+type AdminConfig struct {
+	Username         string `json:"username"`
+	PasswordHash     string `json:"password_hash"`
+	ResetServiceHost string `json:"reset_service_host"`
+	ResetServicePort int    `json:"reset_service_port"`
 }
 
 type ServerConfig struct {
 	Host      string `json:"host"`
 	Port      int    `json:"port"`
 	HTTPSMode string `json:"https_mode"`
+	TLSCert   string `json:"tls_cert"`
+	TLSKey    string `json:"tls_key"`
+}
+
+type WebConfig struct {
+	Enabled   bool   `json:"enabled"`
+	Hostname  string `json:"hostname"`
+	PublicIP  string `json:"public_ip"`
+	InitReady bool   `json:"init_ready"`
 }
 
 type DatabaseConfig struct {
@@ -52,11 +76,20 @@ type ACMEConfig struct {
 	RenewalThresholdDays int    `json:"renewal_threshold_days"`
 }
 
+type DNSConfig struct {
+	Provider          string `json:"provider"`
+	CredentialRef     string `json:"credential_ref"`
+	VerificationState string `json:"verification_state"`
+}
+
 type NotificationConfig struct {
-	HTTPEnabled bool `json:"http_enabled"`
-	SMTPEnabled bool `json:"smtp_enabled"`
-	TimeoutSecs int  `json:"timeout_secs"`
-	RetryCount  int  `json:"retry_count"`
+	HTTPEnabled bool     `json:"http_enabled"`
+	SMTPEnabled bool     `json:"smtp_enabled"`
+	Provider    string   `json:"provider"`
+	Endpoint    string   `json:"endpoint"`
+	Recipients  []string `json:"recipients"`
+	TimeoutSecs int      `json:"timeout_secs"`
+	RetryCount  int      `json:"retry_count"`
 }
 
 func Default(baseDir string) Config {
@@ -64,21 +97,30 @@ func Default(baseDir string) Config {
 	return Config{
 		Version:    CurrentVersion,
 		SetupReady: false,
-		Server:     ServerConfig{Host: "127.0.0.1", Port: 8080, HTTPSMode: "direct"},
+		Admin:      AdminConfig{ResetServiceHost: "127.0.0.1", ResetServicePort: 8091},
+		Server:     ServerConfig{Host: "0.0.0.0", Port: 8080, HTTPSMode: "direct"},
+		Web:        WebConfig{Enabled: true},
 		Database: DatabaseConfig{
 			Driver: "sqlite", DSN: filepath.Join(paths.Data, "scert.db"),
 			MaxOpenConns: 4, MaxIdleConns: 2, ConnMaxLifetimeMins: 30,
 		},
 		Paths:        paths,
 		ACME:         ACMEConfig{CA: "letsencrypt", Environment: "staging", RenewalThresholdDays: 6},
+		DNS:          DNSConfig{VerificationState: "not_configured"},
 		Notification: NotificationConfig{TimeoutSecs: 10, RetryCount: 3},
 	}
 }
 
 func DefaultPaths(baseDir string) PathsConfig {
 	if runtime.GOOS == "linux" {
+		certificateRoot := "/ssl"
+		if strings.TrimSpace(baseDir) == "" {
+			if installedRoot, err := readInstalledCertificateRoot(LinuxInstallationMetadataPath); err == nil {
+				certificateRoot = installedRoot
+			}
+		}
 		return PathsConfig{
-			Install: "/scert", Certificate: "/ssl", Config: "/scert/conf",
+			Install: "/scert", Certificate: certificateRoot, Config: "/scert/conf",
 			Data: "/scert/data", Log: "/scert/log", Backup: "/scert/backups",
 		}
 	}
@@ -93,6 +135,22 @@ func DefaultPaths(baseDir string) PathsConfig {
 	}
 }
 
+func readInstalledCertificateRoot(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var metadata installationMetadata
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return "", fmt.Errorf("解析安装路径记录失败：%w", err)
+	}
+	root := filepath.Clean(strings.TrimSpace(metadata.CertificateRoot))
+	if !filepath.IsAbs(root) || root == string(filepath.Separator) {
+		return "", fmt.Errorf("安装路径记录中的证书目录无效")
+	}
+	return root, nil
+}
+
 func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -102,12 +160,36 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("解析配置文件失败：%w", err)
 	}
+	cfg.Normalize()
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
 }
 
+func (c *Config) Normalize() {
+	if c == nil {
+		return
+	}
+	if c.Admin.ResetServiceHost == "" {
+		c.Admin.ResetServiceHost = "127.0.0.1"
+	}
+	if c.Admin.ResetServicePort == 0 {
+		c.Admin.ResetServicePort = 8091
+	}
+	if c.Server.Host == "" {
+		c.Server.Host = "0.0.0.0"
+	}
+	if c.Server.HTTPSMode == "" {
+		c.Server.HTTPSMode = "direct"
+	}
+	if c.Web.Hostname == "" && c.Web.PublicIP == "" && !c.SetupReady {
+		c.Web.Enabled = true
+	}
+	if c.DNS.VerificationState == "" {
+		c.DNS.VerificationState = "not_configured"
+	}
+}
 func (c Config) Save(path string) error {
 	if err := c.Validate(); err != nil {
 		return err
@@ -144,6 +226,18 @@ func (c Config) Validate() error {
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("服务监听端口无效：%d", c.Server.Port)
 	}
+	if strings.TrimSpace(c.Admin.ResetServiceHost) == "" {
+		return fmt.Errorf("密码重置服务监听地址不能为空")
+	}
+	if c.Admin.ResetServiceHost != "127.0.0.1" && c.Admin.ResetServiceHost != "::1" {
+		return fmt.Errorf("密码重置服务仅允许使用 127.0.0.1 或 ::1")
+	}
+	if c.Admin.ResetServicePort < 1 || c.Admin.ResetServicePort > 65535 {
+		return fmt.Errorf("密码重置服务监听端口无效：%d", c.Admin.ResetServicePort)
+	}
+	if c.Server.Port == c.Admin.ResetServicePort && c.Server.Host == c.Admin.ResetServiceHost {
+		return fmt.Errorf("主服务和密码重置服务不能使用相同监听地址和端口")
+	}
 	if c.Server.HTTPSMode != "direct" && c.Server.HTTPSMode != "proxy" {
 		return fmt.Errorf("HTTPS 模式无效：%s", c.Server.HTTPSMode)
 	}
@@ -175,6 +269,20 @@ func (c Config) Validate() error {
 	}
 	if c.ACME.RenewalThresholdDays < 1 {
 		return fmt.Errorf("续期阈值必须大于 0")
+	}
+	if c.DNS.VerificationState != "not_configured" && c.DNS.VerificationState != "pending" && c.DNS.VerificationState != "verified" && c.DNS.VerificationState != "failed" {
+		return fmt.Errorf("DNS 验证状态无效：%s", c.DNS.VerificationState)
+	}
+	if c.SetupReady {
+		if strings.TrimSpace(c.Admin.Username) == "" || strings.TrimSpace(c.Admin.PasswordHash) == "" {
+			return fmt.Errorf("初始化完成时必须配置超级管理员账号")
+		}
+		if c.DNS.VerificationState != "verified" {
+			return fmt.Errorf("初始化完成时必须先通过 DNS API 验证")
+		}
+		if strings.TrimSpace(c.Web.Hostname) == "" && strings.TrimSpace(c.Web.PublicIP) == "" {
+			return fmt.Errorf("初始化完成时必须配置 Web 域名或公网 IP")
+		}
 	}
 	if c.Notification.TimeoutSecs < 1 || c.Notification.RetryCount < 0 {
 		return fmt.Errorf("通知配置无效")

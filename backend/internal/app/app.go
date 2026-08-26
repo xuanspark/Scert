@@ -4,24 +4,38 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
+	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/httpapi"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
+	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
+	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
 type App struct {
-	Config     config.Config
-	Logger     *logging.Logger
-	Database   *database.Database
-	Repository *repository.SQLDomainRepository
-	HTTP       *httpapi.Server
+	Config          config.Config
+	Logger          *logging.Logger
+	Database        *database.Database
+	Repository      *repository.SQLDomainRepository
+	SecretStore     *secretstore.Store
+	DNSVerification *setup.DNSVerificationManager
+	Certificates    *certificate.Service
+	Renewal         *certificate.RenewalScheduler
+	HTTP            *httpapi.Server
 }
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
+	return NewWithConfigPath(ctx, cfg, filepath.Join(cfg.Paths.Config, "scert.json"))
+}
+
+func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string) (*App, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -44,9 +58,28 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = logger.Close()
 		return nil, err
 	}
+	secretStore, err := secretstore.Open(cfg.Paths.Config)
+	if err != nil {
+		_ = db.Close()
+		_ = logger.Close()
+		return nil, fmt.Errorf("初始化敏感信息存储失败：%w", err)
+	}
+	dnsTester := dnsprovider.NewTester(dnsprovider.NewLegoFactory())
+	dnsVerification := setup.NewDNSVerificationManager(dnsTester, secretStore)
 	repo := repository.NewSQLDomainRepository(db.DB)
-	server := httpapi.New(httpapi.Dependencies{Config: cfg, Logger: logger, Repository: repo})
-	return &App{Config: cfg, Logger: logger, Database: db, Repository: repo, HTTP: server}, nil
+	accounts := certificate.NewAccountRepository(secretStore)
+	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
+	renewal := certificate.NewRenewalScheduler(repo, certificates, cfg.ACME.RenewalThresholdDays)
+	server := httpapi.New(httpapi.Dependencies{
+		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo,
+		SetupDNS: dnsVerification, Firewall: firewall.NewManager(),
+	})
+	return &App{
+		Config: cfg, Logger: logger, Database: db, Repository: repo,
+		SecretStore: secretStore, DNSVerification: dnsVerification, HTTP: server,
+		Certificates: certificates,
+		Renewal:      renewal,
+	}, nil
 }
 
 func (a *App) Close() error {

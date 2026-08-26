@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -16,6 +17,39 @@ func TestDefaultPaths(t *testing.T) {
 	}
 	if filepath.Base(paths.Install) != "Scert" || filepath.Base(paths.Certificate) != "ssl" {
 		t.Fatalf("Windows 默认路径不正确：%+v", paths)
+	}
+}
+
+func TestReadInstalledCertificateRoot(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("安装路径记录仅用于 Linux")
+	}
+	path := filepath.Join(t.TempDir(), "installation.json")
+	if err := os.WriteFile(path, []byte(`{
+  "certificate_root": "/data/scert/ssl"
+}
+`), 0o600); err != nil {
+		t.Fatalf("写入安装路径记录失败：%v", err)
+	}
+	root, err := readInstalledCertificateRoot(path)
+	if err != nil {
+		t.Fatalf("读取安装路径记录失败：%v", err)
+	}
+	if root != filepath.Clean("/data/scert/ssl") {
+		t.Fatalf("证书目录读取结果不正确：%s", root)
+	}
+}
+
+func TestReadInstalledCertificateRootRejectsUnsafeValue(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("安装路径记录仅用于 Linux")
+	}
+	path := filepath.Join(t.TempDir(), "installation.json")
+	if err := os.WriteFile(path, []byte(`{"certificate_root":"/"}`), 0o600); err != nil {
+		t.Fatalf("写入安装路径记录失败：%v", err)
+	}
+	if _, err := readInstalledCertificateRoot(path); err == nil {
+		t.Fatal("根目录不得作为安装记录中的证书目录")
 	}
 }
 
