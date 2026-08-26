@@ -1,0 +1,39 @@
+CREATE TABLE IF NOT EXISTS settings (
+    `key` VARCHAR(128) NOT NULL PRIMARY KEY,
+    `value` TEXT NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS domains (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    name VARCHAR(253) NOT NULL UNIQUE,
+    certificate_type VARCHAR(32) NOT NULL,
+    sans_json TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    expires_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    domain_id VARCHAR(36) NOT NULL,
+    task_type VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    message TEXT NOT NULL,
+    started_at DATETIME NULL,
+    finished_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_tasks_domain_id (domain_id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    action VARCHAR(64) NOT NULL,
+    resource_type VARCHAR(64) NOT NULL,
+    resource_id VARCHAR(36) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    message TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_audit_logs_created_at (created_at)
+);
