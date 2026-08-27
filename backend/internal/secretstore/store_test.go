@@ -52,6 +52,40 @@ func TestStoreSupportsMultipleUpdates(t *testing.T) {
 	}
 }
 
+func TestStoreListsMetadataAndDeletesReferenceWithoutLeakingValues(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("打开敏感信息存储失败：%v", err)
+	}
+	if err := store.Put(t.Context(), "secret://ssh/key-b", map[string]string{"private_key": "secret-b"}); err != nil {
+		t.Fatalf("保存第二个 SSH 私钥失败：%v", err)
+	}
+	if err := store.Put(t.Context(), "secret://dns/provider", map[string]string{"token": "dns-secret"}); err != nil {
+		t.Fatalf("保存 DNS 凭据失败：%v", err)
+	}
+	if err := store.Put(t.Context(), "secret://ssh/key-a", map[string]string{"private_key": "secret-a"}); err != nil {
+		t.Fatalf("保存第一个 SSH 私钥失败：%v", err)
+	}
+
+	items, err := store.List(t.Context(), "secret://ssh/")
+	if err != nil {
+		t.Fatalf("列出 SSH 私钥引用失败：%v", err)
+	}
+	if len(items) != 2 || items[0].Reference != "secret://ssh/key-a" || items[1].Reference != "secret://ssh/key-b" {
+		t.Fatalf("SSH 私钥引用列表不正确：%+v", items)
+	}
+	if err := store.Delete(t.Context(), items[0].Reference); err != nil {
+		t.Fatalf("删除 SSH 私钥引用失败：%v", err)
+	}
+	exists, err := store.Has(t.Context(), items[0].Reference)
+	if err != nil || exists {
+		t.Fatalf("SSH 私钥引用删除后仍然存在：exists=%t err=%v", exists, err)
+	}
+	if err := store.Delete(t.Context(), items[0].Reference); err == nil {
+		t.Fatal("重复删除不存在的敏感信息引用应返回错误")
+	}
+}
+
 func TestWriteAtomicFileReplacesExistingFile(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "secrets.json")

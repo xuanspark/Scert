@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
+	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
@@ -164,5 +166,22 @@ func TestUpdateDomainRejectsInvalidEnvironment(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("非法 ACME 环境响应错误：%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestIssueDomainUsesCertificateWorkflow(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	calledID := ""
+	server := New(Dependencies{
+		Config: cfg, Repository: &stubDomainRepository{},
+		IssueCertificate: func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+			calledID = id
+			return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
+		},
+	})
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusOK || calledID != "domain-1" || !strings.Contains(response.Body.String(), `"status":"success"`) {
+		t.Fatalf("证书申请接口响应错误：%d %s", response.Code, response.Body.String())
 	}
 }

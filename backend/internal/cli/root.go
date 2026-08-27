@@ -68,7 +68,7 @@ func newRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&baseDir, "base-dir", "", "Windows 默认安装根目录")
 	root.AddCommand(
 		&cobra.Command{Use: "version", Short: "显示版本信息", Run: func(cmd *cobra.Command, args []string) { cmd.Printf("Scert %s\n", version) }},
-		newInitCommand(), newStatusCommand(), newServeCommand(), newDomainCommand(),
+		newInitCommand(), newStatusCommand(), newServeCommand(), newDomainCommand(), newServerCommand(), newSSHKeyCommand(),
 	)
 	localizeHelpFlags(root)
 	return root
@@ -111,11 +111,11 @@ func newInitCommand() *cobra.Command {
 
 func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command {
 	var (
-		adminUsername, adminPassword, emailProvider, emailEndpoint string
-		recipients, dnsProvider, dnsCredentialRef, certificateRoot string
-		webHostname, webPublicIP, httpsMode                        string
-		serverPort, resetServicePort                               int
-		dnsVerified, webEnabled                                    bool
+		adminUsername, adminEmail, adminPassword, emailProvider, emailEndpoint string
+		recipients, dnsProvider, dnsCredentialRef, certificateRoot             string
+		webHostname, webPublicIP, httpsMode                                    string
+		serverPort                                                             int
+		dnsVerified, webEnabled                                                bool
 	)
 	command := &cobra.Command{Use: "init", Short: "交互式初始化配置", RunE: func(cmd *cobra.Command, args []string) error {
 		path := resolveConfigPath()
@@ -126,8 +126,8 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 		}
 		cfg := config.Default(baseDir)
 		input := setup.Input{
-			AdminUsername: adminUsername, AdminPassword: adminPassword, ServerPort: serverPort,
-			ResetServicePort: resetServicePort, EmailProvider: emailProvider, EmailEndpoint: emailEndpoint,
+			AdminUsername: adminUsername, AdminEmail: adminEmail, AdminPassword: adminPassword, ServerPort: serverPort,
+			EmailProvider: emailProvider, EmailEndpoint: emailEndpoint,
 			EmailRecipients: splitValues(recipients), DNSProvider: dnsProvider, DNSCredentialRef: dnsCredentialRef,
 			DNSVerified: dnsVerified, CertificateRoot: certificateRoot, WebHostname: webHostname,
 			WebPublicIP: webPublicIP, WebEnabled: webEnabled, HTTPSMode: httpsMode,
@@ -147,13 +147,13 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 		fmt.Fprintf(cmd.OutOrStdout(), "初始化配置已保存：%s\n", path)
 		fmt.Fprintf(cmd.OutOrStdout(), "DNS API 已标记为验证通过；真实 provider 连通性测试和 Web 证书申请将在后续任务接入。\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "本机防火墙：%s\n", firewallResult.Message)
-		fmt.Fprintf(cmd.OutOrStdout(), "请确认云安全组已放行主服务端口 %d；密码重置服务仅监听本机 %s:%d，不创建对外入站规则。\n", cfg.Server.Port, cfg.Admin.ResetServiceHost, cfg.Admin.ResetServicePort)
+		fmt.Fprintf(cmd.OutOrStdout(), "请确认云安全组已放行主服务端口 %d。Scert-admin 默认关闭；需要重置密码时启动后访问：%s\n", cfg.Server.Port, cfg.ResetURL())
 		return nil
 	}}
 	command.Flags().StringVar(&adminUsername, "admin-username", "", "超级管理员用户名")
+	command.Flags().StringVar(&adminEmail, "admin-email", "", "超级管理员绑定邮箱")
 	command.Flags().StringVar(&adminPassword, "admin-password", "", "超级管理员密码（仅建议临时使用参数，优先交互输入）")
 	command.Flags().IntVar(&serverPort, "server-port", 8080, "Scert 主服务端口")
-	command.Flags().IntVar(&resetServicePort, "reset-service-port", 8091, "Scert-admin 密码重置端口")
 	command.Flags().StringVar(&emailProvider, "email-provider", "", "第三方邮箱服务标识")
 	command.Flags().StringVar(&emailEndpoint, "email-endpoint", "", "第三方邮箱 API 地址")
 	command.Flags().StringVar(&recipients, "recipients", "", "通知收件人，多个地址用逗号分隔")
@@ -161,9 +161,9 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 	command.Flags().StringVar(&dnsCredentialRef, "dns-credential-ref", "", "DNS 凭据引用，不保存明文密钥")
 	command.Flags().BoolVar(&dnsVerified, "dns-verified", false, "DNS API 是否已通过外部验证测试")
 	command.Flags().StringVar(&certificateRoot, "certificate-root", "", "证书部署根目录，默认使用系统目录")
-	command.Flags().StringVar(&webHostname, "web-hostname", "", "Web 管理页面域名")
+	command.Flags().StringVar(&webHostname, "web-hostname", "", "管理页面域名")
 	command.Flags().StringVar(&webPublicIP, "web-public-ip", "", "没有域名时使用的公网 IP")
-	command.Flags().BoolVar(&webEnabled, "web-enabled", true, "是否开启 Web 管理页面")
+	command.Flags().BoolVar(&webEnabled, "web-enabled", true, "是否开启管理页面")
 	command.Flags().StringVar(&httpsMode, "https-mode", "direct", "HTTPS 模式：direct、proxy")
 	return command
 }
@@ -204,6 +204,10 @@ func readInteractiveInit(input io.Reader, output io.Writer, value *setup.Input, 
 	if err != nil {
 		return err
 	}
+	value.AdminEmail, err = ask(reader, output, "超级管理员绑定邮箱 *", "")
+	if err != nil {
+		return err
+	}
 	value.AdminPassword, err = ask(reader, output, "超级管理员密码 *", "")
 	if err != nil {
 		return err
@@ -213,11 +217,6 @@ func readInteractiveInit(input io.Reader, output io.Writer, value *setup.Input, 
 		return err
 	}
 	value.ServerPort = port
-	port, err = askInt(reader, output, "Scert-admin 密码重置端口 *", cfg.Admin.ResetServicePort)
-	if err != nil {
-		return err
-	}
-	value.ResetServicePort = port
 	value.EmailProvider, err = ask(reader, output, "第三方邮箱服务标识", "")
 	if err != nil {
 		return err
@@ -247,17 +246,17 @@ func readInteractiveInit(input io.Reader, output io.Writer, value *setup.Input, 
 	if err != nil {
 		return err
 	}
-	value.WebHostname, err = ask(reader, output, "Web 管理页面域名（无域名可留空）", "")
+	value.WebHostname, err = ask(reader, output, "管理页面域名（无域名可留空）", "")
 	if err != nil {
 		return err
 	}
 	if value.WebHostname == "" {
-		value.WebPublicIP, err = ask(reader, output, "Web 管理页面公网 IP", "")
+		value.WebPublicIP, err = ask(reader, output, "管理页面公网 IP", "")
 		if err != nil {
 			return err
 		}
 	}
-	value.WebEnabled, err = askYesNo(reader, output, "是否开启 Web 管理页面？", true)
+	value.WebEnabled, err = askYesNo(reader, output, "是否开启管理页面？", true)
 	return err
 }
 
@@ -327,11 +326,11 @@ func newStatusCommand() *cobra.Command {
 }
 
 func commandStatus(cfg config.Config) map[string]any {
-	return map[string]any{"service": "scert", "version": buildinfo.Version, "config_version": cfg.Version, "setup_ready": cfg.SetupReady, "https_mode": cfg.Server.HTTPSMode, "database_driver": cfg.Database.Driver, "server_port": cfg.Server.Port, "reset_service_port": cfg.Admin.ResetServicePort, "web_enabled": cfg.Web.Enabled, "web_hostname": cfg.Web.Hostname, "web_public_ip": cfg.Web.PublicIP, "dns_verification_state": cfg.DNS.VerificationState}
+	return map[string]any{"service": "scert", "version": buildinfo.Version, "config_version": cfg.Version, "setup_ready": cfg.SetupReady, "https_mode": cfg.Server.HTTPSMode, "database_driver": cfg.Database.Driver, "server_port": cfg.Server.Port, "reset_url": cfg.ResetURL(), "web_enabled": cfg.Web.Enabled, "web_hostname": cfg.Web.Hostname, "web_public_ip": cfg.Web.PublicIP, "dns_verification_state": cfg.DNS.VerificationState}
 }
 
 func newServeCommand() *cobra.Command {
-	return &cobra.Command{Use: "serve", Short: "启动 Web 服务", RunE: func(cmd *cobra.Command, args []string) error {
+	return &cobra.Command{Use: "serve", Short: "启动网站服务", RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
@@ -341,7 +340,7 @@ func newServeCommand() *cobra.Command {
 			fmt.Fprintln(cmd.OutOrStdout(), "系统尚未初始化，临时服务仅监听本机；请完成初始化后重启服务。")
 		}
 		if cfg.SetupReady && !cfg.Web.Enabled {
-			return fmt.Errorf("Web 管理页面已关闭")
+			return fmt.Errorf("管理页面已关闭")
 		}
 		service, err := app.NewWithConfigPath(cmd.Context(), cfg, resolveConfigPath())
 		if err != nil {
@@ -369,7 +368,7 @@ func newServeCommand() *cobra.Command {
 
 func newDomainCommand() *cobra.Command {
 	command := &cobra.Command{Use: "domain", Short: "管理托管域名"}
-	command.AddCommand(newDomainListCommand(), newDomainAddCommand(), newDomainEditCommand(), newDomainDeleteCommand(), newDomainIssueCommand(), newDomainImportCommand())
+	command.AddCommand(newDomainListCommand(), newDomainAddCommand(), newDomainEditCommand(), newDomainDeleteCommand(), newDomainIssueCommand(), newDomainImportCommand(), newDomainServersCommand())
 	return command
 }
 
@@ -385,10 +384,10 @@ func newDomainIssueCommand() *cobra.Command {
 			return err
 		}
 		defer service.Close()
-		if service.Certificates == nil {
+		if service.Workflow == nil {
 			return fmt.Errorf("证书申请服务未初始化")
 		}
-		result, err := service.Certificates.Issue(cmd.Context(), id)
+		result, err := service.Workflow.IssueWithReport(cmd.Context(), id)
 		if err != nil {
 			return err
 		}
@@ -411,10 +410,10 @@ func newDomainImportCommand() *cobra.Command {
 			return err
 		}
 		defer service.Close()
-		if service.Certificates == nil {
+		if service.Workflow == nil {
 			return fmt.Errorf("证书导入服务未初始化")
 		}
-		result, err := service.Certificates.Import(cmd.Context(), certificate.ImportRequest{
+		result, err := service.Workflow.Import(cmd.Context(), certificate.ImportRequest{
 			DomainID: id, Certificate: certificatePath, PrivateKey: privateKeyPath, IssuerBundle: issuerPath,
 		})
 		if err != nil {

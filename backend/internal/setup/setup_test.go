@@ -9,7 +9,7 @@ import (
 func TestApplyRequiresVerifiedDNS(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	err := Apply(&cfg, Input{
-		AdminUsername: "admin", AdminPassword: "password123", ServerPort: 8080, ResetServicePort: 8091,
+		AdminUsername: "admin", AdminEmail: "admin@example.com", AdminPassword: "password123", ServerPort: 8080,
 		DNSProvider: "cloudflare", DNSCredentialRef: "credential-1", CertificateRoot: cfg.Paths.Certificate,
 		WebHostname: "panel.example.com", WebEnabled: true,
 	})
@@ -21,7 +21,7 @@ func TestApplyRequiresVerifiedDNS(t *testing.T) {
 func TestApplyBuildsReadyConfig(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	err := Apply(&cfg, Input{
-		AdminUsername: "admin", AdminPassword: "password123", ServerPort: 8080, ResetServicePort: 8091,
+		AdminUsername: "admin", AdminEmail: "admin@example.com", AdminPassword: "password123", ServerPort: 8080,
 		EmailProvider: "mail-api", EmailEndpoint: "https://mail.example.test/send", EmailRecipients: []string{"a@example.test,b@example.test", "a@example.test"},
 		DNSProvider: "cloudflare", DNSCredentialRef: "credential-1", DNSVerified: true, CertificateRoot: cfg.Paths.Certificate,
 		WebHostname: "panel.example.com", WebEnabled: true,
@@ -38,12 +38,15 @@ func TestApplyBuildsReadyConfig(t *testing.T) {
 	if cfg.Admin.PasswordHash == "password123" || cfg.Admin.PasswordHash == "" {
 		t.Fatal("管理员密码不应明文保存")
 	}
+	if cfg.ResetURL() != "https://panel.example.com/reset" {
+		t.Fatalf("密码重置地址生成错误：%s", cfg.ResetURL())
+	}
 }
 
 func TestApplyRejectsWebIPAsHostnamePair(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	err := Apply(&cfg, Input{
-		AdminUsername: "admin", AdminPassword: "password123", ServerPort: 8080, ResetServicePort: 8091,
+		AdminUsername: "admin", AdminEmail: "admin@example.com", AdminPassword: "password123", ServerPort: 8080,
 		DNSProvider: "cloudflare", DNSCredentialRef: "credential-1", DNSVerified: true,
 		WebHostname: "panel.example.com", WebPublicIP: "203.0.113.10", WebEnabled: true,
 	})

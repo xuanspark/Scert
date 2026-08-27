@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/admin"
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/httpapi"
@@ -17,6 +19,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
+	"git.pcux.cn/xuans/Scert/backend/internal/sshkey"
 )
 
 type App struct {
@@ -24,9 +27,13 @@ type App struct {
 	Logger          *logging.Logger
 	Database        *database.Database
 	Repository      *repository.SQLDomainRepository
+	Servers         *repository.SQLServerRepository
+	Deployment      *deployment.Service
 	SecretStore     *secretstore.Store
+	SSHKeys         *sshkey.Service
 	DNSVerification *setup.DNSVerificationManager
 	Certificates    *certificate.Service
+	Workflow        *CertificateWorkflow
 	Renewal         *certificate.RenewalScheduler
 	HTTP            *httpapi.Server
 }
@@ -67,17 +74,27 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	dnsTester := dnsprovider.NewTester(dnsprovider.NewLegoFactory())
 	dnsVerification := setup.NewDNSVerificationManager(dnsTester, secretStore)
 	repo := repository.NewSQLDomainRepository(db.DB)
+	serverRepo := repository.NewSQLServerRepository(db.DB)
+	auditRepo := repository.NewSQLAuditRepository(db.DB)
+	sshKeys := sshkey.NewService(secretStore)
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
-	renewal := certificate.NewRenewalScheduler(repo, certificates, cfg.ACME.RenewalThresholdDays)
+	deploymentService := deployment.NewService(deployment.SSHFactory{Secrets: secretStore})
+	workflow := &CertificateWorkflow{Certificates: certificates, Domains: repo, Servers: serverRepo, Deployment: deploymentService}
+	renewal := certificate.NewRenewalScheduler(repo, workflow, cfg.ACME.RenewalThresholdDays)
 	server := httpapi.New(httpapi.Dependencies{
-		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo,
+		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, SSHKeys: sshKeys,
 		SetupDNS: dnsVerification, Firewall: firewall.NewManager(),
+		IssueCertificate: workflow.IssueForHTTP,
+		ResetStatePath:   admin.StatePath(cfg.Paths.Data),
+		Audit:            auditRepo,
 	})
 	return &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,
-		SecretStore: secretStore, DNSVerification: dnsVerification, HTTP: server,
+		Servers: serverRepo, Deployment: deploymentService,
+		SecretStore: secretStore, SSHKeys: sshKeys, DNSVerification: dnsVerification, HTTP: server,
 		Certificates: certificates,
+		Workflow:     workflow,
 		Renewal:      renewal,
 	}, nil
 }

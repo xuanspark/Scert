@@ -10,6 +10,20 @@ export default defineConfig({
     proxy: {
       '/api': process.env.SCERT_API_TARGET || 'http://127.0.0.1:8090',
       '/healthz': process.env.SCERT_API_TARGET || 'http://127.0.0.1:8090',
+      '/reset': {
+        target: process.env.SCERT_API_TARGET || 'http://127.0.0.1:8090',
+        changeOrigin: false,
+        bypass(request) {
+          if (
+            request.method === 'GET' &&
+            request.headers.accept &&
+            request.headers.accept.includes('text/html')
+          ) {
+            return '/index.html';
+          }
+          return undefined;
+        },
+      },
     },
   },
 })

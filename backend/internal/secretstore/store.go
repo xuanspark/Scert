@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,6 +37,12 @@ type Store struct {
 	mu       sync.Mutex
 	key      []byte
 	filePath string
+}
+
+// Metadata 仅包含敏感信息引用及更新时间，不包含密文或明文内容。
+type Metadata struct {
+	Reference string    `json:"reference"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func Open(configDir string) (*Store, error) {
@@ -156,6 +164,55 @@ func (s *Store) Has(ctx context.Context, reference string) (bool, error) {
 	}
 	_, ok := data.Items[reference]
 	return ok, nil
+}
+
+// List 按引用前缀返回敏感信息元数据，不解密或返回敏感内容。
+func (s *Store) List(ctx context.Context, prefix string) ([]Metadata, error) {
+	if s == nil {
+		return nil, errors.New("敏感信息存储未初始化")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := s.readLocked()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Metadata, 0)
+	for reference, item := range data.Items {
+		if prefix == "" || strings.HasPrefix(reference, prefix) {
+			result = append(result, Metadata{Reference: reference, UpdatedAt: item.UpdatedAt})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Reference < result[j].Reference })
+	return result, nil
+}
+
+// Delete 原子删除指定引用；引用不存在时返回明确错误。
+func (s *Store) Delete(ctx context.Context, reference string) error {
+	if s == nil {
+		return errors.New("敏感信息存储未初始化")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return errors.New("敏感信息引用不能为空")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := s.readLocked()
+	if err != nil {
+		return err
+	}
+	if _, ok := data.Items[reference]; !ok {
+		return fmt.Errorf("敏感信息引用不存在：%s", reference)
+	}
+	delete(data.Items, reference)
+	return s.writeLocked(data)
 }
 
 func (s *Store) readLocked() (fileData, error) {

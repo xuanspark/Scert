@@ -1,0 +1,33 @@
+.login-card {
+  max-width: 470px;
+}
+
+.login-card .access-card-header {
+  margin-bottom: 30px;
+}
+
+
+.login-next-step {
+  display: grid;
+  gap: 16px;
+}
+
+.login-account {
+  margin: 0;
+  color: #4d76b7;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.login-stage-title {
+  margin: 0;
+  color: #172033;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.login-success {
+  margin: 0;
+  color: #1e8b63;
+  font-size: 14px;
+}

@@ -9,6 +9,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
@@ -84,8 +85,20 @@ func TestRepositoryCRUD(t *testing.T) {
 	if err != nil || len(items) != 1 {
 		t.Fatalf("域名列表不正确：%v，%+v", err, items)
 	}
+	serverRepo := NewSQLServerRepository(db.DB)
+	server := deployment.Server{ID: "server-1", Name: "服务器", Address: "192.0.2.30", Username: "deploy", PrivateKeyRef: "secret://ssh/1", HostKeyFingerprint: "SHA256:test", CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem", CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx}
+	if err := serverRepo.CreateServer(context.Background(), server); err != nil {
+		t.Fatalf("创建关联服务器失败：%v", err)
+	}
+	if err := serverRepo.ReplaceDomainServers(context.Background(), item.ID, []string{server.ID}); err != nil {
+		t.Fatalf("创建域名服务器关联失败：%v", err)
+	}
 	if err := repo.Delete(context.Background(), item.ID); err != nil {
 		t.Fatalf("删除域名失败：%v", err)
+	}
+	associated, err := serverRepo.ListServersByDomainID(context.Background(), item.ID)
+	if err != nil || len(associated) != 0 {
+		t.Fatalf("删除域名后不应保留服务器关联：%v %+v", err, associated)
 	}
 	if err := repo.Delete(context.Background(), item.ID); !IsNotFound(err) {
 		t.Fatalf("重复删除未返回未找到：%v", err)

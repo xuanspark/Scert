@@ -26,9 +26,9 @@ type setupDNSVerifier interface {
 
 type setupRequest struct {
 	AdminUsername        string   `json:"admin_username"`
+	AdminEmail           string   `json:"admin_email"`
 	AdminPassword        string   `json:"admin_password"`
 	ServerPort           int      `json:"server_port"`
-	ResetServicePort     int      `json:"reset_service_port"`
 	EmailProvider        string   `json:"email_provider"`
 	EmailEndpoint        string   `json:"email_endpoint"`
 	Recipients           []string `json:"recipients"`
@@ -78,7 +78,7 @@ func (s *Server) setupStatus(c *gin.Context) {
 		"phase":                  phase,
 		"blockers":               blockers,
 		"server_port":            cfg.Server.Port,
-		"reset_service_port":     cfg.Admin.ResetServicePort,
+		"reset_url":              cfg.ResetURL(),
 		"https_mode":             cfg.Server.HTTPSMode,
 		"web_enabled":            cfg.Web.Enabled,
 		"web_hostname":           cfg.Web.Hostname,
@@ -172,9 +172,9 @@ func (s *Server) applySetup(c *gin.Context) {
 	updated := s.config
 	err := setup.Apply(&updated, setup.Input{
 		AdminUsername:    request.AdminUsername,
+		AdminEmail:       request.AdminEmail,
 		AdminPassword:    request.AdminPassword,
 		ServerPort:       request.ServerPort,
-		ResetServicePort: request.ResetServicePort,
 		EmailProvider:    request.EmailProvider,
 		EmailEndpoint:    request.EmailEndpoint,
 		EmailRecipients:  request.Recipients,
@@ -231,15 +231,15 @@ func (s *Server) applySetup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"initialized": true,
 		"message": fmt.Sprintf(
-			"初始化配置已保存，DNS API 已完成在线验证且凭据已加密保存。%s。请确认云安全组已放行主服务端口 %d；Scert-admin 仅允许本机访问。证书申请和 HTTPS 切换将在后续任务中完成。",
-			firewallResult.Message, updated.Server.Port,
+			"初始化配置已保存，DNS API 已完成在线验证且凭据已加密保存。%s。请确认云安全组已放行主服务端口 %d；Scert-admin 默认关闭，启动后通过 %s 使用临时重置入口。证书申请和 HTTPS 切换将在后续任务中完成。",
+			firewallResult.Message, updated.Server.Port, updated.ResetURL(),
 		),
 		"status": gin.H{
-			"server_port":        updated.Server.Port,
-			"reset_service_port": updated.Admin.ResetServicePort,
-			"web_enabled":        updated.Web.Enabled,
-			"https_mode":         updated.Server.HTTPSMode,
-			"firewall":           firewallResult,
+			"server_port": updated.Server.Port,
+			"reset_url":   updated.ResetURL(),
+			"web_enabled": updated.Web.Enabled,
+			"https_mode":  updated.Server.HTTPSMode,
+			"firewall":    firewallResult,
 		},
 	})
 }

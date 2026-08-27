@@ -1,0 +1,397 @@
+.access-shell {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(calc(100% - 48px), 1120px);
+  height: min(680px, calc(100dvh - 48px));
+  min-height: 520px;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1.58fr);
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(213, 224, 239, 0.95);
+  border-radius: 28px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 28px 80px rgba(35, 67, 116, 0.17);
+}
+
+.access-shell--setup {
+  width: min(calc(100% - 48px), 1360px);
+  height: min(760px, calc(100dvh - 40px));
+  min-height: 600px;
+}
+
+.access-shell--compact {
+  width: min(calc(100% - 48px), 1040px);
+  height: min(640px, calc(100dvh - 48px));
+}
+
+.access-brand {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  overflow: hidden;
+  color: #ffffff;
+  background:
+    radial-gradient(
+      circle at 18% 12%,
+      rgba(119, 168, 255, 0.58),
+      transparent 34%
+    ),
+    linear-gradient(148deg, #11244e 0%, #244c92 60%, #326cc0 100%);
+}
+
+.access-brand::before,
+.access-brand::after {
+  position: absolute;
+  z-index: -1;
+  display: block;
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.access-brand::before {
+  top: -145px;
+  right: -120px;
+  width: 350px;
+  height: 350px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.access-brand::after {
+  bottom: -190px;
+  left: -150px;
+  width: 410px;
+  height: 410px;
+  background: rgba(4, 18, 54, 0.25);
+}
+
+.access-brand-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: clamp(22px, 1.8vw, 30px) clamp(10px, 1.2vw, 18px);
+}
+
+.access-logo {
+  display: block;
+  width: clamp(68px, 7vw, 94px);
+  height: clamp(68px, 7vw, 94px);
+  margin-bottom: 22px;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.2));
+}
+
+.access-eyebrow {
+  margin: 0 0 8px;
+  color: #bed5ff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.access-brand-title {
+  max-width: 100%;
+  margin: 0 0 14px;
+  color: #ffffff;
+  font-size: clamp(18px, 1.45vw, 24px);
+  letter-spacing: -0.08em;
+  line-height: 1.16;
+  white-space: nowrap;
+}
+
+.access-brand-description {
+  max-width: 470px;
+  margin: 0;
+  color: #dce8fb;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.access-panel {
+  min-width: 0;
+  min-height: 0;
+  background: linear-gradient(145deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.access-panel-inner {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(30px, 4vw, 58px);
+}
+
+.access-shell--setup .access-panel-inner {
+  align-items: stretch;
+  padding: clamp(22px, 2.7vw, 42px);
+}
+
+@media (max-width: 900px) {
+  .access-shell,
+  .access-shell--setup,
+  .access-shell--compact {
+    width: min(calc(100% - 24px), 760px);
+    height: calc(100dvh - 24px);
+    min-height: 0;
+    grid-template-columns: 1fr;
+    grid-template-rows: 120px minmax(0, 1fr);
+    border-radius: 22px;
+  }
+
+  .access-brand-content {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    align-items: center;
+    column-gap: 18px;
+    padding: 16px 20px;
+  }
+
+  .access-logo,
+  .access-brand-content > img:first-child {
+    grid-row: 1 / span 3;
+    width: 68px;
+    height: 68px;
+    margin: 0;
+  }
+
+  .access-brand-title {
+    max-width: 100%;
+    margin-bottom: 3px;
+    font-size: 22px;
+  }
+
+  .access-brand-description {
+    max-width: 100%;
+    font-size: 10px;
+    line-height: 1.45;
+  }
+
+  .access-eyebrow {
+    margin-bottom: 2px;
+  }
+
+  .access-panel-inner,
+  .access-shell--setup .access-panel-inner {
+    padding: 18px 22px;
+  }
+}
+
+@media (max-width: 600px) {
+  .access-shell,
+  .access-shell--setup,
+  .access-shell--compact {
+    width: calc(100% - 12px);
+    height: calc(100dvh - 12px);
+    grid-template-rows: 88px minmax(0, 1fr);
+    border-radius: 17px;
+  }
+
+  .access-brand-content {
+    column-gap: 11px;
+    padding: 9px 12px;
+  }
+
+  .access-logo,
+  .access-brand-content > img:first-child {
+    width: 54px;
+    height: 54px;
+  }
+
+  .access-brand-title {
+    font-size: 18px;
+  }
+
+  .access-brand-description {
+    font-size: 9px;
+  }
+
+  .access-panel-inner,
+  .access-shell--setup .access-panel-inner {
+    padding: 10px;
+  }
+}
+
+.access-card {
+  width: min(100%, 520px);
+  min-width: 0;
+}
+
+.access-card-header {
+  margin-bottom: 28px;
+}
+
+.access-card-header .access-eyebrow {
+  color: #4d76b7;
+  letter-spacing: 0.1em;
+}
+
+.access-card-title {
+  margin: 0 0 9px;
+  color: #172033;
+  font-size: clamp(26px, 3vw, 34px);
+  letter-spacing: -0.05em;
+}
+
+.access-card-description {
+  margin: 0;
+  color: #71809a;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.access-form {
+  display: grid;
+  gap: 17px;
+}
+
+.access-field {
+  display: grid;
+  gap: 7px;
+}
+
+.access-field span,
+.access-field legend {
+  color: #33415b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.access-field input,
+.access-field textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid #d8e2ef;
+  border-radius: 11px;
+  outline: none;
+  color: #172033;
+  background: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.access-field textarea {
+  min-height: 96px;
+  padding-top: 12px;
+  resize: vertical;
+}
+
+.access-field input:focus,
+.access-field textarea:focus {
+  border-color: #4d7bc9;
+  box-shadow: 0 0 0 4px rgba(77, 123, 201, 0.12);
+}
+
+.access-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: #71809a;
+  font-size: 12px;
+}
+
+.access-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.access-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: #3568b9;
+}
+
+.access-link {
+  color: #3568b9;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.access-link:hover {
+  text-decoration: underline;
+}
+
+.access-submit {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 11px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #3568b9, #28569d);
+  box-shadow: 0 10px 22px rgba(49, 95, 170, 0.23);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.access-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 13px 26px rgba(49, 95, 170, 0.28);
+}
+
+.access-submit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.access-message,
+.access-error {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.access-message {
+  color: #226443;
+  background: #eaf8f0;
+}
+
+.access-error {
+  color: #a13e3e;
+  background: #fff0f0;
+}
+
+.access-note {
+  margin: 22px 0 0;
+  padding: 12px 14px;
+  border-left: 3px solid #9ebff4;
+  color: #62728c;
+  background: #f2f6fc;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.access-return {
+  display: inline-flex;
+  margin-top: 20px;
+  color: #3568b9;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.access-return:hover {
+  text-decoration: underline;
+}

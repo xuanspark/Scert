@@ -25,7 +25,7 @@ func TestOpenAndMigrateSQLite(t *testing.T) {
 	if err := db.DB.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("读取迁移版本失败：%v", err)
 	}
-	if count != 2 {
+	if count != 3 {
 		t.Fatalf("迁移版本数量错误：%d", count)
 	}
 	var autoRenew bool

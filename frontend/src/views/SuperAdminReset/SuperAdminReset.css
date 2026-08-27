@@ -1,0 +1,52 @@
+.super-admin-reset-card {
+  width: min(100%, 520px);
+  max-width: 520px;
+}
+
+.reset-success-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 36, 78, 0.38);
+  backdrop-filter: blur(5px);
+}
+
+.reset-success-dialog {
+  width: min(100%, 390px);
+  padding: 34px 30px 30px;
+  border: 1px solid #d7e5f7;
+  border-radius: 22px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 24px 60px rgba(17, 36, 78, 0.24);
+  text-align: center;
+}
+
+.reset-success-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: linear-gradient(135deg, #3d83d8, #2455a0);
+  font-size: 27px;
+  font-weight: 900;
+}
+
+.reset-success-dialog h2 {
+  margin: 0 0 12px;
+  color: #172033;
+  font-size: 24px;
+}
+
+.reset-success-dialog p {
+  margin: 6px 0;
+  color: #607391;
+  font-size: 13px;
+  line-height: 1.7;
+}

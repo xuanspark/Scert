@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +75,44 @@ func TestValidateRejectsInvalidPort(t *testing.T) {
 	cfg.Server.Port = 70000
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("无效端口未被拒绝")
+	}
+}
+
+func TestResetURLUsesWebHostnameWithoutPort(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Server.Port = 8443
+	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
+		t.Fatalf("域名密码重置地址不正确：%s", value)
+	}
+	cfg.Server.Port = 443
+	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
+		t.Fatalf("默认 HTTPS 端口不应显示端口号：%s", value)
+	}
+}
+
+func TestResetURLSupportsPublicIPv6(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.Web.PublicIP = "2001:db8::10"
+	cfg.Server.Port = 8443
+	if value := cfg.ResetURL(); value != "https://[2001:db8::10]/reset" {
+		t.Fatalf("IPv6 密码重置地址不正确：%s", value)
+	}
+}
+
+func TestSavedConfigDoesNotContainIndependentResetPort(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Default(dir)
+	path := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("保存配置失败：%v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取配置失败：%v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, "reset_service_port") || strings.Contains(content, "reset_service_host") {
+		t.Fatalf("配置文件不应再包含独立密码重置监听配置：%s", content)
 	}
 }

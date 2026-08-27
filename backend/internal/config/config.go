@@ -3,6 +3,9 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/mail"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -31,10 +34,9 @@ type Config struct {
 }
 
 type AdminConfig struct {
-	Username         string `json:"username"`
-	PasswordHash     string `json:"password_hash"`
-	ResetServiceHost string `json:"reset_service_host"`
-	ResetServicePort int    `json:"reset_service_port"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"password_hash"`
 }
 
 type ServerConfig struct {
@@ -97,7 +99,7 @@ func Default(baseDir string) Config {
 	return Config{
 		Version:    CurrentVersion,
 		SetupReady: false,
-		Admin:      AdminConfig{ResetServiceHost: "127.0.0.1", ResetServicePort: 8091},
+		Admin:      AdminConfig{},
 		Server:     ServerConfig{Host: "0.0.0.0", Port: 8080, HTTPSMode: "direct"},
 		Web:        WebConfig{Enabled: true},
 		Database: DatabaseConfig{
@@ -171,12 +173,6 @@ func (c *Config) Normalize() {
 	if c == nil {
 		return
 	}
-	if c.Admin.ResetServiceHost == "" {
-		c.Admin.ResetServiceHost = "127.0.0.1"
-	}
-	if c.Admin.ResetServicePort == 0 {
-		c.Admin.ResetServicePort = 8091
-	}
 	if c.Server.Host == "" {
 		c.Server.Host = "0.0.0.0"
 	}
@@ -226,18 +222,6 @@ func (c Config) Validate() error {
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("服务监听端口无效：%d", c.Server.Port)
 	}
-	if strings.TrimSpace(c.Admin.ResetServiceHost) == "" {
-		return fmt.Errorf("密码重置服务监听地址不能为空")
-	}
-	if c.Admin.ResetServiceHost != "127.0.0.1" && c.Admin.ResetServiceHost != "::1" {
-		return fmt.Errorf("密码重置服务仅允许使用 127.0.0.1 或 ::1")
-	}
-	if c.Admin.ResetServicePort < 1 || c.Admin.ResetServicePort > 65535 {
-		return fmt.Errorf("密码重置服务监听端口无效：%d", c.Admin.ResetServicePort)
-	}
-	if c.Server.Port == c.Admin.ResetServicePort && c.Server.Host == c.Admin.ResetServiceHost {
-		return fmt.Errorf("主服务和密码重置服务不能使用相同监听地址和端口")
-	}
 	if c.Server.HTTPSMode != "direct" && c.Server.HTTPSMode != "proxy" {
 		return fmt.Errorf("HTTPS 模式无效：%s", c.Server.HTTPSMode)
 	}
@@ -277,15 +261,39 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(c.Admin.Username) == "" || strings.TrimSpace(c.Admin.PasswordHash) == "" {
 			return fmt.Errorf("初始化完成时必须配置超级管理员账号")
 		}
+		adminEmail := strings.ToLower(strings.TrimSpace(c.Admin.Email))
+		parsedEmail, emailErr := mail.ParseAddress(adminEmail)
+		if adminEmail == "" || emailErr != nil || parsedEmail.Address != adminEmail || parsedEmail.Name != "" {
+			return fmt.Errorf("初始化完成时必须配置合法的超级管理员绑定邮箱")
+		}
 		if c.DNS.VerificationState != "verified" {
 			return fmt.Errorf("初始化完成时必须先通过 DNS API 验证")
 		}
 		if strings.TrimSpace(c.Web.Hostname) == "" && strings.TrimSpace(c.Web.PublicIP) == "" {
-			return fmt.Errorf("初始化完成时必须配置 Web 域名或公网 IP")
+			return fmt.Errorf("初始化完成时必须配置管理页面域名或公网 IP")
 		}
 	}
 	if c.Notification.TimeoutSecs < 1 || c.Notification.RetryCount < 0 {
 		return fmt.Errorf("通知配置无效")
 	}
 	return nil
+}
+
+// ResetURL 返回通过主 Web 服务访问密码重置入口的公开地址。
+func (c Config) ResetURL() string {
+	host := strings.TrimSpace(c.Web.Hostname)
+	if host == "" {
+		host = strings.TrimSpace(c.Web.PublicIP)
+	}
+	if host == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(host); err == nil && parsed.Hostname() != "" {
+		host = parsed.Hostname()
+	}
+	host = strings.Trim(host, "[]")
+	if ip := net.ParseIP(host); ip != nil && strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return (&url.URL{Scheme: "https", Host: host, Path: "/reset"}).String()
 }

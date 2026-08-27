@@ -1,0 +1,45 @@
+:root {
+  font-family: Inter, "Microsoft YaHei", sans-serif;
+  color: #172033;
+  background: #f4f7fb;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.bootstrap-screen {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 24px;
+  color: #31415d;
+  background: #f4f7fb;
+  text-align: center;
+}
+
+.bootstrap-screen p {
+  margin: 0;
+  color: #a33d3d;
+}
+
+.bootstrap-mark {
+  display: block;
+  width: 86px;
+  height: 86px;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 20px rgba(36, 76, 146, 0.22));
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}

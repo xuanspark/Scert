@@ -149,9 +149,9 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	})
 	payload := `{
 		"admin_username":"root-admin",
+		"admin_email":"admin@example.test",
 		"admin_password":"secure-pass-123",
 		"server_port":8443,
-		"reset_service_port":8091,
 		"email_provider":"mail-api",
 		"email_endpoint":"https://mail.example.test/send",
 		"recipients":["ops@example.test","ops@example.test"],
@@ -181,6 +181,9 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	if !strings.Contains(response.Body.String(), `"firewall"`) || !strings.Contains(response.Body.String(), `"created":true`) {
 		t.Fatalf("初始化响应应返回本机防火墙结果：%s", response.Body.String())
 	}
+	if !strings.Contains(response.Body.String(), `"reset_url":"https://scert.example.test/reset"`) {
+		t.Fatalf("初始化响应应返回根据 Web 地址生成的密码重置路径：%s", response.Body.String())
+	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -193,7 +196,7 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	if err := json.Unmarshal(data, &saved); err != nil {
 		t.Fatalf("解析保存后的配置失败：%v", err)
 	}
-	if !saved.SetupReady || saved.Admin.Username != "root-admin" || saved.Server.Port != 8443 {
+	if !saved.SetupReady || saved.Admin.Username != "root-admin" || saved.Admin.Email != "admin@example.test" || saved.Server.Port != 8443 {
 		t.Fatalf("保存后的初始化配置不正确：%+v", saved)
 	}
 	if len(saved.Notification.Recipients) != 1 {
@@ -385,9 +388,9 @@ func TestSetupFirewallFailureDoesNotSaveOrConsumeToken(t *testing.T) {
 func setupPayload(baseDir, password string) string {
 	return `{
 		"admin_username":"root-admin",
+		"admin_email":"admin@example.test",
 		"admin_password":"` + password + `",
 		"server_port":8443,
-		"reset_service_port":8091,
 		"dns_provider":"cloudflare",
 		"dns_credential_ref":"secret://dns/cloudflare/test",
 		"dns_verification_token":"verified-token",

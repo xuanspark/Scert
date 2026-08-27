@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -28,22 +27,35 @@ func main() {
 		fmt.Fprintln(os.Stderr, "读取配置失败：", err)
 		os.Exit(1)
 	}
-	server := admin.New(cfg)
+	controller := admin.New(cfg)
+	session, err := controller.Start()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "启用密码重置入口失败：", err)
+		os.Exit(1)
+	}
+	fmt.Println("Scert-admin 已启用临时密码重置入口，不监听独立网络端口。")
+	fmt.Println("重置地址：", session.State.ResetURL)
+	fmt.Println("一次性校验码：", session.Code)
+	fmt.Println("停止 Scert-admin 后入口将立即关闭；异常退出时入口会在租约过期后自动关闭。")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	errCh := make(chan error, 1)
-	go func() { errCh <- server.ListenAndServe() }()
-	select {
-	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			fmt.Fprintln(os.Stderr, "停止 Scert-admin 失败：", err)
-		}
-	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			fmt.Fprintln(os.Stderr, "Scert-admin 退出：", err)
-			os.Exit(1)
+	ticker := time.NewTicker(admin.RefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			if err := controller.Stop(); err != nil {
+				fmt.Fprintln(os.Stderr, "关闭密码重置入口失败：", err)
+				os.Exit(1)
+			}
+			fmt.Println("Scert-admin 已关闭密码重置入口。")
+			return
+		case <-ticker.C:
+			if err := controller.Refresh(); err != nil {
+				fmt.Fprintln(os.Stderr, "续期密码重置入口租约失败：", err)
+				_ = controller.Stop()
+				os.Exit(1)
+			}
 		}
 	}
 }

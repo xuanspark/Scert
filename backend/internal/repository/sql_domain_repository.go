@@ -100,16 +100,30 @@ func (r *SQLDomainRepository) Delete(ctx context.Context, id string) error {
 	if r == nil || r.db == nil {
 		return errors.New("数据库连接不能为空")
 	}
-	result, err := r.db.ExecContext(ctx, "DELETE FROM domains WHERE id = ?", id)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("删除域名失败：%w", err)
+		return fmt.Errorf("开始删除域名失败：%w", err)
+	}
+	rollback := func(cause error) error {
+		_ = tx.Rollback()
+		return cause
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM domain_servers WHERE domain_id = ?", id); err != nil {
+		return rollback(fmt.Errorf("删除域名服务器关联失败：%w", err))
+	}
+	result, err := tx.ExecContext(ctx, "DELETE FROM domains WHERE id = ?", id)
+	if err != nil {
+		return rollback(fmt.Errorf("删除域名失败：%w", err))
 	}
 	count, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("读取删除结果失败：%w", err)
+		return rollback(fmt.Errorf("读取删除结果失败：%w", err))
 	}
 	if count == 0 {
-		return sql.ErrNoRows
+		return rollback(sql.ErrNoRows)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交域名删除失败：%w", err)
 	}
 	return nil
 }

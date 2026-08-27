@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql
+//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -37,7 +37,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 2
+const latestMigrationVersion = 3
 
 func applyMigration(ctx context.Context, db *sql.DB, driver string, version int) error {
 	path := fmt.Sprintf("migrations/%s/%04d_%s.sql", driver, version, migrationName(version))
@@ -83,6 +83,8 @@ func migrationName(version int) string {
 		return "initial"
 	case 2:
 		return "domain_options"
+	case 3:
+		return "deployment"
 	default:
 		return "unknown"
 	}

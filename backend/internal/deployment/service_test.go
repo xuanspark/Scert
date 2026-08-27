@@ -1,0 +1,153 @@
+package deployment
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+type memoryFile struct {
+	data []byte
+	mode uint32
+}
+
+type memoryClient struct {
+	files       map[string]memoryFile
+	command     []string
+	runResult   CommandResult
+	runErr      error
+	uploadError string
+}
+
+func newMemoryClient() *memoryClient {
+	return &memoryClient{files: map[string]memoryFile{}, runResult: CommandResult{ExitCode: 0}}
+}
+
+func (c *memoryClient) MkdirAll(context.Context, string) error { return nil }
+
+func (c *memoryClient) Exists(_ context.Context, path string) (bool, error) {
+	_, ok := c.files[path]
+	return ok, nil
+}
+
+func (c *memoryClient) Upload(_ context.Context, path string, data []byte, mode uint32) error {
+	if c.uploadError != "" && strings.Contains(path, c.uploadError) {
+		return errors.New("模拟上传失败")
+	}
+	c.files[path] = memoryFile{data: append([]byte(nil), data...), mode: mode}
+	return nil
+}
+
+func (c *memoryClient) Rename(_ context.Context, source, target string) error {
+	value, ok := c.files[source]
+	if !ok {
+		return errors.New("源文件不存在")
+	}
+	delete(c.files, source)
+	c.files[target] = value
+	return nil
+}
+
+func (c *memoryClient) Remove(_ context.Context, path string) error {
+	delete(c.files, path)
+	return nil
+}
+
+func (c *memoryClient) Run(_ context.Context, command []string) (CommandResult, error) {
+	c.command = append([]string(nil), command...)
+	return c.runResult, c.runErr
+}
+
+func (c *memoryClient) Close() error { return nil }
+
+type memoryFactory struct {
+	clients map[string]*memoryClient
+	errors  map[string]error
+}
+
+func (f memoryFactory) Connect(_ context.Context, server Server) (Client, error) {
+	if err := f.errors[server.ID]; err != nil {
+		return nil, err
+	}
+	return f.clients[server.ID], nil
+}
+
+func TestDeployReplacesFilesAndKeepsBackup(t *testing.T) {
+	client := newMemoryClient()
+	server := testServer("server-1")
+	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
+	client.files[server.CertificateChainPath] = memoryFile{data: []byte("old-chain"), mode: 0o644}
+	client.files[server.PrivateKeyPath] = memoryFile{data: []byte("old-key"), mode: 0o600}
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+	service.now = func() time.Time { return time.Date(2026, 8, 27, 1, 2, 3, 4, time.UTC) }
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	if report.Status != "success" || report.Success != 1 {
+		t.Fatalf("部署结果错误：%+v", report)
+	}
+	if string(client.files[server.CertificatePath].data) != "new-cert" || client.files[server.PrivateKeyPath].mode != 0o600 {
+		t.Fatalf("远程证书内容或权限错误：%+v", client.files)
+	}
+	if len(client.command) != 3 || client.command[0] != "nginx" {
+		t.Fatalf("reload 命令错误：%v", client.command)
+	}
+	backupCount := 0
+	for path := range client.files {
+		if strings.Contains(path, ".scert-backup-") {
+			backupCount++
+		}
+	}
+	if backupCount != 3 {
+		t.Fatalf("成功部署后应保留三份远程备份：%d", backupCount)
+	}
+}
+
+func TestDeployRollsBackWhenReloadFails(t *testing.T) {
+	client := newMemoryClient()
+	client.runResult.ExitCode = 1
+	server := testServer("server-1")
+	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	if report.Status != "failed" || report.Failed != 1 {
+		t.Fatalf("reload 失败结果错误：%+v", report)
+	}
+	if string(client.files[server.CertificatePath].data) != "old-cert" {
+		t.Fatalf("reload 失败后旧证书未恢复：%+v", client.files)
+	}
+	if _, ok := client.files[server.PrivateKeyPath]; ok {
+		t.Fatal("原本不存在的私钥文件应在回滚时删除")
+	}
+	for path := range client.files {
+		if strings.Contains(path, ".scert-tmp-") || strings.Contains(path, ".scert-backup-") {
+			t.Fatalf("回滚后不应残留临时文件或备份文件：%s", path)
+		}
+	}
+}
+
+func TestDeployReportsPartialSuccess(t *testing.T) {
+	first := newMemoryClient()
+	second := newMemoryClient()
+	second.uploadError = "fullchain.pem"
+	firstServer := testServer("first")
+	secondServer := testServer("second")
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{"first": first, "second": second}})
+	report := service.Deploy(context.Background(), []Target{{Server: firstServer}, {Server: secondServer}}, testArtifact())
+	if report.Status != "partial" || report.Success != 1 || report.Failed != 1 {
+		t.Fatalf("部分成功汇总错误：%+v", report)
+	}
+}
+
+func testServer(id string) Server {
+	return Server{
+		ID: id, Name: id, Address: "192.0.2.10", Port: 22, Username: "deploy",
+		PrivateKeyRef: "secret://ssh/" + id, HostKeyFingerprint: "SHA256:test",
+		CertificatePath: "/etc/scert/cert.pem", CertificateChainPath: "/etc/scert/fullchain.pem",
+		PrivateKeyPath: "/etc/scert/key.pem", WebServer: WebServerNginx,
+	}
+}
+
+func testArtifact() Artifact {
+	return Artifact{Certificate: []byte("new-cert"), FullChain: []byte("new-chain"), PrivateKey: []byte("new-key")}
+}

@@ -2,16 +2,26 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/admin"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
+	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
+	"git.pcux.cn/xuans/Scert/backend/internal/sshkey"
 )
 
 func TestHealthAndDomainAPI(t *testing.T) {
@@ -51,5 +61,413 @@ func TestHealthAndDomainAPI(t *testing.T) {
 	server.Handler().ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil))
 	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "example.com") {
 		t.Fatalf("域名列表响应错误：%d %s", list.Code, list.Body.String())
+	}
+}
+
+func TestResetPathRequiresScertAdminActivation(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Server.Port = 8443
+	statePath := admin.StatePath(cfg.Paths.Data)
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, ResetStatePath: statePath})
+
+	inactive := httptest.NewRecorder()
+	server.Handler().ServeHTTP(inactive, httptest.NewRequest(http.MethodGet, "/reset", nil))
+	if inactive.Code != http.StatusNotFound {
+		t.Fatalf("Scert-admin 未启动时 /reset 应返回 404：%d", inactive.Code)
+	}
+
+	controller := admin.New(cfg)
+	if _, err := controller.Start(); err != nil {
+		t.Fatalf("启用测试密码重置入口失败：%v", err)
+	}
+	active := httptest.NewRecorder()
+	server.Handler().ServeHTTP(active, httptest.NewRequest(http.MethodGet, "/reset", nil))
+	if active.Code != http.StatusOK || !strings.Contains(active.Body.String(), "超级管理员密码重置") {
+		t.Fatalf("Scert-admin 启用后 /reset 页面错误：%d %s", active.Code, active.Body.String())
+	}
+	if active.Header().Get("Cache-Control") != "no-store, no-cache, must-revalidate" || !strings.Contains(active.Header().Get("X-Robots-Tag"), "noindex") {
+		t.Fatalf("密码重置页面缺少安全响应头：%v", active.Header())
+	}
+	if err := controller.Stop(); err != nil {
+		t.Fatalf("关闭测试密码重置入口失败：%v", err)
+	}
+	stopped := httptest.NewRecorder()
+	server.Handler().ServeHTTP(stopped, httptest.NewRequest(http.MethodGet, "/reset", nil))
+	if stopped.Code != http.StatusNotFound {
+		t.Fatalf("Scert-admin 停止后 /reset 应恢复 404：%d", stopped.Code)
+	}
+}
+
+func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.DNS.VerificationState = "verified"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	oldHash, err := bcrypt.GenerateFromPassword([]byte("OldPassword123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("生成旧密码摘要失败：%v", err)
+	}
+	cfg.Admin.PasswordHash = string(oldHash)
+	configPath := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	controller := admin.New(cfg)
+	session, err := controller.Start()
+	if err != nil {
+		t.Fatalf("启动测试重置会话失败：%v", err)
+	}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
+	get := httptest.NewRecorder()
+	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
+	if get.Code != http.StatusOK {
+		t.Fatalf("获取密码重置页面失败：%d", get.Code)
+	}
+	cookie := get.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token":       {cookie.Value},
+		"reset_code":       {session.Code},
+		"new_password":     {"NewPassword123"},
+		"confirm_password": {"NewPassword123"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://scert.example.test/reset", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "http://scert.example.test")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "密码重置成功") {
+		t.Fatalf("密码重置响应错误：%d %s", response.Code, response.Body.String())
+	}
+	state, err := admin.ReadState(admin.StatePath(cfg.Paths.Data))
+	if err != nil {
+		t.Fatalf("读取重置状态失败：%v", err)
+	}
+	if state.Active || state.CodeHash != "" {
+		t.Fatalf("密码重置成功后会话必须失效：%+v", state)
+	}
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("读取重置后的配置失败：%v", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("NewPassword123")) != nil {
+		t.Fatal("新密码摘要无法验证新密码")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("OldPassword123")) == nil {
+		t.Fatal("旧密码不应继续有效")
+	}
+	second := httptest.NewRecorder()
+	server.Handler().ServeHTTP(second, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
+	if second.Code != http.StatusNotFound {
+		t.Fatalf("密码重置成功后入口必须关闭：%d", second.Code)
+	}
+	if err := controller.Refresh(); err != admin.ErrResetSessionClosed {
+		t.Fatalf("Scert-admin 不得刷新已消费会话：%v", err)
+	}
+}
+
+func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.DNS.VerificationState = "verified"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = "not-used-in-this-test"
+	controller := admin.New(cfg)
+	session, err := controller.Start()
+	if err != nil {
+		t.Fatalf("启动测试重置会话失败：%v", err)
+	}
+	server := New(Dependencies{Config: cfg, ConfigPath: filepath.Join(dir, "config", "scert.json"), Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
+	get := httptest.NewRecorder()
+	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
+	cookie := get.Result().Cookies()[0]
+	base := url.Values{"csrf_token": {cookie.Value}, "reset_code": {session.Code}, "new_password": {"NewPassword123"}, "confirm_password": {"NewPassword123"}}
+	for i := 0; i < 5; i++ {
+		request := httptest.NewRequest(http.MethodPost, "http://scert.example.test/reset", strings.NewReader(base.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("Origin", "http://evil.example.test")
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("跨站请求应被拒绝：第 %d 次状态码为 %d", i+1, response.Code)
+		}
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://scert.example.test/reset", strings.NewReader(base.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "http://scert.example.test")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("超过失败次数后应限流：%d", response.Code)
+	}
+}
+
+func TestServerAndDomainAssociationAPI(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.Database.DSN = filepath.Join(dir, "data", "servers.db")
+	db, err := database.Open(context.Background(), cfg.Database)
+	if err != nil {
+		t.Fatalf("打开数据库失败：%v", err)
+	}
+	defer db.Close()
+	if err := database.Migrate(context.Background(), db.DB, "sqlite"); err != nil {
+		t.Fatalf("数据库迁移失败：%v", err)
+	}
+	secretStore, err := secretstore.Open(filepath.Join(dir, "config"))
+	if err != nil {
+		t.Fatalf("打开敏感信息存储失败：%v", err)
+	}
+	sshKeys := sshkey.NewService(secretStore)
+	key, err := sshKeys.Create(t.Context(), "测试部署私钥", testSSHPrivateKey(t), "")
+	if err != nil {
+		t.Fatalf("创建测试 SSH 私钥失败：%v", err)
+	}
+	server := New(Dependencies{
+		Config: cfg, Repository: repository.NewSQLDomainRepository(db.DB),
+		Servers: repository.NewSQLServerRepository(db.DB), SSHKeys: sshKeys,
+	})
+
+	domainRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
+	domainRequest.Header.Set("Content-Type", "application/json")
+	domainResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(domainResponse, domainRequest)
+	if domainResponse.Code != http.StatusCreated {
+		t.Fatalf("创建测试域名失败：%d %s", domainResponse.Code, domainResponse.Body.String())
+	}
+	var item struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(domainResponse.Body.Bytes(), &item); err != nil || item.ID == "" {
+		t.Fatalf("测试域名响应无效：%v %s", err, domainResponse.Body.String())
+	}
+
+	serverRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(`{"name":"测试服务器","address":"192.0.2.50","port":22,"username":"deploy","private_key_ref":"`+key.Reference+`","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
+	serverRequest.Header.Set("Content-Type", "application/json")
+	serverResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(serverResponse, serverRequest)
+	if serverResponse.Code != http.StatusCreated {
+		t.Fatalf("创建测试服务器失败：%d %s", serverResponse.Code, serverResponse.Body.String())
+	}
+	var created deployment.Server
+	if err := json.Unmarshal(serverResponse.Body.Bytes(), &created); err != nil || created.ID == "" || len(created.ReloadCommand) != 3 {
+		t.Fatalf("测试服务器响应无效：%v %+v", err, created)
+	}
+	if created.CertificatePath != deployment.DefaultCertificatePath || created.CertificateChainPath != deployment.DefaultCertificateChainPath || created.PrivateKeyPath != deployment.DefaultPrivateKeyPath {
+		t.Fatalf("服务器 API 未使用默认远程证书路径模板：%+v", created)
+	}
+
+	associationRequest := httptest.NewRequest(http.MethodPut, "/api/v1/domains/"+item.ID+"/servers", strings.NewReader(`{"server_ids":["`+created.ID+`"]}`))
+	associationRequest.Header.Set("Content-Type", "application/json")
+	associationResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(associationResponse, associationRequest)
+	if associationResponse.Code != http.StatusOK || !strings.Contains(associationResponse.Body.String(), created.ID) {
+		t.Fatalf("保存域名服务器关联失败：%d %s", associationResponse.Code, associationResponse.Body.String())
+	}
+
+	deleteResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/servers/"+created.ID, nil))
+	if deleteResponse.Code != http.StatusNoContent {
+		t.Fatalf("删除测试服务器失败：%d %s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+	listResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/domains/"+item.ID+"/servers", nil))
+	if listResponse.Code != http.StatusOK || strings.Contains(listResponse.Body.String(), created.ID) {
+		t.Fatalf("服务器删除后域名关联未清理：%d %s", listResponse.Code, listResponse.Body.String())
+	}
+}
+func TestResetConfigSaveFailureKeepsSessionAndPassword(t *testing.T) {
+	fixture := newResetTestFixture(t)
+	blockedPath := filepath.Join(t.TempDir(), "config-target")
+	if err := os.MkdirAll(blockedPath, 0o700); err != nil {
+		t.Fatalf("创建无效配置目标失败：%v", err)
+	}
+	fixture.server.configPath = blockedPath
+
+	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPassword123")
+	request := httptest.NewRequest(http.MethodPost, "https://scert.example.test/reset", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://scert.example.test")
+	request.AddCookie(fixture.cookie)
+	response := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("配置保存失败时应返回 500：%d %s", response.Code, response.Body.String())
+	}
+
+	state, err := admin.ReadState(admin.StatePath(fixture.cfg.Paths.Data))
+	if err != nil {
+		t.Fatalf("读取配置保存失败后的重置状态失败：%v", err)
+	}
+	if !state.Active || state.CodeHash != fixture.session.State.CodeHash {
+		t.Fatalf("配置保存失败时不得消费重置会话：%+v", state)
+	}
+	fixture.server.configMu.RLock()
+	passwordHash := fixture.server.config.Admin.PasswordHash
+	fixture.server.configMu.RUnlock()
+	if passwordHash != fixture.oldPasswordHash {
+		t.Fatal("配置保存失败时不得更新内存中的密码摘要")
+	}
+	active := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(active, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
+	if active.Code != http.StatusOK {
+		t.Fatalf("配置保存失败后 /reset 应继续可访问：%d", active.Code)
+	}
+}
+
+func TestResetRejectsOversizedRequestBody(t *testing.T) {
+	fixture := newResetTestFixture(t)
+	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPassword123")
+	form.Set("padding", strings.Repeat("x", resetMaxBodyBytes))
+	request := httptest.NewRequest(http.MethodPost, "https://scert.example.test/reset", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://scert.example.test")
+	request.AddCookie(fixture.cookie)
+	response := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("超过请求体限制时应返回 400：%d %s", response.Code, response.Body.String())
+	}
+	state, err := admin.ReadState(admin.StatePath(fixture.cfg.Paths.Data))
+	if err != nil {
+		t.Fatalf("读取超限请求后的重置状态失败：%v", err)
+	}
+	if !state.Active {
+		t.Fatal("请求体超限时不得消费重置会话")
+	}
+}
+
+func TestResetCSRFCookieHasRestrictedAttributes(t *testing.T) {
+	fixture := newResetTestFixture(t)
+	cookie := fixture.cookie
+	if !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("CSRF Cookie 安全属性不完整：%+v", cookie)
+	}
+	if cookie.Path != admin.ResetPath {
+		t.Fatalf("CSRF Cookie 路径错误：%q", cookie.Path)
+	}
+	if cookie.MaxAge <= 0 || cookie.MaxAge > 90 {
+		t.Fatalf("CSRF Cookie 有效期必须限制在重置租约内：%d", cookie.MaxAge)
+	}
+}
+
+func TestResetConcurrentSubmissionsAllowOnlyOneSuccess(t *testing.T) {
+	fixture := newResetTestFixture(t)
+	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPassword123")
+	start := make(chan struct{})
+	responses := make(chan int, 2)
+	var waitGroup sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			request := httptest.NewRequest(http.MethodPost, "https://scert.example.test/reset", strings.NewReader(form.Encode()))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			request.Header.Set("Origin", "https://scert.example.test")
+			request.AddCookie(fixture.cookie)
+			response := httptest.NewRecorder()
+			fixture.server.Handler().ServeHTTP(response, request)
+			responses <- response.Code
+		}()
+	}
+	close(start)
+	waitGroup.Wait()
+	close(responses)
+
+	successes := 0
+	failures := 0
+	for status := range responses {
+		if status == http.StatusOK {
+			successes++
+		} else {
+			failures++
+		}
+	}
+	if successes != 1 || failures != 1 {
+		t.Fatalf("并发提交必须恰好一个成功、一个失败：successes=%d failures=%d", successes, failures)
+	}
+	state, err := admin.ReadState(admin.StatePath(fixture.cfg.Paths.Data))
+	if err != nil {
+		t.Fatalf("读取并发提交后的重置状态失败：%v", err)
+	}
+	if state.Active || state.CodeHash != "" {
+		t.Fatalf("并发提交成功后重置会话必须关闭：%+v", state)
+	}
+	loaded, err := config.Load(fixture.configPath)
+	if err != nil {
+		t.Fatalf("读取并发提交后的配置失败：%v", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("NewPassword123")) != nil {
+		t.Fatal("并发提交后的密码摘要无法验证新密码")
+	}
+}
+
+type resetTestFixture struct {
+	server          *Server
+	cfg             config.Config
+	controller      *admin.Controller
+	session         admin.Session
+	cookie          *http.Cookie
+	configPath      string
+	oldPasswordHash string
+}
+
+func newResetTestFixture(t *testing.T) resetTestFixture {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.DNS.VerificationState = "verified"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	oldPasswordHash, err := bcrypt.GenerateFromPassword([]byte("OldPassword123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("生成测试密码摘要失败：%v", err)
+	}
+	cfg.Admin.PasswordHash = string(oldPasswordHash)
+	configPath := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	controller := admin.New(cfg)
+	session, err := controller.Start()
+	if err != nil {
+		t.Fatalf("启动测试重置会话失败：%v", err)
+	}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
+	get := httptest.NewRecorder()
+	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
+	if get.Code != http.StatusOK {
+		t.Fatalf("获取测试重置页面失败：%d", get.Code)
+	}
+	cookies := get.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("测试重置页面应返回一个 CSRF Cookie：%d", len(cookies))
+	}
+	return resetTestFixture{
+		server: server, cfg: cfg, controller: controller, session: session,
+		cookie: cookies[0], configPath: configPath, oldPasswordHash: cfg.Admin.PasswordHash,
+	}
+}
+
+func resetForm(code, csrfToken, password string) url.Values {
+	return url.Values{
+		"csrf_token":       {csrfToken},
+		"reset_code":       {code},
+		"new_password":     {password},
+		"confirm_password": {password},
 	}
 }

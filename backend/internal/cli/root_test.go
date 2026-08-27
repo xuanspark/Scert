@@ -11,6 +11,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 )
 
@@ -77,6 +78,58 @@ func TestHelpSupportsSubcommand(t *testing.T) {
 	}
 }
 
+func TestHelpIncludesServerManagementCommands(t *testing.T) {
+	root := newRootCommand()
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"help", "server"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("查看服务器管理帮助失败：%v", err)
+	}
+	text := output.String()
+	for _, expected := range []string{"管理部署服务器", "添加部署服务器", "编辑部署服务器", "删除部署服务器"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("服务器管理帮助缺少 %q：%s", expected, text)
+		}
+	}
+}
+
+func TestServerCommandUsesDefaultCertificatePathTemplates(t *testing.T) {
+	command := newServerAddCommand()
+	tests := map[string]string{
+		"certificate-path": deployment.DefaultCertificatePath,
+		"chain-path":       deployment.DefaultCertificateChainPath,
+		"private-key-path": deployment.DefaultPrivateKeyPath,
+	}
+	for name, expected := range tests {
+		flag := command.Flag(name)
+		if flag == nil || flag.DefValue != expected {
+			t.Fatalf("服务器命令参数 %s 的默认值错误：%v", name, flag)
+		}
+		if len(flag.Annotations) != 0 {
+			t.Fatalf("服务器路径参数 %s 不应强制填写：%v", name, flag.Annotations)
+		}
+	}
+}
+
+func TestHelpIncludesSSHKeyManagementCommands(t *testing.T) {
+	root := newRootCommand()
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"help", "ssh-key"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("查看 SSH 私钥管理帮助失败：%v", err)
+	}
+	text := output.String()
+	for _, expected := range []string{"管理 SSH 部署私钥", "安全录入 SSH 私钥", "删除未被服务器使用的 SSH 私钥"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("SSH 私钥管理帮助缺少 %q：%s", expected, text)
+		}
+	}
+}
+
 func TestCommandStatusUsesApplicationVersion(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	status := commandStatus(cfg)
@@ -88,7 +141,6 @@ func TestCommandStatusUsesApplicationVersion(t *testing.T) {
 func TestSaveSetupWithFirewallOpensOnlyMainPort(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	cfg.Server.Port = 8443
-	cfg.Admin.ResetServicePort = 8091
 	manager := &cliFakeFirewallManager{result: firewall.Result{
 		Backend: "windows", RuleName: "Scert Web TCP 8443", Created: true, Message: "已创建测试规则",
 	}}
@@ -102,6 +154,13 @@ func TestSaveSetupWithFirewallOpensOnlyMainPort(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("初始化配置未保存：%v", err)
+	}
+}
+
+func TestInitCommandDoesNotExposeResetServicePort(t *testing.T) {
+	command := newInitCommandWithFirewall(&cliFakeFirewallManager{})
+	if command.Flag("reset-service-port") != nil {
+		t.Fatal("初始化命令不应再提供独立密码重置端口")
 	}
 }
 

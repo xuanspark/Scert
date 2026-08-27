@@ -52,14 +52,14 @@ func TestSQLiteMigrationIsIdempotentAndCreatesBaseTables(t *testing.T) {
 	if err := db.DB.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&versions); err != nil {
 		t.Fatalf("读取迁移版本失败：%v", err)
 	}
-	if versions != 2 {
+	if versions != 3 {
 		t.Fatalf("重复迁移写入了多条版本记录：%d", versions)
 	}
 	var tables int
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('settings', 'domains', 'tasks', 'audit_logs')`).Scan(&tables); err != nil {
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('settings', 'domains', 'tasks', 'audit_logs', 'servers', 'domain_servers')`).Scan(&tables); err != nil {
 		t.Fatalf("检查基础数据表失败：%v", err)
 	}
-	if tables != 4 {
+	if tables != 6 {
 		t.Fatalf("基础数据表数量不正确：%d", tables)
 	}
 	if err := Migrate(context.Background(), db.DB, "postgres"); err == nil {
