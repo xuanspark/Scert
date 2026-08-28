@@ -13,21 +13,36 @@ import (
 )
 
 type Input struct {
-	AdminUsername    string
-	AdminEmail       string
-	AdminPassword    string
-	ServerPort       int
-	EmailProvider    string
-	EmailEndpoint    string
-	EmailRecipients  []string
-	DNSProvider      string
-	DNSCredentialRef string
-	DNSVerified      bool
-	CertificateRoot  string
-	WebHostname      string
-	WebPublicIP      string
-	WebEnabled       bool
-	HTTPSMode        string
+	AdminUsername                 string
+	AdminEmail                    string
+	AdminPassword                 string
+	ServerPort                    int
+	EmailHTTPEnabled              bool
+	EmailProvider                 string
+	EmailEndpoint                 string
+	EmailHTTPPath                 string
+	EmailHTTPLoginPath            string
+	EmailHTTPAuthMode             string
+	EmailHTTPCredentialRef        string
+	EmailHTTPHeaders              map[string]string
+	EmailEventMode                string
+	EmailIncludeDeploymentDetails bool
+	EmailIncludeCertificateSerial bool
+	EmailIncludeManagementURL     bool
+	EmailSenderName               string
+	EmailSenderEmail              string
+	EmailRecipients               []string
+	EmailTimeoutSecs              int
+	EmailRetryCount               int
+	EmailRetryIntervalsSecs       []int
+	DNSProvider                   string
+	DNSCredentialRef              string
+	DNSVerified                   bool
+	CertificateRoot               string
+	WebHostname                   string
+	WebPublicIP                   string
+	WebEnabled                    bool
+	HTTPSMode                     string
 }
 
 func Apply(cfg *config.Config, input Input) error {
@@ -81,6 +96,7 @@ func Apply(cfg *config.Config, input Input) error {
 	cfg.Admin.Username = strings.TrimSpace(input.AdminUsername)
 	cfg.Admin.Email = adminEmail
 	cfg.Admin.PasswordHash = string(hash)
+	cfg.ACME.AccountEmail = adminEmail
 	cfg.Server.Port = input.ServerPort
 	cfg.Server.HTTPSMode = input.HTTPSMode
 	cfg.Web.Enabled = input.WebEnabled
@@ -91,11 +107,64 @@ func Apply(cfg *config.Config, input Input) error {
 	cfg.DNS.Provider = strings.TrimSpace(input.DNSProvider)
 	cfg.DNS.CredentialRef = strings.TrimSpace(input.DNSCredentialRef)
 	cfg.DNS.VerificationState = "verified"
+	cfg.Notification.HTTPEnabled = input.EmailHTTPEnabled
+	cfg.Notification.SMTPEnabled = false
 	cfg.Notification.Provider = strings.TrimSpace(input.EmailProvider)
 	cfg.Notification.Endpoint = strings.TrimSpace(input.EmailEndpoint)
+	if strings.TrimSpace(input.EmailHTTPPath) != "" {
+		cfg.Notification.HTTPPath = strings.TrimSpace(input.EmailHTTPPath)
+	}
+	if strings.TrimSpace(input.EmailHTTPLoginPath) != "" {
+		cfg.Notification.HTTPLoginPath = strings.TrimSpace(input.EmailHTTPLoginPath)
+	}
+	if strings.TrimSpace(input.EmailHTTPAuthMode) != "" {
+		cfg.Notification.HTTPAuthMode = strings.TrimSpace(input.EmailHTTPAuthMode)
+	}
+	cfg.Notification.HTTPCredentialRef = strings.TrimSpace(input.EmailHTTPCredentialRef)
+	if input.EmailHTTPHeaders != nil {
+		cfg.Notification.HTTPHeaders = copyHeaders(input.EmailHTTPHeaders)
+	}
+	if strings.TrimSpace(input.EmailEventMode) != "" {
+		cfg.Notification.EventMode = strings.TrimSpace(input.EmailEventMode)
+	}
+	cfg.Notification.IncludeDeploymentDetails = input.EmailIncludeDeploymentDetails
+	cfg.Notification.IncludeCertificateSerial = input.EmailIncludeCertificateSerial
+	cfg.Notification.IncludeManagementURL = input.EmailIncludeManagementURL
+	if strings.TrimSpace(input.EmailSenderName) != "" {
+		cfg.Notification.SenderName = strings.TrimSpace(input.EmailSenderName)
+	}
+	if strings.TrimSpace(input.EmailSenderEmail) != "" {
+		cfg.Notification.SenderEmail = strings.ToLower(strings.TrimSpace(input.EmailSenderEmail))
+	} else {
+		cfg.Notification.SenderEmail = adminEmail
+	}
+	if input.EmailTimeoutSecs > 0 {
+		cfg.Notification.TimeoutSecs = input.EmailTimeoutSecs
+	}
+	if input.EmailRetryCount > 0 {
+		cfg.Notification.RetryCount = input.EmailRetryCount
+	}
+	if input.EmailRetryIntervalsSecs != nil {
+		cfg.Notification.RetryIntervalsSecs = append([]int(nil), input.EmailRetryIntervalsSecs...)
+	}
 	cfg.Notification.Recipients = cleanRecipients(input.EmailRecipients)
+	if len(cfg.Notification.Recipients) == 0 {
+		cfg.Notification.Recipients = []string{adminEmail}
+	}
 	cfg.SetupReady = true
 	return cfg.Validate()
+}
+
+func copyHeaders(values map[string]string) map[string]string {
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		result[key] = strings.TrimSpace(value)
+	}
+	return result
 }
 
 func cleanRecipients(values []string) []string {

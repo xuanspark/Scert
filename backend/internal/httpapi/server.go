@@ -3,8 +3,11 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,42 +28,54 @@ import (
 )
 
 type Dependencies struct {
-	Config           config.Config
-	ConfigPath       string
-	Logger           *logging.Logger
-	Repository       repository.DomainRepository
-	Servers          repository.ServerRepository
-	SSHKeys          *sshkey.Service
-	SetupDNS         setupDNSVerifier
-	Firewall         firewall.Manager
-	IssueCertificate func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	ResetStatePath   string
-	Audit            repository.AuditRepository
+	Config                   config.Config
+	ConfigPath               string
+	Logger                   *logging.Logger
+	Repository               repository.DomainRepository
+	Servers                  repository.ServerRepository
+	SSHKeys                  *sshkey.Service
+	SetupDNS                 setupDNSVerifier
+	Firewall                 firewall.Manager
+	IssueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	IssueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
+	RollbackSetupCertificate func(context.Context, certificate.SavedResource) error
+	ImportCertificate        func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
+	DeployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	CurrentCertificate       certificateReader
+	ResetStatePath           string
+	Audit                    repository.AuditRepository
+	Tasks                    repository.TaskRepository
 }
 
 type Server struct {
-	configMu         sync.RWMutex
-	config           config.Config
-	configPath       string
-	logger           *logging.Logger
-	repository       repository.DomainRepository
-	servers          repository.ServerRepository
-	sshKeys          *sshkey.Service
-	setupDNS         setupDNSVerifier
-	firewall         firewall.Manager
-	issueCertificate func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	resetStatePath   string
-	audit            repository.AuditRepository
-	resetMu          sync.Mutex
-	resetClosedHash  string
-	resetLimiter     *resetRateLimiter
-	authSessions     map[string]authSession
-	authMu           sync.RWMutex
-	loginAttempts    map[string]loginAttempt
-	loginMu          sync.Mutex
-	now              func() time.Time
-	httpServer       *http.Server
-	router           *gin.Engine
+	configMu                 sync.RWMutex
+	config                   config.Config
+	configPath               string
+	logger                   *logging.Logger
+	repository               repository.DomainRepository
+	servers                  repository.ServerRepository
+	sshKeys                  *sshkey.Service
+	setupDNS                 setupDNSVerifier
+	firewall                 firewall.Manager
+	issueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	issueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
+	rollbackSetupCertificate func(context.Context, certificate.SavedResource) error
+	importCertificate        func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
+	deployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	currentCertificate       certificateReader
+	resetStatePath           string
+	audit                    repository.AuditRepository
+	tasks                    repository.TaskRepository
+	resetMu                  sync.Mutex
+	resetClosedHash          string
+	resetLimiter             *resetRateLimiter
+	authSessions             map[string]authSession
+	authMu                   sync.RWMutex
+	loginAttempts            map[string]loginAttempt
+	loginMu                  sync.Mutex
+	now                      func() time.Time
+	httpServer               *http.Server
+	router                   *gin.Engine
 }
 
 func New(deps Dependencies) *Server {
@@ -70,16 +85,23 @@ func New(deps Dependencies) *Server {
 	server := &Server{
 		config: deps.Config, configPath: deps.ConfigPath, logger: deps.Logger,
 		repository: deps.Repository, setupDNS: deps.SetupDNS, firewall: deps.Firewall, router: router,
-		servers:          deps.Servers,
-		sshKeys:          deps.SSHKeys,
-		issueCertificate: deps.IssueCertificate,
-		resetStatePath:   deps.ResetStatePath,
-		audit:            deps.Audit,
-		resetLimiter:     newResetRateLimiter(),
-		authSessions:     make(map[string]authSession),
-		loginAttempts:    make(map[string]loginAttempt),
-		now:              time.Now,
+		servers:                  deps.Servers,
+		sshKeys:                  deps.SSHKeys,
+		issueCertificate:         deps.IssueCertificate,
+		issueSetupCertificate:    deps.IssueSetupCertificate,
+		rollbackSetupCertificate: deps.RollbackSetupCertificate,
+		importCertificate:        deps.ImportCertificate,
+		deployCertificate:        deps.DeployCertificate,
+		currentCertificate:       deps.CurrentCertificate,
+		resetStatePath:           deps.ResetStatePath,
+		audit:                    deps.Audit,
+		tasks:                    deps.Tasks,
+		resetLimiter:             newResetRateLimiter(),
+		authSessions:             make(map[string]authSession),
+		loginAttempts:            make(map[string]loginAttempt),
+		now:                      time.Now,
 	}
+	router.Use(server.requestMiddleware())
 	server.registerRoutes()
 	server.registerSetupRoutes()
 	return server
@@ -94,21 +116,33 @@ func (s *Server) registerRoutes() {
 	s.router.GET("/api/v1/auth/session", s.authSession)
 	s.router.POST("/api/v1/auth/login", s.authLogin)
 	s.router.POST("/api/v1/auth/logout", s.authLogout)
-	s.router.GET("/api/v1/domains", s.listDomains)
-	s.router.POST("/api/v1/domains", s.createDomain)
-	s.router.PUT("/api/v1/domains/:id", s.updateDomain)
-	s.router.DELETE("/api/v1/domains/:id", s.deleteDomain)
-	s.router.POST("/api/v1/domains/:id/issue", s.issueDomain)
-	s.router.GET("/api/v1/domains/:id/servers", s.listDomainServers)
-	s.router.PUT("/api/v1/domains/:id/servers", s.replaceDomainServers)
-	s.router.GET("/api/v1/servers", s.listServers)
-	s.router.POST("/api/v1/servers", s.createServer)
-	s.router.GET("/api/v1/servers/:id", s.getServer)
-	s.router.PUT("/api/v1/servers/:id", s.updateServer)
-	s.router.DELETE("/api/v1/servers/:id", s.deleteServer)
-	s.router.GET("/api/v1/ssh-keys", s.listSSHKeys)
-	s.router.POST("/api/v1/ssh-keys", s.createSSHKey)
-	s.router.DELETE("/api/v1/ssh-keys/:id", s.deleteSSHKey)
+	s.router.POST("/api/v1/password-reset/resolve", s.resolvePasswordResetAccount)
+	adminAPI := s.router.Group("/api/v1", s.requireAdmin)
+	adminAPI.GET("/domains", s.listDomains)
+	adminAPI.POST("/domains", s.createDomain)
+	adminAPI.PUT("/domains/:id", s.updateDomain)
+	adminAPI.DELETE("/domains/:id", s.deleteDomain)
+	adminAPI.POST("/domains/:id/issue", s.issueDomain)
+	adminAPI.GET("/tasks", s.listTasks)
+	adminAPI.GET("/tasks/:id", s.getTask)
+	adminAPI.GET("/tasks/:id/attempts", s.listTaskAttempts)
+	adminAPI.GET("/audit-logs", s.listAuditLogs)
+	adminAPI.GET("/certificates", s.listCertificates)
+	adminAPI.GET("/certificates/:id", s.getCertificate)
+	adminAPI.POST("/domains/:id/certificate/import", s.importCertificateFiles)
+	adminAPI.POST("/domains/:id/certificate/validate", s.validateCertificate)
+	adminAPI.POST("/domains/:id/deploy", s.deployCertificateCurrent)
+	adminAPI.GET("/domains/:id/certificate/versions", s.listCertificateVersions)
+	adminAPI.GET("/domains/:id/servers", s.listDomainServers)
+	adminAPI.PUT("/domains/:id/servers", s.replaceDomainServers)
+	adminAPI.GET("/servers", s.listServers)
+	adminAPI.POST("/servers", s.createServer)
+	adminAPI.GET("/servers/:id", s.getServer)
+	adminAPI.PUT("/servers/:id", s.updateServer)
+	adminAPI.DELETE("/servers/:id", s.deleteServer)
+	adminAPI.GET("/ssh-keys", s.listSSHKeys)
+	adminAPI.POST("/ssh-keys", s.createSSHKey)
+	adminAPI.DELETE("/ssh-keys/:id", s.deleteSSHKey)
 }
 
 func (s *Server) Handler() http.Handler {
@@ -119,18 +153,64 @@ func (s *Server) ListenAndServe() error {
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
+	address, err := listenAddress(cfg)
+	if err != nil {
+		return err
+	}
 	s.httpServer = &http.Server{
-		Addr:              net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port)),
+		Addr:              address,
 		Handler:           s.router,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	if s.logger != nil {
-		s.logger.Info("HTTP 服务启动", "address", s.httpServer.Addr, "https_mode", cfg.Server.HTTPSMode)
+	if !cfg.SetupReady {
+		if s.logger != nil {
+			s.logger.Info("HTTP 服务启动", "address", s.httpServer.Addr, "https_mode", "初始化明文 HTTP")
+		}
+		return s.httpServer.ListenAndServe()
 	}
-	return s.httpServer.ListenAndServe()
+	certPath := strings.TrimSpace(cfg.Server.TLSCert)
+	keyPath := strings.TrimSpace(cfg.Server.TLSKey)
+	if certPath == "" || keyPath == "" {
+		return fmt.Errorf("初始化已完成，但 HTTPS 证书或私钥路径未配置")
+	}
+	if _, err := os.Stat(filepath.Clean(certPath)); err != nil {
+		return fmt.Errorf("读取 HTTPS 证书失败：%w", err)
+	}
+	if _, err := os.Stat(filepath.Clean(keyPath)); err != nil {
+		return fmt.Errorf("读取 HTTPS 私钥失败：%w", err)
+	}
+	if s.logger != nil {
+		s.logger.Info("HTTPS 服务启动", "address", s.httpServer.Addr, "https_mode", cfg.Server.HTTPSMode)
+	}
+	return s.httpServer.ListenAndServeTLS(certPath, keyPath)
+}
+
+// listenAddress 返回当前 HTTPS 模式实际使用的监听地址。
+// 高级模式的核心服务只允许通过本机回环地址提供内部 HTTPS，避免误绑定到公网网卡。
+func listenAddress(cfg config.Config) (string, error) {
+	host := strings.TrimSpace(cfg.Server.Host)
+	if host == "" {
+		return "", fmt.Errorf("服务监听地址不能为空")
+	}
+	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
+		return "", fmt.Errorf("服务监听端口无效：%d", cfg.Server.Port)
+	}
+	if cfg.Server.HTTPSMode == "proxy" && !isLoopbackHost(host) {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(cfg.Server.Port)), nil
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
@@ -302,6 +382,10 @@ func (s *Server) deleteDomain(c *gin.Context) {
 }
 
 func (s *Server) issueDomain(c *gin.Context) {
+	if s.tasks != nil {
+		s.issueDomainAsTask(c)
+		return
+	}
 	if s.issueCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
 		return

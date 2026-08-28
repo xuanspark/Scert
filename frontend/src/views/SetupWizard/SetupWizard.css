@@ -130,6 +130,8 @@
   color: #ffe5ad;
 }
 .setup-card {
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -273,6 +275,33 @@ legend span {
 .two-columns {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+
+.three-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-options {
+  gap: 6px;
+}
+
+.compact-row {
+  min-height: 38px;
+  padding: 6px 8px;
+}
+
+.compact-row span {
+  min-width: 0;
+}
+
+.compact-row strong {
+  white-space: nowrap;
+}
+
+.compact-row small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 label {
   min-width: 0;
   display: grid;
@@ -281,6 +310,20 @@ label {
   color: #34445f;
   font-size: 10px;
   font-weight: 800;
+}
+.email-input-group {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(88px, 112px);
+  gap: 6px;
+}
+.email-input-group input,
+.email-input-group select {
+  min-width: 0;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 input,
 select,
@@ -1250,6 +1293,15 @@ footer .back-button {
   select {
     height: 26px;
   }
+  .email-field {
+    grid-column: 1 / -1;
+  }
+
+
+  .email-input-group {
+    grid-template-columns: minmax(0, 1fr) minmax(74px, 92px);
+    gap: 5px;
+  }
 
   footer {
     min-height: 34px;
@@ -1303,5 +1355,243 @@ footer .back-button {
   .setup-card footer button {
     padding: 5px 6px;
     font-size: 8px;
+  }
+}
+/* 移动端步骤内容压缩，确保复杂配置步骤完整显示 */
+@media (max-width: 600px) {
+  .setup-card {
+    overflow: hidden;
+  }
+
+  .setup-step-card {
+    height: auto;
+    overflow: visible;
+  }
+
+  .setup-step-card .setup-grid {
+    gap: 2px 5px;
+  }
+
+  .setup-step-card label {
+    gap: 1px;
+    margin-top: 2px;
+  }
+
+  .setup-step-card input,
+  .setup-step-card select {
+    height: 24px;
+  }
+
+  .setup-step-card textarea {
+    min-height: 30px;
+    height: 30px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .setup-step-card .provider-description {
+    margin-top: 2px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .setup-step-card .reset-preview span:first-of-type {
+    display: block !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .setup-step-card .reset-preview span:last-of-type {
+    display: none !important;
+  }
+
+  .setup-step-card .dns-test-actions {
+    margin-top: 2px;
+  }
+}
+
+@media (max-width: 390px) {
+  .setup-step-card .setup-grid {
+    gap: 1px 4px;
+  }
+
+  .setup-step-card label {
+    gap: 1px;
+    margin-top: 1px;
+  }
+
+  .setup-step-card input,
+  .setup-step-card select {
+    height: 22px;
+  }
+
+  .setup-step-card textarea {
+    min-height: 26px;
+    height: 26px;
+  }
+}
+
+
+@media (min-width: 901px) {
+  .setup-notification-step:has(#email-http-enabled:checked) > .email-primary-grid,
+  .setup-notification-step:has(#email-http-enabled:checked) > .email-delivery-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px 7px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) {
+    padding: 12px 14px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) legend {
+    font-size: 11px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) label {
+    gap: 2px;
+    margin-top: 2px;
+    font-size: 9px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) label > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) input,
+  .setup-notification-step:has(#email-http-enabled:checked) select {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 10px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) textarea {
+    min-height: 30px;
+    height: 30px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .provider-description {
+    overflow: hidden;
+    margin-top: 3px;
+    padding: 4px 8px;
+    font-size: 9px;
+    line-height: 1.25;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .email-option-grid {
+    gap: 4px;
+    margin-top: 3px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .compact-row {
+    min-height: 26px;
+    padding: 4px 6px;
+  }
+}
+
+
+@media (min-width: 901px) and (max-height: 800px) {
+  .setup-notification-step:has(#email-http-enabled:checked) label {
+    gap: 1px;
+    margin-top: 1px;
+    font-size: 8px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) input,
+  .setup-notification-step:has(#email-http-enabled:checked) select {
+    height: 22px;
+    padding: 0 6px;
+    font-size: 9px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) textarea {
+    min-height: 24px;
+    height: 24px;
+    padding: 3px 6px;
+    font-size: 9px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    margin-top: 2px;
+    padding: 3px 6px;
+    gap: 5px;
+    font-size: 8px;
+    line-height: 1.15;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview strong,
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview span {
+    display: inline !important;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview strong {
+    flex: 0 0 auto;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview span:first-of-type {
+    flex: 0 1 auto;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview span:last-of-type {
+    flex: 1 1 auto;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .email-option-grid {
+    gap: 3px;
+    margin-top: 2px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .compact-row {
+    min-height: 22px;
+    padding: 2px 4px;
+  }
+}
+
+
+@media (min-width: 901px) {
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview {
+    display: flex;
+    align-items: center;
+    height: 30px;
+    gap: 6px;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview strong,
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview span {
+    display: inline !important;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview strong {
+    flex: 0 0 auto;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview span:first-of-type {
+    flex: 0 1 auto;
+  }
+
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview span:last-of-type {
+    flex: 1 1 auto;
+  }
+}
+
+@media (min-width: 901px) and (max-height: 800px) {
+  .setup-notification-step:has(#email-http-enabled:checked) .reset-preview {
+    height: 28px;
+    gap: 5px;
   }
 }

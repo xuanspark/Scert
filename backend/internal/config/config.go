@@ -85,13 +85,25 @@ type DNSConfig struct {
 }
 
 type NotificationConfig struct {
-	HTTPEnabled bool     `json:"http_enabled"`
-	SMTPEnabled bool     `json:"smtp_enabled"`
-	Provider    string   `json:"provider"`
-	Endpoint    string   `json:"endpoint"`
-	Recipients  []string `json:"recipients"`
-	TimeoutSecs int      `json:"timeout_secs"`
-	RetryCount  int      `json:"retry_count"`
+	HTTPEnabled              bool              `json:"http_enabled"`
+	SMTPEnabled              bool              `json:"smtp_enabled"`
+	Provider                 string            `json:"provider"`
+	Endpoint                 string            `json:"endpoint"`
+	HTTPPath                 string            `json:"http_path"`
+	HTTPLoginPath            string            `json:"http_login_path"`
+	HTTPAuthMode             string            `json:"http_auth_mode"`
+	HTTPCredentialRef        string            `json:"http_credential_ref"`
+	HTTPHeaders              map[string]string `json:"http_headers"`
+	EventMode                string            `json:"event_mode"`
+	IncludeDeploymentDetails bool              `json:"include_deployment_details"`
+	IncludeCertificateSerial bool              `json:"include_certificate_serial"`
+	IncludeManagementURL     bool              `json:"include_management_url"`
+	SenderName               string            `json:"sender_name"`
+	SenderEmail              string            `json:"sender_email"`
+	Recipients               []string          `json:"recipients"`
+	TimeoutSecs              int               `json:"timeout_secs"`
+	RetryCount               int               `json:"retry_count"`
+	RetryIntervalsSecs       []int             `json:"retry_intervals_secs"`
 }
 
 func Default(baseDir string) Config {
@@ -106,10 +118,20 @@ func Default(baseDir string) Config {
 			Driver: "sqlite", DSN: filepath.Join(paths.Data, "scert.db"),
 			MaxOpenConns: 4, MaxIdleConns: 2, ConnMaxLifetimeMins: 30,
 		},
-		Paths:        paths,
-		ACME:         ACMEConfig{CA: "letsencrypt", Environment: "staging", RenewalThresholdDays: 6},
-		DNS:          DNSConfig{VerificationState: "not_configured"},
-		Notification: NotificationConfig{TimeoutSecs: 10, RetryCount: 3},
+		Paths: paths,
+		ACME:  ACMEConfig{CA: "letsencrypt", Environment: "staging", RenewalThresholdDays: 6},
+		DNS:   DNSConfig{VerificationState: "not_configured"},
+		Notification: NotificationConfig{
+			HTTPHeaders:        map[string]string{},
+			HTTPPath:           "/api/email/send",
+			HTTPLoginPath:      "/api/login",
+			HTTPAuthMode:       "none",
+			EventMode:          "detailed",
+			SenderName:         "Scert",
+			TimeoutSecs:        10,
+			RetryCount:         3,
+			RetryIntervalsSecs: []int{30, 120, 600},
+		},
 	}
 }
 
@@ -184,6 +206,33 @@ func (c *Config) Normalize() {
 	}
 	if c.DNS.VerificationState == "" {
 		c.DNS.VerificationState = "not_configured"
+	}
+	if c.Notification.HTTPPath == "" {
+		c.Notification.HTTPPath = "/api/email/send"
+	}
+	if c.Notification.HTTPLoginPath == "" {
+		c.Notification.HTTPLoginPath = "/api/login"
+	}
+	if c.Notification.HTTPAuthMode == "" {
+		c.Notification.HTTPAuthMode = "none"
+	}
+	if c.Notification.EventMode == "" {
+		c.Notification.EventMode = "detailed"
+	}
+	if c.Notification.SenderName == "" {
+		c.Notification.SenderName = "Scert"
+	}
+	if c.Notification.TimeoutSecs == 0 {
+		c.Notification.TimeoutSecs = 10
+	}
+	if c.Notification.RetryCount == 0 {
+		c.Notification.RetryCount = 3
+	}
+	if len(c.Notification.RetryIntervalsSecs) == 0 {
+		c.Notification.RetryIntervalsSecs = []int{30, 120, 600}
+	}
+	if c.Notification.HTTPHeaders == nil {
+		c.Notification.HTTPHeaders = map[string]string{}
 	}
 }
 func (c Config) Save(path string) error {
@@ -273,8 +322,47 @@ func (c Config) Validate() error {
 			return fmt.Errorf("初始化完成时必须配置管理页面域名或公网 IP")
 		}
 	}
-	if c.Notification.TimeoutSecs < 1 || c.Notification.RetryCount < 0 {
+	if c.Notification.HTTPAuthMode != "none" && c.Notification.HTTPAuthMode != "bearer" && c.Notification.HTTPAuthMode != "hmac_sha256" && c.Notification.HTTPAuthMode != "session" {
+		return fmt.Errorf("HTTP 通知认证方式无效：%s", c.Notification.HTTPAuthMode)
+	}
+	if c.Notification.HTTPAuthMode != "none" && strings.TrimSpace(c.Notification.HTTPCredentialRef) == "" {
+		return fmt.Errorf("HTTP 通知启用认证时必须配置凭据引用")
+	}
+	if c.Notification.EventMode != "detailed" && c.Notification.EventMode != "unified" {
+		return fmt.Errorf("通知事件模式无效：%s", c.Notification.EventMode)
+	}
+	if strings.TrimSpace(c.Notification.HTTPPath) == "" || !strings.HasPrefix(strings.TrimSpace(c.Notification.HTTPPath), "/") {
+		return fmt.Errorf("HTTP 通知请求路径必须以 / 开头")
+	}
+	if strings.TrimSpace(c.Notification.HTTPLoginPath) == "" || !strings.HasPrefix(strings.TrimSpace(c.Notification.HTTPLoginPath), "/") {
+		return fmt.Errorf("HTTP 通知登录请求路径必须以 / 开头")
+	}
+	if endpoint := strings.TrimSpace(c.Notification.Endpoint); endpoint != "" {
+		parsedEndpoint, endpointErr := url.Parse(endpoint)
+		if endpointErr != nil || (parsedEndpoint.Scheme != "http" && parsedEndpoint.Scheme != "https") || parsedEndpoint.Host == "" {
+			return fmt.Errorf("第三方邮箱 API 地址格式无效")
+		}
+	}
+	if c.Notification.SenderEmail != "" {
+		senderEmail := strings.ToLower(strings.TrimSpace(c.Notification.SenderEmail))
+		parsedSender, senderErr := mail.ParseAddress(senderEmail)
+		if senderErr != nil || parsedSender.Address != senderEmail || parsedSender.Name != "" {
+			return fmt.Errorf("通知发件人地址格式无效")
+		}
+	}
+	if c.Notification.TimeoutSecs < 1 || c.Notification.RetryCount < 0 || len(c.Notification.RetryIntervalsSecs) != c.Notification.RetryCount {
 		return fmt.Errorf("通知配置无效")
+	}
+	for _, interval := range c.Notification.RetryIntervalsSecs {
+		if interval < 1 {
+			return fmt.Errorf("通知重试间隔必须大于 0")
+		}
+	}
+	for header := range c.Notification.HTTPHeaders {
+		switch strings.ToLower(strings.TrimSpace(header)) {
+		case "authorization", "cookie", "origin", "referer", "content-type", "accept", "x-csrf-token", "x-scert-signature", "x-scert-request-id", "x-scert-timestamp":
+			return fmt.Errorf("HTTP 自定义请求头不允许覆盖安全头：%s", header)
+		}
 	}
 	return nil
 }

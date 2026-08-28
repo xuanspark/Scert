@@ -4,18 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+	"git.pcux.cn/xuans/Scert/backend/internal/notification"
 )
 
 type CertificateWorkflow struct {
-	Certificates certificateService
-	Domains      domainDeploymentRepository
-	Servers      serverLister
-	Deployment   savedDeployer
+	Certificates       certificateService
+	Domains            domainDeploymentRepository
+	Servers            serverLister
+	Deployment         savedDeployer
+	Notifier           notification.Notifier
+	NotifyError        func(error)
+	RemoteVerifier     func(context.Context, string, []string) (certificate.ValidationResult, error)
+	CurrentCertificate func(context.Context, string) (certificate.IssueResult, error)
 }
 
 type certificateService interface {
@@ -50,14 +56,25 @@ func (w *CertificateWorkflow) IssueWithReport(ctx context.Context, domainID stri
 	if w == nil || w.Certificates == nil || w.Domains == nil || w.Servers == nil || w.Deployment == nil {
 		return CertificateWorkflowResult{}, errors.New("证书部署流程未初始化")
 	}
+	domainItem, _ := w.Domains.GetByID(ctx, domainID)
 	certificateResult, err := w.Certificates.Issue(ctx, domainID)
 	if err != nil {
+		w.notify(ctx, notification.Event{Type: "certificate_renewal", Status: "failed", DomainID: domainID, Domain: domainItem.Name, Error: err.Error()})
 		return CertificateWorkflowResult{}, err
 	}
 	report, err := w.deploy(ctx, certificateResult)
 	if err != nil {
 		w.markDeploymentError(certificateResult)
 	}
+	status := "success"
+	if err != nil {
+		status = "error"
+	}
+	w.notify(ctx, notification.Event{
+		Type: "certificate_renewal", Status: status, DomainID: certificateResult.DomainID,
+		Domain: domainItem.Name, Domains: certificateResult.Domains, ExpiresAt: &certificateResult.Saved.NotAfter,
+		Deployment: report, Error: errorText(err),
+	})
 	return CertificateWorkflowResult{Certificate: certificateResult, Deployment: report}, err
 }
 
@@ -66,19 +83,69 @@ func (w *CertificateWorkflow) IssueForHTTP(ctx context.Context, domainID string)
 	return result.Certificate, result.Deployment, err
 }
 
+// DeployCurrent validates and deploys the active certificate without issuing a new one.
+func (w *CertificateWorkflow) DeployCurrent(ctx context.Context, domainID string) (CertificateWorkflowResult, error) {
+	if w == nil || w.CurrentCertificate == nil || w.Domains == nil || w.Servers == nil || w.Deployment == nil {
+		return CertificateWorkflowResult{}, errors.New("当前证书部署流程未初始化")
+	}
+	result, err := w.CurrentCertificate(ctx, domainID)
+	if err != nil {
+		return CertificateWorkflowResult{}, err
+	}
+	report, err := w.deploy(ctx, result)
+	if err != nil {
+		w.markDeploymentError(result)
+	}
+	status := "success"
+	if err != nil {
+		status = "error"
+	}
+	w.notify(ctx, notification.Event{
+		Type: "certificate_deploy", Status: status, DomainID: result.DomainID,
+		Domains: result.Domains, ExpiresAt: &result.Saved.NotAfter, Deployment: report, Error: errorText(err),
+	})
+	return CertificateWorkflowResult{Certificate: result, Deployment: report}, err
+}
 func (w *CertificateWorkflow) Import(ctx context.Context, request certificate.ImportRequest) (CertificateWorkflowResult, error) {
 	if w == nil || w.Certificates == nil || w.Domains == nil || w.Servers == nil || w.Deployment == nil {
 		return CertificateWorkflowResult{}, errors.New("证书部署流程未初始化")
 	}
+	domainItem, _ := w.Domains.GetByID(ctx, request.DomainID)
 	certificateResult, err := w.Certificates.Import(ctx, request)
 	if err != nil {
+		w.notify(ctx, notification.Event{Type: "certificate_import", Status: "failed", DomainID: request.DomainID, Domain: domainItem.Name, Error: err.Error()})
 		return CertificateWorkflowResult{}, err
 	}
 	report, err := w.deploy(ctx, certificateResult)
 	if err != nil {
 		w.markDeploymentError(certificateResult)
 	}
+	status := "success"
+	if err != nil {
+		status = "error"
+	}
+	w.notify(ctx, notification.Event{
+		Type: "certificate_import", Status: status, DomainID: certificateResult.DomainID,
+		Domain: domainItem.Name, Domains: certificateResult.Domains, ExpiresAt: &certificateResult.Saved.NotAfter,
+		Deployment: report, Error: errorText(err),
+	})
 	return CertificateWorkflowResult{Certificate: certificateResult, Deployment: report}, err
+}
+
+func (w *CertificateWorkflow) notify(ctx context.Context, event notification.Event) {
+	if w == nil || w.Notifier == nil {
+		return
+	}
+	if err := w.Notifier.Send(ctx, event); err != nil && w.NotifyError != nil {
+		w.NotifyError(err)
+	}
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.IssueResult) (deployment.Report, error) {
@@ -109,7 +176,26 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 	if report.Status != "success" {
 		return report, fmt.Errorf("证书部署未全部成功：成功 %d 台，失败 %d 台", report.Success, report.Failed)
 	}
+	if w.RemoteVerifier != nil {
+		verificationDomain := verificationName(domainItem, result.Domains)
+		if verificationDomain == "" {
+			return report, errors.New("无法确定部署后的 HTTPS 校验域名")
+		}
+		if _, err := w.RemoteVerifier(ctx, "https://"+verificationDomain, result.Domains); err != nil {
+			return report, fmt.Errorf("部署后 HTTPS 校验失败：%w", err)
+		}
+	}
 	return report, nil
+}
+
+func verificationName(item domain.Domain, issuedDomains []string) string {
+	for _, value := range issuedDomains {
+		value = strings.TrimSpace(value)
+		if value != "" && !strings.HasPrefix(value, "*.") {
+			return value
+		}
+	}
+	return strings.TrimPrefix(strings.TrimSpace(item.Name), "*.")
 }
 
 func (w *CertificateWorkflow) markDeploymentError(result certificate.IssueResult) {

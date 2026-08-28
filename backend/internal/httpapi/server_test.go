@@ -18,6 +18,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
@@ -469,5 +470,98 @@ func resetForm(code, csrfToken, password string) url.Values {
 		"reset_code":       {code},
 		"new_password":     {password},
 		"confirm_password": {password},
+	}
+}
+
+func TestListenAddressKeepsDirectModeBinding(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Server.Host = "0.0.0.0"
+	cfg.Server.Port = 5200
+	cfg.Server.HTTPSMode = "direct"
+	address, err := listenAddress(cfg)
+	if err != nil {
+		t.Fatalf("直接 HTTPS 模式监听地址生成失败：%v", err)
+	}
+	if address != "0.0.0.0:5200" {
+		t.Fatalf("直接 HTTPS 模式应保留配置监听地址：%s", address)
+	}
+}
+
+func TestListenAddressRestrictsProxyModeToLoopback(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Server.Host = "0.0.0.0"
+	cfg.Server.Port = 5201
+	cfg.Server.HTTPSMode = "proxy"
+	address, err := listenAddress(cfg)
+	if err != nil {
+		t.Fatalf("高级 HTTPS 模式监听地址生成失败：%v", err)
+	}
+	if address != "127.0.0.1:5201" {
+		t.Fatalf("高级 HTTPS 模式必须绑定本机回环地址：%s", address)
+	}
+
+	cfg.Server.Host = "192.168.2.3"
+	address, err = listenAddress(cfg)
+	if err != nil {
+		t.Fatalf("高级 HTTPS 模式公网地址校正失败：%v", err)
+	}
+	if address != "127.0.0.1:5201" {
+		t.Fatalf("高级 HTTPS 模式不得绑定局域网地址：%s", address)
+	}
+}
+
+func TestListenAddressAllowsLoopbackProxyBinding(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.Server.Host = "[::1]"
+	cfg.Server.Port = 5202
+	cfg.Server.HTTPSMode = "proxy"
+	address, err := listenAddress(cfg)
+	if err != nil {
+		t.Fatalf("回环 HTTPS 模式监听地址生成失败：%v", err)
+	}
+	if address != "[::1]:5202" {
+		t.Fatalf("已配置 IPv6 回环地址时不应被替换：%s", address)
+	}
+}
+
+func TestForwardedHTTPSIsTrustedOnlyInProxyMode(t *testing.T) {
+	direct := config.Default(t.TempDir())
+	direct.Server.HTTPSMode = "direct"
+	directServer := New(Dependencies{Config: direct, Repository: &stubDomainRepository{}})
+	directRequest := httptest.NewRequest(http.MethodGet, "http://scert.example.test/healthz", nil)
+	directRequest.Header.Set("X-Forwarded-Proto", "https")
+	if directServer.requestIsHTTPS(directRequest) {
+		t.Fatal("直接 HTTPS 模式不应信任外部伪造的 X-Forwarded-Proto")
+	}
+
+	proxy := config.Default(t.TempDir())
+	proxy.Server.HTTPSMode = "proxy"
+	proxyServer := New(Dependencies{Config: proxy, Repository: &stubDomainRepository{}})
+	proxyRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:5200/healthz", nil)
+	proxyRequest.Header.Set("X-Forwarded-Proto", "https, http")
+	if !proxyServer.requestIsHTTPS(proxyRequest) {
+		t.Fatal("高级 HTTPS 模式应识别可信反向代理传入的 HTTPS 协议")
+	}
+}
+
+func TestProxyModeAcceptsHTTPSSameOrigin(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	cfg.Server.HTTPSMode = "proxy"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.com"
+	hash, err := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("生成测试密码摘要失败：%v", err)
+	}
+	cfg.Admin.PasswordHash = string(hash)
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{items: []domain.Domain{}}})
+
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:5200/api/v1/domains", nil)
+	request.Host = "scert.example.test"
+	request.Header.Set("Origin", "https://scert.example.test")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	if !server.sameOriginForAPI(request) {
+		t.Fatal("高级 HTTPS 模式应接受反向代理后的同源 HTTPS 请求")
 	}
 }

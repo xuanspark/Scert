@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
-//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql
+//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/sqlite/0004_task_attempts.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql migrations/mysql/0004_task_attempts.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -37,7 +38,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 3
+const latestMigrationVersion = 4
 
 func applyMigration(ctx context.Context, db *sql.DB, driver string, version int) error {
 	path := fmt.Sprintf("migrations/%s/%04d_%s.sql", driver, version, migrationName(version))
@@ -48,6 +49,13 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 	statements := migrationStatements(content)
 	if driver == "mysql" {
 		for _, statement := range statements {
+			skip, err := shouldSkipMySQLStatement(ctx, db, statement)
+			if err != nil {
+				return fmt.Errorf("检查数据库迁移状态失败：%w", err)
+			}
+			if skip {
+				continue
+			}
 			if _, err := db.ExecContext(ctx, statement); err != nil {
 				return fmt.Errorf("执行数据库迁移失败：%w", err)
 			}
@@ -77,6 +85,34 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 	return nil
 }
 
+var (
+	mysqlAddColumnPattern   = regexp.MustCompile(`(?is)^ALTER\s+TABLE\s+` + "`?([a-zA-Z0-9_]+)`?" + `\s+ADD\s+COLUMN\s+` + "`?([a-zA-Z0-9_]+)`?")
+	mysqlCreateIndexPattern = regexp.MustCompile(`(?is)^CREATE\s+INDEX\s+` + "`?([a-zA-Z0-9_]+)`?" + `\s+ON\s+` + "`?([a-zA-Z0-9_]+)`?")
+)
+
+// shouldSkipMySQLStatement 检查可恢复迁移中的字段和索引是否已经存在。
+// MySQL 5.7 不支持 ADD COLUMN IF NOT EXISTS，因此需要在执行前查询元数据。
+func shouldSkipMySQLStatement(ctx context.Context, db *sql.DB, statement string) (bool, error) {
+	statement = strings.TrimSpace(statement)
+	if matches := mysqlAddColumnPattern.FindStringSubmatch(statement); len(matches) == 3 {
+		var count int
+		err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM information_schema.columns
+			WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`, matches[1], matches[2]).Scan(&count)
+		return count > 0, err
+	}
+	if matches := mysqlCreateIndexPattern.FindStringSubmatch(statement); len(matches) == 3 {
+		var count int
+		err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM information_schema.statistics
+			WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`, matches[2], matches[1]).Scan(&count)
+		return count > 0, err
+	}
+	return false, nil
+}
+
 func migrationName(version int) string {
 	switch version {
 	case 1:
@@ -85,6 +121,8 @@ func migrationName(version int) string {
 		return "domain_options"
 	case 3:
 		return "deployment"
+	case 4:
+		return "task_attempts"
 	default:
 		return "unknown"
 	}

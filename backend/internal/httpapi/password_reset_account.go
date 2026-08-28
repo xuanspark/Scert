@@ -1,0 +1,73 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/admin"
+	"git.pcux.cn/xuans/Scert/backend/internal/auth"
+)
+
+const passwordResetResolveBodyLimit = 16 * 1024
+
+type passwordResetResolveRequest struct {
+	Identifier string `json:"identifier"`
+}
+
+type passwordResetResolution struct {
+	AccountType  string `json:"account_type"`
+	AccountLabel string `json:"account_label"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	Action       string `json:"action"`
+	ResetPath    string `json:"reset_path,omitempty"`
+}
+
+// resolvePasswordResetAccount 根据账户标识返回对应的密码处理内容。
+func (s *Server) resolvePasswordResetAccount(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, passwordResetResolveBodyLimit)
+	var request passwordResetResolveRequest
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "账户信息格式无效"})
+		return
+	}
+
+	identifier, err := auth.NormalizeIdentifier(request.Identifier)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入有效的用户名或绑定邮箱"})
+		return
+	}
+
+	s.configMu.RLock()
+	cfg := s.config
+	s.configMu.RUnlock()
+	if !cfg.SetupReady {
+		c.JSON(http.StatusConflict, gin.H{"error": "Scert 尚未完成初始化，暂不能处理密码重置"})
+		return
+	}
+
+	if auth.IsMatch(identifier, cfg.Admin.Username, cfg.Admin.Email) {
+		c.JSON(http.StatusOK, passwordResetResolution{
+			AccountType:  "super_admin",
+			AccountLabel: "超级管理员",
+			Title:        "超级管理员密码重置",
+			Description:  "已识别为超级管理员账户。超级管理员不能通过普通重置页面修改密码，请使用 Scert-admin 开启的一次性重置入口。",
+			Action:       "use_super_admin_entry",
+			ResetPath:    admin.ResetPath,
+		})
+		return
+	}
+
+	// 未识别账户时不返回具体账户信息，避免通过重置入口枚举账户。
+	c.JSON(http.StatusOK, passwordResetResolution{
+		AccountType:  "unknown",
+		AccountLabel: "未识别账户",
+		Title:        "无法识别账户",
+		Description:  "未找到匹配的账户，请检查用户名或绑定邮箱；如果账户属于其他用户类型，请联系有权限的管理员处理。",
+		Action:       "check_identifier",
+	})
+}

@@ -232,3 +232,33 @@ func testResourceForDomains(t *testing.T, names []string) Resource {
 		PrivateKey: pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}),
 	}
 }
+
+func TestServiceIssuesSetupCertificateWithTypedLayout(t *testing.T) {
+	root := t.TempDir()
+	cfg := certificateTestConfig(root)
+	issuer := &serviceIssuer{resource: testResource(t, "scert.example.com")}
+	service := NewService(cfg, nil, serviceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer { return issuer }
+
+	saved, err := service.IssueForSetup(context.Background(), SetupCertificateRequest{
+		Domains: []string{"scert.example.com"}, CertificateType: "single",
+		ProviderID: "cloudflare", CredentialRef: "secret://dns/cloudflare/test",
+		AccountEmail: "admin@example.com", Environment: "staging",
+		CertificateRoot: cfg.Paths.Certificate, BackupRoot: cfg.Paths.Backup,
+	})
+	if err != nil {
+		t.Fatalf("申请初始化证书失败：%v", err)
+	}
+	wantDirectory := filepath.Join(cfg.Paths.Certificate, "scert.example.com", "single", "current")
+	if saved.Directory != wantDirectory {
+		t.Fatalf("初始化证书目录错误：got=%q want=%q", saved.Directory, wantDirectory)
+	}
+	if issuer.request.AccountEmail != "admin@example.com" || len(issuer.request.Domains) != 1 {
+		t.Fatalf("初始化证书申请参数错误：%+v", issuer.request)
+	}
+	for _, path := range []string{saved.CertificatePath, saved.FullChainPath, saved.PrivateKeyPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("初始化证书文件不存在：%s：%v", path, err)
+		}
+	}
+}

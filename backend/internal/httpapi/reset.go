@@ -83,7 +83,7 @@ func (s *Server) resetSubmit(c *gin.Context) {
 		c.Status(http.StatusTooManyRequests)
 		return
 	}
-	if !sameOrigin(c.Request) {
+	if !s.sameOrigin(c.Request) {
 		s.resetLimiter.failed(ip, now)
 		s.recordResetAudit(c, "rejected", "密码重置请求来源校验失败")
 		s.writeResetFailure(c, http.StatusForbidden, "请求来源校验失败，请从重置页面重新提交")
@@ -171,12 +171,12 @@ func (s *Server) resetSubmit(c *gin.Context) {
 	s.renderResetSuccess(c, "密码重置成功，请停止 Scert-admin 以结束本次维护窗口")
 }
 
-func sameOrigin(request *http.Request) bool {
+func (s *Server) sameOrigin(request *http.Request) bool {
 	if request == nil || strings.TrimSpace(request.Host) == "" {
 		return false
 	}
 	scheme := "http"
-	if request.TLS != nil {
+	if s.requestIsHTTPS(request) {
 		scheme = "https"
 	}
 	origin := strings.TrimSpace(request.Header.Get("Origin"))

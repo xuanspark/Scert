@@ -50,7 +50,30 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("连接数据库失败：%w", err)
 	}
+	if cfg.Driver == "sqlite" {
+		if err := configureSQLite(pingCtx, db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
 	return &Database{DB: db}, nil
+}
+
+func configureSQLite(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
+		return fmt.Errorf("配置 SQLite 忙等待失败：%w", err)
+	}
+	var mode string
+	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
+		return fmt.Errorf("配置 SQLite WAL 失败：%w", err)
+	}
+	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		return fmt.Errorf("读取 SQLite 日志模式失败：%w", err)
+	}
+	if strings.EqualFold(strings.TrimSpace(mode), "memory") || strings.EqualFold(strings.TrimSpace(mode), "wal") {
+		return nil
+	}
+	return fmt.Errorf("SQLite 日志模式无效：%s", mode)
 }
 
 func normalizeMySQLDSN(dsn string) (string, error) {
@@ -61,6 +84,21 @@ func normalizeMySQLDSN(dsn string) (string, error) {
 	cfg.ParseTime = true
 	cfg.Loc = time.UTC
 	return cfg.FormatDSN(), nil
+}
+
+// SanitizeDSN 返回可写入日志的数据库连接信息，不包含 MySQL 密码。
+func SanitizeDSN(driver, dsn string) string {
+	if strings.EqualFold(strings.TrimSpace(driver), "mysql") {
+		cfg, err := mysql.ParseDSN(dsn)
+		if err != nil {
+			return "mysql://[连接信息无效]"
+		}
+		if cfg.Passwd != "" {
+			cfg.Passwd = "********"
+		}
+		return cfg.FormatDSN()
+	}
+	return dsn
 }
 
 func ensureSQLiteDir(dsn string) error {
@@ -87,4 +125,15 @@ func (d *Database) Close() error {
 		return nil
 	}
 	return d.DB.Close()
+}
+
+// Ping 检查数据库连接是否可用。
+func (d *Database) Ping(ctx context.Context) error {
+	if d == nil || d.DB == nil {
+		return fmt.Errorf("数据库连接不能为空")
+	}
+	if err := d.DB.PingContext(ctx); err != nil {
+		return fmt.Errorf("数据库健康检查失败：%w", err)
+	}
+	return nil
 }

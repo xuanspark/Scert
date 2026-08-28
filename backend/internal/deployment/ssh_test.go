@@ -38,11 +38,11 @@ func TestSSHFactoryParsesEncryptedPrivateKeyBeforeDialing(t *testing.T) {
 		Secrets: staticSecretReader{server.PrivateKeyRef: {"private_key": privateKey, "passphrase": "deployment-passphrase"}},
 		Timeout: 100 * time.Millisecond,
 	}
-	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "\u8fde\u63a5 SSH \u670d\u52a1\u5668\u5931\u8d25") {
+	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "连接 SSH 服务器失败") {
 		t.Fatalf("encrypted private key should parse before the expected dial failure: %v", err)
 	}
 	factory.Secrets = staticSecretReader{server.PrivateKeyRef: {"private_key": privateKey, "passphrase": "wrong-passphrase"}}
-	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "\u89e3\u6790 SSH \u79c1\u94a5\u5931\u8d25") {
+	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "解析 SSH 私钥失败") {
 		t.Fatalf("wrong passphrase should be rejected before dialing: %v", err)
 	}
 }

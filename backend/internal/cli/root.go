@@ -68,7 +68,9 @@ func newRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&baseDir, "base-dir", "", "Windows 默认安装根目录")
 	root.AddCommand(
 		&cobra.Command{Use: "version", Short: "显示版本信息", Run: func(cmd *cobra.Command, args []string) { cmd.Printf("Scert %s\n", version) }},
-		newInitCommand(), newStatusCommand(), newServeCommand(), newDomainCommand(), newServerCommand(), newSSHKeyCommand(),
+		newInitCommand(), newStatusCommand(), newServeCommand(), newDomainCommand(), newCertificateCommand(),
+		newRenewCommand(), newDeployCommand(), newLogsCommand(), newConfigCommand(), newBackupCommand(), newRestoreCommand(),
+		newServerCommand(), newSSHKeyCommand(),
 	)
 	localizeHelpFlags(root)
 	return root
@@ -111,11 +113,15 @@ func newInitCommand() *cobra.Command {
 
 func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command {
 	var (
-		adminUsername, adminEmail, adminPassword, emailProvider, emailEndpoint string
-		recipients, dnsProvider, dnsCredentialRef, certificateRoot             string
-		webHostname, webPublicIP, httpsMode                                    string
-		serverPort                                                             int
-		dnsVerified, webEnabled                                                bool
+		adminUsername, adminEmail, adminPassword, emailProvider, emailEndpoint                         string
+		emailHTTPPath, emailHTTPLoginPath, emailHTTPAuthMode, emailHTTPCredentialRef, emailHTTPHeaders string
+		emailEventMode, emailSenderName, emailSenderEmail, emailRetryIntervals                         string
+		recipients, dnsProvider, dnsCredentialRef, certificateRoot                                     string
+		webHostname, webPublicIP, httpsMode                                                            string
+		serverPort, emailTimeoutSecs, emailRetryCount                                                  int
+		emailHTTPEnabled, emailIncludeDeploymentDetails                                                bool
+		emailIncludeCertificateSerial, emailIncludeManagementURL                                       bool
+		dnsVerified, webEnabled                                                                        bool
 	)
 	command := &cobra.Command{Use: "init", Short: "交互式初始化配置", RunE: func(cmd *cobra.Command, args []string) error {
 		path := resolveConfigPath()
@@ -125,10 +131,26 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 			return err
 		}
 		cfg := config.Default(baseDir)
+		emailHeaders, err := parseStringMap(emailHTTPHeaders)
+		if err != nil {
+			return fmt.Errorf("HTTP 自定义请求头格式无效：%w", err)
+		}
+		emailIntervals, err := splitInts(emailRetryIntervals)
+		if err != nil {
+			return fmt.Errorf("通知重试间隔格式无效：%w", err)
+		}
 		input := setup.Input{
 			AdminUsername: adminUsername, AdminEmail: adminEmail, AdminPassword: adminPassword, ServerPort: serverPort,
-			EmailProvider: emailProvider, EmailEndpoint: emailEndpoint,
-			EmailRecipients: splitValues(recipients), DNSProvider: dnsProvider, DNSCredentialRef: dnsCredentialRef,
+			EmailHTTPEnabled: emailHTTPEnabled,
+			EmailProvider:    emailProvider, EmailEndpoint: emailEndpoint,
+			EmailHTTPPath: emailHTTPPath, EmailHTTPLoginPath: emailHTTPLoginPath, EmailHTTPAuthMode: emailHTTPAuthMode,
+			EmailHTTPCredentialRef: emailHTTPCredentialRef, EmailHTTPHeaders: emailHeaders,
+			EmailEventMode: emailEventMode, EmailIncludeDeploymentDetails: emailIncludeDeploymentDetails,
+			EmailIncludeCertificateSerial: emailIncludeCertificateSerial, EmailIncludeManagementURL: emailIncludeManagementURL,
+			EmailSenderName: emailSenderName, EmailSenderEmail: emailSenderEmail,
+			EmailTimeoutSecs: emailTimeoutSecs, EmailRetryCount: emailRetryCount,
+			EmailRetryIntervalsSecs: emailIntervals,
+			EmailRecipients:         splitValues(recipients), DNSProvider: dnsProvider, DNSCredentialRef: dnsCredentialRef,
 			DNSVerified: dnsVerified, CertificateRoot: certificateRoot, WebHostname: webHostname,
 			WebPublicIP: webPublicIP, WebEnabled: webEnabled, HTTPSMode: httpsMode,
 		}
@@ -154,9 +176,24 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 	command.Flags().StringVar(&adminEmail, "admin-email", "", "超级管理员绑定邮箱")
 	command.Flags().StringVar(&adminPassword, "admin-password", "", "超级管理员密码（仅建议临时使用参数，优先交互输入）")
 	command.Flags().IntVar(&serverPort, "server-port", 8080, "Scert 主服务端口")
+	command.Flags().BoolVar(&emailHTTPEnabled, "email-http-enabled", false, "是否启用 HTTP 邮件通知")
+	command.Flags().StringVar(&emailHTTPPath, "email-http-path", "/api/email/send", "HTTP 邮件通知请求路径")
+	command.Flags().StringVar(&emailHTTPLoginPath, "email-http-login-path", "/api/login", "HTTP 会话认证登录请求路径")
+	command.Flags().StringVar(&emailHTTPAuthMode, "email-http-auth-mode", "none", "HTTP 邮件通知认证方式：none、bearer、hmac_sha256、session")
+	command.Flags().StringVar(&emailHTTPCredentialRef, "email-http-credential-ref", "", "HTTP 邮件通知凭据引用")
+	command.Flags().StringVar(&emailHTTPHeaders, "email-http-headers", "", "HTTP 自定义请求头 JSON")
+	command.Flags().StringVar(&emailEventMode, "email-event-mode", "detailed", "通知事件模式：detailed、unified")
+	command.Flags().StringVar(&emailSenderName, "email-sender-name", "Scert", "通知发件人名称")
+	command.Flags().StringVar(&emailSenderEmail, "email-sender-email", "", "通知发件人地址，留空使用管理员邮箱")
+	command.Flags().BoolVar(&emailIncludeDeploymentDetails, "email-include-deployment-details", true, "是否发送服务器部署明细")
+	command.Flags().BoolVar(&emailIncludeCertificateSerial, "email-include-certificate-serial", true, "是否发送证书序列号")
+	command.Flags().BoolVar(&emailIncludeManagementURL, "email-include-management-url", true, "是否发送管理后台链接")
 	command.Flags().StringVar(&emailProvider, "email-provider", "", "第三方邮箱服务标识")
 	command.Flags().StringVar(&emailEndpoint, "email-endpoint", "", "第三方邮箱 API 地址")
 	command.Flags().StringVar(&recipients, "recipients", "", "通知收件人，多个地址用逗号分隔")
+	command.Flags().IntVar(&emailTimeoutSecs, "email-timeout-secs", 10, "通知请求超时时间（秒）")
+	command.Flags().IntVar(&emailRetryCount, "email-retry-count", 3, "通知失败重试次数")
+	command.Flags().StringVar(&emailRetryIntervals, "email-retry-intervals", "30,120,600", "通知重试间隔（秒，逗号分隔）")
 	command.Flags().StringVar(&dnsProvider, "dns-provider", "", "DNS API 服务商标识")
 	command.Flags().StringVar(&dnsCredentialRef, "dns-credential-ref", "", "DNS 凭据引用，不保存明文密钥")
 	command.Flags().BoolVar(&dnsVerified, "dns-verified", false, "DNS API 是否已通过外部验证测试")
@@ -313,6 +350,33 @@ func splitValues(value string) []string {
 		return nil
 	}
 	return strings.Split(value, ",")
+}
+
+func splitInts(value string) ([]int, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	items := strings.Split(value, ",")
+	result := make([]int, 0, len(items))
+	for _, item := range items {
+		parsed, err := strconv.Atoi(strings.TrimSpace(item))
+		if err != nil {
+			return nil, fmt.Errorf("%q 不是有效数字", strings.TrimSpace(item))
+		}
+		result = append(result, parsed)
+	}
+	return result, nil
+}
+
+func parseStringMap(value string) (map[string]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	var result map[string]string
+	if err := json.Unmarshal([]byte(value), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func newStatusCommand() *cobra.Command {

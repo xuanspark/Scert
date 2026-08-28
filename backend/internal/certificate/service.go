@@ -59,6 +59,17 @@ type ImportRequest struct {
 	IssuerBundle string
 }
 
+type SetupCertificateRequest struct {
+	Domains         []string
+	CertificateType string
+	ProviderID      string
+	CredentialRef   string
+	AccountEmail    string
+	Environment     string
+	CertificateRoot string
+	BackupRoot      string
+}
+
 func NewService(cfg config.Config, repository DomainStateRepository, credentials CredentialReader, providers ProviderFactory, accounts AccountManager) *Service {
 	return &Service{
 		config: cfg, repository: repository, credentials: credentials, providers: providers, accounts: accounts,
@@ -141,7 +152,10 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return fail(err)
 	}
-	saved, err := s.store.Save(ctx, item.Name, resource)
+	if err := validateIssuedResource(ctx, resource, domains); err != nil {
+		return fail(err)
+	}
+	saved, err := s.store.SaveForType(ctx, item.Name, string(item.CertificateType), resource)
 	if err != nil {
 		return fail(fmt.Errorf("保存证书文件失败：%w", err))
 	}
@@ -149,6 +163,75 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 		return IssueResult{}, fmt.Errorf("证书已保存，但更新域名状态失败：%w", err)
 	}
 	return IssueResult{DomainID: item.ID, Domains: domains, Saved: saved}, nil
+}
+
+// IssueForSetup 在初始化标记完成前申请并保存管理后台证书。
+func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateRequest) (SavedResource, error) {
+	if s == nil || s.credentials == nil || s.providers == nil || s.accounts == nil || s.newIssuer == nil {
+		return SavedResource{}, errors.New("初始化证书申请服务未初始化")
+	}
+	domains, err := NormalizeDomains(request.Domains)
+	if err != nil {
+		return SavedResource{}, err
+	}
+	certificateType := strings.ToLower(strings.TrimSpace(request.CertificateType))
+	if certificateType != "single" && certificateType != "wildcard" && certificateType != "san" {
+		return SavedResource{}, fmt.Errorf("初始化证书类型无效：%s", certificateType)
+	}
+	providerID := strings.ToLower(strings.TrimSpace(request.ProviderID))
+	credentialRef := strings.TrimSpace(request.CredentialRef)
+	if providerID == "" || credentialRef == "" {
+		return SavedResource{}, errors.New("初始化证书的 DNS Provider 或凭据引用未配置")
+	}
+	environment := strings.ToLower(strings.TrimSpace(request.Environment))
+	if environment == "" {
+		environment = s.config.ACME.Environment
+	}
+	if environment == "" {
+		environment = "staging"
+	}
+	credentials, err := s.credentials.Get(ctx, credentialRef)
+	if err != nil {
+		return SavedResource{}, fmt.Errorf("读取初始化证书 DNS 凭据失败：%w", err)
+	}
+	provider, err := s.providers.Create(providerID, credentials)
+	if err != nil {
+		return SavedResource{}, fmt.Errorf("创建初始化证书 DNS Provider 失败：%w", err)
+	}
+	accountEmail := strings.TrimSpace(request.AccountEmail)
+	if accountEmail == "" {
+		accountEmail = strings.TrimSpace(s.config.ACME.AccountEmail)
+	}
+	user, err := s.accounts.LoadOrCreate(ctx, environment, accountEmail)
+	if err != nil {
+		return SavedResource{}, fmt.Errorf("读取 ACME 账户失败：%w", err)
+	}
+	issuer := s.newIssuer(user, provider, environment)
+	resource, issueErr := issuer.Obtain(ctx, ObtainRequest{
+		Domains: domains, AccountEmail: accountEmail, Environment: environment, PreferredChain: s.preferredChain,
+	})
+	if saveErr := s.accounts.Save(ctx, environment, user); saveErr != nil {
+		if issueErr != nil {
+			return SavedResource{}, fmt.Errorf("%v；保存 ACME 账户状态失败：%w", issueErr, saveErr)
+		}
+		return SavedResource{}, fmt.Errorf("保存 ACME 账户状态失败：%w", saveErr)
+	}
+	if issueErr != nil {
+		return SavedResource{}, issueErr
+	}
+	resource, err = ValidateResourceForDomains(resource, domains)
+	if err != nil {
+		return SavedResource{}, fmt.Errorf("初始化证书校验失败：%w", err)
+	}
+	if err := validateIssuedResource(ctx, resource, domains); err != nil {
+		return SavedResource{}, err
+	}
+	store := FileStore{Root: request.CertificateRoot, BackupRoot: request.BackupRoot}
+	saved, err := store.SaveForType(ctx, domains[0], certificateType, resource)
+	if err != nil {
+		return SavedResource{}, fmt.Errorf("保存初始化证书失败：%w", err)
+	}
+	return saved, nil
 }
 
 func (s *Service) Import(ctx context.Context, request ImportRequest) (IssueResult, error) {
@@ -193,7 +276,10 @@ func (s *Service) Import(ctx context.Context, request ImportRequest) (IssueResul
 	if err != nil {
 		return IssueResult{}, err
 	}
-	saved, err := s.store.Save(ctx, item.Name, resource)
+	if err := validateIssuedResource(ctx, resource, domains); err != nil {
+		return IssueResult{}, err
+	}
+	saved, err := s.store.SaveForType(ctx, item.Name, string(item.CertificateType), resource)
 	if err != nil {
 		return IssueResult{}, fmt.Errorf("保存导入证书失败：%w", err)
 	}
@@ -201,6 +287,16 @@ func (s *Service) Import(ctx context.Context, request ImportRequest) (IssueResul
 		return IssueResult{}, fmt.Errorf("证书已保存，但更新域名状态失败：%w", err)
 	}
 	return IssueResult{DomainID: item.ID, Domains: resource.Domains, Saved: saved}, nil
+}
+
+func validateIssuedResource(ctx context.Context, resource Resource, domains []string) error {
+	chainData := append([]byte(nil), resource.Certificate...)
+	chainData = append(chainData, resource.IssuerCertificate...)
+	_, err := (LocalValidator{VerifyChain: len(resource.IssuerCertificate) > 0}).ValidatePEM(ctx, chainData, domains)
+	if err != nil {
+		return fmt.Errorf("本地证书校验失败：%w", err)
+	}
+	return nil
 }
 
 func cleanInputPath(value, label string) (string, error) {
@@ -228,4 +324,59 @@ func requestedDomains(item domain.Domain) ([]string, error) {
 		values = []string{item.Name}
 	}
 	return NormalizeDomains(values)
+}
+
+// Current returns and validates the active certificate for a managed domain.
+func (s *Service) Current(ctx context.Context, domainID string) (IssueResult, error) {
+	if s == nil || s.repository == nil {
+		return IssueResult{}, errors.New("当前证书服务未初始化")
+	}
+	item, err := s.repository.GetByID(ctx, strings.TrimSpace(domainID))
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("读取域名配置失败：%w", err)
+	}
+	domains, err := requestedDomains(item)
+	if err != nil {
+		return IssueResult{}, err
+	}
+	saved, resource, err := s.store.LoadCurrent(ctx, item.Name, string(item.CertificateType))
+	if err != nil {
+		return IssueResult{}, err
+	}
+	if _, err := ValidateResourceForDomains(resource, domains); err != nil {
+		return IssueResult{}, err
+	}
+	saved.SANs = append([]string(nil), resource.Domains...)
+	return IssueResult{DomainID: item.ID, Domains: domains, Saved: saved}, nil
+}
+
+// ValidateCurrent 校验当前证书文件、私钥、证书链和域名覆盖范围。
+func (s *Service) ValidateCurrent(ctx context.Context, domainID string) (ValidationResult, error) {
+	result, err := s.Current(ctx, domainID)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	validation, err := (LocalValidator{VerifyChain: true}).ValidateFiles(
+		ctx,
+		result.Saved.CertificatePath,
+		result.Saved.FullChainPath,
+		result.Saved.PrivateKeyPath,
+		result.Domains,
+	)
+	if err != nil {
+		return ValidationResult{}, fmt.Errorf("当前证书校验失败：%w", err)
+	}
+	return validation, nil
+}
+
+// ListVersions returns the certificate history for a managed domain.
+func (s *Service) ListVersions(ctx context.Context, domainID string) ([]SavedResource, error) {
+	if s == nil || s.repository == nil {
+		return nil, errors.New("证书服务未初始化")
+	}
+	item, err := s.repository.GetByID(ctx, strings.TrimSpace(domainID))
+	if err != nil {
+		return nil, fmt.Errorf("读取域名配置失败：%w", err)
+	}
+	return s.store.ListVersions(ctx, item.Name, string(item.CertificateType))
 }

@@ -1,5 +1,20 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
+const commonEmailDomains = [
+  { label: "常用邮箱", value: "" },
+  { label: "@163.com", value: "163.com" },
+  { label: "@qq.com", value: "qq.com" },
+  { label: "@126.com", value: "126.com" },
+  { label: "@outlook.com", value: "outlook.com" },
+  { label: "@gmail.com", value: "gmail.com" },
+  { label: "@foxmail.com", value: "foxmail.com" },
+  { label: "@aliyun.com", value: "aliyun.com" },
+  { label: "@139.com", value: "139.com" },
+  { label: "@189.cn", value: "189.cn" },
+  { label: "自定义后缀", value: "custom" },
+];
+
+
 export function useSetupWizard(props, emit) {
   const scertLogo = "/Scert.png";
 
@@ -16,6 +31,8 @@ export function useSetupWizard(props, emit) {
   const dnsVerification = ref(null);
   const verificationClock = ref(Date.now());
   const currentStep = ref(1);
+  const selectedEmailDomain = ref("");
+  const emailLocalPart = ref("");
   let verificationTimer;
   const targetType = ref(props.status.web_public_ip ? "ip" : "hostname");
   const form = ref({
@@ -24,8 +41,23 @@ export function useSetupWizard(props, emit) {
     admin_password: "",
     confirm_password: "",
     server_port: props.status.server_port || 8080,
+    email_http_enabled: false,
     email_provider: "",
     email_endpoint: "",
+    email_http_path: "/api/email/send",
+    email_http_login_path: "/api/login",
+    email_http_auth_mode: "none",
+    email_http_credential_ref: "",
+    email_http_headers: "",
+    email_event_mode: "detailed",
+    email_include_deployment_details: true,
+    email_include_certificate_serial: true,
+    email_include_management_url: true,
+    email_sender_name: "Scert",
+    email_sender_email: "",
+    email_timeout_secs: 10,
+    email_retry_count: 3,
+    email_retry_intervals_secs: "30,120,600",
     recipients: "",
     dns_provider: props.status.dns_provider || "cloudflare",
     certificate_root: props.status.certificate_root || "",
@@ -80,6 +112,52 @@ export function useSetupWizard(props, emit) {
     }).format(new Date(value));
   }
 
+  function handleEmailInput(value) {
+    error.value = "";
+    const rawValue = String(value || "").trim();
+
+    if (!rawValue) {
+      emailLocalPart.value = "";
+      selectedEmailDomain.value = "";
+      form.value.admin_email = "";
+      return;
+    }
+
+    const atIndex = rawValue.indexOf("@");
+    if (atIndex <= 0) {
+      emailLocalPart.value = rawValue;
+      form.value.admin_email = selectedEmailDomain.value && selectedEmailDomain.value !== "custom"
+        ? `${rawValue}@${selectedEmailDomain.value}`
+        : rawValue;
+      return;
+    }
+
+    const localPart = rawValue.slice(0, atIndex).trim();
+    const domain = rawValue.slice(atIndex + 1).trim().toLowerCase();
+    emailLocalPart.value = localPart;
+    selectedEmailDomain.value = commonEmailDomains.some(
+      (option) => option.value === domain,
+    )
+      ? domain
+      : "custom";
+    form.value.admin_email = `${localPart}@${domain}`;
+  }
+
+  function applyEmailDomain(domain) {
+    error.value = "";
+    if (!domain || domain === "custom") return;
+
+    const currentEmail = form.value.admin_email.trim();
+    const localPart = emailLocalPart.value.trim() || currentEmail.split("@")[0].trim();
+    if (!localPart) {
+      selectedEmailDomain.value = "";
+      error.value = "请先输入邮箱名称，再选择常用邮箱。";
+      return;
+    }
+
+    emailLocalPart.value = localPart;
+    form.value.admin_email = `${localPart}@${domain}`;
+  }
   async function loadDNSProviders() {
     dnsCatalogLoading.value = true;
     dnsCatalogError.value = "";
@@ -195,6 +273,29 @@ export function useSetupWizard(props, emit) {
         error.value = "请输入 1 至 65535 之间的主服务端口。";
         return false;
       }
+      if (form.value.email_http_enabled && !form.value.email_endpoint.trim()) {
+        error.value = "启用 HTTP 邮件通知后必须填写 API 地址。";
+        return false;
+      }
+      if (
+        form.value.email_http_enabled &&
+        form.value.email_http_auth_mode !== "none" &&
+        !form.value.email_http_credential_ref.trim()
+      ) {
+        error.value = "启用 HTTP 通知认证后必须填写凭据引用。";
+        return false;
+      }
+      if (form.value.email_http_headers.trim()) {
+        try {
+          const headers = JSON.parse(form.value.email_http_headers);
+          if (!headers || Array.isArray(headers) || typeof headers !== "object") {
+            throw new Error("not-object");
+          }
+        } catch {
+          error.value = "HTTP 自定义请求头必须是 JSON 对象。";
+          return false;
+        }
+      }
     }
 
     if (currentStep.value === 3) {
@@ -270,6 +371,18 @@ export function useSetupWizard(props, emit) {
       .filter(Boolean);
   }
 
+  function emailHeaders() {
+    if (!form.value.email_http_headers.trim()) return {};
+    return JSON.parse(form.value.email_http_headers);
+  }
+
+  function retryIntervals() {
+    return form.value.email_retry_intervals_secs
+      .split(/[,，]/)
+      .map((item) => Number(item.trim()))
+      .filter((item) => Number.isInteger(item) && item > 0);
+  }
+
   async function submit() {
     error.value = "";
     resultMessage.value = "";
@@ -304,8 +417,25 @@ export function useSetupWizard(props, emit) {
           admin_email: form.value.admin_email,
           admin_password: form.value.admin_password,
           server_port: Number(form.value.server_port),
+          email_http_enabled: form.value.email_http_enabled,
           email_provider: form.value.email_provider,
           email_endpoint: form.value.email_endpoint,
+          email_http_path: form.value.email_http_path,
+          email_http_login_path: form.value.email_http_login_path,
+          email_http_auth_mode: form.value.email_http_auth_mode,
+          email_http_credential_ref: form.value.email_http_credential_ref,
+          email_http_headers: emailHeaders(),
+          email_event_mode: form.value.email_event_mode,
+          email_include_deployment_details:
+            form.value.email_include_deployment_details,
+          email_include_certificate_serial:
+            form.value.email_include_certificate_serial,
+          email_include_management_url: form.value.email_include_management_url,
+          email_sender_name: form.value.email_sender_name,
+          email_sender_email: form.value.email_sender_email,
+          email_timeout_secs: Number(form.value.email_timeout_secs),
+          email_retry_count: Number(form.value.email_retry_count),
+          email_retry_intervals_secs: retryIntervals(),
           recipients: recipients(),
           dns_provider: form.value.dns_provider,
           dns_credential_ref: dnsVerification.value.credential_ref,
@@ -367,11 +497,16 @@ export function useSetupWizard(props, emit) {
     currentStep,
     targetType,
     form,
+    commonEmailDomains,
+    selectedEmailDomain,
+    emailLocalPart,
     targetLabel,
     resetURLPreview,
     selectedDNSProvider,
     dnsVerificationValid,
     formatVerificationExpiry,
+    applyEmailDomain,
+    handleEmailInput,
     testDNS,
     handleSubmit,
     previousStep,

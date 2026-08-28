@@ -47,7 +47,8 @@ var descriptors = map[string]Descriptor{
 		},
 	},
 	Aliyun: {
-		ID: Aliyun, Name: "阿里云 DNS", Description: "适配器字段已定义，在线验证将在后续任务接入。",
+		ID: Aliyun, Name: "阿里云 DNS", Available: true,
+		Description: "使用 RAM AccessKey 创建和清理 DNS-01 测试记录。",
 		CredentialFields: []CredentialField{
 			{Name: "access_key_id", Label: "AccessKey ID", Required: true},
 			{Name: "access_key_secret", Label: "AccessKey Secret", Secret: true, Required: true},
@@ -55,7 +56,8 @@ var descriptors = map[string]Descriptor{
 		},
 	},
 	DNSPod: {
-		ID: DNSPod, Name: "DNSPod", Description: "使用腾讯云 DNSPod API 凭据；在线验证将在后续任务接入。",
+		ID: DNSPod, Name: "DNSPod", Available: true,
+		Description: "使用 DNSPod API 凭据创建和清理 DNS-01 测试记录。",
 		CredentialFields: []CredentialField{
 			{Name: "secret_id", Label: "SecretId", Required: true},
 			{Name: "secret_key", Label: "SecretKey", Secret: true, Required: true},
@@ -70,7 +72,8 @@ var descriptors = map[string]Descriptor{
 		},
 	},
 	HuaweiCloud: {
-		ID: HuaweiCloud, Name: "华为云", Description: "适配器字段已定义，在线验证将在后续任务接入。",
+		ID: HuaweiCloud, Name: "华为云", Available: true,
+		Description: "使用 Access Key、Secret Access Key 和区域创建 DNS-01 测试记录。",
 		CredentialFields: []CredentialField{
 			{Name: "access_key_id", Label: "Access Key ID", Required: true},
 			{Name: "secret_access_key", Label: "Secret Access Key", Secret: true, Required: true},
@@ -78,7 +81,8 @@ var descriptors = map[string]Descriptor{
 		},
 	},
 	TencentCloud: {
-		ID: TencentCloud, Name: "腾讯云", Description: "使用腾讯云 DNSPod API；在线验证将在后续任务接入。",
+		ID: TencentCloud, Name: "腾讯云", Available: true,
+		Description: "使用腾讯云 DNSPod API 凭据创建和清理 DNS-01 测试记录。",
 		CredentialFields: []CredentialField{
 			{Name: "secret_id", Label: "SecretId", Required: true},
 			{Name: "secret_key", Label: "SecretKey", Secret: true, Required: true},
@@ -87,7 +91,8 @@ var descriptors = map[string]Descriptor{
 		},
 	},
 	Route53: {
-		ID: Route53, Name: "AWS Route 53", Description: "适配器字段已定义，在线验证将在后续任务接入。",
+		ID: Route53, Name: "AWS Route 53", Available: true,
+		Description: "使用 AWS 凭据和区域创建和清理 DNS-01 测试记录。",
 		CredentialFields: []CredentialField{
 			{Name: "access_key_id", Label: "Access Key ID", Required: true},
 			{Name: "secret_access_key", Label: "Secret Access Key", Secret: true, Required: true},
@@ -97,7 +102,8 @@ var descriptors = map[string]Descriptor{
 		},
 	},
 	GoogleCloud: {
-		ID: GoogleCloud, Name: "Google Cloud DNS", Description: "适配器字段已定义，在线验证将在后续任务接入。",
+		ID: GoogleCloud, Name: "Google Cloud DNS", Available: true,
+		Description: "使用 Google Cloud 服务账号创建和清理 DNS-01 测试记录。",
 		CredentialFields: []CredentialField{
 			{Name: "service_account_json", Label: "服务账号 JSON", Secret: true, Required: true},
 			{Name: "project", Label: "项目 ID", Required: true},

@@ -28,7 +28,7 @@ const {
       </p>
     </template>
 
-    <section class="access-card super-admin-reset-card">
+    <section class="access-card reset-card">
       <header class="access-card-header">
         <p class="access-eyebrow">临时授权</p>
         <h2 class="access-card-title">确认安全重置</h2>

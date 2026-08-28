@@ -27,11 +27,16 @@ const {
   currentStep,
   targetType,
   form,
+  commonEmailDomains,
+  selectedEmailDomain,
+  emailLocalPart,
   targetLabel,
   resetURLPreview,
   selectedDNSProvider,
   dnsVerificationValid,
   formatVerificationExpiry,
+  applyEmailDomain,
+  handleEmailInput,
   testDNS,
   handleSubmit,
   previousStep,
@@ -109,17 +114,37 @@ const {
                   autocomplete="username"
                   placeholder="例如 scert-admin"
               /></label>
-              <label
+              <label class="email-field"
                 ><span>绑定邮箱</span
-                ><input
+                ><div class="email-input-group">
+                  <input
                   id="admin-email"
                   name="admin_email"
-                  v-model.trim="form.admin_email"
+                  :value="emailLocalPart"
+                  @input="handleEmailInput($event.target.value)"
                   required
-                  type="email"
+                  type="text"
                   autocomplete="email"
-                  placeholder="用于登录和安全通知"
-              /></label>
+                  inputmode="email"
+                  placeholder="输入邮箱名称，例如 likb_blue"
+              />
+                  <select
+                    id="admin-email-domain"
+                    v-model="selectedEmailDomain"
+                    aria-label="常用邮箱"
+                    @change="applyEmailDomain(selectedEmailDomain)"
+                  >
+                    <option
+                      v-for="option in commonEmailDomains"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </div>
+                <small>可直接输入完整邮箱，也可先输入邮箱名称再选择常用邮箱。</small>
+              </label>
               <label
                 ><span>密码</span
                 ><input
@@ -147,9 +172,9 @@ const {
             </div>
           </fieldset>
 
-          <fieldset v-if="currentStep === 2" class="setup-step-card">
+          <fieldset v-if="currentStep === 2" class="setup-step-card setup-notification-step">
             <legend><span>02</span>服务与通知</legend>
-            <div class="setup-grid two-columns">
+            <div class="setup-grid two-columns email-primary-grid">
               <label
                 ><span>Scert 主服务端口</span
                 ><input
@@ -161,7 +186,14 @@ const {
                   max="65535"
                   type="number"
               /></label>
-              <label
+              <label class="confirm-row compact-row"
+                ><input
+                  id="email-http-enabled"
+                  v-model="form.email_http_enabled"
+                  type="checkbox"
+                /><span><strong>启用 HTTP 邮件通知</strong><small>兼容 Smail 等 HTTP 邮件服务。</small></span></label
+              >
+              <label v-if="form.email_http_enabled"
                 ><span>第三方邮箱服务标识</span
                 ><input
                   id="email-provider"
@@ -169,7 +201,7 @@ const {
                   v-model.trim="form.email_provider"
                   placeholder="例如 company-mail-api"
               /></label>
-              <label
+              <label v-if="form.email_http_enabled"
                 ><span>邮件 API 地址</span
                 ><input
                   id="email-endpoint"
@@ -177,6 +209,58 @@ const {
                   v-model.trim="form.email_endpoint"
                   type="url"
                   placeholder="https://mail.example.com/send"
+              /></label>
+              <label v-if="form.email_http_enabled"
+                ><span>HTTP 请求路径</span
+                ><input
+                  id="email-http-path"
+                  v-model.trim="form.email_http_path"
+                  placeholder="/api/email/send"
+              /></label>
+              <label v-if="form.email_http_enabled"
+                ><span>HTTP 认证方式</span
+                ><select
+                  id="email-http-auth-mode"
+                  v-model="form.email_http_auth_mode"
+                >
+                  <option value="none">无认证</option>
+                  <option value="bearer">Bearer Token</option>
+                  <option value="hmac_sha256">HMAC-SHA256</option>
+                  <option value="session">账号登录会话</option>
+                </select></label
+              >
+              <label
+                v-if="
+                  form.email_http_enabled &&
+                  form.email_http_auth_mode === 'session'
+                "
+                ><span>登录请求路径</span
+                ><input
+                  id="email-http-login-path"
+                  v-model.trim="form.email_http_login_path"
+                  placeholder="/api/login"
+              /></label>
+              <label v-if="form.email_http_enabled"
+                ><span>凭据引用</span
+                ><input
+                  id="email-http-credential-ref"
+                  v-model.trim="form.email_http_credential_ref"
+                  placeholder="secret://notification/mail"
+              /></label>
+              <label v-if="form.email_http_enabled"
+                ><span>发件人名称</span
+                ><input
+                  id="email-sender-name"
+                  v-model.trim="form.email_sender_name"
+                  placeholder="Scert"
+              /></label>
+              <label v-if="form.email_http_enabled"
+                ><span>发件人地址</span
+                ><input
+                  id="email-sender-email"
+                  v-model.trim="form.email_sender_email"
+                  type="email"
+                  placeholder="留空使用管理员邮箱"
               /></label>
             </div>
             <div class="provider-description reset-preview">
@@ -186,7 +270,7 @@ const {
                 后，此地址才会临时可用。</span
               >
             </div>
-            <label
+            <label v-if="form.email_http_enabled"
               ><span>通知收件人</span
               ><input
                 id="recipients"
@@ -194,6 +278,54 @@ const {
                 v-model="form.recipients"
                 placeholder="多个地址使用逗号分隔"
             /></label>
+            <div v-if="form.email_http_enabled" class="setup-grid two-columns email-delivery-grid">
+              <label
+                ><span>通知事件模式</span
+                ><select v-model="form.email_event_mode">
+                  <option value="detailed">详细事件</option>
+                  <option value="unified">统一事件</option>
+                </select></label
+              >
+              <label
+                ><span>请求超时（秒）</span
+                ><input
+                  v-model.number="form.email_timeout_secs"
+                  type="number"
+                  min="1"
+              /></label>
+              <label
+                ><span>重试次数</span
+                ><input
+                  v-model.number="form.email_retry_count"
+                  type="number"
+                  min="1"
+              /></label>
+              <label
+                ><span>重试间隔（秒）</span
+                ><input
+                  v-model.trim="form.email_retry_intervals_secs"
+                  placeholder="30,120,600"
+              /></label>
+            </div>
+            <label v-if="form.email_http_enabled" class="email-headers-field"
+              ><span>HTTP 自定义请求头（JSON）</span
+              ><textarea
+                v-model.trim="form.email_http_headers"
+                rows="2"
+                placeholder='例如：{"X-Tenant":"scert"}'
+              ></textarea
+            ></label>
+            <div v-if="form.email_http_enabled" class="setup-grid three-columns compact-options email-option-grid">
+              <label class="confirm-row compact-row"
+                ><input v-model="form.email_include_deployment_details" type="checkbox" /><span>部署明细</span></label
+              >
+              <label class="confirm-row compact-row"
+                ><input v-model="form.email_include_certificate_serial" type="checkbox" /><span>证书序列号</span></label
+              >
+              <label class="confirm-row compact-row"
+                ><input v-model="form.email_include_management_url" type="checkbox" /><span>管理后台链接</span></label
+              >
+            </div>
           </fieldset>
 
           <fieldset v-if="currentStep === 3" class="setup-step-card">

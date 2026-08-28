@@ -16,6 +16,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/httpapi"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
+	"git.pcux.cn/xuans/Scert/backend/internal/notification"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
@@ -28,6 +29,7 @@ type App struct {
 	Database        *database.Database
 	Repository      *repository.SQLDomainRepository
 	Servers         *repository.SQLServerRepository
+	Tasks           *repository.SQLTaskRepository
 	Deployment      *deployment.Service
 	SecretStore     *secretstore.Store
 	SSHKeys         *sshkey.Service
@@ -75,23 +77,53 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	dnsVerification := setup.NewDNSVerificationManager(dnsTester, secretStore)
 	repo := repository.NewSQLDomainRepository(db.DB)
 	serverRepo := repository.NewSQLServerRepository(db.DB)
+	taskRepo := repository.NewSQLTaskRepository(db.DB)
 	auditRepo := repository.NewSQLAuditRepository(db.DB)
 	sshKeys := sshkey.NewService(secretStore)
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
 	deploymentService := deployment.NewService(deployment.SSHFactory{Secrets: secretStore})
-	workflow := &CertificateWorkflow{Certificates: certificates, Domains: repo, Servers: serverRepo, Deployment: deploymentService}
+	notifier := notification.New(cfg.Notification, secretStore)
+	remoteValidator := certificate.RemoteValidator{}
+	workflow := &CertificateWorkflow{
+		Certificates: certificates,
+		Domains:      repo,
+		Servers:      serverRepo,
+		Deployment:   deploymentService,
+		RemoteVerifier: func(ctx context.Context, endpoint string, expectedDomains []string) (certificate.ValidationResult, error) {
+			return remoteValidator.ValidateHTTPS(ctx, endpoint, expectedDomains)
+		},
+		Notifier:           notifier,
+		NotifyError:        func(err error) { logger.Error("发送邮件通知失败", "error", err) },
+		CurrentCertificate: certificates.Current,
+	}
 	renewal := certificate.NewRenewalScheduler(repo, workflow, cfg.ACME.RenewalThresholdDays)
 	server := httpapi.New(httpapi.Dependencies{
 		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, SSHKeys: sshKeys,
 		SetupDNS: dnsVerification, Firewall: firewall.NewManager(),
 		IssueCertificate: workflow.IssueForHTTP,
-		ResetStatePath:   admin.StatePath(cfg.Paths.Data),
-		Audit:            auditRepo,
+		IssueSetupCertificate: func(ctx context.Context, request certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
+			return certificates.IssueForSetup(ctx, request)
+		},
+		RollbackSetupCertificate: func(ctx context.Context, saved certificate.SavedResource) error {
+			return certificate.RollbackSavedResource(ctx, saved)
+		},
+		ImportCertificate: func(ctx context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+			result, err := workflow.Import(ctx, request)
+			return result.Certificate, result.Deployment, err
+		},
+		DeployCertificate: func(ctx context.Context, domainID string) (certificate.IssueResult, deployment.Report, error) {
+			result, err := workflow.DeployCurrent(ctx, domainID)
+			return result.Certificate, result.Deployment, err
+		},
+		CurrentCertificate: certificates,
+		ResetStatePath:     admin.StatePath(cfg.Paths.Data),
+		Audit:              auditRepo,
+		Tasks:              taskRepo,
 	})
 	return &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,
-		Servers: serverRepo, Deployment: deploymentService,
+		Tasks:       taskRepo,
 		SecretStore: secretStore, SSHKeys: sshKeys, DNSVerification: dnsVerification, HTTP: server,
 		Certificates: certificates,
 		Workflow:     workflow,

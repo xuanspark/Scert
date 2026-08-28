@@ -1,12 +1,14 @@
 .access-shell {
-  position: absolute;
+  position: fixed;
   top: 50%;
   left: 50%;
-  width: min(calc(100% - 48px), 1120px);
-  height: min(680px, calc(100dvh - 48px));
-  min-height: 520px;
+  width: min(1120px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  height: min(680px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1.58fr);
+  grid-template-columns: minmax(220px, 0.34fr) minmax(0, 1.66fr);
   overflow: hidden;
   transform: translate(-50%, -50%);
   border: 1px solid rgba(213, 224, 239, 0.95);
@@ -17,14 +19,18 @@
 }
 
 .access-shell--setup {
-  width: min(calc(100% - 48px), 1360px);
-  height: min(760px, calc(100dvh - 40px));
-  min-height: 600px;
+  width: min(1360px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  height: min(760px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
+  min-height: 0;
 }
 
 .access-shell--compact {
-  width: min(calc(100% - 48px), 1040px);
-  height: min(640px, calc(100dvh - 48px));
+  width: min(1040px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  height: min(640px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
 }
 
 .access-brand {
@@ -76,7 +82,7 @@
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
-  padding: clamp(22px, 1.8vw, 30px) clamp(10px, 1.2vw, 18px);
+  padding: clamp(20px, 1.8vw, 30px) clamp(12px, 1.2vw, 18px);
 }
 
 .access-logo {
@@ -100,7 +106,7 @@
   max-width: 100%;
   margin: 0 0 14px;
   color: #ffffff;
-  font-size: clamp(18px, 1.45vw, 24px);
+  font-size: clamp(17px, 1.35vw, 23px);
   letter-spacing: -0.08em;
   line-height: 1.16;
   white-space: nowrap;
@@ -117,6 +123,7 @@
 .access-panel {
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: linear-gradient(145deg, #ffffff 0%, #f8fbff 100%);
 }
 

@@ -47,7 +47,7 @@ func (s *Server) authLogin(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, authRequestBodyLimit)
 	var request authLoginRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		s.writeError(c, http.StatusBadRequest, "\u767b\u5f55\u8bf7\u6c42\u53c2\u6570\u65e0\u6548", err)
+		s.writeError(c, http.StatusBadRequest, "登录请求参数无效", err)
 		return
 	}
 
@@ -55,13 +55,13 @@ func (s *Server) authLogin(c *gin.Context) {
 	cfg := s.config
 	s.configMu.RUnlock()
 	if !cfg.SetupReady {
-		s.writeError(c, http.StatusConflict, "\u8bf7\u5148\u5b8c\u6210\u521d\u59cb\u5316\u914d\u7f6e", nil)
+		s.writeError(c, http.StatusConflict, "请先完成初始化配置", nil)
 		return
 	}
 
 	key := loginAttemptKey(c.Request, request.Identifier)
 	if !s.allowLogin(key) {
-		s.writeError(c, http.StatusTooManyRequests, "\u767b\u5f55\u5931\u8d25\u6b21\u6570\u8fc7\u591a\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5", nil)
+		s.writeError(c, http.StatusTooManyRequests, "登录失败次数过多，请稍后再试", nil)
 		return
 	}
 	account, err := auth.AuthenticateAdmin(
@@ -73,15 +73,15 @@ func (s *Server) authLogin(c *gin.Context) {
 	)
 	if err != nil {
 		s.recordLoginFailure(key)
-		s.recordAuthAudit(c, "\u767b\u5f55\u5931\u8d25", "failed", "\u767b\u5f55\u51ed\u636e\u6821\u9a8c\u5931\u8d25")
-		s.writeError(c, http.StatusUnauthorized, "\u8d26\u53f7\u6216\u5bc6\u7801\u9519\u8bef", nil)
+		s.recordAuthAudit(c, "登录失败", "failed", "登录凭据校验失败")
+		s.writeError(c, http.StatusUnauthorized, "账号或密码错误", nil)
 		return
 	}
 	s.clearLoginFailures(key)
 
 	token, err := newAuthToken()
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, "\u65e0\u6cd5\u521b\u5efa\u767b\u5f55\u4f1a\u8bdd\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5", err)
+		s.writeError(c, http.StatusInternalServerError, "无法创建登录会话，请稍后重试", err)
 		return
 	}
 	lifetime := authSessionLifetime
@@ -98,7 +98,7 @@ func (s *Server) authLogin(c *gin.Context) {
 	}
 	s.authMu.Unlock()
 	s.setAuthCookie(c, token, expiresAt)
-	s.recordAuthAudit(c, "\u767b\u5f55\u6210\u529f", "success", "\u8d85\u7ea7\u7ba1\u7406\u5458\u767b\u5f55\u6210\u529f")
+	s.recordAuthAudit(c, "登录成功", "success", "超级管理员登录成功")
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated":  true,
 		"account":        account.Username,
@@ -137,9 +137,9 @@ func (s *Server) authLogout(c *gin.Context) {
 	}
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name: authCookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: requestIsHTTPS(c.Request),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.requestIsHTTPS(c.Request),
 	})
-	c.JSON(http.StatusOK, gin.H{"authenticated": false, "message": "\u5df2\u9000\u51fa\u767b\u5f55"})
+	c.JSON(http.StatusOK, gin.H{"authenticated": false, "message": "已退出登录"})
 }
 
 func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
@@ -167,7 +167,7 @@ func (s *Server) setAuthCookie(c *gin.Context, token string, expiresAt time.Time
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name: authCookieName, Value: token, Path: "/",
 		Expires: expiresAt, MaxAge: max(1, int(time.Until(expiresAt).Seconds())),
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: requestIsHTTPS(c.Request),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.requestIsHTTPS(c.Request),
 	})
 }
 
@@ -216,7 +216,7 @@ func (s *Server) recordAuthAudit(c *gin.Context, action, status, message string)
 	if err := s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
 		Action: action, ResourceType: "auth", ResourceID: "login", Status: status, Message: message,
 	}); err != nil && s.logger != nil {
-		s.logger.Warn("\u4fdd\u5b58\u767b\u5f55\u5ba1\u8ba1\u65e5\u5fd7\u5931\u8d25", "error", err)
+		s.logger.Warn("保存登录审计日志失败", "error", err)
 	}
 }
 
@@ -239,11 +239,21 @@ func newAuthToken() (string, error) {
 	return hex.EncodeToString(buffer), nil
 }
 
-func requestIsHTTPS(request *http.Request) bool {
+func (s *Server) requestIsHTTPS(request *http.Request) bool {
 	if request == nil {
 		return false
 	}
-	return request.TLS != nil || strings.EqualFold(strings.TrimSpace(request.Header.Get("X-Forwarded-Proto")), "https")
+	if request.TLS != nil {
+		return true
+	}
+	s.configMu.RLock()
+	proxyMode := s.config.Server.HTTPSMode == "proxy"
+	s.configMu.RUnlock()
+	if !proxyMode {
+		return false
+	}
+	forwardedProto := strings.TrimSpace(strings.Split(request.Header.Get("X-Forwarded-Proto"), ",")[0])
+	return strings.EqualFold(forwardedProto, "https")
 }
 
 func max(left, right int) int {

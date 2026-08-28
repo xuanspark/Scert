@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
@@ -33,6 +34,31 @@ type fakeFirewallManager struct {
 	rollbackErr  error
 	openedPort   int
 	rollbackCall bool
+}
+
+type setupCertificateIssuer func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
+
+func newSetupCertificateIssuer(t *testing.T, baseDir string, issueErr error) setupCertificateIssuer {
+	t.Helper()
+	if issueErr != nil {
+		return func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
+			return certificate.SavedResource{}, issueErr
+		}
+	}
+	fullChainPath := filepath.Join(baseDir, "fullchain.pem")
+	privateKeyPath := filepath.Join(baseDir, "key.pem")
+	if err := os.WriteFile(fullChainPath, []byte("test certificate"), 0o644); err != nil {
+		t.Fatalf("创建测试文件失败：%v", err)
+	}
+	if err := os.WriteFile(privateKeyPath, []byte("test private key"), 0o600); err != nil {
+		t.Fatalf("创建测试文件失败：%v", err)
+	}
+	return func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
+		return certificate.SavedResource{
+			FullChainPath:  fullChainPath,
+			PrivateKeyPath: privateKeyPath,
+		}, nil
+	}
 }
 
 func (f *fakeFirewallManager) OpenTCP(_ context.Context, port int) (firewall.Result, error) {
@@ -146,6 +172,7 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	server := New(Dependencies{
 		Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{},
 		SetupDNS: verifier, Firewall: firewallManager,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
 	payload := `{
 		"admin_username":"root-admin",
@@ -317,6 +344,7 @@ func TestSetupSaveFailureDoesNotConsumeDNSToken(t *testing.T) {
 	server := New(Dependencies{
 		Config: config.Default(baseDir), ConfigPath: filepath.Join(blockedParent, "scert.json"),
 		Repository: &stubDomainRepository{}, SetupDNS: verifier, Firewall: firewallManager,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
 	request.RemoteAddr = "127.0.0.1:53000"
@@ -346,6 +374,7 @@ func TestSetupSaveFailureKeepsExistingFirewallRule(t *testing.T) {
 	server := New(Dependencies{
 		Config: config.Default(baseDir), ConfigPath: filepath.Join(blockedParent, "scert.json"),
 		Repository: &stubDomainRepository{}, SetupDNS: &fakeSetupDNSVerifier{}, Firewall: firewallManager,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
 	request.RemoteAddr = "127.0.0.1:53000"
@@ -368,6 +397,7 @@ func TestSetupFirewallFailureDoesNotSaveOrConsumeToken(t *testing.T) {
 	server := New(Dependencies{
 		Config: config.Default(baseDir), ConfigPath: configPath,
 		Repository: &stubDomainRepository{}, SetupDNS: verifier, Firewall: firewallManager,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
 	request.RemoteAddr = "127.0.0.1:53000"
@@ -400,4 +430,115 @@ func setupPayload(baseDir, password string) string {
 		"web_enabled":true,
 		"https_mode":"direct"
 	}`
+}
+
+func TestSetupCertificateFailureDoesNotSaveOrConsumeDNSToken(t *testing.T) {
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, "config", "scert.json")
+	verifier := &fakeSetupDNSVerifier{}
+	server := New(Dependencies{
+		Config: config.Default(baseDir), ConfigPath: configPath,
+		Repository: &stubDomainRepository{}, SetupDNS: verifier,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, errors.New("模拟证书申请失败")),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "申请管理后台证书失败") {
+		t.Fatalf("证书申请失败应返回明确错误：%d %s", response.Code, response.Body.String())
+	}
+	if !verifier.checked || verifier.consumed {
+		t.Fatalf("证书申请失败时应检查但不消费 DNS 令牌：checked=%t consumed=%t", verifier.checked, verifier.consumed)
+	}
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("证书申请失败时不得保存初始化配置：%v", err)
+	}
+}
+
+func TestSetupCertificateFileValidationDoesNotSaveOrConsumeDNSToken(t *testing.T) {
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, "config", "scert.json")
+	verifier := &fakeSetupDNSVerifier{}
+	issuer := func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
+		return certificate.SavedResource{
+			FullChainPath:  filepath.Join(baseDir, "missing-fullchain.pem"),
+			PrivateKeyPath: filepath.Join(baseDir, "missing-key.pem"),
+		}, nil
+	}
+	server := New(Dependencies{
+		Config: config.Default(baseDir), ConfigPath: configPath,
+		Repository: &stubDomainRepository{}, SetupDNS: verifier,
+		IssueSetupCertificate: issuer,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "管理后台证书文件校验失败") {
+		t.Fatalf("证书文件校验失败应返回明确错误：%d %s", response.Code, response.Body.String())
+	}
+	if verifier.consumed {
+		t.Fatal("证书文件校验失败时不得消费 DNS 令牌")
+	}
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("证书文件校验失败时不得保存初始化配置：%v", err)
+	}
+}
+
+func TestSetupWithPublicIPRejectsDNSAutomaticCertificate(t *testing.T) {
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, "config", "scert.json")
+	verifier := &fakeSetupDNSVerifier{}
+	server := New(Dependencies{
+		Config: config.Default(baseDir), ConfigPath: configPath,
+		Repository: &stubDomainRepository{}, SetupDNS: verifier,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
+	})
+	payload := strings.Replace(setupPayload(baseDir, "secure-pass-123"),
+		`"web_hostname":"scert.example.test",`,
+		`"web_hostname":"","web_public_ip":"192.0.2.10",`, 1)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(payload))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "公网 IP 暂不支持") {
+		t.Fatalf("公网 IP 自动申请应被拒绝：%d %s", response.Code, response.Body.String())
+	}
+	if verifier.consumed {
+		t.Fatal("公网 IP 场景不得消费 DNS 令牌")
+	}
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("公网 IP 场景不得保存初始化配置：%v", err)
+	}
+}
+
+func TestSetupFirewallFailureRollsBackIssuedCertificate(t *testing.T) {
+	baseDir := t.TempDir()
+	verifier := &fakeSetupDNSVerifier{}
+	firewallManager := &fakeFirewallManager{openErr: errors.New("access denied")}
+	rolledBack := false
+	server := New(Dependencies{
+		Config: config.Default(baseDir), ConfigPath: filepath.Join(baseDir, "config", "scert.json"),
+		Repository: &stubDomainRepository{}, SetupDNS: verifier, Firewall: firewallManager,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
+		RollbackSetupCertificate: func(_ context.Context, saved certificate.SavedResource) error {
+			rolledBack = true
+			return certificate.RollbackSavedResource(context.Background(), saved)
+		},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("防火墙失败应返回服务器错误：%d %s", response.Code, response.Body.String())
+	}
+	if !rolledBack {
+		t.Fatal("防火墙配置失败时应回滚已保存的初始化证书")
+	}
 }

@@ -54,3 +54,26 @@ func TestApplyRejectsWebIPAsHostnamePair(t *testing.T) {
 		t.Fatal("域名和公网 IP 同时配置时应被拒绝")
 	}
 }
+
+func TestApplyUsesAdminEmailAndStoresNotificationOptions(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	err := Apply(&cfg, Input{
+		AdminUsername: "admin", AdminEmail: "admin@example.com", AdminPassword: "password123", ServerPort: 8080,
+		EmailHTTPEnabled: true, EmailProvider: "smail", EmailEndpoint: "https://mail.example.test",
+		EmailHTTPPath: "/api/email/send", EmailHTTPAuthMode: "bearer", EmailHTTPCredentialRef: "secret://mail/token",
+		EmailHTTPHeaders: map[string]string{" X-Tenant ": " scert "}, EmailEventMode: "detailed",
+		EmailIncludeDeploymentDetails: true, EmailIncludeCertificateSerial: true, EmailIncludeManagementURL: true,
+		EmailSenderName: "证书管理", EmailTimeoutSecs: 15, EmailRetryCount: 2, EmailRetryIntervalsSecs: []int{10, 30},
+		DNSProvider: "cloudflare", DNSCredentialRef: "credential-1", DNSVerified: true, CertificateRoot: cfg.Paths.Certificate,
+		WebHostname: "panel.example.com", WebEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("保存邮件通知选项失败：%v", err)
+	}
+	if len(cfg.Notification.Recipients) != 1 || cfg.Notification.Recipients[0] != "admin@example.com" {
+		t.Fatalf("未填写收件人时应使用管理员邮箱：%v", cfg.Notification.Recipients)
+	}
+	if cfg.Notification.HTTPCredentialRef != "secret://mail/token" || cfg.Notification.HTTPHeaders["X-Tenant"] != "scert" {
+		t.Fatalf("HTTP 通知配置未正确保存：%+v", cfg.Notification)
+	}
+}

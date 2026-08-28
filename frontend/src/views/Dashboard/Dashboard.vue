@@ -336,7 +336,7 @@ const {
               name="sans"
               v-model="form.sans"
               rows="4"
-              placeholder="www.example.com&#10;api.example.com"
+              placeholder="www.example.com\napi.example.com"
             ></textarea>
           </label>
           <div class="form-grid">
@@ -547,7 +547,7 @@ const {
             ><textarea
               v-model="serverForm.reload_command"
               rows="3"
-              placeholder="nginx&#10;-s&#10;reload"
+              placeholder="nginx -s reload"
             ></textarea>
           </label>
           <p v-if="serverFormError" class="form-error">{{ serverFormError }}</p>
