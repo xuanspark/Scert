@@ -100,7 +100,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	renewal := certificate.NewRenewalScheduler(repo, workflow, cfg.ACME.RenewalThresholdDays)
 	server := httpapi.New(httpapi.Dependencies{
 		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, SSHKeys: sshKeys,
-		SetupDNS: dnsVerification, Firewall: firewall.NewManager(),
+		SetupDNS: dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(),
 		IssueCertificate: workflow.IssueForHTTP,
 		IssueSetupCertificate: func(ctx context.Context, request certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
 			return certificates.IssueForSetup(ctx, request)

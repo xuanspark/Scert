@@ -27,6 +27,10 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/sshkey"
 )
 
+type setupSecretWriter interface {
+	Put(context.Context, string, map[string]string) error
+}
+
 type Dependencies struct {
 	Config                   config.Config
 	ConfigPath               string
@@ -35,6 +39,7 @@ type Dependencies struct {
 	Servers                  repository.ServerRepository
 	SSHKeys                  *sshkey.Service
 	SetupDNS                 setupDNSVerifier
+	Secrets                  setupSecretWriter
 	Firewall                 firewall.Manager
 	IssueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	IssueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
@@ -56,6 +61,7 @@ type Server struct {
 	servers                  repository.ServerRepository
 	sshKeys                  *sshkey.Service
 	setupDNS                 setupDNSVerifier
+	secrets                  setupSecretWriter
 	firewall                 firewall.Manager
 	issueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	issueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
@@ -84,7 +90,7 @@ func New(deps Dependencies) *Server {
 	router.Use(gin.Recovery())
 	server := &Server{
 		config: deps.Config, configPath: deps.ConfigPath, logger: deps.Logger,
-		repository: deps.Repository, setupDNS: deps.SetupDNS, firewall: deps.Firewall, router: router,
+		repository: deps.Repository, setupDNS: deps.SetupDNS, secrets: deps.Secrets, firewall: deps.Firewall, router: router,
 		servers:                  deps.Servers,
 		sshKeys:                  deps.SSHKeys,
 		issueCertificate:         deps.IssueCertificate,

@@ -116,8 +116,8 @@ validate_managed_paths() {
         "$INSTALL_DIR/scert" \
         "$INSTALL_DIR/scert-admin" \
         "$INSTALL_METADATA_FILE" \
-        "$INSTALL_DIR/docs/Scert服务管理说明.md" \
-        "$INSTALL_DIR/docs/Scert-admin服务管理说明.md" \
+        "$INSTALL_DIR/docs/Scert-service-management.md" \
+        "$INSTALL_DIR/docs/Scert-admin-service-management.md" \
         "$SERVICE_DIR/Scert.service" \
         "$SERVICE_DIR/Scert-admin.service" \
         "$SERVICE_DROP_IN_DIR" \
@@ -227,10 +227,10 @@ install_service_files() {
 
     install -o root -g root -m 0644 \
         "$SCRIPT_DIR/systemd/Scert服务管理说明.md" \
-        "$INSTALL_DIR/docs/Scert服务管理说明.md"
+        "$INSTALL_DIR/docs/Scert-service-management.md"
     install -o root -g root -m 0644 \
         "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" \
-        "$INSTALL_DIR/docs/Scert-admin服务管理说明.md"
+        "$INSTALL_DIR/docs/Scert-admin-service-management.md"
 }
 
 reload_systemd() {

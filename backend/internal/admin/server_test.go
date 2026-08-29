@@ -24,10 +24,12 @@ func TestScertAdminSystemdUnitKeepsManualOnlyPolicy(t *testing.T) {
 	unit := activeUnitText(string(data))
 
 	for _, required := range []string{
-		"Documentation=file:///scert/docs/Scert-admin服务管理说明.md",
+		"Documentation=file:///scert/docs/Scert-admin-service-management.md",
 		"User=Scert",
 		"Group=Scert",
-		"ExecStart=/scert/scert-admin --config /scert/conf/scert.json",
+		"RuntimeDirectory=scert-admin",
+		"RuntimeDirectoryMode=0700",
+		"ExecStart=/scert/scert-admin --config /scert/conf/scert.json --code-output /run/scert-admin/reset-code",
 		"Restart=no",
 		"RuntimeMaxSec=30min",
 		"UMask=0077",
@@ -131,6 +133,109 @@ func TestResetCodeCanOnlyBeConsumedOnce(t *testing.T) {
 	}
 }
 
+func TestControllerWritesAndDestroysProtectedCodeFile(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	codePath := filepath.Join(t.TempDir(), "runtime", "reset-code")
+	controller := NewWithCodePath(cfg, codePath)
+
+	session, err := controller.Start()
+	if err != nil {
+		t.Fatalf("启动密码重置入口失败：%v", err)
+	}
+	content, err := os.ReadFile(codePath)
+	if err != nil {
+		t.Fatalf("读取受保护校验码文件失败：%v", err)
+	}
+	if string(content) != session.Code+"\n" {
+		t.Fatalf("校验码文件内容错误：%q", string(content))
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(codePath)
+		if err != nil {
+			t.Fatalf("读取校验码文件属性失败：%v", err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("校验码文件权限错误：%o", info.Mode().Perm())
+		}
+	}
+	if err := controller.Stop(); err != nil {
+		t.Fatalf("停止密码重置入口失败：%v", err)
+	}
+	if _, err := os.Stat(codePath); !os.IsNotExist(err) {
+		t.Fatalf("停止服务后校验码文件必须销毁，当前错误：%v", err)
+	}
+}
+
+func TestConsumeDestroysCodeFile(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	codePath := filepath.Join(t.TempDir(), "runtime", "reset-code")
+	controller := NewWithCodePath(cfg, codePath)
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	controller.now = func() time.Time { return now }
+
+	session, err := controller.Start()
+	if err != nil {
+		t.Fatalf("启动密码重置入口失败：%v", err)
+	}
+	verified, err := VerifyCode(StatePath(cfg.Paths.Data), session.Code, now)
+	if err != nil {
+		t.Fatalf("校验一次性校验码失败：%v", err)
+	}
+	if err := Consume(StatePath(cfg.Paths.Data), verified, now); err != nil {
+		t.Fatalf("消费一次性校验码失败：%v", err)
+	}
+	if _, err := os.Stat(codePath); !os.IsNotExist(err) {
+		t.Fatalf("校验码消费后文件必须销毁，当前错误：%v", err)
+	}
+}
+
+func TestExpiredLeaseDestroysCodeFile(t *testing.T) {
+	dataDir := t.TempDir()
+	statePath := StatePath(dataDir)
+	codePath := CodePath(dataDir)
+	if err := writeCodeFile(codePath, "expired-code"); err != nil {
+		t.Fatalf("创建过期校验码文件失败：%v", err)
+	}
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	if err := writeState(statePath, State{Active: true, CodePath: codePath, ExpiresAt: now.Add(-time.Second)}); err != nil {
+		t.Fatalf("写入过期租约失败：%v", err)
+	}
+	active, err := IsActive(statePath, now)
+	if err != nil || active {
+		t.Fatalf("过期租约必须失效：active=%t err=%v", active, err)
+	}
+	if _, err := os.Stat(codePath); !os.IsNotExist(err) {
+		t.Fatalf("租约失效后校验码文件必须销毁，当前错误：%v", err)
+	}
+}
+
+func TestControllerDoesNotOverwriteExistingCodeFile(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	codePath := filepath.Join(t.TempDir(), "runtime", "reset-code")
+	if err := os.MkdirAll(filepath.Dir(codePath), 0o700); err != nil {
+		t.Fatalf("创建测试目录失败：%v", err)
+	}
+	const existing = "existing-code\n"
+	if err := os.WriteFile(codePath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("创建已有校验码文件失败：%v", err)
+	}
+	if _, err := NewWithCodePath(cfg, codePath).Start(); err == nil {
+		t.Fatal("已有校验码文件时不允许覆盖")
+	}
+	content, err := os.ReadFile(codePath)
+	if err != nil {
+		t.Fatalf("读取已有校验码文件失败：%v", err)
+	}
+	if string(content) != existing {
+		t.Fatalf("已有校验码文件被修改：%q", string(content))
+	}
+}
 func activeUnitText(unit string) string {
 	lines := strings.Split(unit, "\n")
 	active := make([]string, 0, len(lines))
@@ -142,4 +247,29 @@ func activeUnitText(unit string) string {
 		active = append(active, trimmed)
 	}
 	return strings.Join(active, "\n")
+}
+
+func TestConsumeExpiredSessionRemovesCodeFile(t *testing.T) {
+	baseDir := t.TempDir()
+	statePath := filepath.Join(baseDir, "state.json")
+	codePath := filepath.Join(baseDir, "reset-code")
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	if err := os.WriteFile(codePath, []byte("expired-code\n"), 0o600); err != nil {
+		t.Fatalf("创建过期校验码文件失败：%v", err)
+	}
+	state := State{
+		Active:    true,
+		CodeHash:  hashCode("expired-code"),
+		CodePath:  codePath,
+		ExpiresAt: now.Add(-time.Second),
+	}
+	if err := writeState(statePath, state); err != nil {
+		t.Fatalf("写入过期会话失败：%v", err)
+	}
+	if err := Consume(statePath, state, now); err != ErrResetSessionClosed {
+		t.Fatalf("消费过期会话应返回关闭错误：%v", err)
+	}
+	if _, err := os.Stat(codePath); !os.IsNotExist(err) {
+		t.Fatalf("消费过期会话后必须销毁校验码文件：%v", err)
+	}
 }

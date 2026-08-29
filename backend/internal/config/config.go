@@ -7,8 +7,10 @@ import (
 	"net/mail"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -72,10 +74,12 @@ type PathsConfig struct {
 }
 
 type ACMEConfig struct {
-	CA                   string `json:"ca"`
-	Environment          string `json:"environment"`
-	AccountEmail         string `json:"account_email"`
-	RenewalThresholdDays int    `json:"renewal_threshold_days"`
+	CA                             string `json:"ca"`
+	Environment                    string `json:"environment"`
+	AccountEmail                   string `json:"account_email"`
+	RenewalThresholdDays           int    `json:"renewal_threshold_days"`
+	PropagationTimeoutSecs         int    `json:"propagation_timeout_secs"`
+	PropagationPollingIntervalSecs int    `json:"propagation_polling_interval_secs"`
 }
 
 type DNSConfig struct {
@@ -119,8 +123,14 @@ func Default(baseDir string) Config {
 			MaxOpenConns: 4, MaxIdleConns: 2, ConnMaxLifetimeMins: 30,
 		},
 		Paths: paths,
-		ACME:  ACMEConfig{CA: "letsencrypt", Environment: "staging", RenewalThresholdDays: 6},
-		DNS:   DNSConfig{VerificationState: "not_configured"},
+		ACME: ACMEConfig{
+			CA:                             "letsencrypt",
+			Environment:                    "staging",
+			RenewalThresholdDays:           6,
+			PropagationTimeoutSecs:         900,
+			PropagationPollingIntervalSecs: 10,
+		},
+		DNS: DNSConfig{VerificationState: "not_configured"},
 		Notification: NotificationConfig{
 			HTTPHeaders:        map[string]string{},
 			HTTPPath:           "/api/email/send",
@@ -207,6 +217,12 @@ func (c *Config) Normalize() {
 	if c.DNS.VerificationState == "" {
 		c.DNS.VerificationState = "not_configured"
 	}
+	if c.ACME.PropagationTimeoutSecs == 0 {
+		c.ACME.PropagationTimeoutSecs = 900
+	}
+	if c.ACME.PropagationPollingIntervalSecs == 0 {
+		c.ACME.PropagationPollingIntervalSecs = 10
+	}
 	if c.Notification.HTTPPath == "" {
 		c.Notification.HTTPPath = "/api/email/send"
 	}
@@ -258,7 +274,42 @@ func (c Config) Save(path string) error {
 	if err := os.Chmod(path, 0o600); err != nil {
 		return fmt.Errorf("设置配置文件权限失败：%w", err)
 	}
+	if err := applyLinuxServiceOwnership(filepath.Dir(path), path); err != nil {
+		return fmt.Errorf("设置配置文件归属失败：%w", err)
+	}
 	return nil
+}
+
+// applyLinuxServiceOwnership 在 root 初始化配置时，将配置目录和文件交给 Scert 服务用户管理。
+// 非 Linux、非 root 进程或系统尚未创建 Scert 用户时保持原有行为，便于开发环境使用。
+func applyLinuxServiceOwnership(directory, path string) error {
+	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
+		return nil
+	}
+
+	serviceUser, err := user.Lookup("Scert")
+	if err != nil {
+		return nil
+	}
+	serviceGroup, err := user.LookupGroup("Scert")
+	if err != nil {
+		return nil
+	}
+	uid, err := strconv.Atoi(serviceUser.Uid)
+	if err != nil {
+		return fmt.Errorf("解析 Scert 用户编号失败：%w", err)
+	}
+	gid, err := strconv.Atoi(serviceGroup.Gid)
+	if err != nil {
+		return fmt.Errorf("解析 Scert 用户组编号失败：%w", err)
+	}
+	if err := os.Chown(directory, uid, gid); err != nil {
+		return err
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return err
+	}
+	return os.Chown(path, uid, gid)
 }
 
 func (c Config) Validate() error {
@@ -302,6 +353,15 @@ func (c Config) Validate() error {
 	}
 	if c.ACME.RenewalThresholdDays < 1 {
 		return fmt.Errorf("续期阈值必须大于 0")
+	}
+	if c.ACME.PropagationTimeoutSecs < 1 || c.ACME.PropagationTimeoutSecs > 86400 {
+		return fmt.Errorf("DNS 传播等待时间必须在 1 到 86400 秒之间")
+	}
+	if c.ACME.PropagationPollingIntervalSecs < 1 {
+		return fmt.Errorf("DNS 传播检测间隔必须大于 0")
+	}
+	if c.ACME.PropagationPollingIntervalSecs > c.ACME.PropagationTimeoutSecs {
+		return fmt.Errorf("DNS 传播检测间隔不能大于传播等待时间")
 	}
 	if c.DNS.VerificationState != "not_configured" && c.DNS.VerificationState != "pending" && c.DNS.VerificationState != "verified" && c.DNS.VerificationState != "failed" {
 		return fmt.Errorf("DNS 验证状态无效：%s", c.DNS.VerificationState)
@@ -369,19 +429,37 @@ func (c Config) Validate() error {
 
 // ResetURL 返回通过主 Web 服务访问密码重置入口的公开地址。
 func (c Config) ResetURL() string {
-	host := strings.TrimSpace(c.Web.Hostname)
-	if host == "" {
-		host = strings.TrimSpace(c.Web.PublicIP)
+	rawHost := strings.TrimSpace(c.Web.Hostname)
+	if rawHost == "" {
+		rawHost = strings.TrimSpace(c.Web.PublicIP)
 	}
-	if host == "" {
+	if rawHost == "" {
 		return ""
 	}
-	if parsed, err := url.Parse(host); err == nil && parsed.Hostname() != "" {
-		host = parsed.Hostname()
-	}
+	host, _ := splitResetHost(rawHost)
 	host = strings.Trim(host, "[]")
-	if ip := net.ParseIP(host); ip != nil && strings.Contains(host, ":") {
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
 		host = "[" + host + "]"
 	}
 	return (&url.URL{Scheme: "https", Host: host, Path: "/reset"}).String()
+}
+
+func splitResetHost(rawHost string) (string, string) {
+	trimmed := strings.TrimSpace(rawHost)
+	withoutBrackets := strings.Trim(trimmed, "[]")
+	if net.ParseIP(withoutBrackets) != nil {
+		return withoutBrackets, ""
+	}
+
+	parseTarget := trimmed
+	if !strings.Contains(parseTarget, "://") {
+		parseTarget = "//" + parseTarget
+	}
+	if parsed, err := url.Parse(parseTarget); err == nil && parsed.Hostname() != "" {
+		return parsed.Hostname(), parsed.Port()
+	}
+	if parsedHost, parsedPort, err := net.SplitHostPort(trimmed); err == nil {
+		return parsedHost, parsedPort
+	}
+	return withoutBrackets, ""
 }

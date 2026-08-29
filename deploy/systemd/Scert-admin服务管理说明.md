@@ -6,6 +6,12 @@
 
 Linux 安装程序必须同时安装 `Scert` 和 `Scert-admin` 的 systemd 单元，但不得执行 `systemctl enable Scert-admin`，不得为 `Scert-admin` 创建开机启动软链接，也不得配置 `Restart=always` 或其他自动拉起策略。
 
+## 一次性校验码文件
+
+Linux systemd 安装默认将校验码写入 `/run/scert-admin/reset-code`，该目录由 systemd 创建并设置为 `0700`，文件由 Scert-admin 创建并设置为 `0600`。直接运行程序时可以通过 `--code-output` 指定受保护的临时文件路径；不要将该路径放入公开目录、日志目录或备份目录。
+
+校验码文件只用于人工读取，不属于配置数据。读取后不得复制到工单、聊天记录或日志中；密码重置成功后文件会立即销毁。
+
 ## 支持的生命周期控制
 
 日常运行时，`Scert-admin` 只支持以下两个控制命令：
@@ -32,7 +38,7 @@ systemd 无法阻止 root 或具备等效系统权限的操作者调用 `status`
 5. 安装器、桌面端和运维文档只提供 `start`、`stop` 两个日常控制入口。
 6. 任何需要重新加载 unit 的行为仅限安装或升级阶段，不能通过 Web 管理界面触发。
 7. 激活租约有效期为 90 秒，每 30 秒刷新；systemd 使用 `RuntimeMaxSec=30min` 将单次激活最长时间限制为 30 分钟。
-8. 启动时生成的一次性校验码只在当前终端显示，状态文件仅保存 SHA-256 摘要，不保存明文校验码。
+8. 启动时生成的一次性校验码不会写入标准输出或 systemd 日志。校验码只写入受保护的临时文件；systemd 单元使用 `RuntimeDirectory=scert-admin` 和 `RuntimeDirectoryMode=0700`，文件权限为 `0600`，仅允许 `Scert` 用户和 root 读取。
 
 这组限制可以避免服务因安装配置被纳入开机启动、避免服务自动反复拉起，并彻底取消独立密码重置监听端口。需要注意：`/reset` 与 Scert 主服务共享 HTTPS 端口，激活期间仍可能被外部访问，因此完整密码重置实现还必须校验一次性校验码、限制请求频率、单次消费校验码并记录审计日志。不能把拥有 root 权限的恶意操作者从 systemd 管理能力中排除。
 
@@ -54,4 +60,4 @@ systemctl restart Scert-admin
 
 安装完成后只提示管理员在确有需要时手动执行 `systemctl start Scert-admin`；不需要密码重置时保持服务停止，完成重置后立即执行 `systemctl stop Scert-admin`。
 
-当前实现已经接入一次性校验码、单次消费、密码复杂度校验、CSRF、同源校验、失败限流、配置原子保存和审计日志。密码重置成功后 `/reset` 立即关闭，Scert-admin 后续刷新旧租约也会自动终止。一次性校验码仍会在直接运行或 systemd 标准输出中呈现；正式上线前必须替换为不把明文校验码长期保留在持久日志中的受保护本地呈现机制。
+当前实现已经接入一次性校验码、单次消费、密码复杂度校验、CSRF、同源校验、失败限流、配置原子保存和审计日志。密码重置成功后 `/reset` 立即关闭，Scert-admin 后续刷新旧租约也会自动终止。启动后请按终端提示，使用 root 或 `Scert` 用户读取受保护的临时校验码文件：`sudo cat /run/scert-admin/reset-code`。校验码在密码重置成功、服务停止或租约失效后自动销毁。

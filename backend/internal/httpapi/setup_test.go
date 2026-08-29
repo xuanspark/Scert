@@ -28,6 +28,22 @@ type fakeSetupDNSVerifier struct {
 	consumed     bool
 }
 
+type fakeSetupSecretWriter struct {
+	values map[string]map[string]string
+}
+
+func (f *fakeSetupSecretWriter) Put(_ context.Context, reference string, value map[string]string) error {
+	if f.values == nil {
+		f.values = make(map[string]map[string]string)
+	}
+	copyValue := make(map[string]string, len(value))
+	for key, item := range value {
+		copyValue[key] = item
+	}
+	f.values[reference] = copyValue
+	return nil
+}
+
 type fakeFirewallManager struct {
 	result       firewall.Result
 	openErr      error
@@ -186,6 +202,8 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 		"dns_credential_ref":"secret://dns/cloudflare/default",
 		"dns_verification_token":"verified-token",
 		"dns_test_domain":"scert.example.test",
+		"propagation_timeout_secs":1200,
+		"propagation_polling_interval_secs":15,
 		"certificate_root":"` + filepath.ToSlash(filepath.Join(baseDir, "ssl")) + `",
 		"web_hostname":"scert.example.test",
 		"web_enabled":true,
@@ -229,6 +247,9 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	if len(saved.Notification.Recipients) != 1 {
 		t.Fatalf("通知收件人未去重：%v", saved.Notification.Recipients)
 	}
+	if saved.ACME.PropagationTimeoutSecs != 1200 || saved.ACME.PropagationPollingIntervalSecs != 15 {
+		t.Fatalf("Web 初始化未保存 DNS 传播等待配置：timeout=%d interval=%d", saved.ACME.PropagationTimeoutSecs, saved.ACME.PropagationPollingIntervalSecs)
+	}
 
 	repeat := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(payload))
 	repeat.RemoteAddr = "127.0.0.1:53001"
@@ -237,6 +258,65 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	server.Handler().ServeHTTP(repeatResponse, repeat)
 	if repeatResponse.Code != http.StatusConflict {
 		t.Fatalf("重复初始化应返回冲突：%d", repeatResponse.Code)
+	}
+}
+
+func TestSetupApplyEncryptsNotificationCredentialsAndPersistsReference(t *testing.T) {
+	baseDir := t.TempDir()
+	cfg := config.Default(baseDir)
+	configPath := filepath.Join(baseDir, "config", "scert.json")
+	verifier := &fakeSetupDNSVerifier{}
+	secrets := &fakeSetupSecretWriter{}
+	server := New(Dependencies{
+		Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{},
+		SetupDNS: verifier, Secrets: secrets,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
+	})
+	payload := `{
+		"admin_username":"root-admin",
+		"admin_email":"admin@example.test",
+		"admin_password":"secure-pass-123",
+		"server_port":8443,
+		"email_http_enabled":true,
+		"email_provider":"mail-api",
+		"email_endpoint":"https://mail.example.test/send",
+		"email_http_auth_mode":"bearer",
+		"email_http_credentials":{"token":"plain-token-value"},
+		"recipients":["ops@example.test"],
+		"dns_provider":"cloudflare",
+		"dns_credential_ref":"secret://dns/cloudflare/default",
+		"dns_verification_token":"verified-token",
+		"dns_test_domain":"scert.example.test",
+		"certificate_root":"` + filepath.ToSlash(filepath.Join(baseDir, "ssl")) + `",
+		"web_hostname":"scert.example.test",
+		"web_enabled":true,
+		"https_mode":"direct"
+	}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(payload))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("提交带 HTTP 通知凭据的初始化配置失败：%d %s", response.Code, response.Body.String())
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("读取初始化配置失败：%v", err)
+	}
+	if strings.Contains(string(data), "plain-token-value") || strings.Contains(string(data), "email_http_credentials") {
+		t.Fatal("普通配置文件不应保存 HTTP 通知明文凭据")
+	}
+	var saved config.Config
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("解析初始化配置失败：%v", err)
+	}
+	if !strings.HasPrefix(saved.Notification.HTTPCredentialRef, "secret://notification/") {
+		t.Fatalf("初始化配置应保存通知凭据引用：%q", saved.Notification.HTTPCredentialRef)
+	}
+	stored, ok := secrets.values[saved.Notification.HTTPCredentialRef]
+	if !ok || stored["token"] != "plain-token-value" {
+		t.Fatalf("通知凭据未写入敏感信息存储：%v", secrets.values)
 	}
 }
 
@@ -251,6 +331,63 @@ func TestSetupApplyRejectsUnverifiedDNSConfiguration(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "DNS 验证令牌") {
 		t.Fatalf("未验证 DNS 配置应被拒绝：%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestNormalizeNotificationCredentials(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		values  map[string]string
+		wantErr bool
+	}{
+		{name: "bearer", mode: "bearer", values: map[string]string{"token": "token-value"}},
+		{name: "hmac", mode: "hmac_sha256", values: map[string]string{"secret": "secret-value"}},
+		{name: "session", mode: "session", values: map[string]string{"account": "test", "password": "password-value"}},
+		{name: "missing bearer token", mode: "bearer", values: map[string]string{"name": "test"}, wantErr: true},
+		{name: "missing session password", mode: "session", values: map[string]string{"account": "test"}, wantErr: true},
+		{name: "unknown mode", mode: "unknown", values: map[string]string{"token": "test"}, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := normalizeNotificationCredentials(test.mode, test.values)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("凭据校验结果不正确：error=%v", err)
+			}
+		})
+	}
+}
+
+func TestSetupApplyRejectsMissingNotificationCredentials(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	verifier := &fakeSetupDNSVerifier{}
+	server := New(Dependencies{
+		Config: cfg, ConfigPath: filepath.Join(t.TempDir(), "scert.json"),
+		Repository: &stubDomainRepository{}, SetupDNS: verifier,
+	})
+	payload := `{
+		"admin_username":"root-admin",
+		"admin_email":"admin@example.test",
+		"admin_password":"secure-pass-123",
+		"server_port":8443,
+		"email_http_enabled":true,
+		"email_endpoint":"https://mail.example.test",
+		"email_http_auth_mode":"bearer",
+		"dns_provider":"cloudflare",
+		"dns_credential_ref":"secret://dns/cloudflare/test",
+		"dns_verification_token":"verified-token",
+		"dns_test_domain":"example.test",
+		"certificate_root":"/ssl",
+		"web_hostname":"scert.example.test",
+		"https_mode":"direct"
+	}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(payload))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "明文凭据或已有凭据引用") {
+		t.Fatalf("缺少 HTTP 通知凭据时应被拒绝：%d %s", response.Code, response.Body.String())
 	}
 }
 

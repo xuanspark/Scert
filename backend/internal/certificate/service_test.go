@@ -18,6 +18,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 )
 
 type serviceRepository struct {
@@ -50,6 +51,17 @@ func (serviceProvider) CleanUp(context.Context, string, string, string) error { 
 type serviceProviderFactory struct{}
 
 func (serviceProviderFactory) Create(string, map[string]string) (challenge.Provider, error) {
+	return serviceProvider{}, nil
+}
+
+type recordingProviderFactory struct {
+	providerID  string
+	credentials map[string]string
+}
+
+func (f *recordingProviderFactory) Create(providerID string, credentials map[string]string) (challenge.Provider, error) {
+	f.providerID = providerID
+	f.credentials = credentials
 	return serviceProvider{}, nil
 }
 
@@ -260,5 +272,51 @@ func TestServiceIssuesSetupCertificateWithTypedLayout(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("初始化证书文件不存在：%s：%v", path, err)
 		}
+	}
+}
+
+func TestServiceDecryptsCredentialReferenceBeforeCreatingProvider(t *testing.T) {
+	root := t.TempDir()
+	cfg := certificateTestConfig(root)
+	store, err := secretstore.Open(cfg.Paths.Config)
+	if err != nil {
+		t.Fatalf("打开敏感信息存储失败：%v", err)
+	}
+	credentialRef := "secret://dns/cloudflare/service-test"
+	if err := store.Put(context.Background(), credentialRef, map[string]string{
+		"api_token": "test-dns-token",
+	}); err != nil {
+		t.Fatalf("保存测试 DNS 凭据失败：%v", err)
+	}
+	cfg.DNS.CredentialRef = credentialRef
+	item, err := domain.NewDomainWithOptions("example.com", domain.CertificateSingle, nil, true, domain.ACMEEnvironmentStaging, "cloudflare")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &serviceRepository{item: item}
+	factory := &recordingProviderFactory{}
+	issuer := &serviceIssuer{resource: testResource(t, "example.com")}
+	service := NewService(cfg, repository, store, factory, serviceAccounts{})
+	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer { return issuer }
+
+	if _, err := service.Issue(context.Background(), item.ID); err != nil {
+		t.Fatalf("使用加密凭据引用申请证书失败：%v", err)
+	}
+	if factory.providerID != "cloudflare" || factory.credentials["api_token"] != "test-dns-token" {
+		t.Fatalf("创建 DNS Provider 时未正确解密凭据：provider=%q credentials=%v", factory.providerID, factory.credentials)
+	}
+}
+
+func TestNewServiceInjectsPropagationSettings(t *testing.T) {
+	cfg := certificateTestConfig(t.TempDir())
+	cfg.ACME.PropagationTimeoutSecs = 1200
+	cfg.ACME.PropagationPollingIntervalSecs = 15
+	service := NewService(cfg, nil, nil, nil, nil)
+	issuer, ok := service.newIssuer(&AccountUser{}, serviceProvider{}, "staging").(*LegoIssuer)
+	if !ok {
+		t.Fatal("创建的 Issuer 类型不正确")
+	}
+	if issuer.PropagationTimeout != 1200*time.Second || issuer.PropagationInterval != 15*time.Second {
+		t.Fatalf("DNS 传播参数注入不正确：timeout=%s interval=%s", issuer.PropagationTimeout, issuer.PropagationInterval)
 	}
 }

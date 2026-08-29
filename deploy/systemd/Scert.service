@@ -1,6 +1,6 @@
 [Unit]
 Description=Scert SSL 证书管理核心服务
-Documentation=file:///scert/docs/Scert服务管理说明.md
+Documentation=file:///scert/docs/Scert-service-management.md
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/scert/conf/scert.json

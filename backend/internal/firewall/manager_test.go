@@ -139,6 +139,19 @@ func TestUFWKeepsExistingRule(t *testing.T) {
 	}
 }
 
+func TestUFWRecognizesChineseActiveStatus(t *testing.T) {
+	runner := &fakeRunner{
+		paths:     map[string]string{"ufw": "/usr/sbin/ufw"},
+		responses: []runnerResponse{{result: CommandResult{Output: []byte("状态： 激活\n8443/tcp ALLOW Anywhere\n")}}},
+	}
+	result, err := NewManagerForOS("linux", runner).OpenTCP(context.Background(), 8443)
+	if err != nil {
+		t.Fatalf("中文 UFW 状态检查失败：%v", err)
+	}
+	if result.Created || result.Backend != backendUFW {
+		t.Fatalf("中文 UFW 已有规则不应重复创建：%+v", result)
+	}
+}
 func TestFirewalldCreatesPermanentRuleAndReloads(t *testing.T) {
 	runner := &fakeRunner{
 		paths: map[string]string{"firewall-cmd": "/usr/bin/firewall-cmd"},

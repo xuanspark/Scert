@@ -13,36 +13,40 @@ import (
 )
 
 type Input struct {
-	AdminUsername                 string
-	AdminEmail                    string
-	AdminPassword                 string
-	ServerPort                    int
-	EmailHTTPEnabled              bool
-	EmailProvider                 string
-	EmailEndpoint                 string
-	EmailHTTPPath                 string
-	EmailHTTPLoginPath            string
-	EmailHTTPAuthMode             string
-	EmailHTTPCredentialRef        string
-	EmailHTTPHeaders              map[string]string
-	EmailEventMode                string
-	EmailIncludeDeploymentDetails bool
-	EmailIncludeCertificateSerial bool
-	EmailIncludeManagementURL     bool
-	EmailSenderName               string
-	EmailSenderEmail              string
-	EmailRecipients               []string
-	EmailTimeoutSecs              int
-	EmailRetryCount               int
-	EmailRetryIntervalsSecs       []int
-	DNSProvider                   string
-	DNSCredentialRef              string
-	DNSVerified                   bool
-	CertificateRoot               string
-	WebHostname                   string
-	WebPublicIP                   string
-	WebEnabled                    bool
-	HTTPSMode                     string
+	AdminUsername                  string
+	AdminEmail                     string
+	AdminPassword                  string
+	ServerPort                     int
+	EmailHTTPEnabled               bool
+	EmailProvider                  string
+	EmailEndpoint                  string
+	EmailHTTPPath                  string
+	EmailHTTPLoginPath             string
+	EmailHTTPAuthMode              string
+	EmailHTTPCredentialRef         string
+	EmailHTTPHeaders               map[string]string
+	EmailEventMode                 string
+	EmailIncludeDeploymentDetails  bool
+	EmailIncludeCertificateSerial  bool
+	EmailIncludeManagementURL      bool
+	EmailSenderName                string
+	EmailSenderEmail               string
+	EmailRecipients                []string
+	EmailTimeoutSecs               int
+	EmailRetryCount                int
+	EmailRetryIntervalsSecs        []int
+	DNSProvider                    string
+	DNSCredentialRef               string
+	DNSCredentials                 map[string]string
+	DNSTestDomain                  string
+	DNSVerified                    bool
+	PropagationTimeoutSecs         int
+	PropagationPollingIntervalSecs int
+	CertificateRoot                string
+	WebHostname                    string
+	WebPublicIP                    string
+	WebEnabled                     bool
+	HTTPSMode                      string
 }
 
 func Apply(cfg *config.Config, input Input) error {
@@ -97,6 +101,12 @@ func Apply(cfg *config.Config, input Input) error {
 	cfg.Admin.Email = adminEmail
 	cfg.Admin.PasswordHash = string(hash)
 	cfg.ACME.AccountEmail = adminEmail
+	if input.PropagationTimeoutSecs != 0 {
+		cfg.ACME.PropagationTimeoutSecs = input.PropagationTimeoutSecs
+	}
+	if input.PropagationPollingIntervalSecs != 0 {
+		cfg.ACME.PropagationPollingIntervalSecs = input.PropagationPollingIntervalSecs
+	}
 	cfg.Server.Port = input.ServerPort
 	cfg.Server.HTTPSMode = input.HTTPSMode
 	cfg.Web.Enabled = input.WebEnabled

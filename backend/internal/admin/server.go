@@ -20,6 +20,7 @@ import (
 const (
 	ResetPath       = "/reset"
 	stateFileName   = "scert-admin-reset.json"
+	codeFileName    = "scert-admin-reset-code"
 	defaultLease    = 90 * time.Second
 	RefreshInterval = 30 * time.Second
 )
@@ -30,6 +31,7 @@ type State struct {
 	Active    bool      `json:"active"`
 	ResetURL  string    `json:"reset_url"`
 	CodeHash  string    `json:"code_hash"`
+	CodePath  string    `json:"code_path,omitempty"`
 	ProcessID int       `json:"process_id"`
 	StartedAt time.Time `json:"started_at"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -43,15 +45,24 @@ type Session struct {
 type Controller struct {
 	config        config.Config
 	statePath     string
+	codePath      string
 	leaseDuration time.Duration
 	now           func() time.Time
 	state         State
 }
 
 func New(cfg config.Config) *Controller {
+	return NewWithCodePath(cfg, "")
+}
+
+func NewWithCodePath(cfg config.Config, codePath string) *Controller {
+	if strings.TrimSpace(codePath) == "" {
+		codePath = CodePath(cfg.Paths.Data)
+	}
 	return &Controller{
 		config:        cfg,
 		statePath:     StatePath(cfg.Paths.Data),
+		codePath:      codePath,
 		leaseDuration: defaultLease,
 		now:           time.Now,
 	}
@@ -59,6 +70,10 @@ func New(cfg config.Config) *Controller {
 
 func StatePath(dataDir string) string {
 	return filepath.Join(dataDir, stateFileName)
+}
+
+func CodePath(dataDir string) string {
+	return filepath.Join(dataDir, codeFileName)
 }
 
 func (c *Controller) Start() (Session, error) {
@@ -72,9 +87,11 @@ func (c *Controller) Start() (Session, error) {
 	if resetURL == "" {
 		return Session{}, fmt.Errorf("未配置管理页面域名或公网 IP，无法生成密码重置地址")
 	}
-	if active, err := IsActive(c.statePath, c.now()); err != nil {
+	active, err := IsActive(c.statePath, c.now())
+	if err != nil {
 		return Session{}, err
-	} else if active {
+	}
+	if active {
 		return Session{}, fmt.Errorf("密码重置入口已经启用")
 	}
 	code, err := generateCode()
@@ -83,10 +100,14 @@ func (c *Controller) Start() (Session, error) {
 	}
 	now := c.now().UTC()
 	c.state = State{
-		Active: true, ResetURL: resetURL, CodeHash: hashCode(code), ProcessID: os.Getpid(),
+		Active: true, ResetURL: resetURL, CodeHash: hashCode(code), CodePath: c.codePath, ProcessID: os.Getpid(),
 		StartedAt: now, ExpiresAt: now.Add(c.leaseDuration),
 	}
+	if err := writeCodeFile(c.codePath, code); err != nil {
+		return Session{}, err
+	}
 	if err := writeState(c.statePath, c.state); err != nil {
+		_ = removeCodeFile(c.codePath)
 		return Session{}, err
 	}
 	return Session{State: c.state, Code: code}, nil
@@ -102,6 +123,7 @@ func (c *Controller) Refresh() error {
 	}
 	if !latest.Active || latest.CodeHash != c.state.CodeHash || !c.now().UTC().Before(latest.ExpiresAt) {
 		c.state.Active = false
+		_ = removeCodeFile(codePathForState(c.statePath, latest))
 		return ErrResetSessionClosed
 	}
 	c.state = latest
@@ -113,9 +135,14 @@ func (c *Controller) Stop() error {
 	if c == nil || !c.state.Active {
 		return nil
 	}
-	c.state.Active = false
-	c.state.ExpiresAt = c.now().UTC()
-	return writeState(c.statePath, c.state)
+	state := c.state
+	state.Active = false
+	state.ExpiresAt = c.now().UTC()
+	if err := writeState(c.statePath, state); err != nil {
+		return err
+	}
+	c.state = state
+	return removeCodeFile(codePathForState(c.statePath, state))
 }
 
 func IsActive(path string, now time.Time) (bool, error) {
@@ -126,7 +153,13 @@ func IsActive(path string, now time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return state.Active && now.UTC().Before(state.ExpiresAt), nil
+	active := state.Active && now.UTC().Before(state.ExpiresAt)
+	if !active {
+		if err := removeCodeFile(codePathForState(path, state)); err != nil {
+			return false, err
+		}
+	}
+	return active, nil
 }
 
 func VerifyCode(path, code string, now time.Time) (State, error) {
@@ -135,6 +168,7 @@ func VerifyCode(path, code string, now time.Time) (State, error) {
 		return State{}, err
 	}
 	if !state.Active || state.CodeHash == "" || !now.UTC().Before(state.ExpiresAt) {
+		_ = removeCodeFile(codePathForState(path, state))
 		return State{}, ErrResetSessionClosed
 	}
 	expected := hashCode(code)
@@ -150,6 +184,7 @@ func Consume(path string, session State, now time.Time) error {
 		return err
 	}
 	if !latest.Active || latest.CodeHash == "" || !now.UTC().Before(latest.ExpiresAt) {
+		_ = removeCodeFile(codePathForState(path, latest))
 		return ErrResetSessionClosed
 	}
 	if subtle.ConstantTimeCompare([]byte(latest.CodeHash), []byte(session.CodeHash)) != 1 {
@@ -158,7 +193,10 @@ func Consume(path string, session State, now time.Time) error {
 	latest.Active = false
 	latest.CodeHash = ""
 	latest.ExpiresAt = now.UTC()
-	return writeState(path, latest)
+	if err := writeState(path, latest); err != nil {
+		return err
+	}
+	return removeCodeFile(codePathForState(path, latest))
 }
 
 func ReadState(path string) (State, error) {
@@ -200,6 +238,56 @@ func writeState(path string, state State) error {
 	return nil
 }
 
+func writeCodeFile(path, code string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("未配置一次性校验码文件路径")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("创建一次性校验码目录失败：%w", err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("创建一次性校验码文件失败：%w", err)
+	}
+	success := false
+	defer func() {
+		_ = file.Close()
+		if !success {
+			_ = os.Remove(path)
+		}
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return fmt.Errorf("设置一次性校验码文件权限失败：%w", err)
+	}
+	if _, err := file.WriteString(code + "\n"); err != nil {
+		return fmt.Errorf("写入一次性校验码文件失败：%w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("刷新一次性校验码文件失败：%w", err)
+	}
+	if err := protectCodeFile(path); err != nil {
+		return fmt.Errorf("保护一次性校验码文件失败：%w", err)
+	}
+	success = true
+	return nil
+}
+
+func removeCodeFile(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("销毁一次性校验码文件失败：%w", err)
+	}
+	return nil
+}
+
+func codePathForState(statePath string, state State) string {
+	if strings.TrimSpace(state.CodePath) != "" {
+		return state.CodePath
+	}
+	return CodePath(filepath.Dir(statePath))
+}
 func generateCode() (string, error) {
 	buffer := make([]byte, 10)
 	if _, err := rand.Read(buffer); err != nil {

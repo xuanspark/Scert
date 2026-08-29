@@ -28,11 +28,30 @@ func (u *AccountUser) GetRegistration() *acme.ExtendedAccount { return u.Registr
 func (u *AccountUser) GetPrivateKey() crypto.Signer           { return u.PrivateKey }
 
 type LegoIssuer struct {
-	User        *AccountUser
-	Provider    challenge.Provider
-	Environment string
-	HTTPClient  *http.Client
-	Now         func() time.Time
+	User                *AccountUser
+	Provider            challenge.Provider
+	Environment         string
+	PropagationTimeout  time.Duration
+	PropagationInterval time.Duration
+	HTTPClient          *http.Client
+	Now                 func() time.Time
+}
+
+type propagationProvider struct {
+	challenge.Provider
+	timeout  time.Duration
+	interval time.Duration
+}
+
+func (p propagationProvider) Timeout() (time.Duration, time.Duration) {
+	return p.timeout, p.interval
+}
+
+func withPropagationSettings(provider challenge.Provider, timeout, interval time.Duration) challenge.Provider {
+	if provider == nil || timeout <= 0 || interval <= 0 || interval > timeout {
+		return provider
+	}
+	return propagationProvider{Provider: provider, timeout: timeout, interval: interval}
 }
 
 func (i *LegoIssuer) Obtain(ctx context.Context, request ObtainRequest) (Resource, error) {
@@ -66,7 +85,8 @@ func (i *LegoIssuer) Obtain(ctx context.Context, request ObtainRequest) (Resourc
 	if err != nil {
 		return Resource{}, fmt.Errorf("创建 ACME 客户端失败：%w", err)
 	}
-	if err := client.Challenge.SetDNS01Provider(i.Provider); err != nil {
+	provider := withPropagationSettings(i.Provider, i.PropagationTimeout, i.PropagationInterval)
+	if err := client.Challenge.SetDNS01Provider(provider); err != nil {
 		return Resource{}, fmt.Errorf("配置 DNS-01 验证失败：%w", err)
 	}
 	if i.User.Registration == nil {
@@ -77,11 +97,14 @@ func (i *LegoIssuer) Obtain(ctx context.Context, request ObtainRequest) (Resourc
 		i.User.Registration = account
 	}
 	issued, err := client.Certificate.Obtain(ctx, legoCertificate.ObtainRequest{
-		Domains: domains, EmailAddresses: nonEmptyEmail(request.AccountEmail, i.User.Email),
+		Domains: domains,
 		KeyType: certcrypto.RSA2048, Bundle: true,
 		PreferredChain: request.PreferredChain,
 	})
 	if err != nil {
+		if i.PropagationTimeout > 0 && i.PropagationInterval > 0 && i.PropagationInterval <= i.PropagationTimeout {
+			return Resource{}, fmt.Errorf("申请证书失败（DNS 传播等待时间 %s，检测间隔 %s）：%w", i.PropagationTimeout, i.PropagationInterval, err)
+		}
 		return Resource{}, fmt.Errorf("申请证书失败：%w", err)
 	}
 	resource := Resource{
@@ -92,13 +115,4 @@ func (i *LegoIssuer) Obtain(ctx context.Context, request ObtainRequest) (Resourc
 		_ = i.Now()
 	}
 	return ValidateResource(resource)
-}
-
-func nonEmptyEmail(values ...string) []string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return []string{strings.TrimSpace(value)}
-		}
-	}
-	return nil
 }

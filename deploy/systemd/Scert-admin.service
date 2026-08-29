@@ -1,6 +1,6 @@
 [Unit]
 Description=Scert-admin 临时密码重置入口激活器
-Documentation=file:///scert/docs/Scert-admin服务管理说明.md
+Documentation=file:///scert/docs/Scert-admin-service-management.md
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/scert/conf/scert.json
@@ -10,7 +10,9 @@ Type=simple
 User=Scert
 Group=Scert
 WorkingDirectory=/scert
-ExecStart=/scert/scert-admin --config /scert/conf/scert.json
+RuntimeDirectory=scert-admin
+RuntimeDirectoryMode=0700
+ExecStart=/scert/scert-admin --config /scert/conf/scert.json --code-output /run/scert-admin/reset-code
 KillSignal=SIGTERM
 TimeoutStopSec=15
 Restart=no
@@ -20,7 +22,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=full
-ReadWritePaths=/scert/data /scert/log
+ReadWritePaths=/scert/data /scert/log /run/scert-admin
 RestrictAddressFamilies=AF_UNIX
 
 # Scert-admin 不监听任何 TCP/UDP 端口，只维护主服务 /reset 路径的短时激活租约。

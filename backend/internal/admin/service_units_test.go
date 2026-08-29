@@ -20,7 +20,7 @@ func TestScertSystemdUnitPolicy(t *testing.T) {
 	}
 	unit := activeUnitText(string(data))
 	for _, required := range []string{
-		"Documentation=file:///scert/docs/Scert服务管理说明.md",
+		"Documentation=file:///scert/docs/Scert-service-management.md",
 		"User=Scert",
 		"Group=Scert",
 		"ExecStart=/scert/scert --config /scert/conf/scert.json serve",

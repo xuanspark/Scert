@@ -270,7 +270,7 @@ func newBackupCommand() *cobra.Command {
 	var output string
 	command := &cobra.Command{
 		Use:   "backup",
-		Short: "备份配置和 SQLite 数据库",
+		Short: "备份配置和数据库",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
@@ -294,6 +294,11 @@ func newBackupCommand() *cobra.Command {
 					return err
 				}
 			}
+			if cfg.Database.Driver == "mysql" {
+				if err := backupMySQL(cmd.Context(), cfg, filepath.Join(output, "scert.sql")); err != nil {
+					return err
+				}
+			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "备份已创建：%s\n", output)
 			return err
 		},
@@ -306,7 +311,7 @@ func newRestoreCommand() *cobra.Command {
 	var input string
 	command := &cobra.Command{
 		Use:   "restore",
-		Short: "恢复 SQLite 数据库备份",
+		Short: "恢复配置和数据库备份",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input, err := validateRestoreInput(input)
 			if err != nil {
@@ -319,14 +324,22 @@ func newRestoreCommand() *cobra.Command {
 			}
 
 			currentPath := filepath.Clean(resolveConfigPath())
-			_, currentConfigErr := config.Load(currentPath)
+			currentConfig, currentConfigErr := config.Load(currentPath)
 			if currentConfigErr != nil && !errors.Is(currentConfigErr, os.ErrNotExist) {
 				return fmt.Errorf("读取当前配置失败：%w", currentConfigErr)
+			}
+			if currentConfigErr == nil && currentConfig.Database.Driver != cfg.Database.Driver {
+				return fmt.Errorf("备份数据库类型（%s）与当前配置数据库类型（%s）不一致，拒绝恢复", cfg.Database.Driver, currentConfig.Database.Driver)
 			}
 			if info, statErr := os.Stat(currentPath); statErr == nil && !info.Mode().IsRegular() {
 				return errors.New("当前配置路径不是普通文件")
 			} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 				return fmt.Errorf("检查当前配置失败：%w", statErr)
+			}
+
+			mysqlSource := filepath.Join(input, "scert.sql")
+			if cfg.Database.Driver == "mysql" && !isRegularFile(mysqlSource) {
+				return errors.New("MySQL 备份目录缺少有效的 scert.sql 文件")
 			}
 
 			databaseSource := filepath.Join(input, "scert.db")
@@ -337,6 +350,9 @@ func newRestoreCommand() *cobra.Command {
 			}
 			if databaseSourceExists && !databaseSourceInfo.Mode().IsRegular() {
 				return errors.New("备份数据库不是普通文件")
+			}
+			if cfg.Database.Driver == "sqlite" && cfg.Database.DSN != ":memory:" && !databaseSourceExists {
+				return errors.New("SQLite 备份目录缺少有效的 scert.db 文件")
 			}
 			if cfg.Database.Driver == "sqlite" && cfg.Database.DSN != ":memory:" && databaseSourceExists {
 				if samePath(databaseSource, cfg.Database.DSN) {
@@ -368,6 +384,14 @@ func newRestoreCommand() *cobra.Command {
 				}
 			}
 
+			mysqlBackupPath := ""
+			if cfg.Database.Driver == "mysql" {
+				mysqlBackupPath, err = createMySQLRestoreBackup(cmd.Context(), cfg)
+				if err != nil {
+					return err
+				}
+			}
+
 			if err := cfg.Save(currentPath); err != nil {
 				return err
 			}
@@ -380,6 +404,20 @@ func newRestoreCommand() *cobra.Command {
 						_ = copyFile(databaseBackupPath, cfg.Database.DSN, 0o600)
 					}
 					return fmt.Errorf("恢复 SQLite 数据库失败：%w", err)
+				}
+			}
+			if cfg.Database.Driver == "mysql" {
+				if err := restoreMySQL(cmd.Context(), cfg, mysqlSource); err != nil {
+					restoreFailure := fmt.Errorf("恢复 MySQL 数据库失败：%w", err)
+					if mysqlBackupPath != "" {
+						if rollbackErr := restoreMySQL(cmd.Context(), cfg, mysqlBackupPath); rollbackErr != nil {
+							restoreFailure = fmt.Errorf("%w；MySQL 数据库回滚失败：%v", restoreFailure, rollbackErr)
+						}
+					}
+					if configBackupPath != "" {
+						_ = copyFile(configBackupPath, currentPath, 0o600)
+					}
+					return restoreFailure
 				}
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "恢复已完成：%s\n", input)
@@ -483,6 +521,18 @@ func setConfigValue(cfg *config.Config, key, value string) error {
 			return fmt.Errorf("续期阈值格式无效：%w", err)
 		}
 		cfg.ACME.RenewalThresholdDays = parsed
+	case "acme.propagation_timeout_secs":
+		parsed, err := parseInt()
+		if err != nil {
+			return fmt.Errorf("DNS 传播等待时间格式无效：%w", err)
+		}
+		cfg.ACME.PropagationTimeoutSecs = parsed
+	case "acme.propagation_polling_interval_secs":
+		parsed, err := parseInt()
+		if err != nil {
+			return fmt.Errorf("DNS 传播检测间隔格式无效：%w", err)
+		}
+		cfg.ACME.PropagationPollingIntervalSecs = parsed
 	case "dns.provider":
 		cfg.DNS.Provider = value
 	case "dns.credential_ref":

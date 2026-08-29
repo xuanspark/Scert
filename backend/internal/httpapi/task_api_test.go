@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -109,6 +110,26 @@ func TestTaskAPIReturnsFailureAndKeepsTaskTrace(t *testing.T) {
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
 	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "模拟证书申请失败") {
 		t.Fatalf("失败任务响应错误：%d %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Task struct {
+			Status     string `json:"status"`
+			Stage      string `json:"stage"`
+			Message    string `json:"message"`
+			FinishedAt string `json:"finished_at"`
+			UpdatedAt  string `json:"updated_at"`
+		} `json:"task"`
+		TaskStatus string `json:"task_status"`
+		FinishedAt string `json:"finished_at"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("失败任务响应不是有效 JSON：%v；响应：%s", err, response.Body.String())
+	}
+	if payload.Task.Status != "failed" || payload.Task.Stage != "certificate_issue" || payload.Task.Message != "模拟证书申请失败" {
+		t.Fatalf("失败任务嵌套状态不一致：%+v", payload.Task)
+	}
+	if payload.TaskStatus != "failed" || payload.FinishedAt == "" || payload.Task.FinishedAt == "" || payload.Task.UpdatedAt == "" {
+		t.Fatalf("失败任务顶层状态或时间字段不完整：%+v", payload)
 	}
 	items, err := taskRepo.ListTasks(context.Background(), "", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "failed" {

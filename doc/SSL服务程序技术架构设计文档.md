@@ -157,6 +157,8 @@ CLI 在初始化完成后不直接操作数据库。`init` 负责交互式填写
 - `lego`、DNS provider、证书解析、任务调度和部署逻辑均作为 Go 模块或内部适配器实现，减少 Linux 与 Windows 的行为差异。
 - 初始化阶段仍需要预检公网连通性、DNS API 权限、证书存储目录、系统时间和文件权限；这些预检必须使用 Go 实现，不依赖平台特定 Shell 命令。
 - DNS 凭据只以受控配置对象传递到 provider，禁止出现在命令行参数、日志、任务错误详情和 API 响应中。
+- DNS-01 传播最大等待时间：默认900秒，可通过配置修改。
+- DNS-01 传播检测间隔：默认10秒，不得大于最大等待时间。
 - 证书链和私钥校验优先使用 Go 标准库 `crypto/x509`；只有确实需要调用外部 Web 服务器检查命令时，才通过平台命令执行适配器运行白名单命令。
 - Windows 和 Linux 的服务注册、文件权限、路径规范化和系统托盘仍由平台适配层分别实现。
 - 安装、升级和卸载不得删除用户证书、数据库或备份；所有删除操作必须经过 Web/CLI 明确确认并写入审计日志。
@@ -543,6 +545,8 @@ POST /api/v1/domains/{id}/renew
 - 允许域名级覆盖：需要时覆盖全局 DNS 配置
 - CNAME 委派：自动创建、失败手动提示
 - DNS 传播检测超时
+- DNS-01 传播最大等待时间：默认900秒，可通过配置修改。
+- DNS-01 传播检测间隔：默认10秒，不得大于最大等待时间。
 - 测试 DNS 权限和 Zone
 
 **三、部署服务器配置**
@@ -652,7 +656,6 @@ POST   /api/v1/domains/{id}/test-servers
 | check_interval_days | 常规检查间隔，默认 3 天 |
 | near_expiry_check_days | 临近到期检查阈值，默认 10 天 |
 | renewal_threshold_days | 自动续期阈值，默认 6 天 |
-| emergency_threshold_days | 紧急重试阈值，默认 3 天 |
 | next_check_at | 下一次计划检查时间 |
 | next_renewal_at | 下一次计划续期时间，可为空 |
 | notification_rule_id | 域名级通知规则引用 |

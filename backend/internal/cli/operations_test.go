@@ -50,6 +50,15 @@ func TestSetConfigValueUpdatesAndValidatesAllowedFields(t *testing.T) {
 	if cfg.Notification.HTTPLoginPath != "/api/login" {
 		t.Fatalf("HTTP 登录路径未更新：%s", cfg.Notification.HTTPLoginPath)
 	}
+	if err := setConfigValue(&cfg, "acme.propagation_timeout_secs", "1200"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setConfigValue(&cfg, "acme.propagation_polling_interval_secs", "15"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ACME.PropagationTimeoutSecs != 1200 || cfg.ACME.PropagationPollingIntervalSecs != 15 {
+		t.Fatalf("DNS 传播参数未更新：%+v", cfg.ACME)
+	}
 	if err := setConfigValue(&cfg, "admin.password_hash", "plain"); err == nil {
 		t.Fatal("不应允许直接修改密码摘要")
 	}

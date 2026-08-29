@@ -75,7 +75,13 @@ func NewService(cfg config.Config, repository DomainStateRepository, credentials
 		config: cfg, repository: repository, credentials: credentials, providers: providers, accounts: accounts,
 		store: FileStore{Root: cfg.Paths.Certificate, BackupRoot: cfg.Paths.Backup},
 		newIssuer: func(user *AccountUser, provider challenge.Provider, environment string) Issuer {
-			return &LegoIssuer{User: user, Provider: provider, Environment: environment}
+			return &LegoIssuer{
+				User:                user,
+				Provider:            provider,
+				Environment:         environment,
+				PropagationTimeout:  time.Duration(cfg.ACME.PropagationTimeoutSecs) * time.Second,
+				PropagationInterval: time.Duration(cfg.ACME.PropagationPollingIntervalSecs) * time.Second,
+			}
 		},
 	}
 }

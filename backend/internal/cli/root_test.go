@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -12,7 +13,10 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
+	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
+	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
 type cliFakeFirewallManager struct {
@@ -164,6 +168,36 @@ func TestInitCommandDoesNotExposeResetServicePort(t *testing.T) {
 	}
 }
 
+func TestAskDNSProviderUsesNumberedSelection(t *testing.T) {
+	var output bytes.Buffer
+	provider, err := askDNSProvider(bufio.NewReader(strings.NewReader("99\n2\n")), &output)
+	if err != nil {
+		t.Fatalf("DNS 服务商选择失败：%v", err)
+	}
+	if provider != "aliyun" {
+		t.Fatalf("编号 2 应选择阿里云 DNS，实际为：%s", provider)
+	}
+	if !strings.Contains(output.String(), "1. Cloudflare") || !strings.Contains(output.String(), "2. 阿里云 DNS") {
+		t.Fatalf("DNS 服务商列表未按编号显示：%s", output.String())
+	}
+	if !strings.Contains(output.String(), "编号无效，请重新输入。") {
+		t.Fatalf("无效编号未提示重新输入：%s", output.String())
+	}
+}
+
+func TestAskDNSProviderRejectsUnavailableSelection(t *testing.T) {
+	var output bytes.Buffer
+	provider, err := askDNSProvider(bufio.NewReader(strings.NewReader("4\n1\n")), &output)
+	if err != nil {
+		t.Fatalf("DNS 服务商选择失败：%v", err)
+	}
+	if provider != "cloudflare" {
+		t.Fatalf("重新选择后应返回 Cloudflare，实际为：%s", provider)
+	}
+	if !strings.Contains(output.String(), "当前暂未开放") {
+		t.Fatalf("选择未开放服务商时未给出提示：%s", output.String())
+	}
+}
 func TestSaveSetupWithFirewallRollsBackNewRuleOnSaveFailure(t *testing.T) {
 	baseDir := t.TempDir()
 	blockedParent := filepath.Join(baseDir, "blocked")
@@ -195,5 +229,56 @@ func TestSaveSetupWithFirewallReportsRollbackFailure(t *testing.T) {
 	_, err := saveSetupWithFirewall(context.Background(), config.Default(baseDir), filepath.Join(blockedParent, "scert.json"), manager)
 	if err == nil || !strings.Contains(err.Error(), "手动检查本机防火墙") {
 		t.Fatalf("防火墙回滚失败应返回明确错误：%v", err)
+	}
+}
+
+type cliFakeDNSCredentialTester struct {
+	credentials map[string]string
+}
+
+func (f *cliFakeDNSCredentialTester) Verify(_ context.Context, _ string, _ string, credentials map[string]string) error {
+	f.credentials = credentials
+	return nil
+}
+
+func TestPrepareDNSCredentialsEncryptsAndClearsInput(t *testing.T) {
+	configDir := t.TempDir()
+	store, err := secretstore.Open(configDir)
+	if err != nil {
+		t.Fatalf("打开敏感信息存储失败：%v", err)
+	}
+	tester := &cliFakeDNSCredentialTester{}
+	manager := setup.NewDNSVerificationManager(tester, store)
+	input := &setup.Input{
+		DNSProvider:    dnsprovider.Cloudflare,
+		DNSCredentials: map[string]string{"api_token": "test-dns-token"},
+		DNSTestDomain:  "example.com",
+	}
+	var output bytes.Buffer
+	cleanup, err := prepareDNSCredentialsWithManager(context.Background(), input, &output, manager, store)
+	if err != nil {
+		t.Fatalf("准备 DNS 凭据失败：%v", err)
+	}
+	if input.DNSCredentialRef == "" || !input.DNSVerified || input.DNSCredentials != nil {
+		t.Fatalf("DNS 凭据输入状态不正确：%+v", input)
+	}
+	if tester.credentials["api_token"] != "test-dns-token" {
+		t.Fatalf("在线验证未收到凭据：%v", tester.credentials)
+	}
+	content, err := os.ReadFile(filepath.Join(configDir, "secrets.json"))
+	if err != nil {
+		t.Fatalf("读取敏感信息文件失败：%v", err)
+	}
+	if strings.Contains(string(content), "test-dns-token") || strings.Contains(output.String(), "test-dns-token") {
+		t.Fatal("DNS 凭据不应以明文写入文件或输出")
+	}
+	value, err := store.Get(context.Background(), input.DNSCredentialRef)
+	if err != nil || value["api_token"] != "test-dns-token" {
+		t.Fatalf("加密凭据解密结果不正确：value=%v err=%v", value, err)
+	}
+	cleanup()
+	exists, err := store.Has(context.Background(), input.DNSCredentialRef)
+	if err != nil || exists {
+		t.Fatalf("保存失败清理后凭据引用仍存在：exists=%t err=%v", exists, err)
 	}
 }

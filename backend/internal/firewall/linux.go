@@ -124,7 +124,9 @@ func (m *manager) rollbackFirewalld(ctx context.Context, result Result) error {
 
 func ufwIsActive(output []byte) bool {
 	for _, line := range strings.Split(strings.ToLower(string(output)), "\n") {
-		if strings.TrimSpace(line) == "status: active" {
+		line = strings.TrimSpace(strings.ReplaceAll(line, "：", ":"))
+		line = strings.Join(strings.Fields(line), " ")
+		if line == "status: active" || line == "状态: 激活" {
 			return true
 		}
 	}

@@ -22,8 +22,10 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
+	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
@@ -159,15 +161,21 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 				return err
 			}
 		}
+		cleanupSecret, err := prepareDNSCredentials(cmd.Context(), cfg, &input, cmd.OutOrStdout())
+		if err != nil {
+			return err
+		}
 		if err := setup.Apply(&cfg, input); err != nil {
+			cleanupSecret()
 			return err
 		}
 		firewallResult, err := saveSetupWithFirewall(cmd.Context(), cfg, path, firewallManager)
 		if err != nil {
+			cleanupSecret()
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "初始化配置已保存：%s\n", path)
-		fmt.Fprintf(cmd.OutOrStdout(), "DNS API 已标记为验证通过；真实 provider 连通性测试和 Web 证书申请将在后续任务接入。\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "DNS API 已完成在线验证，凭据已加密保存；真实 Web 证书申请将在后续任务接入。\n")
 		fmt.Fprintf(cmd.OutOrStdout(), "本机防火墙：%s\n", firewallResult.Message)
 		fmt.Fprintf(cmd.OutOrStdout(), "请确认云安全组已放行主服务端口 %d。Scert-admin 默认关闭；需要重置密码时启动后访问：%s\n", cfg.Server.Port, cfg.ResetURL())
 		return nil
@@ -195,8 +203,8 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 	command.Flags().IntVar(&emailRetryCount, "email-retry-count", 3, "通知失败重试次数")
 	command.Flags().StringVar(&emailRetryIntervals, "email-retry-intervals", "30,120,600", "通知重试间隔（秒，逗号分隔）")
 	command.Flags().StringVar(&dnsProvider, "dns-provider", "", "DNS API 服务商标识")
-	command.Flags().StringVar(&dnsCredentialRef, "dns-credential-ref", "", "DNS 凭据引用，不保存明文密钥")
-	command.Flags().BoolVar(&dnsVerified, "dns-verified", false, "DNS API 是否已通过外部验证测试")
+	command.Flags().StringVar(&dnsCredentialRef, "dns-credential-ref", "", "DNS 凭据引用")
+	command.Flags().BoolVar(&dnsVerified, "dns-verified", false, "DNS API 是否已通过验证测试")
 	command.Flags().StringVar(&certificateRoot, "certificate-root", "", "证书部署根目录，默认使用系统目录")
 	command.Flags().StringVar(&webHostname, "web-hostname", "", "管理页面域名")
 	command.Flags().StringVar(&webPublicIP, "web-public-ip", "", "没有域名时使用的公网 IP")
@@ -267,15 +275,15 @@ func readInteractiveInit(input io.Reader, output io.Writer, value *setup.Input, 
 		return err
 	}
 	value.EmailRecipients = splitValues(receiver)
-	value.DNSProvider, err = ask(reader, output, "DNS API 服务商 *", "")
+	value.DNSProvider, err = askDNSProvider(reader, output)
 	if err != nil {
 		return err
 	}
-	value.DNSCredentialRef, err = ask(reader, output, "DNS 凭据引用 *（不要输入明文密钥）", "")
+	value.DNSCredentials, err = askDNSCredentials(reader, output, value.DNSProvider)
 	if err != nil {
 		return err
 	}
-	value.DNSVerified, err = askYesNo(reader, output, "DNS API 是否已经完成验证测试？", false)
+	value.DNSTestDomain, err = ask(reader, output, "DNS 权限测试域名 *", "")
 	if err != nil {
 		return err
 	}
@@ -297,6 +305,120 @@ func readInteractiveInit(input io.Reader, output io.Writer, value *setup.Input, 
 	return err
 }
 
+func askDNSCredentials(reader *bufio.Reader, output io.Writer, providerID string) (map[string]string, error) {
+	descriptor, err := dnsprovider.GetDescriptor(providerID)
+	if err != nil {
+		return nil, err
+	}
+	credentials := make(map[string]string, len(descriptor.CredentialFields))
+	fmt.Fprintln(output, "请输入 DNS API 凭据。输入内容会在当前配置过程中明文显示，提交后只保存加密内容。")
+	for _, field := range descriptor.CredentialFields {
+		label := field.Label
+		if field.Required {
+			label += " *"
+		}
+		value, err := ask(reader, output, label, "")
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(value) != "" {
+			credentials[field.Name] = value
+		}
+	}
+	return credentials, nil
+}
+
+func prepareDNSCredentials(ctx context.Context, cfg config.Config, input *setup.Input, output io.Writer) (func(), error) {
+	if input == nil {
+		return func() {}, errors.New("初始化输入不能为空")
+	}
+	if strings.TrimSpace(input.DNSCredentialRef) != "" {
+		return func() {}, nil
+	}
+	if len(input.DNSCredentials) == 0 {
+		return func() {}, errors.New("DNS 凭据不能为空")
+	}
+	if strings.TrimSpace(input.DNSTestDomain) == "" {
+		return func() {}, errors.New("DNS 权限测试域名不能为空")
+	}
+
+	store, err := secretstore.Open(cfg.Paths.Config)
+	if err != nil {
+		return func() {}, fmt.Errorf("初始化 DNS 凭据存储失败：%w", err)
+	}
+	manager := setup.NewDNSVerificationManager(
+		dnsprovider.NewTester(dnsprovider.NewLegoFactory()),
+		store,
+	)
+	return prepareDNSCredentialsWithManager(ctx, input, output, manager, store)
+}
+
+func prepareDNSCredentialsWithManager(ctx context.Context, input *setup.Input, output io.Writer, manager *setup.DNSVerificationManager, store *secretstore.Store) (func(), error) {
+	if input == nil {
+		return func() {}, errors.New("初始化输入不能为空")
+	}
+	if manager == nil || store == nil {
+		return func() {}, errors.New("DNS 凭据验证服务未初始化")
+	}
+	if strings.TrimSpace(input.DNSCredentialRef) != "" {
+		return func() {}, nil
+	}
+	if len(input.DNSCredentials) == 0 {
+		return func() {}, errors.New("DNS 凭据不能为空")
+	}
+	if strings.TrimSpace(input.DNSTestDomain) == "" {
+		return func() {}, errors.New("DNS 权限测试域名不能为空")
+	}
+	testContext, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	result, err := manager.Verify(testContext, setup.DNSVerificationInput{
+		ProviderID:  input.DNSProvider,
+		TestDomain:  input.DNSTestDomain,
+		Credentials: input.DNSCredentials,
+	})
+	if err != nil {
+		return func() {}, fmt.Errorf("DNS API 在线验证失败：%w", err)
+	}
+	input.DNSCredentialRef = result.CredentialRef
+	input.DNSVerified = true
+	input.DNSCredentials = nil
+	fmt.Fprintf(output, "DNS API 在线验证通过，凭据已加密保存，有效期至 %s。\n", result.ExpiresAt.Local().Format("2006-01-02 15:04:05"))
+	return func() {
+		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_ = store.Delete(cleanupContext, result.CredentialRef)
+	}, nil
+}
+
+func askDNSProvider(reader *bufio.Reader, output io.Writer) (string, error) {
+	providers := dnsprovider.Descriptors()
+	fmt.Fprintln(output, "请选择 DNS API 服务商：")
+	for index, provider := range providers {
+		status := ""
+		if !provider.Available {
+			status = "（暂未开放）"
+		}
+		fmt.Fprintf(output, "%d. %s%s\n", index+1, provider.Name, status)
+	}
+
+	for {
+		value, err := ask(reader, output, "请输入编号", "")
+		if err != nil {
+			return "", err
+		}
+		index, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || index < 1 || index > len(providers) {
+			fmt.Fprintln(output, "编号无效，请重新输入。")
+			continue
+		}
+		provider := providers[index-1]
+		if !provider.Available {
+			fmt.Fprintf(output, "%s 当前暂未开放，请选择其他服务商。\n", provider.Name)
+			continue
+		}
+		return provider.ID, nil
+	}
+}
 func ask(reader *bufio.Reader, output io.Writer, label, defaultValue string) (string, error) {
 	if defaultValue != "" {
 		fmt.Fprintf(output, "%s [%s]：", label, defaultValue)

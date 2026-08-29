@@ -78,12 +78,12 @@ func TestValidateRejectsInvalidPort(t *testing.T) {
 	}
 }
 
-func TestResetURLUsesWebHostnameWithoutPort(t *testing.T) {
+func TestResetURLAlwaysUsesWebHostnameWithoutPort(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.Server.Port = 8443
 	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
-		t.Fatalf("域名密码重置地址不正确：%s", value)
+		t.Fatalf("密码重置地址不得暴露主服务端口：%s", value)
 	}
 	cfg.Server.Port = 443
 	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
@@ -91,7 +91,7 @@ func TestResetURLUsesWebHostnameWithoutPort(t *testing.T) {
 	}
 }
 
-func TestResetURLSupportsPublicIPv6(t *testing.T) {
+func TestResetURLSupportsPublicIPv6WithoutPort(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.Web.PublicIP = "2001:db8::10"
 	cfg.Server.Port = 8443
@@ -114,5 +114,97 @@ func TestSavedConfigDoesNotContainIndependentResetPort(t *testing.T) {
 	content := string(data)
 	if strings.Contains(content, "reset_service_port") || strings.Contains(content, "reset_service_host") {
 		t.Fatalf("配置文件不应再包含独立密码重置监听配置：%s", content)
+	}
+}
+
+func TestResetURLIgnoresExplicitPortAndURLInput(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.Web.Hostname = "https://scert.example.test:9443"
+	cfg.Server.Port = 5200
+	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
+		t.Fatalf("外部地址中的显式端口不得出现在重置地址中：%s", value)
+	}
+}
+
+func TestResetURLIgnoresPathFromWebHostname(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.Web.Hostname = "scert.example.test/manage"
+	cfg.Server.Port = 8443
+	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
+		t.Fatalf("管理页面域名附带路径时重置地址不正确：%s", value)
+	}
+}
+
+func TestResetURLUsesExternalProxyAddress(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Server.HTTPSMode = "proxy"
+	cfg.Server.Port = 5200
+	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
+		t.Fatalf("代理模式不应暴露核心服务端口：%s", value)
+	}
+}
+
+func TestResetURLSupportsIPv6WithoutPort(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.Web.PublicIP = "2001:db8::10"
+	cfg.Server.Port = 443
+	if value := cfg.ResetURL(); value != "https://[2001:db8::10]/reset" {
+		t.Fatalf("IPv6 默认 HTTPS 地址不正确：%s", value)
+	}
+}
+
+func TestDefaultACMEPropagationSettings(t *testing.T) {
+	cfg := Default(t.TempDir())
+	if cfg.ACME.PropagationTimeoutSecs != 900 || cfg.ACME.PropagationPollingIntervalSecs != 10 {
+		t.Fatalf("默认 DNS 传播参数不正确：%+v", cfg.ACME)
+	}
+}
+
+func TestNormalizeRestoresMissingACMEPropagationSettings(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.ACME.PropagationTimeoutSecs = 0
+	cfg.ACME.PropagationPollingIntervalSecs = 0
+	cfg.Normalize()
+	if cfg.ACME.PropagationTimeoutSecs != 900 || cfg.ACME.PropagationPollingIntervalSecs != 10 {
+		t.Fatalf("旧配置的 DNS 传播参数未补齐：%+v", cfg.ACME)
+	}
+}
+
+func TestValidateRejectsInvalidACMEPropagationTimeout(t *testing.T) {
+	for _, value := range []int{0, 86401} {
+		cfg := Default(t.TempDir())
+		cfg.ACME.PropagationTimeoutSecs = value
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("无效 DNS 传播等待时间未被拒绝：%d", value)
+		}
+	}
+}
+
+func TestValidateRejectsInvalidACMEPropagationInterval(t *testing.T) {
+	for _, value := range []int{0, 901} {
+		cfg := Default(t.TempDir())
+		cfg.ACME.PropagationPollingIntervalSecs = value
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("无效 DNS 传播检测间隔未被拒绝：%d", value)
+		}
+	}
+}
+
+func TestSaveAndLoadACMEPropagationSettings(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Default(dir)
+	cfg.ACME.PropagationTimeoutSecs = 1200
+	cfg.ACME.PropagationPollingIntervalSecs = 15
+	path := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("保存配置失败：%v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("读取配置失败：%v", err)
+	}
+	if loaded.ACME.PropagationTimeoutSecs != 1200 || loaded.ACME.PropagationPollingIntervalSecs != 15 {
+		t.Fatalf("DNS 传播参数持久化不一致：%+v", loaded.ACME)
 	}
 }

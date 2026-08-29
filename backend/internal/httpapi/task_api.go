@@ -80,6 +80,12 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 	}
 	_ = s.tasks.UpdateTask(context.Background(), task.ID, status, "certificate_issue", message, &now, &finished)
 	_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, status, message, &finished)
+	task.Status = status
+	task.Stage = "certificate_issue"
+	task.Message = message
+	task.StartedAt = &now
+	task.FinishedAt = &finished
+	task.UpdatedAt = finished
 	if s.audit != nil {
 		auditStatus := status
 		if issueErr != nil {
@@ -105,12 +111,6 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, response)
 		return
 	}
-	task.Status = status
-	task.Stage = "certificate_issue"
-	task.Message = message
-	task.StartedAt = &now
-	task.FinishedAt = &finished
-	task.UpdatedAt = finished
 	response["task"] = task
 	c.JSON(http.StatusOK, response)
 }

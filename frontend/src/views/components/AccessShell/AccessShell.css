@@ -19,11 +19,12 @@
 }
 
 .access-shell--setup {
-  width: min(1360px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
-  height: min(760px, calc(100vh - 32px));
-  max-height: calc(100vh - 32px);
+  width: min(1380px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
+  height: min(790px, calc(100dvh - 40px));
+  max-height: calc(100dvh - 40px);
   min-height: 0;
+  grid-template-columns: minmax(245px, 0.32fr) minmax(0, 0.68fr);
 }
 
 .access-shell--compact {
@@ -140,7 +141,27 @@
 
 .access-shell--setup .access-panel-inner {
   align-items: stretch;
-  padding: clamp(22px, 2.7vw, 42px);
+  padding: clamp(18px, 2.2vw, 32px);
+}
+
+.access-shell--setup .access-brand-content {
+  padding: clamp(28px, 2.8vw, 42px) clamp(22px, 2.2vw, 34px);
+}
+
+.access-shell--setup .access-logo {
+  width: clamp(64px, 6vw, 84px);
+  height: clamp(64px, 6vw, 84px);
+  margin-bottom: clamp(16px, 2vw, 24px);
+}
+
+.access-shell--setup .access-brand-title {
+  font-size: clamp(20px, 1.7vw, 29px);
+}
+
+.access-shell--setup .access-brand-description {
+  max-width: 290px;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 @media (max-width: 900px) {
@@ -153,6 +174,14 @@
     grid-template-columns: 1fr;
     grid-template-rows: 120px minmax(0, 1fr);
     border-radius: 22px;
+  }
+
+  .access-shell--setup {
+    width: min(calc(100% - 24px), 900px);
+    max-width: calc(100% - 24px);
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
+    grid-template-rows: 112px minmax(0, 1fr);
   }
 
   .access-brand-content {
@@ -202,6 +231,14 @@
     height: calc(100dvh - 12px);
     grid-template-rows: 88px minmax(0, 1fr);
     border-radius: 17px;
+  }
+
+  .access-shell--setup {
+    width: calc(100% - 12px);
+    max-width: calc(100% - 12px);
+    height: calc(100dvh - 12px);
+    max-height: calc(100dvh - 12px);
+    grid-template-rows: 88px minmax(0, 1fr);
   }
 
   .access-brand-content {

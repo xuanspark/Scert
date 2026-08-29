@@ -27,6 +27,9 @@ export function useSetupWizard(props, emit) {
   const dnsTestError = ref("");
   const dnsProviders = ref([]);
   const dnsCredentials = ref({});
+  const dnsCredentialsVisible = ref(true);
+  const emailCredentials = ref("");
+  const emailCredentialsVisible = ref(true);
   const dnsTestDomain = ref(props.status.web_hostname || "");
   const dnsVerification = ref(null);
   const verificationClock = ref(Date.now());
@@ -60,6 +63,9 @@ export function useSetupWizard(props, emit) {
     email_retry_intervals_secs: "30,120,600",
     recipients: "",
     dns_provider: props.status.dns_provider || "cloudflare",
+    propagation_timeout_secs: props.status.propagation_timeout_secs || 900,
+    propagation_polling_interval_secs:
+      props.status.propagation_polling_interval_secs || 10,
     certificate_root: props.status.certificate_root || "",
     web_hostname: props.status.web_hostname || "",
     web_public_ip: props.status.web_public_ip || "",
@@ -70,6 +76,30 @@ export function useSetupWizard(props, emit) {
   const targetLabel = computed(() =>
     targetType.value === "hostname" ? "管理页面域名" : "公网 IP 地址",
   );
+  const emailCredentialLabel = computed(() => {
+    switch (form.value.email_http_auth_mode) {
+      case "bearer":
+        return "Bearer Token 凭据（JSON）";
+      case "hmac_sha256":
+        return "HMAC-SHA256 凭据（JSON）";
+      case "session":
+        return "登录会话凭据（JSON）";
+      default:
+        return "HTTP 通知凭据";
+    }
+  });
+  const emailCredentialPlaceholder = computed(() => {
+    switch (form.value.email_http_auth_mode) {
+      case "bearer":
+        return '{"token":"请输入 Bearer Token"}';
+      case "hmac_sha256":
+        return '{"secret":"请输入签名密钥"}';
+      case "session":
+        return '{"account":"请输入账号","password":"请输入密码"}';
+      default:
+        return "无需填写凭据";
+    }
+  });
   const resetURLPreview = computed(() => {
     const rawHost =
       targetType.value === "hostname"
@@ -191,6 +221,33 @@ export function useSetupWizard(props, emit) {
     return payload;
   }
 
+  function maskCredential(value) {
+    const text = String(value || "");
+    if (!text) return "";
+    return "•".repeat(Math.min(Math.max(text.length, 8), 64));
+  }
+
+  function emailCredentialPayload() {
+    if (
+      !form.value.email_http_enabled ||
+      form.value.email_http_auth_mode === "none"
+    ) {
+      return {};
+    }
+    const text = emailCredentials.value.trim();
+    if (!text) return {};
+    const parsed = JSON.parse(text);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      throw new Error("HTTP 通知凭据必须是 JSON 对象。");
+    }
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!key.trim() || typeof value !== "string" || !value.trim()) {
+        throw new Error("HTTP 通知凭据的字段和值必须是非空文本。");
+      }
+    }
+    return parsed;
+  }
+
   async function testDNS() {
     dnsTestError.value = "";
     resultMessage.value = "";
@@ -280,10 +337,23 @@ export function useSetupWizard(props, emit) {
       if (
         form.value.email_http_enabled &&
         form.value.email_http_auth_mode !== "none" &&
-        !form.value.email_http_credential_ref.trim()
+        !form.value.email_http_credential_ref.trim() &&
+        !emailCredentials.value.trim()
       ) {
-        error.value = "启用 HTTP 通知认证后必须填写凭据引用。";
+        error.value = "启用 HTTP 通知认证后必须填写明文凭据或已有凭据引用。";
         return false;
+      }
+      if (
+        form.value.email_http_enabled &&
+        form.value.email_http_auth_mode !== "none" &&
+        emailCredentials.value.trim()
+      ) {
+        try {
+          emailCredentialPayload();
+        } catch (err) {
+          error.value = err.message || "HTTP 通知凭据格式无效。";
+          return false;
+        }
       }
       if (form.value.email_http_headers.trim()) {
         try {
@@ -299,6 +369,26 @@ export function useSetupWizard(props, emit) {
     }
 
     if (currentStep.value === 3) {
+      const propagationTimeout = Number(form.value.propagation_timeout_secs);
+      const propagationInterval = Number(
+        form.value.propagation_polling_interval_secs,
+      );
+      if (
+        !Number.isInteger(propagationTimeout) ||
+        propagationTimeout < 1 ||
+        propagationTimeout > 86400
+      ) {
+        error.value = "DNS 传播最大等待时间必须在 1 至 86400 秒之间。";
+        return false;
+      }
+      if (
+        !Number.isInteger(propagationInterval) ||
+        propagationInterval < 1 ||
+        propagationInterval > propagationTimeout
+      ) {
+        error.value = "DNS 传播检测间隔必须大于 0 且不超过最大等待时间。";
+        return false;
+      }
       const provider = selectedDNSProvider.value;
       if (!provider) {
         error.value = "请选择 DNS 服务商。";
@@ -398,6 +488,12 @@ export function useSetupWizard(props, emit) {
       error.value = "必须先完成 DNS API 在线验证；验证结果已过期时请重新测试。";
       return;
     }
+    try {
+      emailCredentialPayload();
+    } catch (err) {
+      error.value = err.message || "HTTP 通知凭据格式无效。";
+      return;
+    }
     const hostname =
       targetType.value === "hostname" ? form.value.web_hostname.trim() : "";
     const publicIP =
@@ -422,9 +518,10 @@ export function useSetupWizard(props, emit) {
           email_endpoint: form.value.email_endpoint,
           email_http_path: form.value.email_http_path,
           email_http_login_path: form.value.email_http_login_path,
-          email_http_auth_mode: form.value.email_http_auth_mode,
-          email_http_credential_ref: form.value.email_http_credential_ref,
-          email_http_headers: emailHeaders(),
+           email_http_auth_mode: form.value.email_http_auth_mode,
+           email_http_credential_ref: form.value.email_http_credential_ref,
+           email_http_credentials: emailCredentialPayload(),
+           email_http_headers: emailHeaders(),
           email_event_mode: form.value.email_event_mode,
           email_include_deployment_details:
             form.value.email_include_deployment_details,
@@ -441,6 +538,12 @@ export function useSetupWizard(props, emit) {
           dns_credential_ref: dnsVerification.value.credential_ref,
           dns_verification_token: dnsVerification.value.verification_token,
           dns_test_domain: dnsTestDomain.value.trim(),
+          propagation_timeout_secs: Number(
+            form.value.propagation_timeout_secs,
+          ),
+          propagation_polling_interval_secs: Number(
+            form.value.propagation_polling_interval_secs,
+          ),
           certificate_root: form.value.certificate_root,
           web_hostname: hostname,
           web_public_ip: publicIP,
@@ -492,6 +595,10 @@ export function useSetupWizard(props, emit) {
     dnsTestError,
     dnsProviders,
     dnsCredentials,
+    dnsCredentialsVisible,
+    maskCredential,
+    emailCredentials,
+    emailCredentialsVisible,
     dnsTestDomain,
     dnsVerification,
     currentStep,
@@ -501,6 +608,8 @@ export function useSetupWizard(props, emit) {
     selectedEmailDomain,
     emailLocalPart,
     targetLabel,
+    emailCredentialLabel,
+    emailCredentialPlaceholder,
     resetURLPreview,
     selectedDNSProvider,
     dnsVerificationValid,

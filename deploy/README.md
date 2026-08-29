@@ -60,7 +60,7 @@ systemctl start Scert-admin
 systemctl stop Scert-admin
 ```
 
-`Scert-admin` 不监听任何 TCP/UDP 端口。启动后，它只维护 Scert 主服务 `/reset` 路径的短时激活租约并输出一次性校验码；停止后入口立即失效，异常退出后入口会在租约过期时失效。云安全组只需由管理员根据初始化提示放行主服务端口。
+`Scert-admin` 不监听任何 TCP/UDP 端口。启动后，它只维护 Scert 主服务 `/reset` 路径的短时激活租约，并将一次性校验码写入 `/run/scert-admin/reset-code` 受保护临时文件，不写入标准输出或 systemd 日志；停止后入口立即失效，异常退出后入口会在租约过期时失效。管理员可使用 `sudo cat /run/scert-admin/reset-code` 读取校验码，校验码在成功消费、服务停止或租约失效后自动销毁。云安全组只需由管理员根据初始化提示放行主服务端口。
 
 ## 参数说明
 

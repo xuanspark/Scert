@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -27,37 +29,40 @@ type setupDNSVerifier interface {
 }
 
 type setupRequest struct {
-	AdminUsername                 string            `json:"admin_username"`
-	AdminEmail                    string            `json:"admin_email"`
-	AdminPassword                 string            `json:"admin_password"`
-	ServerPort                    int               `json:"server_port"`
-	EmailHTTPEnabled              *bool             `json:"email_http_enabled"`
-	EmailProvider                 string            `json:"email_provider"`
-	EmailEndpoint                 string            `json:"email_endpoint"`
-	EmailHTTPPath                 string            `json:"email_http_path"`
-	EmailHTTPLoginPath            string            `json:"email_http_login_path"`
-	EmailHTTPAuthMode             string            `json:"email_http_auth_mode"`
-	EmailHTTPCredentialRef        string            `json:"email_http_credential_ref"`
-	EmailHTTPHeaders              map[string]string `json:"email_http_headers"`
-	EmailEventMode                string            `json:"email_event_mode"`
-	EmailIncludeDeploymentDetails bool              `json:"email_include_deployment_details"`
-	EmailIncludeCertificateSerial bool              `json:"email_include_certificate_serial"`
-	EmailIncludeManagementURL     bool              `json:"email_include_management_url"`
-	EmailSenderName               string            `json:"email_sender_name"`
-	EmailSenderEmail              string            `json:"email_sender_email"`
-	Recipients                    []string          `json:"recipients"`
-	EmailTimeoutSecs              int               `json:"email_timeout_secs"`
-	EmailRetryCount               int               `json:"email_retry_count"`
-	EmailRetryIntervalsSecs       []int             `json:"email_retry_intervals_secs"`
-	DNSProvider                   string            `json:"dns_provider"`
-	DNSCredentialRef              string            `json:"dns_credential_ref"`
-	DNSVerificationToken          string            `json:"dns_verification_token"`
-	DNSTestDomain                 string            `json:"dns_test_domain"`
-	CertificateRoot               string            `json:"certificate_root"`
-	WebHostname                   string            `json:"web_hostname"`
-	WebPublicIP                   string            `json:"web_public_ip"`
-	WebEnabled                    *bool             `json:"web_enabled"`
-	HTTPSMode                     string            `json:"https_mode"`
+	AdminUsername                  string            `json:"admin_username"`
+	AdminEmail                     string            `json:"admin_email"`
+	AdminPassword                  string            `json:"admin_password"`
+	ServerPort                     int               `json:"server_port"`
+	EmailHTTPEnabled               *bool             `json:"email_http_enabled"`
+	EmailProvider                  string            `json:"email_provider"`
+	EmailEndpoint                  string            `json:"email_endpoint"`
+	EmailHTTPPath                  string            `json:"email_http_path"`
+	EmailHTTPLoginPath             string            `json:"email_http_login_path"`
+	EmailHTTPAuthMode              string            `json:"email_http_auth_mode"`
+	EmailHTTPCredentialRef         string            `json:"email_http_credential_ref"`
+	EmailHTTPCredentials           map[string]string `json:"email_http_credentials"`
+	EmailHTTPHeaders               map[string]string `json:"email_http_headers"`
+	EmailEventMode                 string            `json:"email_event_mode"`
+	EmailIncludeDeploymentDetails  bool              `json:"email_include_deployment_details"`
+	EmailIncludeCertificateSerial  bool              `json:"email_include_certificate_serial"`
+	EmailIncludeManagementURL      bool              `json:"email_include_management_url"`
+	EmailSenderName                string            `json:"email_sender_name"`
+	EmailSenderEmail               string            `json:"email_sender_email"`
+	Recipients                     []string          `json:"recipients"`
+	EmailTimeoutSecs               int               `json:"email_timeout_secs"`
+	EmailRetryCount                int               `json:"email_retry_count"`
+	EmailRetryIntervalsSecs        []int             `json:"email_retry_intervals_secs"`
+	DNSProvider                    string            `json:"dns_provider"`
+	DNSCredentialRef               string            `json:"dns_credential_ref"`
+	DNSVerificationToken           string            `json:"dns_verification_token"`
+	DNSTestDomain                  string            `json:"dns_test_domain"`
+	PropagationTimeoutSecs         int               `json:"propagation_timeout_secs"`
+	PropagationPollingIntervalSecs int               `json:"propagation_polling_interval_secs"`
+	CertificateRoot                string            `json:"certificate_root"`
+	WebHostname                    string            `json:"web_hostname"`
+	WebPublicIP                    string            `json:"web_public_ip"`
+	WebEnabled                     *bool             `json:"web_enabled"`
+	HTTPSMode                      string            `json:"https_mode"`
 }
 
 type dnsTestRequest struct {
@@ -91,19 +96,21 @@ func (s *Server) setupStatus(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"initialized":            cfg.SetupReady,
-		"phase":                  phase,
-		"blockers":               blockers,
-		"server_port":            cfg.Server.Port,
-		"reset_url":              cfg.ResetURL(),
-		"https_mode":             cfg.Server.HTTPSMode,
-		"web_enabled":            cfg.Web.Enabled,
-		"web_hostname":           cfg.Web.Hostname,
-		"web_public_ip":          cfg.Web.PublicIP,
-		"certificate_root":       cfg.Paths.Certificate,
-		"dns_provider":           cfg.DNS.Provider,
-		"dns_verification_state": cfg.DNS.VerificationState,
-		"dns_test_available":     s.setupDNS != nil,
+		"initialized":                       cfg.SetupReady,
+		"phase":                             phase,
+		"blockers":                          blockers,
+		"server_port":                       cfg.Server.Port,
+		"reset_url":                         cfg.ResetURL(),
+		"https_mode":                        cfg.Server.HTTPSMode,
+		"web_enabled":                       cfg.Web.Enabled,
+		"web_hostname":                      cfg.Web.Hostname,
+		"web_public_ip":                     cfg.Web.PublicIP,
+		"certificate_root":                  cfg.Paths.Certificate,
+		"dns_provider":                      cfg.DNS.Provider,
+		"dns_verification_state":            cfg.DNS.VerificationState,
+		"dns_test_available":                s.setupDNS != nil,
+		"propagation_timeout_secs":          cfg.ACME.PropagationTimeoutSecs,
+		"propagation_polling_interval_secs": cfg.ACME.PropagationPollingIntervalSecs,
 	})
 }
 
@@ -190,38 +197,64 @@ func (s *Server) applySetup(c *gin.Context) {
 	if request.EmailHTTPEnabled != nil {
 		emailHTTPEnabled = *request.EmailHTTPEnabled
 	}
+	emailCredentialRef := strings.TrimSpace(request.EmailHTTPCredentialRef)
+	var notificationCredentials map[string]string
+	var credentialErr error
+	if emailHTTPEnabled && strings.ToLower(strings.TrimSpace(request.EmailHTTPAuthMode)) != "none" {
+		if len(request.EmailHTTPCredentials) > 0 {
+			notificationCredentials, credentialErr = normalizeNotificationCredentials(request.EmailHTTPAuthMode, request.EmailHTTPCredentials)
+			if credentialErr != nil {
+				s.writeError(c, http.StatusBadRequest, credentialErr.Error(), nil)
+				return
+			}
+			if s.secrets == nil {
+				s.writeError(c, http.StatusServiceUnavailable, "HTTP 通知敏感凭据存储尚未初始化", nil)
+				return
+			}
+			emailCredentialRef, credentialErr = newNotificationCredentialReference()
+			if credentialErr != nil {
+				s.writeError(c, http.StatusInternalServerError, "生成 HTTP 通知凭据引用失败", credentialErr)
+				return
+			}
+		} else if emailCredentialRef == "" {
+			s.writeError(c, http.StatusBadRequest, "启用 HTTP 通知认证后必须填写明文凭据或已有凭据引用", nil)
+			return
+		}
+	}
 	updated := s.config
 	err := setup.Apply(&updated, setup.Input{
-		AdminUsername:                 request.AdminUsername,
-		AdminEmail:                    request.AdminEmail,
-		AdminPassword:                 request.AdminPassword,
-		ServerPort:                    request.ServerPort,
-		EmailHTTPEnabled:              emailHTTPEnabled,
-		EmailProvider:                 request.EmailProvider,
-		EmailEndpoint:                 request.EmailEndpoint,
-		EmailHTTPPath:                 request.EmailHTTPPath,
-		EmailHTTPLoginPath:            request.EmailHTTPLoginPath,
-		EmailHTTPAuthMode:             request.EmailHTTPAuthMode,
-		EmailHTTPCredentialRef:        request.EmailHTTPCredentialRef,
-		EmailHTTPHeaders:              request.EmailHTTPHeaders,
-		EmailEventMode:                request.EmailEventMode,
-		EmailIncludeDeploymentDetails: request.EmailIncludeDeploymentDetails,
-		EmailIncludeCertificateSerial: request.EmailIncludeCertificateSerial,
-		EmailIncludeManagementURL:     request.EmailIncludeManagementURL,
-		EmailSenderName:               request.EmailSenderName,
-		EmailSenderEmail:              request.EmailSenderEmail,
-		EmailRecipients:               request.Recipients,
-		EmailTimeoutSecs:              request.EmailTimeoutSecs,
-		EmailRetryCount:               request.EmailRetryCount,
-		EmailRetryIntervalsSecs:       request.EmailRetryIntervalsSecs,
-		DNSProvider:                   request.DNSProvider,
-		DNSCredentialRef:              request.DNSCredentialRef,
-		DNSVerified:                   true,
-		CertificateRoot:               request.CertificateRoot,
-		WebHostname:                   request.WebHostname,
-		WebPublicIP:                   request.WebPublicIP,
-		WebEnabled:                    webEnabled,
-		HTTPSMode:                     request.HTTPSMode,
+		AdminUsername:                  request.AdminUsername,
+		AdminEmail:                     request.AdminEmail,
+		AdminPassword:                  request.AdminPassword,
+		ServerPort:                     request.ServerPort,
+		EmailHTTPEnabled:               emailHTTPEnabled,
+		EmailProvider:                  request.EmailProvider,
+		EmailEndpoint:                  request.EmailEndpoint,
+		EmailHTTPPath:                  request.EmailHTTPPath,
+		EmailHTTPLoginPath:             request.EmailHTTPLoginPath,
+		EmailHTTPAuthMode:              request.EmailHTTPAuthMode,
+		EmailHTTPCredentialRef:         emailCredentialRef,
+		EmailHTTPHeaders:               request.EmailHTTPHeaders,
+		EmailEventMode:                 request.EmailEventMode,
+		EmailIncludeDeploymentDetails:  request.EmailIncludeDeploymentDetails,
+		EmailIncludeCertificateSerial:  request.EmailIncludeCertificateSerial,
+		EmailIncludeManagementURL:      request.EmailIncludeManagementURL,
+		EmailSenderName:                request.EmailSenderName,
+		EmailSenderEmail:               request.EmailSenderEmail,
+		EmailRecipients:                request.Recipients,
+		EmailTimeoutSecs:               request.EmailTimeoutSecs,
+		EmailRetryCount:                request.EmailRetryCount,
+		EmailRetryIntervalsSecs:        request.EmailRetryIntervalsSecs,
+		DNSProvider:                    request.DNSProvider,
+		DNSCredentialRef:               request.DNSCredentialRef,
+		DNSVerified:                    true,
+		PropagationTimeoutSecs:         request.PropagationTimeoutSecs,
+		PropagationPollingIntervalSecs: request.PropagationPollingIntervalSecs,
+		CertificateRoot:                request.CertificateRoot,
+		WebHostname:                    request.WebHostname,
+		WebPublicIP:                    request.WebPublicIP,
+		WebEnabled:                     webEnabled,
+		HTTPSMode:                      request.HTTPSMode,
 	})
 	if err != nil {
 		s.writeError(c, http.StatusBadRequest, err.Error(), err)
@@ -265,6 +298,15 @@ func (s *Server) applySetup(c *gin.Context) {
 	}
 	updated.Server.TLSCert = savedCertificate.FullChainPath
 	updated.Server.TLSKey = savedCertificate.PrivateKeyPath
+	if len(notificationCredentials) > 0 {
+		if err := s.secrets.Put(c.Request.Context(), emailCredentialRef, notificationCredentials); err != nil {
+			if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {
+				s.logger.Error("保存 HTTP 通知凭据失败，且证书回滚失败", "error", rollbackErr)
+			}
+			s.writeError(c, http.StatusInternalServerError, "保存 HTTP 通知凭据失败，初始化尚未完成", err)
+			return
+		}
+	}
 	updated.SetupReady = true
 	if err := updated.Validate(); err != nil {
 		if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {
@@ -386,4 +428,50 @@ func isLoopbackRequest(request *http.Request) bool {
 	}
 	ip := net.ParseIP(strings.TrimSpace(host))
 	return ip != nil && ip.IsLoopback()
+}
+
+func newNotificationCredentialReference() (string, error) {
+	buffer := make([]byte, 18)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+	return "secret://notification/" + base64.RawURLEncoding.EncodeToString(buffer), nil
+}
+
+func normalizeNotificationCredentials(authMode string, values map[string]string) (map[string]string, error) {
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		result[key] = value
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("HTTP 通知凭据不能为空")
+	}
+	switch strings.ToLower(strings.TrimSpace(authMode)) {
+	case "bearer":
+		if strings.TrimSpace(result["token"]) == "" && strings.TrimSpace(result["access_token"]) == "" {
+			return nil, fmt.Errorf("Bearer Token 凭据必须包含 token 或 access_token")
+		}
+	case "hmac_sha256":
+		if strings.TrimSpace(result["secret"]) == "" && strings.TrimSpace(result["hmac_secret"]) == "" && strings.TrimSpace(result["key"]) == "" && strings.TrimSpace(result["token"]) == "" {
+			return nil, fmt.Errorf("HMAC-SHA256 凭据必须包含签名密钥")
+		}
+	case "session":
+		account := result["account"]
+		if account == "" {
+			account = result["username"]
+		}
+		if account == "" {
+			account = result["identifier"]
+		}
+		if strings.TrimSpace(account) == "" || result["password"] == "" {
+			return nil, fmt.Errorf("会话认证凭据必须包含账号和密码")
+		}
+	default:
+		return nil, fmt.Errorf("HTTP 通知认证方式无效")
+	}
+	return result, nil
 }
