@@ -128,7 +128,7 @@ const {
                   type="text"
                   autocomplete="email"
                   inputmode="email"
-                  placeholder="输入邮箱名称，例如 likb_blue"
+                  placeholder="请输入邮箱名称"
               />
                   <select
                     id="admin-email-domain"

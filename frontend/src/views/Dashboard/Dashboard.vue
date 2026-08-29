@@ -32,6 +32,10 @@ const {
   form,
   serverForm,
   sshKeyForm,
+  sshKeyPlatform,
+  sshKeyPassphraseVisible,
+  sshKeyCommands,
+  sshPublicKeyCommands,
   defaultCertificatePath,
   defaultCertificateChainPath,
   defaultPrivateKeyPath,
@@ -43,6 +47,8 @@ const {
   closeServerForm,
   openSSHKeyCreate,
   closeSSHKeyForm,
+  importSSHKeyFile,
+  copySSHKeyCommand,
   saveSSHKey,
   deleteSSHKey,
   saveServer,
@@ -489,7 +495,15 @@ const {
                 required
                 type="text" /></label
             ><label class="field"
-              ><span>SSH 私钥</span
+              ><span class="field-label-row"
+                ><span>SSH 私钥</span
+                ><button
+                  class="inline-button"
+                  type="button"
+                  @click="openSSHKeyCreate"
+                >
+                  新建或导入
+                </button></span
               ><select v-model="serverForm.private_key_ref" required>
                 <option value="">请选择已加密保存的私钥</option>
                 <option
@@ -500,7 +514,7 @@ const {
                   {{ key.name }} · {{ key.algorithm }}
                 </option></select
               ><small v-if="sshKeys.length === 0"
-                >请先关闭窗口并添加 SSH 私钥。</small
+                >还没有私钥？点击“新建或导入”，按照引导生成、粘贴或读取私钥文件。</small
               ></label
             >
           </div>
@@ -597,6 +611,104 @@ const {
           </button>
         </div>
         <form @submit.prevent="saveSSHKey">
+          <section class="ssh-key-guide">
+            <div class="ssh-key-guide-heading">
+              <div>
+                <strong>不会准备 SSH 密钥？</strong>
+                <span>按下面三步操作，完成生成、安装公钥和录入私钥。</span>
+              </div>
+              <span class="guide-badge">新手引导</span>
+            </div>
+            <div class="ssh-key-steps">
+              <article>
+                <b>1</b>
+                <div>
+                  <strong>在本机生成密钥</strong>
+                  <span>打开 PowerShell、终端或命令提示符，复制下面的命令执行。</span>
+                </div>
+              </article>
+              <article>
+                <b>2</b>
+                <div>
+                  <strong>把公钥放到服务器</strong>
+                  <span>公钥放入服务器的授权文件，私钥不要粘贴到服务器。</span>
+                </div>
+              </article>
+              <article>
+                <b>3</b>
+                <div>
+                  <strong>录入私钥并保存</strong>
+                  <span>可以直接粘贴，也可以选择本机私钥文件，Scert 会加密保存。</span>
+                </div>
+              </article>
+            </div>
+            <div class="ssh-key-platforms" role="tablist" aria-label="密钥生成平台">
+              <button
+                class="platform-tab"
+                :class="{ active: sshKeyPlatform === 'windows' }"
+                type="button"
+                role="tab"
+                :aria-selected="sshKeyPlatform === 'windows'"
+                @click="sshKeyPlatform = 'windows'"
+              >
+                Windows
+              </button>
+              <button
+                class="platform-tab"
+                :class="{ active: sshKeyPlatform === 'linux' }"
+                type="button"
+                role="tab"
+                :aria-selected="sshKeyPlatform === 'linux'"
+                @click="sshKeyPlatform = 'linux'"
+              >
+                Linux / macOS
+              </button>
+            </div>
+            <div class="ssh-command-card">
+              <div class="ssh-command-heading">
+                <span>生成命令</span>
+                <button
+                  class="inline-button"
+                  type="button"
+                  @click="
+                    copySSHKeyCommand(
+                      sshKeyCommands[sshKeyPlatform],
+                      '密钥生成命令已复制'
+                    )
+                  "
+                >
+                  复制命令
+                </button>
+              </div>
+              <code>{{ sshKeyCommands[sshKeyPlatform] }}</code>
+            </div>
+            <div class="ssh-command-card">
+              <div class="ssh-command-heading">
+                <span>安装公钥命令</span>
+                <button
+                  class="inline-button"
+                  type="button"
+                  @click="
+                    copySSHKeyCommand(
+                      sshPublicKeyCommands[sshKeyPlatform],
+                      '公钥安装命令已复制'
+                    )
+                  "
+                >
+                  复制命令
+                </button>
+              </div>
+              <code>{{ sshPublicKeyCommands[sshKeyPlatform] }}</code>
+              <small>
+                Linux 服务器默认位置：<code>~/.ssh/authorized_keys</code>；Windows
+                OpenSSH 服务器请按照系统说明配置授权文件。
+              </small>
+            </div>
+            <p class="ssh-key-guide-note">
+              懒人方式：如果你能登录服务器控制台，只需执行生成命令，再把生成的
+              <code>.pub</code> 公钥内容追加到授权文件，最后在下方选择私钥文件即可。
+            </p>
+          </section>
           <label class="field"
             ><span>私钥名称</span
             ><input
@@ -607,6 +719,10 @@ const {
               placeholder="例如生产环境部署私钥"
               autocomplete="off"
           /></label>
+          <label class="field"
+            ><span>读取本机私钥文件 <small>可选，读取后仍需点击加密保存</small></span
+            ><input type="file" @change="importSSHKeyFile" /></label
+          >
           <label class="field"
             ><span
               >私钥内容
@@ -620,10 +736,18 @@ const {
             ></textarea>
           </label>
           <label class="field"
-            ><span>私钥口令 <small>未加密私钥请留空</small></span
+            ><span class="field-label-row"
+              ><span>私钥口令 <small>未加密私钥请留空</small></span
+              ><button
+                class="inline-button"
+                type="button"
+                @click="sshKeyPassphraseVisible = !sshKeyPassphraseVisible"
+              >
+                {{ sshKeyPassphraseVisible ? "隐藏口令" : "显示口令" }}
+              </button></span
             ><input
               v-model="sshKeyForm.passphrase"
-              type="password"
+              :type="sshKeyPassphraseVisible ? 'text' : 'password'"
               maxlength="4096"
               autocomplete="new-password"
           /></label>

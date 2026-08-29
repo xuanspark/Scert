@@ -154,7 +154,7 @@ export function useSetupWizard(props, emit) {
     }
 
     const atIndex = rawValue.indexOf("@");
-    if (atIndex <= 0) {
+    if (atIndex < 0) {
       emailLocalPart.value = rawValue;
       form.value.admin_email = selectedEmailDomain.value && selectedEmailDomain.value !== "custom"
         ? `${rawValue}@${selectedEmailDomain.value}`
@@ -164,12 +164,18 @@ export function useSetupWizard(props, emit) {
 
     const localPart = rawValue.slice(0, atIndex).trim();
     const domain = rawValue.slice(atIndex + 1).trim().toLowerCase();
+
+    if (!localPart || !domain) {
+      emailLocalPart.value = rawValue;
+      selectedEmailDomain.value = "";
+      form.value.admin_email = rawValue;
+      return;
+    }
+
     emailLocalPart.value = localPart;
     selectedEmailDomain.value = commonEmailDomains.some(
-      (option) => option.value === domain,
-    )
-      ? domain
-      : "custom";
+      (option) => option.value === domain && option.value !== "custom",
+    ) ? domain : "custom";
     form.value.admin_email = `${localPart}@${domain}`;
   }
 

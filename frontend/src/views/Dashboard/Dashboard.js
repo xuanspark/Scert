@@ -22,6 +22,21 @@ export function useDashboard() {
   const showSSHKeyForm = ref(false);
   const sshKeySaving = ref(false);
   const sshKeyFormError = ref("");
+  const sshKeyPlatform = ref("windows");
+  const sshKeyPassphraseVisible = ref(false);
+
+  const sshKeyCommands = {
+    windows:
+      'ssh-keygen -t ed25519 -C "scert-deploy" -f "$HOME\\.ssh\\scert_deploy_ed25519"',
+    linux:
+      'ssh-keygen -t ed25519 -C "scert-deploy" -f ~/.ssh/scert_deploy_ed25519',
+  };
+  const sshPublicKeyCommands = {
+    windows:
+      'Get-Content "$HOME\\.ssh\\scert_deploy_ed25519.pub" | ssh root@服务器地址 "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"',
+    linux:
+      'ssh-copy-id -i ~/.ssh/scert_deploy_ed25519.pub 用户名@服务器地址',
+  };
 
   const certificateTypeLabels = {
     single: "单域名",
@@ -178,6 +193,8 @@ export function useDashboard() {
   function openSSHKeyCreate() {
     sshKeyForm.value = createEmptySSHKeyForm();
     sshKeyFormError.value = "";
+    sshKeyPlatform.value = "windows";
+    sshKeyPassphraseVisible.value = false;
     showSSHKeyForm.value = true;
   }
 
@@ -185,7 +202,32 @@ export function useDashboard() {
     if (sshKeySaving.value) return;
     sshKeyForm.value = createEmptySSHKeyForm();
     sshKeyFormError.value = "";
+    sshKeyPassphraseVisible.value = false;
     showSSHKeyForm.value = false;
+  }
+
+  async function importSSHKeyFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const content = await file.text();
+      if (!content.trim()) throw new Error("选择的私钥文件为空");
+      sshKeyForm.value.private_key = content;
+      sshKeyFormError.value = "";
+      notice.value = `已读取私钥文件：${file.name}`;
+    } catch (err) {
+      sshKeyFormError.value = err.message || "读取私钥文件失败";
+    }
+  }
+
+  async function copySSHKeyCommand(value, message) {
+    try {
+      await navigator.clipboard.writeText(value);
+      notice.value = message;
+    } catch {
+      sshKeyFormError.value = "浏览器未允许访问剪贴板，请手动复制命令";
+    }
   }
 
   async function saveSSHKey() {
@@ -456,6 +498,10 @@ export function useDashboard() {
     form,
     serverForm,
     sshKeyForm,
+    sshKeyPlatform,
+    sshKeyPassphraseVisible,
+    sshKeyCommands,
+    sshPublicKeyCommands,
     defaultCertificatePath,
     defaultCertificateChainPath,
     defaultPrivateKeyPath,
@@ -467,6 +513,8 @@ export function useDashboard() {
     closeServerForm,
     openSSHKeyCreate,
     closeSSHKeyForm,
+    importSSHKeyFile,
+    copySSHKeyCommand,
     saveSSHKey,
     deleteSSHKey,
     saveServer,
