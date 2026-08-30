@@ -1029,6 +1029,7 @@ export function useDashboard() {
         taskResponse,
         auditResponse,
         settingsResponse,
+        dnsProviderResponse,
       ] = await Promise.all([
         fetchAdmin("/api/v1/status"),
         fetchAdmin("/api/v1/domains"),
@@ -1038,6 +1039,7 @@ export function useDashboard() {
         fetchAdmin("/api/v1/tasks?limit=20"),
         fetchAdmin("/api/v1/audit-logs?limit=20"),
         fetchAdmin("/api/v1/settings"),
+        fetchAdmin("/api/v1/dns/providers"),
       ]);
       const failedResponse = [
         statusResponse,
@@ -1048,6 +1050,7 @@ export function useDashboard() {
         taskResponse,
         auditResponse,
         settingsResponse,
+        dnsProviderResponse,
       ].find((response) => !response.ok);
       if (failedResponse) {
         throw new Error(await responseError(failedResponse, "读取管理数据失败"));
@@ -1060,6 +1063,12 @@ export function useDashboard() {
       tasks.value = (await taskResponse.json()).items || [];
       auditLogs.value = (await auditResponse.json()).items || [];
       settings.value = await settingsResponse.json();
+      const providerResult = await dnsProviderResponse.json();
+      dnsProviderCatalog.value = (providerResult.items || []).map((item) => ({
+        ...item,
+        value: item.id,
+        label: item.name,
+      }));
       settingsForm.value = normalizeSettings(settings.value);
       const associations = await Promise.all(
         domains.value.map(async (item) => {
@@ -1096,6 +1105,14 @@ export function useDashboard() {
     auditLogs,
     settings,
     settingsForm,
+    dnsProviderCatalog,
+    selectedDNSProvider,
+    dnsTesting,
+    dnsTestError,
+    dnsReadyToSave,
+    handleDNSProviderChange,
+    clearDNSCredentials,
+    testDNS,
     domainServers,
     loading,
     saving,

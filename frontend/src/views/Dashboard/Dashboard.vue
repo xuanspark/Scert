@@ -55,6 +55,14 @@ const {
   showSettings,
   settingsSaving,
   settingsError,
+  dnsProviderCatalog,
+  selectedDNSProvider,
+  dnsTesting,
+  dnsTestError,
+  dnsReadyToSave,
+  handleDNSProviderChange,
+  clearDNSCredentials,
+  testDNS,
   sshKeyCommands,
   sshPublicKeyCommands,
   defaultCertificatePath,
@@ -464,6 +472,120 @@ const {
             <label class="field"><span>DNS 传播等待（秒）</span><input v-model.number="settingsForm.acme.propagation_timeout_secs" type="number" min="1" /></label>
             <label class="field"><span>DNS 检测间隔（秒）</span><input v-model.number="settingsForm.acme.propagation_polling_interval_secs" type="number" min="1" /></label>
           </div>
+          <h3>DNS API 验证</h3>
+          <div class="settings-section-note">
+            <span>证书申请前会使用 DNS API 创建临时验证记录。</span>
+            <span>凭据只会在本次在线测试请求中提交，系统仅保存加密引用。</span>
+          </div>
+          <div class="form-grid">
+            <label class="field" for="settings-dns-provider">
+              <span>DNS 服务商</span>
+              <select
+                id="settings-dns-provider"
+                v-model="settingsForm.dns.provider"
+                @change="handleDNSProviderChange"
+              >
+                <option value="">暂不配置</option>
+                <option
+                  v-for="provider in dnsProviderCatalog"
+                  :key="provider.id"
+                  :value="provider.id"
+                  :disabled="!provider.available"
+                >
+                  {{ provider.name }}{{ provider.available ? "" : "（暂不可用）" }}
+                </option>
+              </select>
+            </label>
+            <label class="field" for="settings-dns-test-domain">
+              <span>在线测试域名</span>
+              <input
+                id="settings-dns-test-domain"
+                v-model="settingsForm.dns.test_domain"
+                placeholder="例如 example.com"
+                autocomplete="off"
+              />
+            </label>
+          </div>
+          <p v-if="selectedDNSProvider" class="field-hint dns-provider-description">
+            {{ selectedDNSProvider.description }}
+          </p>
+          <p
+            v-if="selectedDNSProvider && !selectedDNSProvider.available"
+            class="form-error"
+          >
+            当前服务商适配器暂未开放，无法进行在线测试。
+          </p>
+          <div v-if="selectedDNSProvider" class="dns-credentials-grid">
+            <label
+              v-for="field in selectedDNSProvider.credential_fields"
+              :key="field.name"
+              class="field"
+              :for="`settings-dns-${field.name}`"
+            >
+              <span>
+                {{ field.label }}
+                <small v-if="field.required">必填</small>
+              </span>
+              <input
+                :id="`settings-dns-${field.name}`"
+                v-model="settingsForm.dns.credentials[field.name]"
+                :type="field.secret ? 'password' : 'text'"
+                :placeholder="field.placeholder"
+                :required="field.required"
+                autocomplete="off"
+              />
+            </label>
+          </div>
+          <div v-if="selectedDNSProvider" class="dns-test-actions">
+            <button
+              class="secondary-button"
+              type="button"
+              :disabled="dnsTesting || settingsSaving || !selectedDNSProvider.available"
+              @click="testDNS"
+            >
+              {{ dnsTesting ? "测试中……" : "在线测试 DNS API" }}
+            </button>
+            <button
+              class="text-button"
+              type="button"
+              :disabled="dnsTesting || settingsSaving"
+              @click="clearDNSCredentials"
+            >
+              清空凭据
+            </button>
+            <span
+              class="dns-verification-status"
+              :class="settingsForm.dns.verification_state"
+            >
+              {{ settingsForm.dns.verification_state === "verified" ? "已验证" : "待验证" }}
+            </span>
+          </div>
+          <p v-if="dnsTestError" class="form-error">{{ dnsTestError }}</p>
+          <div
+            v-if="settingsForm.dns.test_report?.stages?.length"
+            class="dns-test-report"
+          >
+            <div class="dns-test-report-heading">
+              <strong>在线测试结果</strong>
+              <span v-if="settingsForm.dns.test_report.record_name">
+                临时记录：{{ settingsForm.dns.test_report.record_name }}
+              </span>
+            </div>
+            <div
+              v-for="stage in settingsForm.dns.test_report.stages"
+              :key="stage.name"
+              class="dns-test-stage"
+            >
+              <span class="dns-stage-indicator" :class="stage.status"></span>
+              <div>
+                <strong>{{ stage.name }}</strong>
+                <span>{{ stage.message }}</span>
+              </div>
+            </div>
+          </div>
+          <p v-if="!dnsReadyToSave" class="security-hint">
+            DNS 服务商发生变化或尚未配置时，必须先完成 DNS API 在线测试。
+          </p>
           <h3>HTTP 通知</h3>
           <div class="form-grid">
             <label class="switch-field">
@@ -503,7 +625,13 @@ const {
           <p v-if="settingsError" class="form-error">{{ settingsError }}</p>
           <div class="modal-actions">
             <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
-            <button class="primary-button" type="submit" :disabled="settingsSaving">{{ settingsSaving ? "保存中……" : "保存设置" }}</button>
+            <button
+              class="primary-button"
+              type="submit"
+              :disabled="settingsSaving || !dnsReadyToSave"
+            >
+              {{ settingsSaving ? "保存中……" : "保存设置" }}
+            </button>
           </div>
         </form>
       </section>

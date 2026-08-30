@@ -1021,3 +1021,154 @@ code {
     flex-direction: column;
   }
 }
+
+.settings-modal {
+  width: min(100%, 1080px);
+  max-height: calc(100vh - 24px);
+  padding: 30px 34px;
+}
+
+.settings-section-note {
+  display: grid;
+  gap: 4px;
+  margin: -2px 0 16px;
+  padding: 11px 13px;
+  border: 1px solid #d8e6f3;
+  border-radius: 10px;
+  color: #637895;
+  background: #f7fbff;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.dns-provider-description {
+  margin: -3px 0 15px;
+  padding: 0 2px;
+  line-height: 1.55;
+}
+
+.dns-credentials-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 14px;
+}
+
+.dns-test-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 2px 0 15px;
+  padding: 12px 13px;
+  border: 1px solid #d8e6f3;
+  border-radius: 11px;
+  background: #fbfdff;
+}
+
+.dns-test-actions .text-button {
+  padding: 5px 2px;
+}
+
+.dns-verification-status {
+  margin-left: auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: #8b681e;
+  background: #fff4d9;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dns-verification-status.verified {
+  color: #24734b;
+  background: #e7f8ee;
+}
+
+.dns-test-report {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 16px;
+  padding: 13px 14px;
+  border: 1px solid #d9e6f3;
+  border-radius: 11px;
+  background: #f8fbff;
+}
+
+.dns-test-report-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+
+.dns-test-report-heading strong {
+  color: #32405a;
+  font-size: 13px;
+}
+
+.dns-test-report-heading span,
+.dns-test-stage span {
+  color: #6d7b91;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dns-test-stage {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 8px 0;
+  border-top: 1px solid #e6eef6;
+}
+
+.dns-test-stage > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dns-test-stage strong {
+  color: #32405a;
+  font-size: 12px;
+}
+
+.dns-stage-indicator {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #f0b44c;
+}
+
+.dns-stage-indicator.success {
+  background: #45ad72;
+}
+
+.dns-stage-indicator.failed,
+.dns-stage-indicator.error {
+  background: #c55c5c;
+}
+
+@media (min-width: 1100px) {
+  .settings-modal {
+    width: min(100%, 1080px);
+  }
+}
+
+@media (max-width: 700px) {
+  .settings-modal {
+    max-height: calc(100vh - 16px);
+    padding: 24px 20px;
+  }
+
+  .dns-credentials-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dns-verification-status {
+    margin-left: 0;
+  }
+}
