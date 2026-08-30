@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -68,6 +69,36 @@ func TestCertificateReadAPIs(t *testing.T) {
 	}
 }
 
+func TestCertificateListHidesReaderErrors(t *testing.T) {
+	reader := certificateReaderStub{err: errors.New("private-key-secret-path")}
+	repo := &stubDomainRepository{
+		items: []domain.Domain{{ID: "domain-1", Name: "example.com"}},
+	}
+	server := New(Dependencies{
+		Config:             readyTestConfig(t.TempDir()),
+		Repository:         repo,
+		CurrentCertificate: reader,
+	})
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(
+		server,
+		response,
+		httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("certificate list request failed: %d %s", response.Code, response.Body.String())
+	}
+
+	body := response.Body.String()
+	if strings.Contains(body, "private-key-secret-path") {
+		t.Fatalf("certificate list leaked an internal error: %s", body)
+	}
+	if !strings.Contains(body, "\u5f53\u524d\u8bc1\u4e66\u4e0d\u53ef\u7528") {
+		t.Fatalf("certificate list did not include the safe error message: %s", body)
+	}
+}
 func TestCertificateImportAPIAcceptsMultipartFiles(t *testing.T) {
 	var received certificate.ImportRequest
 	importer := func(_ context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
