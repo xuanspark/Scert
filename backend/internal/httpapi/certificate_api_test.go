@@ -237,3 +237,70 @@ func TestCertificateImportAPIRejectsInvalidPathJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestCertificateDeployAPISanitizesReportDetails(t *testing.T) {
+	server := New(Dependencies{
+		Config:     readyTestConfig(t.TempDir()),
+		Repository: &stubDomainRepository{},
+		DeployCertificate: func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+			return certificate.IssueResult{}, deployment.Report{
+				Total:  1,
+				Failed: 1,
+				Status: "failed",
+				Results: []deployment.Result{{
+					ServerID: "server-1",
+					Server:   "生产服务器",
+					Status:   "failed",
+					Message:  "上传远程证书失败：/etc/nginx/private/key.pem: permission denied",
+				}},
+			}, errors.New("private-key-secret-path")
+		},
+	})
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/deploy", nil))
+	body := response.Body.String()
+	if !strings.Contains(body, "证书部署失败") {
+		t.Fatalf("证书部署失败响应缺少稳定错误：%s", body)
+	}
+	if strings.Contains(body, "/etc/nginx/private/key.pem") || strings.Contains(body, "permission denied") {
+		t.Fatalf("证书部署响应泄露了报告明细：%s", body)
+	}
+	if !strings.Contains(body, "生产服务器") || !strings.Contains(body, "server-1") {
+		t.Fatalf("证书部署响应缺少安全的服务器信息：%s", body)
+	}
+}
+
+func TestCertificateImportAPISanitizesReportDetails(t *testing.T) {
+	server := New(Dependencies{
+		Config:     readyTestConfig(t.TempDir()),
+		Repository: &stubDomainRepository{},
+		ImportCertificate: func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+			return certificate.IssueResult{}, deployment.Report{
+				Total:  1,
+				Failed: 1,
+				Status: "failed",
+				Results: []deployment.Result{{
+					ServerID: "server-1",
+					Server:   "生产服务器",
+					Status:   "failed",
+					Message:  "上传远程证书失败：/etc/nginx/private/key.pem: permission denied",
+				}},
+			}, errors.New("private-key-secret-path")
+		},
+	})
+	body := `{"certificate_path":"/ssl/cert.pem","private_key_path":"/ssl/key.pem"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, request)
+	responseBody := response.Body.String()
+	if !strings.Contains(responseBody, "证书导入失败") {
+		t.Fatalf("证书导入失败响应缺少稳定错误：%s", responseBody)
+	}
+	if strings.Contains(responseBody, "/etc/nginx/private/key.pem") || strings.Contains(responseBody, "permission denied") {
+		t.Fatalf("证书导入响应泄露了报告明细：%s", responseBody)
+	}
+	if !strings.Contains(responseBody, "生产服务器") || !strings.Contains(responseBody, "server-1") {
+		t.Fatalf("证书导入响应缺少安全的服务器信息：%s", responseBody)
+	}
+}

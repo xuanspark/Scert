@@ -112,6 +112,7 @@ func (s *Server) deployCertificateCurrent(c *gin.Context) {
 		return
 	}
 	result, report, err := s.deployCertificate(c.Request.Context(), strings.TrimSpace(c.Param("id")))
+	report = sanitizeDeploymentReport(report)
 	response := gin.H{"certificate": result, "deployment": report}
 	if err != nil {
 		if s.logger != nil {
@@ -137,6 +138,7 @@ func (s *Server) importCertificateFiles(c *gin.Context) {
 	}
 	defer cleanup()
 	result, report, err := s.importCertificate(c.Request.Context(), request)
+	report = sanitizeDeploymentReport(report)
 	response := gin.H{"certificate": result, "deployment": report}
 	if err != nil {
 		if s.logger != nil {
