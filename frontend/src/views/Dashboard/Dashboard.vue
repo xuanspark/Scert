@@ -100,13 +100,6 @@ const {
   taskAttempts,
   taskDetailsLoading,
   taskDetailsError,
-  openCertificateVersions,
-  closeCertificateVersions,
-  showCertificateVersions,
-  certificateVersions,
-  certificateVersionsDomain,
-  certificateVersionsLoading,
-  certificateVersionsError,
   displayLabel,
   formatDate,
   daysRemaining,
@@ -322,9 +315,6 @@ const {
             </button>
             <button class="text-button" type="button" @click="openCertificateImport(item)">
               导入证书
-            </button>
-            <button class="text-button" type="button" @click="openCertificateVersions(item)">
-              证书版本
             </button>
             <button class="text-button" type="button" @click="openEdit(item)">
               编辑</button
@@ -1180,6 +1170,7 @@ const {
         </form>
       </section>
 
+    </div>
     <div v-if="showTaskDetails" class="modal-backdrop" @click.self="closeTaskDetails">
       <section class="modal-card task-details-modal" role="dialog" aria-modal="true" aria-label="任务详情">
         <div class="modal-heading">
@@ -1222,35 +1213,6 @@ const {
       </section>
     </div>
 
-    <div v-if="showCertificateVersions" class="modal-backdrop" @click.self="closeCertificateVersions">
-      <section class="modal-card certificate-versions-modal" role="dialog" aria-modal="true" aria-label="证书版本">
-        <div class="modal-heading">
-          <div>
-            <p class="eyebrow">证书管理</p>
-            <h2>当前证书版本</h2>
-            <p class="muted">{{ certificateVersionsDomain?.name }}</p>
-          </div>
-          <button class="close-button" type="button" aria-label="关闭" @click="closeCertificateVersions">×</button>
-        </div>
-        <div v-if="certificateVersionsLoading" class="empty-state">正在读取证书版本……</div>
-        <p v-else-if="certificateVersionsError" class="form-error">{{ certificateVersionsError }}</p>
-        <div v-else-if="certificateVersions.length === 0" class="empty-state">当前域名还没有已保存的证书版本。</div>
-        <div v-else class="version-list">
-          <article v-for="version in certificateVersions" :key="version.version" class="version-row">
-            <div>
-              <strong>{{ version.version }}</strong>
-              <span class="muted">保存时间：{{ formatDate(version.saved_at || version.created_at) }}</span>
-              <span class="muted">证书目录：{{ version.directory }}</span>
-            </div>
-            <span class="tag success">当前使用</span>
-          </article>
-        </div>
-        <p class="security-hint">当前版本策略只保留正在使用的版本；新证书申请成功后会生成新的日期与 Vx.x 目录。</p>
-        <div class="modal-actions">
-          <button class="secondary-button" type="button" @click="closeCertificateVersions">关闭</button>
-        </div>
-      </section>
-    </div>    </div>
   </main>
 </template>
 <style scoped src="./Dashboard.css"></style>

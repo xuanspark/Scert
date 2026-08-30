@@ -53,11 +53,6 @@ export function useDashboard() {
   const taskAttempts = ref([]);
   const taskDetailsLoading = ref(false);
   const taskDetailsError = ref("");
-  const showCertificateVersions = ref(false);
-  const certificateVersions = ref([]);
-  const certificateVersionsDomain = ref(null);
-  const certificateVersionsLoading = ref(false);
-  const certificateVersionsError = ref("");
   const hasOpenModal = computed(
     () =>
       showForm.value ||
@@ -65,8 +60,7 @@ export function useDashboard() {
       showSSHKeyForm.value ||
       showSettings.value ||
       showCertificateImport.value ||
-      showTaskDetails.value ||
-      showCertificateVersions.value,
+      showTaskDetails.value,
   );
   let previousBodyOverflow = "";
 
@@ -668,32 +662,6 @@ export function useDashboard() {
     taskDetailsError.value = "";
   }
 
-  async function openCertificateVersions(item) {
-    showCertificateVersions.value = true;
-    certificateVersionsDomain.value = item;
-    certificateVersions.value = [];
-    certificateVersionsError.value = "";
-    certificateVersionsLoading.value = true;
-    try {
-      const response = await fetchAdmin(`/api/v1/domains/${item.id}/certificate/versions`);
-      if (!response.ok) {
-        throw new Error(await responseError(response, "查询证书版本失败"));
-      }
-      certificateVersions.value = (await response.json()).items || [];
-    } catch (err) {
-      certificateVersionsError.value = err.message || "查询证书版本失败";
-    } finally {
-      certificateVersionsLoading.value = false;
-    }
-  }
-
-  function closeCertificateVersions() {
-    showCertificateVersions.value = false;
-    certificateVersions.value = [];
-    certificateVersionsDomain.value = null;
-    certificateVersionsError.value = "";
-  }
-
   async function cancelTask(item) {
     if (!window.confirm("确定取消这项正在执行的证书任务吗？")) return;
     error.value = "";
@@ -1196,13 +1164,6 @@ export function useDashboard() {
     taskAttempts,
     taskDetailsLoading,
     taskDetailsError,
-    openCertificateVersions,
-    closeCertificateVersions,
-    showCertificateVersions,
-    certificateVersions,
-    certificateVersionsDomain,
-    certificateVersionsLoading,
-    certificateVersionsError,
     taskTypeLabel,
     auditActionLabel,
     taskStageLabel,
