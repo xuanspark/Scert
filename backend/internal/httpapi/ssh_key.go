@@ -33,9 +33,8 @@ func (s *Server) createSSHKey(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "SSH 私钥管理接口尚未配置", errors.New("SSH 私钥管理服务未配置"))
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSSHKeyRequestBytes)
 	var request sshKeyRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := bindJSON(c, &request, maxSSHKeyRequestBytes); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			s.writeError(c, http.StatusRequestEntityTooLarge, "SSH 私钥请求内容过大", err)

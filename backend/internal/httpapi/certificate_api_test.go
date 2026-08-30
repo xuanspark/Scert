@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
-	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
@@ -48,22 +47,22 @@ func TestCertificateReadAPIs(t *testing.T) {
 		versions: []certificate.SavedResource{{Version: "20260827-120000.000000000"}},
 	}
 	repo := &stubDomainRepository{items: []domain.Domain{{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSAN}}}
-	server := New(Dependencies{Config: config.Default(t.TempDir()), Repository: repo, CurrentCertificate: reader})
+	server := New(Dependencies{Config: readyTestConfig(t.TempDir()), Repository: repo, CurrentCertificate: reader})
 
 	list := httptest.NewRecorder()
-	server.Handler().ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil))
+	serveAdminHTTP(server, list, httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil))
 	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "example.com") {
 		t.Fatalf("证书列表响应错误：%d %s", list.Code, list.Body.String())
 	}
 
 	detail := httptest.NewRecorder()
-	server.Handler().ServeHTTP(detail, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/domain-1", nil))
+	serveAdminHTTP(server, detail, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/domain-1", nil))
 	if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), "20260827-120000.000000000") {
 		t.Fatalf("证书详情响应错误：%d %s", detail.Code, detail.Body.String())
 	}
 
 	versions := httptest.NewRecorder()
-	server.Handler().ServeHTTP(versions, httptest.NewRequest(http.MethodGet, "/api/v1/domains/domain-1/certificate/versions", nil))
+	serveAdminHTTP(server, versions, httptest.NewRequest(http.MethodGet, "/api/v1/domains/domain-1/certificate/versions", nil))
 	if versions.Code != http.StatusOK || !strings.Contains(versions.Body.String(), "20260827-120000.000000000") {
 		t.Fatalf("证书历史版本响应错误：%d %s", versions.Code, versions.Body.String())
 	}
@@ -87,7 +86,7 @@ func TestCertificateImportAPIAcceptsMultipartFiles(t *testing.T) {
 		return certificate.IssueResult{DomainID: request.DomainID}, deployment.Report{Status: "success"}, nil
 	}
 	server := New(Dependencies{
-		Config:            config.Default(t.TempDir()),
+		Config:            readyTestConfig(t.TempDir()),
 		Repository:        &stubDomainRepository{},
 		ImportCertificate: importer,
 	})
@@ -110,7 +109,7 @@ func TestCertificateImportAPIAcceptsMultipartFiles(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusOK || received.DomainID != "domain-1" {
 		t.Fatalf("证书导入响应错误：%d %s", response.Code, response.Body.String())
 	}
@@ -121,7 +120,7 @@ func TestCertificateImportAPIAcceptsMultipartFiles(t *testing.T) {
 
 func TestCertificateImportAPIRejectsMissingFiles(t *testing.T) {
 	server := New(Dependencies{
-		Config:     config.Default(t.TempDir()),
+		Config:     readyTestConfig(t.TempDir()),
 		Repository: &stubDomainRepository{},
 		ImportCertificate: func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
 			return certificate.IssueResult{}, deployment.Report{}, nil
@@ -131,7 +130,7 @@ func TestCertificateImportAPIRejectsMissingFiles(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("缺少证书路径应返回参数错误：%d %s", response.Code, response.Body.String())
 	}

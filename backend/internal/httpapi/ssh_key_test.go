@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
@@ -22,7 +21,7 @@ import (
 
 func TestSSHKeyAPIHidesPrivateKeyAndBlocksDeletingUsedReference(t *testing.T) {
 	directory := t.TempDir()
-	cfg := config.Default(directory)
+	cfg := readyTestConfig(directory)
 	cfg.Database.DSN = filepath.Join(directory, "data", "ssh-keys.db")
 	db, err := database.Open(context.Background(), cfg.Database)
 	if err != nil {
@@ -50,7 +49,7 @@ func TestSSHKeyAPIHidesPrivateKeyAndBlocksDeletingUsedReference(t *testing.T) {
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/ssh-keys", strings.NewReader(string(createBody)))
 	createRequest.Header.Set("Content-Type", "application/json")
 	createResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(createResponse, createRequest)
+	serveAdminHTTP(server, createResponse, createRequest)
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("创建 SSH 私钥失败：%d %s", createResponse.Code, createResponse.Body.String())
 	}
@@ -63,7 +62,7 @@ func TestSSHKeyAPIHidesPrivateKeyAndBlocksDeletingUsedReference(t *testing.T) {
 	}
 
 	listResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/ssh-keys", nil))
+	serveAdminHTTP(server, listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/ssh-keys", nil))
 	if listResponse.Code != http.StatusOK || !strings.Contains(listResponse.Body.String(), key.Reference) || strings.Contains(listResponse.Body.String(), "PRIVATE KEY") {
 		t.Fatalf("SSH 私钥列表响应无效或泄露敏感内容：%d %s", listResponse.Code, listResponse.Body.String())
 	}
@@ -72,7 +71,7 @@ func TestSSHKeyAPIHidesPrivateKeyAndBlocksDeletingUsedReference(t *testing.T) {
 	serverRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(serverBody))
 	serverRequest.Header.Set("Content-Type", "application/json")
 	serverResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(serverResponse, serverRequest)
+	serveAdminHTTP(server, serverResponse, serverRequest)
 	if serverResponse.Code != http.StatusCreated {
 		t.Fatalf("创建使用 SSH 私钥的服务器失败：%d %s", serverResponse.Code, serverResponse.Body.String())
 	}
@@ -84,17 +83,17 @@ func TestSSHKeyAPIHidesPrivateKeyAndBlocksDeletingUsedReference(t *testing.T) {
 	}
 
 	deleteUsedResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(deleteUsedResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/ssh-keys/"+key.ID, nil))
+	serveAdminHTTP(server, deleteUsedResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/ssh-keys/"+key.ID, nil))
 	if deleteUsedResponse.Code != http.StatusConflict {
 		t.Fatalf("仍被使用的 SSH 私钥应禁止删除：%d %s", deleteUsedResponse.Code, deleteUsedResponse.Body.String())
 	}
 	deleteServerResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(deleteServerResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/servers/"+createdServer.ID, nil))
+	serveAdminHTTP(server, deleteServerResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/servers/"+createdServer.ID, nil))
 	if deleteServerResponse.Code != http.StatusNoContent {
 		t.Fatalf("删除测试服务器失败：%d %s", deleteServerResponse.Code, deleteServerResponse.Body.String())
 	}
 	deleteKeyResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(deleteKeyResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/ssh-keys/"+key.ID, nil))
+	serveAdminHTTP(server, deleteKeyResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/ssh-keys/"+key.ID, nil))
 	if deleteKeyResponse.Code != http.StatusNoContent {
 		t.Fatalf("删除未使用的 SSH 私钥失败：%d %s", deleteKeyResponse.Code, deleteKeyResponse.Body.String())
 	}
@@ -105,13 +104,13 @@ func TestSSHKeyAPIRejectsInvalidKeyWithoutEchoingIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("打开敏感信息存储失败：%v", err)
 	}
-	server := New(Dependencies{Config: config.Default(t.TempDir()), Repository: &stubDomainRepository{}, SSHKeys: sshkey.NewService(store)})
+	server := New(Dependencies{Config: readyTestConfig(t.TempDir()), Repository: &stubDomainRepository{}, SSHKeys: sshkey.NewService(store)})
 	secret := "invalid-private-key-sensitive-content"
 	body, _ := json.Marshal(sshKeyRequest{Name: "错误私钥", PrivateKey: secret})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/ssh-keys", strings.NewReader(string(body)))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), secret) {
 		t.Fatalf("无效 SSH 私钥响应不安全：%d %s", response.Code, response.Body.String())
 	}
@@ -122,12 +121,12 @@ func TestSSHKeyAPIRejectsOversizedRequestBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open secret store: %v", err)
 	}
-	server := New(Dependencies{Config: config.Default(t.TempDir()), Repository: &stubDomainRepository{}, SSHKeys: sshkey.NewService(store)})
+	server := New(Dependencies{Config: readyTestConfig(t.TempDir()), Repository: &stubDomainRepository{}, SSHKeys: sshkey.NewService(store)})
 	body := `{"name":"oversized request","private_key":"` + strings.Repeat("a", maxSSHKeyRequestBytes) + `"}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/ssh-keys", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized SSH key request should return 413: %d %s", response.Code, response.Body.String())
 	}
@@ -138,7 +137,7 @@ func TestSSHKeyAPIRejectsOversizedPrivateKeyAndPassphrase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open secret store: %v", err)
 	}
-	server := New(Dependencies{Config: config.Default(t.TempDir()), Repository: &stubDomainRepository{}, SSHKeys: sshkey.NewService(store)})
+	server := New(Dependencies{Config: readyTestConfig(t.TempDir()), Repository: &stubDomainRepository{}, SSHKeys: sshkey.NewService(store)})
 	requests := []sshKeyRequest{
 		{Name: "oversized key", PrivateKey: strings.Repeat("a", sshkey.MaxPrivateKeyBytes+1)},
 		{Name: "oversized passphrase", PrivateKey: testSSHPrivateKey(t), Passphrase: strings.Repeat("p", 4097)},
@@ -151,7 +150,7 @@ func TestSSHKeyAPIRejectsOversizedPrivateKeyAndPassphrase(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/ssh-keys", strings.NewReader(string(body)))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
-		server.Handler().ServeHTTP(response, request)
+		serveAdminHTTP(server, response, request)
 		leaksPassphrase := input.Passphrase != "" && strings.Contains(response.Body.String(), input.Passphrase)
 		if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), input.PrivateKey) || leaksPassphrase {
 			t.Fatalf("oversized input should be rejected safely: %d %s", response.Code, response.Body.String())
@@ -170,4 +169,49 @@ func testSSHPrivateKey(t *testing.T) string {
 		t.Fatalf("编码测试 SSH 私钥失败：%v", err)
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}))
+}
+
+func TestSSHKeyAPIRejectsUnknownFieldsAndTrailingJSON(t *testing.T) {
+	store, err := secretstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("打开敏感信息存储失败：%v", err)
+	}
+	server := New(Dependencies{Config: readyTestConfig(t.TempDir()), Repository: &stubDomainRepository{}, SSHKeys: sshkey.NewService(store)})
+	privateKey := testSSHPrivateKey(t)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "未知字段",
+			body: `{"name":"测试私钥","private_key":` + mustJSONString(t, privateKey) + `,"unexpected":true}`,
+		},
+		{
+			name: "多段 JSON",
+			body: `{"name":"测试私钥","private_key":` + mustJSONString(t, privateKey) + `}{"name":"第二个私钥","private_key":` + mustJSONString(t, privateKey) + `}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/ssh-keys", strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			serveAdminHTTP(server, response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("%s 应返回 400，实际为 %d：%s", tt.name, response.Code, response.Body.String())
+			}
+			if strings.Contains(response.Body.String(), privateKey) || strings.Contains(response.Body.String(), "PRIVATE KEY") {
+				t.Fatalf("%s 响应泄露了私钥：%s", tt.name, response.Body.String())
+			}
+		})
+	}
+}
+
+func mustJSONString(t *testing.T, value string) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("编码 JSON 字符串失败：%v", err)
+	}
+	return string(encoded)
 }

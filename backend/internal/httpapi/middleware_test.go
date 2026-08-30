@@ -116,3 +116,30 @@ func TestAdminAPIRejectsAuthenticatedRegularUser(t *testing.T) {
 		t.Fatalf("普通用户权限错误提示不明确：%s", response.Body.String())
 	}
 }
+
+func TestAdminAPIRequiresSetupBeforeAccessingManagementHandlers(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = false
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
+	paths := []string{
+		"/api/v1/domains",
+		"/api/v1/settings",
+		"/api/v1/servers",
+		"/api/v1/tasks",
+		"/api/v1/audit-logs",
+		"/api/v1/certificates",
+		"/api/v1/ssh-keys",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+			if response.Code != http.StatusConflict {
+				t.Fatalf("初始化前访问 %s 应返回 409，实际为 %d：%s", path, response.Code, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), "请先完成初始化配置") {
+				t.Fatalf("初始化前响应缺少中文提示：%s", response.Body.String())
+			}
+		})
+	}
+}

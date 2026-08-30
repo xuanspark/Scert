@@ -64,10 +64,10 @@ func (r *stubDomainRepository) Update(_ context.Context, item domain.Domain) err
 }
 
 func TestStatusReturnsApplicationAndConfigVersions(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("状态接口响应错误：%d", response.Code)
 	}
@@ -84,14 +84,14 @@ func TestStatusReturnsApplicationAndConfigVersions(t *testing.T) {
 }
 
 func TestDomainAPIValidatesSANAndHidesInternalErrors(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{}
 	server := New(Dependencies{Config: cfg, Repository: repo})
 
 	invalid := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["bad_domain"]}`))
 	invalid.Header.Set("Content-Type", "application/json")
 	invalidResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(invalidResponse, invalid)
+	serveAdminHTTP(server, invalidResponse, invalid)
 	if invalidResponse.Code != http.StatusBadRequest || strings.Contains(invalidResponse.Body.String(), "detail") {
 		t.Fatalf("非法 SAN 响应不正确：%d %s", invalidResponse.Code, invalidResponse.Body.String())
 	}
@@ -99,14 +99,14 @@ func TestDomainAPIValidatesSANAndHidesInternalErrors(t *testing.T) {
 	valid := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["www.example.com"]}`))
 	valid.Header.Set("Content-Type", "application/json")
 	validResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(validResponse, valid)
+	serveAdminHTTP(server, validResponse, valid)
 	if validResponse.Code != http.StatusCreated || len(repo.created.SANs) != 2 || repo.created.SANs[0] != "example.com" {
 		t.Fatalf("合法 SAN 响应不正确：%d %s", validResponse.Code, validResponse.Body.String())
 	}
 
 	repo.listErr = errors.New("internal-dsn-secret")
 	listResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil))
+	serveAdminHTTP(server, listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil))
 	if listResponse.Code != http.StatusInternalServerError {
 		t.Fatalf("列表错误状态码不正确：%d", listResponse.Code)
 	}
@@ -116,25 +116,25 @@ func TestDomainAPIValidatesSANAndHidesInternalErrors(t *testing.T) {
 }
 
 func TestDeleteMissingDomainReturnsNotFound(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{deleteErr: sql.ErrNoRows}
 	server := New(Dependencies{Config: cfg, Repository: repo})
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/api/v1/domains/missing", nil))
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodDelete, "/api/v1/domains/missing", nil))
 	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), "detail") {
 		t.Fatalf("删除不存在域名响应不正确：%d %s", response.Code, response.Body.String())
 	}
 }
 
 func TestUpdateDomainAPI(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	loaded := domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle, SANs: []string{"example.com"}, Status: "active"}
 	repo := &stubDomainRepository{loaded: loaded}
 	server := New(Dependencies{Config: cfg, Repository: repo})
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["www.example.com"],"auto_renew":false,"acme_environment":"production","dns_provider":"cloudflare"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("更新域名响应错误：%d %s", response.Code, response.Body.String())
 	}
@@ -144,33 +144,33 @@ func TestUpdateDomainAPI(t *testing.T) {
 }
 
 func TestCreateDomainConflictReturnsConflict(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{createErr: errors.New("UNIQUE constraint failed: domains.name")}
 	server := New(Dependencies{Config: cfg, Repository: repo})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("重复域名响应错误：%d %s", response.Code, response.Body.String())
 	}
 }
 
 func TestUpdateDomainRejectsInvalidEnvironment(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	loaded := domain.Domain{ID: "domain-1", Name: "example.com"}
 	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{loaded: loaded}})
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"single","acme_environment":"invalid"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("非法 ACME 环境响应错误：%d %s", response.Code, response.Body.String())
 	}
 }
 
 func TestIssueDomainUsesCertificateWorkflow(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	calledID := ""
 	server := New(Dependencies{
 		Config: cfg, Repository: &stubDomainRepository{},
@@ -180,7 +180,7 @@ func TestIssueDomainUsesCertificateWorkflow(t *testing.T) {
 		},
 	})
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
 	if response.Code != http.StatusOK || calledID != "domain-1" || !strings.Contains(response.Body.String(), `"status":"success"`) {
 		t.Fatalf("证书申请接口响应错误：%d %s", response.Code, response.Body.String())
 	}

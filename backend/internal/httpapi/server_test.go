@@ -27,7 +27,7 @@ import (
 
 func TestHealthAndDomainAPI(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Default(dir)
+	cfg := readyTestConfig(dir)
 	cfg.Database.DSN = filepath.Join(dir, "data", "test.db")
 	db, err := database.Open(context.Background(), cfg.Database)
 	if err != nil {
@@ -45,7 +45,7 @@ func TestHealthAndDomainAPI(t *testing.T) {
 	server := New(Dependencies{Config: cfg, Logger: logger, Repository: repository.NewSQLDomainRepository(db.DB)})
 
 	health := httptest.NewRecorder()
-	server.Handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	serveAdminHTTP(server, health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"status":"ok"`) {
 		t.Fatalf("健康检查响应错误：%d %s", health.Code, health.Body.String())
 	}
@@ -53,13 +53,13 @@ func TestHealthAndDomainAPI(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
 	request.Header.Set("Content-Type", "application/json")
 	created := httptest.NewRecorder()
-	server.Handler().ServeHTTP(created, request)
+	serveAdminHTTP(server, created, request)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("创建域名响应错误：%d %s", created.Code, created.Body.String())
 	}
 
 	list := httptest.NewRecorder()
-	server.Handler().ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil))
+	serveAdminHTTP(server, list, httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil))
 	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "example.com") {
 		t.Fatalf("域名列表响应错误：%d %s", list.Code, list.Body.String())
 	}
@@ -67,7 +67,7 @@ func TestHealthAndDomainAPI(t *testing.T) {
 
 func TestResetPathRequiresScertAdminActivation(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Default(dir)
+	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.Server.Port = 8443
@@ -75,7 +75,7 @@ func TestResetPathRequiresScertAdminActivation(t *testing.T) {
 	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, ResetStatePath: statePath})
 
 	inactive := httptest.NewRecorder()
-	server.Handler().ServeHTTP(inactive, httptest.NewRequest(http.MethodGet, "/reset", nil))
+	serveAdminHTTP(server, inactive, httptest.NewRequest(http.MethodGet, "/reset", nil))
 	if inactive.Code != http.StatusNotFound {
 		t.Fatalf("Scert-admin 未启动时 /reset 应返回 404：%d", inactive.Code)
 	}
@@ -85,7 +85,7 @@ func TestResetPathRequiresScertAdminActivation(t *testing.T) {
 		t.Fatalf("启用测试密码重置入口失败：%v", err)
 	}
 	active := httptest.NewRecorder()
-	server.Handler().ServeHTTP(active, httptest.NewRequest(http.MethodGet, "/reset", nil))
+	serveAdminHTTP(server, active, httptest.NewRequest(http.MethodGet, "/reset", nil))
 	if active.Code != http.StatusOK || !strings.Contains(active.Body.String(), "超级管理员密码重置") {
 		t.Fatalf("Scert-admin 启用后 /reset 页面错误：%d %s", active.Code, active.Body.String())
 	}
@@ -96,7 +96,7 @@ func TestResetPathRequiresScertAdminActivation(t *testing.T) {
 		t.Fatalf("关闭测试密码重置入口失败：%v", err)
 	}
 	stopped := httptest.NewRecorder()
-	server.Handler().ServeHTTP(stopped, httptest.NewRequest(http.MethodGet, "/reset", nil))
+	serveAdminHTTP(server, stopped, httptest.NewRequest(http.MethodGet, "/reset", nil))
 	if stopped.Code != http.StatusNotFound {
 		t.Fatalf("Scert-admin 停止后 /reset 应恢复 404：%d", stopped.Code)
 	}
@@ -104,7 +104,7 @@ func TestResetPathRequiresScertAdminActivation(t *testing.T) {
 
 func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Default(dir)
+	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.DNS.VerificationState = "verified"
@@ -126,7 +126,7 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	}
 	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
 	get := httptest.NewRecorder()
-	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
+	serveAdminHTTP(server, get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
 	if get.Code != http.StatusOK {
 		t.Fatalf("获取密码重置页面失败：%d", get.Code)
 	}
@@ -142,7 +142,7 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	request.Header.Set("Origin", "http://scert.example.test")
 	request.AddCookie(cookie)
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "密码重置成功") {
 		t.Fatalf("密码重置响应错误：%d %s", response.Code, response.Body.String())
 	}
@@ -164,7 +164,7 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 		t.Fatal("旧密码不应继续有效")
 	}
 	second := httptest.NewRecorder()
-	server.Handler().ServeHTTP(second, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
+	serveAdminHTTP(server, second, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
 	if second.Code != http.StatusNotFound {
 		t.Fatalf("密码重置成功后入口必须关闭：%d", second.Code)
 	}
@@ -175,7 +175,7 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 
 func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Default(dir)
+	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.DNS.VerificationState = "verified"
@@ -215,7 +215,7 @@ func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
 		ResetStatePath: admin.StatePath(cfg.Paths.Data),
 	})
 	get := httptest.NewRecorder()
-	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
+	serveAdminHTTP(server, get, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
 	if get.Code != http.StatusOK {
 		t.Fatalf("获取密码重置页面失败：%d", get.Code)
 	}
@@ -229,7 +229,7 @@ func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
 	request.Header.Set("Origin", "https://scert.example.test")
 	request.AddCookie(cookies[0])
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("密码重置失败：%d %s", response.Code, response.Body.String())
 	}
@@ -244,7 +244,7 @@ func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
 
 func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Default(dir)
+	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.DNS.VerificationState = "verified"
@@ -258,7 +258,7 @@ func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 	}
 	server := New(Dependencies{Config: cfg, ConfigPath: filepath.Join(dir, "config", "scert.json"), Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
 	get := httptest.NewRecorder()
-	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
+	serveAdminHTTP(server, get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
 	cookie := get.Result().Cookies()[0]
 	base := url.Values{"csrf_token": {cookie.Value}, "reset_code": {session.Code}, "new_password": {"NewPass1234"}, "confirm_password": {"NewPass1234"}}
 	for i := 0; i < 5; i++ {
@@ -267,7 +267,7 @@ func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 		request.Header.Set("Origin", "http://evil.example.test")
 		request.AddCookie(cookie)
 		response := httptest.NewRecorder()
-		server.Handler().ServeHTTP(response, request)
+		serveAdminHTTP(server, response, request)
 		if response.Code != http.StatusForbidden {
 			t.Fatalf("跨站请求应被拒绝：第 %d 次状态码为 %d", i+1, response.Code)
 		}
@@ -277,7 +277,7 @@ func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 	request.Header.Set("Origin", "http://scert.example.test")
 	request.AddCookie(cookie)
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
+	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("超过失败次数后应限流：%d", response.Code)
 	}
@@ -285,7 +285,7 @@ func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 
 func TestServerAndDomainAssociationAPI(t *testing.T) {
 	dir := t.TempDir()
-	cfg := config.Default(dir)
+	cfg := readyTestConfig(dir)
 	cfg.Database.DSN = filepath.Join(dir, "data", "servers.db")
 	db, err := database.Open(context.Background(), cfg.Database)
 	if err != nil {
@@ -312,7 +312,7 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	domainRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
 	domainRequest.Header.Set("Content-Type", "application/json")
 	domainResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(domainResponse, domainRequest)
+	serveAdminHTTP(server, domainResponse, domainRequest)
 	if domainResponse.Code != http.StatusCreated {
 		t.Fatalf("创建测试域名失败：%d %s", domainResponse.Code, domainResponse.Body.String())
 	}
@@ -326,7 +326,7 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	serverRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(`{"name":"测试服务器","address":"192.0.2.50","port":22,"username":"deploy","private_key_ref":"`+key.Reference+`","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
 	serverRequest.Header.Set("Content-Type", "application/json")
 	serverResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(serverResponse, serverRequest)
+	serveAdminHTTP(server, serverResponse, serverRequest)
 	if serverResponse.Code != http.StatusCreated {
 		t.Fatalf("创建测试服务器失败：%d %s", serverResponse.Code, serverResponse.Body.String())
 	}
@@ -341,18 +341,18 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	associationRequest := httptest.NewRequest(http.MethodPut, "/api/v1/domains/"+item.ID+"/servers", strings.NewReader(`{"server_ids":["`+created.ID+`"]}`))
 	associationRequest.Header.Set("Content-Type", "application/json")
 	associationResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(associationResponse, associationRequest)
+	serveAdminHTTP(server, associationResponse, associationRequest)
 	if associationResponse.Code != http.StatusOK || !strings.Contains(associationResponse.Body.String(), created.ID) {
 		t.Fatalf("保存域名服务器关联失败：%d %s", associationResponse.Code, associationResponse.Body.String())
 	}
 
 	deleteResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/servers/"+created.ID, nil))
+	serveAdminHTTP(server, deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/servers/"+created.ID, nil))
 	if deleteResponse.Code != http.StatusNoContent {
 		t.Fatalf("删除测试服务器失败：%d %s", deleteResponse.Code, deleteResponse.Body.String())
 	}
 	listResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/domains/"+item.ID+"/servers", nil))
+	serveAdminHTTP(server, listResponse, httptest.NewRequest(http.MethodGet, "/api/v1/domains/"+item.ID+"/servers", nil))
 	if listResponse.Code != http.StatusOK || strings.Contains(listResponse.Body.String(), created.ID) {
 		t.Fatalf("服务器删除后域名关联未清理：%d %s", listResponse.Code, listResponse.Body.String())
 	}
@@ -497,7 +497,7 @@ type resetTestFixture struct {
 func newResetTestFixture(t *testing.T) resetTestFixture {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := config.Default(dir)
+	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.DNS.VerificationState = "verified"
@@ -519,7 +519,7 @@ func newResetTestFixture(t *testing.T) resetTestFixture {
 	}
 	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
 	get := httptest.NewRecorder()
-	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
+	serveAdminHTTP(server, get, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
 	if get.Code != http.StatusOK {
 		t.Fatalf("获取测试重置页面失败：%d", get.Code)
 	}
@@ -543,7 +543,7 @@ func resetForm(code, csrfToken, password string) url.Values {
 }
 
 func TestListenAddressKeepsDirectModeBinding(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Server.Port = 5200
 	cfg.Server.HTTPSMode = "direct"
@@ -557,7 +557,7 @@ func TestListenAddressKeepsDirectModeBinding(t *testing.T) {
 }
 
 func TestListenAddressRestrictsProxyModeToLoopback(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Server.Port = 5201
 	cfg.Server.HTTPSMode = "proxy"
@@ -580,7 +580,7 @@ func TestListenAddressRestrictsProxyModeToLoopback(t *testing.T) {
 }
 
 func TestListenAddressAllowsLoopbackProxyBinding(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	cfg.Server.Host = "[::1]"
 	cfg.Server.Port = 5202
 	cfg.Server.HTTPSMode = "proxy"
@@ -594,7 +594,7 @@ func TestListenAddressAllowsLoopbackProxyBinding(t *testing.T) {
 }
 
 func TestForwardedHTTPSIsTrustedOnlyInProxyMode(t *testing.T) {
-	direct := config.Default(t.TempDir())
+	direct := readyTestConfig(t.TempDir())
 	direct.Server.HTTPSMode = "direct"
 	directServer := New(Dependencies{Config: direct, Repository: &stubDomainRepository{}})
 	directRequest := httptest.NewRequest(http.MethodGet, "http://scert.example.test/healthz", nil)
@@ -603,7 +603,7 @@ func TestForwardedHTTPSIsTrustedOnlyInProxyMode(t *testing.T) {
 		t.Fatal("直接 HTTPS 模式不应信任外部伪造的 X-Forwarded-Proto")
 	}
 
-	proxy := config.Default(t.TempDir())
+	proxy := readyTestConfig(t.TempDir())
 	proxy.Server.HTTPSMode = "proxy"
 	proxyServer := New(Dependencies{Config: proxy, Repository: &stubDomainRepository{}})
 	proxyRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:5200/healthz", nil)
@@ -614,7 +614,7 @@ func TestForwardedHTTPSIsTrustedOnlyInProxyMode(t *testing.T) {
 }
 
 func TestProxyModeAcceptsHTTPSSameOrigin(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := readyTestConfig(t.TempDir())
 	cfg.SetupReady = true
 	cfg.Server.HTTPSMode = "proxy"
 	cfg.Admin.Username = "admin"
