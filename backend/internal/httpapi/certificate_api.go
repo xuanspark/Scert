@@ -114,7 +114,10 @@ func (s *Server) deployCertificateCurrent(c *gin.Context) {
 	result, report, err := s.deployCertificate(c.Request.Context(), strings.TrimSpace(c.Param("id")))
 	response := gin.H{"certificate": result, "deployment": report}
 	if err != nil {
-		response["error"] = err.Error()
+		if s.logger != nil {
+			s.logger.Error("证书部署失败", "error", err)
+		}
+		response["error"] = "证书部署失败"
 		c.JSON(http.StatusBadGateway, response)
 		return
 	}
@@ -136,7 +139,10 @@ func (s *Server) importCertificateFiles(c *gin.Context) {
 	result, report, err := s.importCertificate(c.Request.Context(), request)
 	response := gin.H{"certificate": result, "deployment": report}
 	if err != nil {
-		response["error"] = err.Error()
+		if s.logger != nil {
+			s.logger.Error("证书导入失败", "error", err)
+		}
+		response["error"] = "证书导入失败"
 		c.JSON(http.StatusBadGateway, response)
 		return
 	}

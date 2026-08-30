@@ -82,7 +82,7 @@ func TestRestoreCertificateVersionAPIRecordsSuccessAudit(t *testing.T) {
 
 func TestRestoreCertificateVersionAPIRecordsFailureAudit(t *testing.T) {
 	server, audit := newRestoreAPITestServer(t, func(context.Context, string, string) (certificate.IssueResult, error) {
-		return certificate.IssueResult{}, errors.New("simulated restore failure")
+		return certificate.IssueResult{}, errors.New("private-key-secret-path")
 	})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/versions/bad/restore", nil)
 	request.AddCookie(&http.Cookie{Name: authCookieName, Value: "test-session"})
@@ -90,6 +90,12 @@ func TestRestoreCertificateVersionAPIRecordsFailureAudit(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("unexpected failure response: %d %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "private-key-secret-path") {
+		t.Fatalf("certificate restore leaked an internal error: %s", response.Body.String())
+	}
+	if strings.Contains(audit.items[0].Message, "private-key-secret-path") {
+		t.Fatalf("certificate restore audit leaked an internal error: %+v", audit.items[0])
 	}
 	if len(audit.items) != 1 || audit.items[0].Status != "failed" || audit.items[0].Action != "certificate_version_restore" {
 		t.Fatalf("failure audit was not recorded: %+v", audit.items)

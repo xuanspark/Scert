@@ -15,7 +15,10 @@ func (s *Server) runRenewalNow(c *gin.Context) {
 	report, err := s.runRenewal(c.Request.Context())
 	response := gin.H{"report": report}
 	if err != nil {
-		response["error"] = err.Error()
+		if s.logger != nil {
+			s.logger.Error("执行证书续期失败", "error", err)
+		}
+		response["error"] = "执行证书续期失败"
 		c.JSON(http.StatusConflict, response)
 		return
 	}

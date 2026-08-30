@@ -99,6 +99,52 @@ func TestCertificateListHidesReaderErrors(t *testing.T) {
 		t.Fatalf("certificate list did not include the safe error message: %s", body)
 	}
 }
+func TestCertificateDeployAPIHidesWorkflowErrors(t *testing.T) {
+	server := New(Dependencies{
+		Config:     readyTestConfig(t.TempDir()),
+		Repository: &stubDomainRepository{},
+		DeployCertificate: func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+			return certificate.IssueResult{}, deployment.Report{}, errors.New("private-key-secret-path")
+		},
+	})
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/deploy", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("certificate deployment failure returned an unexpected status: %d %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if strings.Contains(body, "private-key-secret-path") {
+		t.Fatalf("certificate deployment leaked an internal error: %s", body)
+	}
+	if !strings.Contains(body, "\u8bc1\u4e66\u90e8\u7f72\u5931\u8d25") {
+		t.Fatalf("certificate deployment did not include the safe error message: %s", body)
+	}
+}
+
+func TestCertificateImportAPIHidesWorkflowErrors(t *testing.T) {
+	server := New(Dependencies{
+		Config:     readyTestConfig(t.TempDir()),
+		Repository: &stubDomainRepository{},
+		ImportCertificate: func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+			return certificate.IssueResult{}, deployment.Report{}, errors.New("private-key-secret-path")
+		},
+	})
+	body := `{"certificate_path":"/ssl/cert.pem","private_key_path":"/ssl/key.pem"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, request)
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("certificate import failure returned an unexpected status: %d %s", response.Code, response.Body.String())
+	}
+	responseBody := response.Body.String()
+	if strings.Contains(responseBody, "private-key-secret-path") {
+		t.Fatalf("certificate import leaked an internal error: %s", responseBody)
+	}
+	if !strings.Contains(responseBody, "\u8bc1\u4e66\u5bfc\u5165\u5931\u8d25") {
+		t.Fatalf("certificate import did not include the safe error message: %s", responseBody)
+	}
+}
 func TestCertificateImportAPIAcceptsMultipartFiles(t *testing.T) {
 	var received certificate.ImportRequest
 	importer := func(_ context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {

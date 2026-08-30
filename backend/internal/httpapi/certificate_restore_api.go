@@ -18,10 +18,13 @@ func (s *Server) restoreCertificateVersion(c *gin.Context) {
 	version := strings.TrimSpace(c.Param("version"))
 	result, err := s.restoreVersion(c.Request.Context(), strings.TrimSpace(c.Param("id")), version)
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Error("恢复证书历史版本失败", "domain_id", c.Param("id"), "version", version, "error", err)
+		}
 		if s.audit != nil {
 			_ = s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
 				Action: "certificate_version_restore", ResourceType: "certificate", ResourceID: c.Param("id"), Status: "failed",
-				Message: "恢复证书历史版本失败：" + err.Error(),
+				Message: "恢复证书历史版本失败",
 			})
 		}
 		s.writeError(c, certificateErrorStatus(err), "恢复证书历史版本失败", err)
