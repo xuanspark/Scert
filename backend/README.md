@@ -36,11 +36,11 @@ go run ./cmd/scert serve --base-dir C:\ScertData
 
 当前 `serve` 已接入配置加载、数据库迁移、认证、DNS 在线测试、ACME 证书申请、自动续期、证书导入、SSH 部署和通知流程。HTTPS 生产切换、真实 DNS/ACME 申请、远程服务器及平台安装仍需授权环境验收。
 
-### 开发阶段使用 9003 端口
+### 开发阶段使用 9004 与 9003 端口
 
-反向代理开发测试时，将配置中的服务地址设为 `127.0.0.1`、端口设为 `9003`，并将 `https_mode` 设为 `proxy`。Scert 只提供本机内部 HTTPS，公网 HTTPS 由 Nginx 监听 `443` 并转发到 `https://127.0.0.1:9003`。端口可通过配置文件 `server.port` 或初始化参数 `--server-port` 修改；修改后需要重启服务。
+反向代理开发测试时，Scert 使用 `127.0.0.1:9004` 提供本机内部 HTTPS，Nginx 使用 `9003` 接收测试访问并转发到 Scert。配置中的 `https_mode` 设为 `proxy`。公网 HTTPS 仍由 Nginx 终止；端口可通过配置文件 `server.port` 或初始化参数 `--server-port` 修改，修改后需要重启服务。
 
-SMTP 通知是 Scert 的出站连接，不需要为 Scert 开放 SMTP 入站端口。公网防火墙通常只需放行 Nginx 使用的 `443`，若配置 HTTP 跳转再放行 `80`；内部端口 `9003` 不应对公网开放。
+SMTP 通知是 Scert 的出站连接，不需要为 Scert 开放 SMTP 入站端口。公网防火墙通常只需放行 Nginx 使用的 `443`，若配置 HTTP 跳转再放行 `80`；内部端口 `9004` 和 Nginx 测试端口 `9003` 都不应对公网开放。
 
 ## 测试和构建
 

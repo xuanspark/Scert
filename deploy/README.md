@@ -76,13 +76,13 @@ Linux 安装目录当前固定为 `/scert`。自定义证书根目录必须是�
 
 ## 开发阶段反向代理部署
 
-开发阶段可以使用测试域名 `web.xuans.com` 验证 Web 页面和反向代理链路。推荐让 Scert 只监听本机端口 `9003`，由 Nginx 对外提供 HTTPS：
+开发阶段可以使用测试域名 `web.xuans.com` 验证 Web 页面和反向代理链路。推荐让 Scert 只监听本机端口 `9004`，由 Nginx 监听 `9003` 接收测试访问并转发：
 
 ```text
-公网 HTTPS 443
+测试访问 HTTPS 9003
     ↓
 Nginx
-    ↓ https://127.0.0.1:9003
+    ↓ https://127.0.0.1:9004
 Scert
 ```
 
@@ -92,7 +92,7 @@ Scert
 {
   "server": {
     "host": "127.0.0.1",
-    "port": 9003,
+    "port": 9004,
     "https_mode": "proxy"
   }
 }
@@ -109,7 +109,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/web.xuans.com/privkey.pem;
 
     location / {
-        proxy_pass https://127.0.0.1:9003;
+        proxy_pass https://127.0.0.1:9004;
         proxy_ssl_server_name on;
         proxy_ssl_name web.xuans.com;
         proxy_ssl_verify off;
@@ -122,7 +122,7 @@ server {
 }
 ```
 
-如果需要 HTTP 自动跳转，再配置并开放 `80`；正常访问只需开放公网 `443`。`9003` 仅供本机 Nginx 使用，不应加入公网防火墙规则。端口可以在配置文件的 `server.port` 修改，修改后需要重启 Scert；如果改为直接对外监听，则还需要同步调整防火墙和安全组规则。
+如果需要 HTTP 自动跳转，再配置并开放 `80`；正式公网访问通常使用 `443`，开发测试访问使用 Nginx 的 `9003`。Scert 内部端口 `9004` 和 Nginx 测试端口 `9003` 都不应加入公网防火墙规则。端口可以在配置文件的 `server.port` 修改，修改后需要重启 Scert；如果改为直接对外监听，则还需要同步调整防火墙和安全组规则。
 
 `web.xuans.com` 仅用于开发阶段测试，不能作为生产环境证书、DNS、ACME 或最终 HTTPS 验收依据。
 
