@@ -437,11 +437,21 @@ const {
             <label class="field"><span>HTTPS 模式</span><select v-model="settingsForm.server.https_mode"><option value="direct">直接终止 HTTPS</option><option value="proxy">反向代理 HTTPS</option></select></label>
             <label class="field"><span>证书存储路径</span><input v-model="settingsForm.paths.certificate" required /></label>
           </div>
-          <div class="form-grid">
-            <label class="field"><span>管理页面域名</span><input v-model="settingsForm.web.hostname" placeholder="例如 ssl.example.com" /></label>
-            <label class="field"><span>管理页面公网 IP</span><input v-model="settingsForm.web.public_ip" placeholder="例如 203.0.113.10" /></label>
-          </div>
-          <h3>ACME 设置</h3>
+           <div class="form-grid">
+             <label class="field"><span>管理页面域名</span><input v-model="settingsForm.web.hostname" placeholder="例如 ssl.example.com" /></label>
+             <label class="field"><span>管理页面公网 IP</span><input v-model="settingsForm.web.public_ip" placeholder="例如 203.0.113.10" /></label>
+           </div>
+           <div class="settings-web-controls">
+             <label class="switch-field settings-switch-field">
+               <input v-model="settingsForm.web.enabled" type="checkbox" />
+               <span>
+                 <strong>开启 Web 管理页面</strong>
+                 <small>关闭后停止网络 Web 管理入口，桌面端本地管理功能不受影响。</small>
+               </span>
+             </label>
+             <p class="field-hint settings-web-hint">修改此开关后需要重启 Scert 服务，新的监听状态才会生效。</p>
+           </div>
+           <h3>ACME 设置</h3>
           <div class="form-grid">
             <label class="field"><span>ACME 环境</span><select v-model="settingsForm.acme.environment"><option value="staging">测试环境</option><option value="production">生产环境</option></select></label>
             <label class="field"><span>自动续期阈值（天）</span><input v-model.number="settingsForm.acme.renewal_threshold_days" type="number" min="1" max="365" /></label>

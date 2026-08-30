@@ -218,6 +218,7 @@ func (s *Server) updateSettings(c *gin.Context) {
 		previous.Server.Port != updated.Server.Port ||
 		previous.Server.HTTPSMode != updated.Server.HTTPSMode
 	configRestartRequired := listenerRestartRequired ||
+		previous.Web.Enabled != updated.Web.Enabled ||
 		previous.Paths.Certificate != updated.Paths.Certificate ||
 		!reflect.DeepEqual(nonRenewalACMEConfig(previous.ACME), nonRenewalACMEConfig(updated.ACME)) ||
 		!reflect.DeepEqual(previous.DNS, updated.DNS) ||
@@ -229,7 +230,7 @@ func (s *Server) updateSettings(c *gin.Context) {
 	if listenerRestartRequired {
 		message = "设置已保存；服务监听地址、端口或 HTTPS 模式已变更，请重启 Scert 服务"
 	} else if configRestartRequired {
-		message = "设置已保存；部分证书、DNS 或通知运行配置已变更，请重启 Scert 服务"
+		message = "设置已保存；Web 页面、证书、DNS 或通知运行配置已变更，请重启 Scert 服务"
 	}
 	s.config = updated
 	s.configMu.Unlock()

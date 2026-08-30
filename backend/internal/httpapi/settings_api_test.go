@@ -128,6 +128,57 @@ func TestSettingsAPIWebAddressChangeDoesNotRequireRestart(t *testing.T) {
 	}
 }
 
+func TestSettingsAPIWebEnabledChangeRequiresRestart(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.Web.Enabled = true
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.DNS.VerificationState = "verified"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "web": {"enabled": false}
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("更新 Web 页面开关应成功，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Settings        settingsView `json:"settings"`
+		RestartRequired bool         `json:"restart_required"`
+		Message         string       `json:"message"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("解析 Web 页面开关响应失败：%v", err)
+	}
+	if !payload.RestartRequired || payload.Settings.Web.Enabled {
+		t.Fatalf("关闭 Web 页面应要求重启并返回关闭状态：%+v", payload)
+	}
+	if !strings.Contains(payload.Message, "Web 页面") || !strings.Contains(payload.Message, "请重启 Scert 服务") {
+		t.Fatalf("Web 页面开关变更应明确提示重启服务：%s", payload.Message)
+	}
+
+	saved, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("读取 Web 页面开关配置失败：%v", err)
+	}
+	if saved.Web.Enabled {
+		t.Fatal("关闭 Web 页面后配置文件仍为开启状态")
+	}
+}
+
 func TestSettingsAPIReturnsAndUpdatesRenewalPolicy(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default(dir)

@@ -460,6 +460,23 @@ code {
 .switch-field small {
   margin: 5px 0 0;
 }
+.settings-web-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr);
+  align-items: center;
+  gap: 12px 18px;
+  margin: 4px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid #d8e6f3;
+  border-radius: 11px;
+  background: #fbfdff;
+}
+.settings-switch-field {
+  margin: 0;
+}
+.settings-web-hint {
+  margin: 0;
+}
 .server-picker {
   margin: 4px 0 20px;
   padding: 15px;
@@ -1160,5 +1177,9 @@ code {
 
   .dns-verification-status {
     margin-left: 0;
+  }
+
+  .settings-web-controls {
+    grid-template-columns: 1fr;
   }
 }
