@@ -95,19 +95,19 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.unregisterTaskCancel(task.ID)
 	}()
 	certificateResult, deploymentReport, issueErr := s.issueCertificate(executionCtx, domainID)
+	deploymentReport = sanitizeDeploymentReport(deploymentReport)
 	finished := time.Now().UTC()
 	status := "success"
 	message := "证书申请和部署完成"
 	cancelled := false
 	if issueErr != nil {
 		status = "failed"
-		message = issueErr.Error()
+		message = certificateTaskErrorMessage(issueErr)
+		if s.logger != nil {
+			s.logger.Error("证书任务执行失败", "task_id", task.ID, "domain_id", domainID, "error", issueErr)
+		}
 		if errors.Is(issueErr, context.Canceled) {
 			status = "cancelled"
-			message = "证书任务已取消"
-		}
-		if errors.Is(issueErr, context.DeadlineExceeded) {
-			message = "证书任务执行超时"
 		}
 	}
 	if persisted, err := s.tasks.GetTask(context.Background(), task.ID); err == nil && persisted.Status == "cancelled" {

@@ -441,7 +441,7 @@ func (s *Server) issueDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadGateway, "证书申请或部署失败", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"certificate": certificateResult, "deployment": deploymentReport})
+	c.JSON(http.StatusOK, gin.H{"certificate": certificateResult, "deployment": sanitizeDeploymentReport(deploymentReport)})
 }
 
 func (s *Server) listServers(c *gin.Context) {

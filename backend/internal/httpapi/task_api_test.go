@@ -102,14 +102,20 @@ func TestTaskAPIRecordsSuccessfulIssueAndAudit(t *testing.T) {
 
 func TestTaskAPIReturnsFailureAndKeepsTaskTrace(t *testing.T) {
 	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
-		return certificate.IssueResult{}, deployment.Report{Status: "failed"}, errors.New("模拟证书申请失败")
+		return certificate.IssueResult{}, deployment.Report{
+			Status:  "failed",
+			Results: []deployment.Result{{Status: "failed", Message: "上传远程证书失败：/etc/nginx/private/key.pem: permission denied"}},
+		}, errors.New("模拟证书申请失败：/etc/scert/secret/config.json")
 	})
 	defer closeDB()
 
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "模拟证书申请失败") {
+	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "证书申请或部署失败") {
 		t.Fatalf("失败任务响应错误：%d %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "/etc/scert/secret/config.json") || strings.Contains(response.Body.String(), "/etc/nginx/private/key.pem") || strings.Contains(response.Body.String(), "permission denied") {
+		t.Fatalf("失败任务响应泄露底层错误：%s", response.Body.String())
 	}
 	var payload struct {
 		Task struct {
@@ -125,7 +131,7 @@ func TestTaskAPIReturnsFailureAndKeepsTaskTrace(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("失败任务响应不是有效 JSON：%v；响应：%s", err, response.Body.String())
 	}
-	if payload.Task.Status != "failed" || payload.Task.Stage != "certificate_issue" || payload.Task.Message != "模拟证书申请失败" {
+	if payload.Task.Status != "failed" || payload.Task.Stage != "certificate_issue" || payload.Task.Message != "证书申请或部署失败" {
 		t.Fatalf("失败任务嵌套状态不一致：%+v", payload.Task)
 	}
 	if payload.TaskStatus != "failed" || payload.FinishedAt == "" || payload.Task.FinishedAt == "" || payload.Task.UpdatedAt == "" {
@@ -238,5 +244,35 @@ func TestTaskAPIReturnsNotImplementedWhenTaskDependenciesAreMissing(t *testing.T
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
 	if response.Code != http.StatusNotImplemented || !strings.Contains(response.Body.String(), "证书任务接口尚未配置") {
 		t.Fatalf("任务依赖缺失时应返回 501：%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestIssueDomainSanitizesDeploymentReportWithoutTaskRepository(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	server := New(Dependencies{
+		Config:     cfg,
+		Repository: &stubDomainRepository{},
+		IssueCertificate: func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+			return certificate.IssueResult{DomainID: "domain-1"}, deployment.Report{
+				Status: "failed",
+				Results: []deployment.Result{{
+					ServerID: "server-1",
+					Server:   "生产服务器",
+					Status:   "failed",
+					Message:  "替换远程证书失败：/etc/scert/private/key.pem: permission denied",
+				}},
+			}, nil
+		},
+	})
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("无任务仓储时证书申请响应错误：%d %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "/etc/scert/private/key.pem") || strings.Contains(response.Body.String(), "permission denied") {
+		t.Fatalf("直接证书申请响应泄露部署错误：%s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "证书部署失败") {
+		t.Fatalf("直接证书申请响应未返回稳定部署错误摘要：%s", response.Body.String())
 	}
 }
