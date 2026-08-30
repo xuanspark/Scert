@@ -61,7 +61,9 @@ export function useDashboard() {
       showServerForm.value ||
       showSSHKeyForm.value ||
       showSettings.value ||
-      showCertificateImport.value,
+      showCertificateImport.value ||
+      showTaskDetails.value ||
+      showCertificateVersions.value,
   );
   let previousBodyOverflow = "";
 
@@ -984,6 +986,7 @@ export function useDashboard() {
     taskStageLabels,
     attemptStatusLabels,
     httpsModeLabels,
+    dnsProviders,
     environmentLabels,
     webServerLabels,
     isEditing,
