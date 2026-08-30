@@ -213,7 +213,7 @@ func (s *Server) applySetup(c *gin.Context) {
 		testDomain = strings.TrimSpace(request.WebHostname)
 	}
 	if err := s.setupDNS.Check(request.DNSVerificationToken, request.DNSProvider, request.DNSCredentialRef, testDomain); err != nil {
-		s.writeError(c, http.StatusBadRequest, err.Error(), nil)
+		s.writeError(c, http.StatusBadRequest, "DNS 验证状态无效，请重新完成在线测试", err)
 		return
 	}
 	dnsCredentialRetained := false

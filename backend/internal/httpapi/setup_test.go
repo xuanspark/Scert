@@ -775,3 +775,29 @@ func TestSetupFailureDeletesTemporaryDNSCredential(t *testing.T) {
 		t.Fatalf("unexpected deleted DNS credentials: %v", secrets.deleted)
 	}
 }
+
+func TestSetupApplyDoesNotExposeInternalDNSError(t *testing.T) {
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, "scert.json")
+	verifier := &fakeSetupDNSVerifier{checkErr: errors.New("读取 /etc/scert/secrets/dns.json 失败：permission denied")}
+	server := New(Dependencies{
+		Config: config.Default(baseDir), ConfigPath: configPath,
+		Repository: &stubDomainRepository{}, SetupDNS: verifier,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(`{"dns_provider":"cloudflare"}`))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	body := response.Body.String()
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("内部 DNS 错误应返回参数错误：%d %s", response.Code, body)
+	}
+	if strings.Contains(body, "/etc/scert/secrets/dns.json") || strings.Contains(body, "permission denied") {
+		t.Fatalf("初始化响应泄露了内部 DNS 错误：%s", body)
+	}
+	if !strings.Contains(body, "DNS 验证状态无效") {
+		t.Fatalf("初始化响应缺少稳定 DNS 错误摘要：%s", body)
+	}
+}
