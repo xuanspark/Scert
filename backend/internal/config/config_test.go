@@ -161,6 +161,52 @@ func TestDefaultACMEPropagationSettings(t *testing.T) {
 	}
 }
 
+func TestDefaultRenewalPolicy(t *testing.T) {
+	cfg := Default(t.TempDir())
+	if cfg.ACME.RenewalCheckIntervalDays != 3 || cfg.ACME.RenewalNearExpiryDays != 10 ||
+		cfg.ACME.RenewalThresholdDays != 6 || cfg.ACME.RenewalUrgentThresholdDays != 3 ||
+		cfg.ACME.RenewalMaxRetries != 3 || cfg.ACME.RenewalRetryIntervalMins != 30 {
+		t.Fatalf("默认续期策略不正确：%+v", cfg.ACME)
+	}
+}
+
+func TestNormalizeRestoresMissingRenewalPolicy(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.ACME.RenewalCheckIntervalDays = 0
+	cfg.ACME.RenewalNearExpiryDays = 0
+	cfg.ACME.RenewalThresholdDays = 0
+	cfg.ACME.RenewalUrgentThresholdDays = 0
+	cfg.ACME.RenewalMaxRetries = 0
+	cfg.ACME.RenewalRetryIntervalMins = 0
+	cfg.Normalize()
+	if cfg.ACME.RenewalCheckIntervalDays != 3 || cfg.ACME.RenewalNearExpiryDays != 10 ||
+		cfg.ACME.RenewalThresholdDays != 6 || cfg.ACME.RenewalUrgentThresholdDays != 3 ||
+		cfg.ACME.RenewalMaxRetries != 3 || cfg.ACME.RenewalRetryIntervalMins != 30 {
+		t.Fatalf("旧配置的续期策略未补齐：%+v", cfg.ACME)
+	}
+}
+
+func TestValidateRejectsInvalidRenewalPolicy(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(*Config)
+	}{
+		{name: "urgent threshold", edit: func(cfg *Config) { cfg.ACME.RenewalUrgentThresholdDays = 7 }},
+		{name: "renewal threshold", edit: func(cfg *Config) { cfg.ACME.RenewalThresholdDays = 11 }},
+		{name: "retry count", edit: func(cfg *Config) { cfg.ACME.RenewalMaxRetries = 0 }},
+		{name: "retry interval", edit: func(cfg *Config) { cfg.ACME.RenewalRetryIntervalMins = 0 }},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			cfg := Default(t.TempDir())
+			item.edit(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("无效续期策略未被拒绝")
+			}
+		})
+	}
+}
+
 func TestNormalizeRestoresMissingACMEPropagationSettings(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.ACME.PropagationTimeoutSecs = 0

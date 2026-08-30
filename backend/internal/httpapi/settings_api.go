@@ -40,7 +40,12 @@ type settingsACMEView struct {
 	CA                             string `json:"ca"`
 	Environment                    string `json:"environment"`
 	AccountEmail                   string `json:"account_email"`
+	RenewalCheckIntervalDays       int    `json:"renewal_check_interval_days"`
+	RenewalNearExpiryDays          int    `json:"renewal_near_expiry_days"`
 	RenewalThresholdDays           int    `json:"renewal_threshold_days"`
+	RenewalUrgentThresholdDays     int    `json:"renewal_urgent_threshold_days"`
+	RenewalMaxRetries              int    `json:"renewal_max_retries"`
+	RenewalRetryIntervalMins       int    `json:"renewal_retry_interval_mins"`
 	PropagationTimeoutSecs         int    `json:"propagation_timeout_secs"`
 	PropagationPollingIntervalSecs int    `json:"propagation_polling_interval_secs"`
 }
@@ -106,7 +111,12 @@ type settingsACMERequest struct {
 	CA                             *string `json:"ca"`
 	Environment                    *string `json:"environment"`
 	AccountEmail                   *string `json:"account_email"`
+	RenewalCheckIntervalDays       *int    `json:"renewal_check_interval_days"`
+	RenewalNearExpiryDays          *int    `json:"renewal_near_expiry_days"`
 	RenewalThresholdDays           *int    `json:"renewal_threshold_days"`
+	RenewalUrgentThresholdDays     *int    `json:"renewal_urgent_threshold_days"`
+	RenewalMaxRetries              *int    `json:"renewal_max_retries"`
+	RenewalRetryIntervalMins       *int    `json:"renewal_retry_interval_mins"`
 	PropagationTimeoutSecs         *int    `json:"propagation_timeout_secs"`
 	PropagationPollingIntervalSecs *int    `json:"propagation_polling_interval_secs"`
 }
@@ -233,8 +243,14 @@ func settingsViewFromConfig(cfg config.Config) settingsView {
 		Server: settingsServerView{Host: cfg.Server.Host, Port: cfg.Server.Port, HTTPSMode: cfg.Server.HTTPSMode},
 		Web:    settingsWebView{Enabled: cfg.Web.Enabled, Hostname: cfg.Web.Hostname, PublicIP: cfg.Web.PublicIP},
 		Paths:  settingsPathsView{Certificate: cfg.Paths.Certificate},
-		ACME:   settingsACMEView{CA: cfg.ACME.CA, Environment: cfg.ACME.Environment, AccountEmail: cfg.ACME.AccountEmail, RenewalThresholdDays: cfg.ACME.RenewalThresholdDays, PropagationTimeoutSecs: cfg.ACME.PropagationTimeoutSecs, PropagationPollingIntervalSecs: cfg.ACME.PropagationPollingIntervalSecs},
-		DNS:    settingsDNSView{Provider: cfg.DNS.Provider, VerificationState: cfg.DNS.VerificationState},
+		ACME: settingsACMEView{
+			CA: cfg.ACME.CA, Environment: cfg.ACME.Environment, AccountEmail: cfg.ACME.AccountEmail,
+			RenewalCheckIntervalDays: cfg.ACME.RenewalCheckIntervalDays, RenewalNearExpiryDays: cfg.ACME.RenewalNearExpiryDays,
+			RenewalThresholdDays: cfg.ACME.RenewalThresholdDays, RenewalUrgentThresholdDays: cfg.ACME.RenewalUrgentThresholdDays,
+			RenewalMaxRetries: cfg.ACME.RenewalMaxRetries, RenewalRetryIntervalMins: cfg.ACME.RenewalRetryIntervalMins,
+			PropagationTimeoutSecs: cfg.ACME.PropagationTimeoutSecs, PropagationPollingIntervalSecs: cfg.ACME.PropagationPollingIntervalSecs,
+		},
+		DNS: settingsDNSView{Provider: cfg.DNS.Provider, VerificationState: cfg.DNS.VerificationState},
 		Notification: settingsNotificationView{
 			HTTPEnabled: cfg.Notification.HTTPEnabled, SMTPEnabled: cfg.Notification.SMTPEnabled, Provider: cfg.Notification.Provider,
 			SMTPHost: cfg.Notification.SMTPHost, SMTPPort: cfg.Notification.SMTPPort, SMTPUsername: cfg.Notification.SMTPUsername,
@@ -292,6 +308,21 @@ func applySettingsRequest(cfg *config.Config, request settingsRequest) {
 		}
 		if request.ACME.RenewalThresholdDays != nil {
 			cfg.ACME.RenewalThresholdDays = *request.ACME.RenewalThresholdDays
+		}
+		if request.ACME.RenewalCheckIntervalDays != nil {
+			cfg.ACME.RenewalCheckIntervalDays = *request.ACME.RenewalCheckIntervalDays
+		}
+		if request.ACME.RenewalNearExpiryDays != nil {
+			cfg.ACME.RenewalNearExpiryDays = *request.ACME.RenewalNearExpiryDays
+		}
+		if request.ACME.RenewalUrgentThresholdDays != nil {
+			cfg.ACME.RenewalUrgentThresholdDays = *request.ACME.RenewalUrgentThresholdDays
+		}
+		if request.ACME.RenewalMaxRetries != nil {
+			cfg.ACME.RenewalMaxRetries = *request.ACME.RenewalMaxRetries
+		}
+		if request.ACME.RenewalRetryIntervalMins != nil {
+			cfg.ACME.RenewalRetryIntervalMins = *request.ACME.RenewalRetryIntervalMins
 		}
 		if request.ACME.PropagationTimeoutSecs != nil {
 			cfg.ACME.PropagationTimeoutSecs = *request.ACME.PropagationTimeoutSecs

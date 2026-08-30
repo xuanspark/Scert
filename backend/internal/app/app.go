@@ -106,7 +106,14 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		NotifyError:        func(err error) { logger.Error("发送邮件通知失败", "error", err) },
 		CurrentCertificate: certificates.Current,
 	}
-	renewal := certificate.NewRenewalScheduler(repo, workflow, cfg.ACME.RenewalThresholdDays)
+	renewal := certificate.NewRenewalSchedulerWithPolicy(repo, workflow, certificate.RenewalPolicy{
+		CheckInterval:       time.Duration(cfg.ACME.RenewalCheckIntervalDays) * 24 * time.Hour,
+		NearExpiryThreshold: time.Duration(cfg.ACME.RenewalNearExpiryDays) * 24 * time.Hour,
+		RenewalThreshold:    time.Duration(cfg.ACME.RenewalThresholdDays) * 24 * time.Hour,
+		UrgentThreshold:     time.Duration(cfg.ACME.RenewalUrgentThresholdDays) * 24 * time.Hour,
+		MaxRetries:          cfg.ACME.RenewalMaxRetries,
+		RetryInterval:       time.Duration(cfg.ACME.RenewalRetryIntervalMins) * time.Minute,
+	})
 	server := httpapi.New(httpapi.Dependencies{
 		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, SSHKeys: sshKeys,
 		SetupDNS: dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(),

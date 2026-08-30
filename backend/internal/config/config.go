@@ -77,7 +77,12 @@ type ACMEConfig struct {
 	CA                             string `json:"ca"`
 	Environment                    string `json:"environment"`
 	AccountEmail                   string `json:"account_email"`
+	RenewalCheckIntervalDays       int    `json:"renewal_check_interval_days"`
+	RenewalNearExpiryDays          int    `json:"renewal_near_expiry_days"`
 	RenewalThresholdDays           int    `json:"renewal_threshold_days"`
+	RenewalUrgentThresholdDays     int    `json:"renewal_urgent_threshold_days"`
+	RenewalMaxRetries              int    `json:"renewal_max_retries"`
+	RenewalRetryIntervalMins       int    `json:"renewal_retry_interval_mins"`
 	PropagationTimeoutSecs         int    `json:"propagation_timeout_secs"`
 	PropagationPollingIntervalSecs int    `json:"propagation_polling_interval_secs"`
 }
@@ -132,7 +137,12 @@ func Default(baseDir string) Config {
 		ACME: ACMEConfig{
 			CA:                             "letsencrypt",
 			Environment:                    "staging",
+			RenewalCheckIntervalDays:       3,
+			RenewalNearExpiryDays:          10,
 			RenewalThresholdDays:           6,
+			RenewalUrgentThresholdDays:     3,
+			RenewalMaxRetries:              3,
+			RenewalRetryIntervalMins:       30,
 			PropagationTimeoutSecs:         900,
 			PropagationPollingIntervalSecs: 10,
 		},
@@ -258,7 +268,12 @@ func (c *Config) ApplyEnvironment() error {
 		target *int
 	}{
 		{"SCERT_SERVER_PORT", &c.Server.Port},
+		{"SCERT_ACME_RENEWAL_CHECK_INTERVAL_DAYS", &c.ACME.RenewalCheckIntervalDays},
+		{"SCERT_ACME_RENEWAL_NEAR_EXPIRY_DAYS", &c.ACME.RenewalNearExpiryDays},
 		{"SCERT_ACME_RENEWAL_THRESHOLD_DAYS", &c.ACME.RenewalThresholdDays},
+		{"SCERT_ACME_RENEWAL_URGENT_THRESHOLD_DAYS", &c.ACME.RenewalUrgentThresholdDays},
+		{"SCERT_ACME_RENEWAL_MAX_RETRIES", &c.ACME.RenewalMaxRetries},
+		{"SCERT_ACME_RENEWAL_RETRY_INTERVAL_MINS", &c.ACME.RenewalRetryIntervalMins},
 		{"SCERT_ACME_PROPAGATION_TIMEOUT_SECS", &c.ACME.PropagationTimeoutSecs},
 		{"SCERT_ACME_PROPAGATION_POLLING_INTERVAL_SECS", &c.ACME.PropagationPollingIntervalSecs},
 	}
@@ -294,6 +309,24 @@ func (c *Config) Normalize() {
 	}
 	if c.ACME.PropagationTimeoutSecs == 0 {
 		c.ACME.PropagationTimeoutSecs = 900
+	}
+	if c.ACME.RenewalCheckIntervalDays == 0 {
+		c.ACME.RenewalCheckIntervalDays = 3
+	}
+	if c.ACME.RenewalNearExpiryDays == 0 {
+		c.ACME.RenewalNearExpiryDays = 10
+	}
+	if c.ACME.RenewalThresholdDays == 0 {
+		c.ACME.RenewalThresholdDays = 6
+	}
+	if c.ACME.RenewalUrgentThresholdDays == 0 {
+		c.ACME.RenewalUrgentThresholdDays = 3
+	}
+	if c.ACME.RenewalMaxRetries == 0 {
+		c.ACME.RenewalMaxRetries = 3
+	}
+	if c.ACME.RenewalRetryIntervalMins == 0 {
+		c.ACME.RenewalRetryIntervalMins = 30
 	}
 	if c.ACME.PropagationPollingIntervalSecs == 0 {
 		c.ACME.PropagationPollingIntervalSecs = 10
@@ -434,6 +467,21 @@ func (c Config) Validate() error {
 	}
 	if c.ACME.RenewalThresholdDays < 1 {
 		return fmt.Errorf("续期阈值必须大于 0")
+	}
+	if c.ACME.RenewalCheckIntervalDays < 1 || c.ACME.RenewalNearExpiryDays < 1 || c.ACME.RenewalUrgentThresholdDays < 1 {
+		return fmt.Errorf("续期检查阈值必须大于 0")
+	}
+	if c.ACME.RenewalUrgentThresholdDays > c.ACME.RenewalThresholdDays {
+		return fmt.Errorf("紧急续期阈值不能大于自动续期阈值")
+	}
+	if c.ACME.RenewalThresholdDays > c.ACME.RenewalNearExpiryDays {
+		return fmt.Errorf("自动续期阈值不能大于临近到期检查阈值")
+	}
+	if c.ACME.RenewalMaxRetries < 1 || c.ACME.RenewalMaxRetries > 10 {
+		return fmt.Errorf("续期最大重试次数必须在 1 到 10 次之间")
+	}
+	if c.ACME.RenewalRetryIntervalMins < 1 || c.ACME.RenewalRetryIntervalMins > 1440 {
+		return fmt.Errorf("续期重试间隔必须在 1 到 1440 分钟之间")
 	}
 	if c.ACME.PropagationTimeoutSecs < 1 || c.ACME.PropagationTimeoutSecs > 86400 {
 		return fmt.Errorf("DNS 传播等待时间必须在 1 到 86400 秒之间")

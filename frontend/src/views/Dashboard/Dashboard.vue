@@ -424,6 +424,18 @@ const {
             <label class="field"><span>自动续期阈值（天）</span><input v-model.number="settingsForm.acme.renewal_threshold_days" type="number" min="1" max="365" /></label>
           </div>
           <div class="form-grid">
+            <label class="field"><span>常规检查间隔（天）</span><input v-model.number="settingsForm.acme.renewal_check_interval_days" type="number" min="1" max="30" /></label>
+            <label class="field"><span>临近到期检查阈值（天）</span><input v-model.number="settingsForm.acme.renewal_near_expiry_days" type="number" min="1" max="365" /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>紧急续期阈值（天）</span><input v-model.number="settingsForm.acme.renewal_urgent_threshold_days" type="number" min="1" max="365" /></label>
+            <label class="field"><span>紧急续期最大尝试次数</span><input v-model.number="settingsForm.acme.renewal_max_retries" type="number" min="1" max="10" /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>续期重试间隔（分钟）</span><input v-model.number="settingsForm.acme.renewal_retry_interval_mins" type="number" min="1" max="1440" /></label>
+            <div class="field-hint">剩余有效期低于自动续期阈值时触发续期；低于紧急阈值时按配置重试。</div>
+          </div>
+          <div class="form-grid">
             <label class="field"><span>DNS 传播等待（秒）</span><input v-model.number="settingsForm.acme.propagation_timeout_secs" type="number" min="1" /></label>
             <label class="field"><span>DNS 检测间隔（秒）</span><input v-model.number="settingsForm.acme.propagation_polling_interval_secs" type="number" min="1" /></label>
           </div>

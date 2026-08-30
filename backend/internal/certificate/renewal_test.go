@@ -53,7 +53,7 @@ func TestRenewalSchedulerSelectsOnlyExpiringAutoRenewDomains(t *testing.T) {
 
 func TestRenewalSchedulerReportsFailures(t *testing.T) {
 	now := time.Now().UTC()
-	expires := now.Add(time.Hour)
+	expires := now.Add(4 * 24 * time.Hour)
 	item := domain.Domain{ID: "one", Name: "one.example.com", AutoRenew: true, ExpiresAt: &expires}
 	scheduler := NewRenewalScheduler(renewalLister{items: []domain.Domain{item}}, &renewalService{err: errors.New("模拟续期失败")}, 6)
 	report, err := scheduler.RunOnce(context.Background())
@@ -62,5 +62,56 @@ func TestRenewalSchedulerReportsFailures(t *testing.T) {
 	}
 	if report.Failed != 1 || len(report.Errors) != 1 {
 		t.Fatalf("续期失败结果错误：%+v", report)
+	}
+}
+
+func TestRenewalSchedulerRetriesUrgentRenewal(t *testing.T) {
+	now := time.Date(2026, 8, 26, 0, 0, 0, 0, time.UTC)
+	expires := now.Add(2 * 24 * time.Hour)
+	service := &renewalService{err: errors.New("模拟紧急续期失败")}
+	scheduler := NewRenewalSchedulerWithPolicy(renewalLister{items: []domain.Domain{{
+		ID: "urgent", Name: "urgent.example.com", AutoRenew: true, ExpiresAt: &expires,
+	}}}, service, RenewalPolicy{
+		CheckInterval:       time.Hour,
+		NearExpiryThreshold: 10 * 24 * time.Hour,
+		RenewalThreshold:    6 * 24 * time.Hour,
+		UrgentThreshold:     3 * 24 * time.Hour,
+		MaxRetries:          3,
+		RetryInterval:       time.Nanosecond,
+	})
+	scheduler.now = func() time.Time { return now }
+
+	report, err := scheduler.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Selected != 1 || report.Urgent != 1 || report.Failed != 1 || report.Succeeded != 0 {
+		t.Fatalf("紧急续期报告错误：%+v", report)
+	}
+	if len(service.ids) != 3 {
+		t.Fatalf("紧急续期应按最大重试次数执行：%v", service.ids)
+	}
+}
+
+func TestRenewalSchedulerStopsRetryWhenContextCanceled(t *testing.T) {
+	now := time.Now().UTC()
+	expires := now.Add(2 * 24 * time.Hour)
+	service := &renewalService{err: errors.New("模拟紧急续期失败")}
+	scheduler := NewRenewalSchedulerWithPolicy(renewalLister{items: []domain.Domain{{
+		ID: "urgent", Name: "urgent.example.com", AutoRenew: true, ExpiresAt: &expires,
+	}}}, service, RenewalPolicy{MaxRetries: 3, RetryInterval: time.Hour})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		cancel()
+	}()
+	report, err := scheduler.RunOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Failed != 1 || len(service.ids) != 1 {
+		t.Fatalf("取消后的紧急续期重试报告错误：%+v calls=%d", report, len(service.ids))
 	}
 }
