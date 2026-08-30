@@ -50,7 +50,8 @@ export function useDashboard() {
       showForm.value ||
       showServerForm.value ||
       showSSHKeyForm.value ||
-      showSettings.value,
+      showSettings.value ||
+      showCertificateImport.value,
   );
   let previousBodyOverflow = "";
 
@@ -98,7 +99,8 @@ export function useDashboard() {
     success: "已完成",
     failed: "失败",
     cancelled: "已取消",
-  };  const domainStatusLabels = {
+  };
+  const domainStatusLabels = {
     pending: "等待申请",
     active: "正常",
     error: "错误",
