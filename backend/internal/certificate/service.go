@@ -386,3 +386,41 @@ func (s *Service) ListVersions(ctx context.Context, domainID string) ([]SavedRes
 	}
 	return s.store.ListVersions(ctx, item.Name, string(item.CertificateType))
 }
+
+// RestoreVersion 将指定历史版本恢复为当前证书，并更新域名证书状态。
+func (s *Service) RestoreVersion(ctx context.Context, domainID, version string) (IssueResult, error) {
+	if s == nil || s.repository == nil {
+		return IssueResult{}, errors.New("证书服务未初始化")
+	}
+	item, err := s.repository.GetByID(ctx, strings.TrimSpace(domainID))
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("读取域名配置失败：%w", err)
+	}
+	domains, err := requestedDomains(item)
+	if err != nil {
+		return IssueResult{}, err
+	}
+	_, resource, err := s.store.LoadVersion(ctx, item.Name, string(item.CertificateType), strings.TrimSpace(version))
+	if err != nil {
+		return IssueResult{}, err
+	}
+	if _, err := ValidateResourceForDomains(resource, domains); err != nil {
+		return IssueResult{}, fmt.Errorf("历史证书不匹配当前域名配置：%w", err)
+	}
+	saved, err := s.store.RestoreVersion(ctx, item.Name, string(item.CertificateType), strings.TrimSpace(version))
+	if err != nil {
+		return IssueResult{}, err
+	}
+	if _, err := ValidateResourceForDomains(resource, domains); err != nil {
+		return IssueResult{}, fmt.Errorf("恢复后证书校验失败：%w", err)
+	}
+	if err := s.repository.UpdateCertificateState(ctx, item.ID, "valid", &saved.NotAfter); err != nil {
+		rollbackErr := RollbackSavedResource(context.Background(), saved)
+		if rollbackErr != nil {
+			return IssueResult{}, errors.Join(err, rollbackErr)
+		}
+		return IssueResult{}, fmt.Errorf("certificate state update failed after restore: %w", err)
+	}
+	saved.SANs = append([]string(nil), domains...)
+	return IssueResult{DomainID: item.ID, Domains: domains, Saved: saved}, nil
+}

@@ -2,6 +2,7 @@ import { onMounted, ref } from "vue";
 
 export function useAppShell() {
   const setupState = ref(null);
+  const authenticated = ref(null);
   const bootstrapping = ref(true);
   const error = ref("");
   const routePath = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -15,15 +16,36 @@ export function useAppShell() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "读取初始化状态失败");
       setupState.value = result;
+      if (result.initialized) {
+        await checkAuth();
+      } else {
+        authenticated.value = false;
+      }
     } catch (err) {
+      setupState.value = null;
+      authenticated.value = null;
       error.value = err.message || "无法连接核心服务，请先启动 scert serve";
     } finally {
       bootstrapping.value = false;
     }
   }
 
+  async function checkAuth() {
+    const response = await fetch("/api/v1/auth/session", {
+      credentials: "include",
+    });
+    if (response.status === 401) {
+      authenticated.value = false;
+      return;
+    }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "读取登录状态失败");
+    authenticated.value = result.authenticated === true;
+  }
+
   function handleInitialized() {
     setupState.value = { ...setupState.value, initialized: true };
+    authenticated.value = false;
   }
 
   onMounted(() => {
@@ -36,6 +58,7 @@ export function useAppShell() {
 
   return {
     setupState,
+    authenticated,
     bootstrapping,
     error,
     routePath,

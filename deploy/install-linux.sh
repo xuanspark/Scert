@@ -113,6 +113,7 @@ validate_managed_paths() {
         "$INSTALL_DIR/log" \
         "$INSTALL_DIR/backups" \
         "$INSTALL_DIR/docs" \
+        "$INSTALL_DIR/web" \
         "$INSTALL_DIR/scert" \
         "$INSTALL_DIR/scert-admin" \
         "$INSTALL_METADATA_FILE" \
@@ -130,7 +131,7 @@ validate_environment() {
     [[ "$(uname -s)" == "Linux" ]] || fail "此安装器只支持 Linux"
     [[ "$(id -u)" -eq 0 ]] || fail "请使用 root 或 sudo 运行安装器"
     local command_name
-    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink; do
+    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink find; do
         command -v "$command_name" >/dev/null 2>&1 || fail "找不到系统命令：$command_name"
     done
     nologin_shell="$(command -v nologin || true)"
@@ -147,6 +148,7 @@ validate_artifacts() {
         [[ -f "$source_dir/$artifact" ]] || fail "安装产物不存在：$source_dir/$artifact"
         [[ -x "$source_dir/$artifact" ]] || fail "安装产物不可执行：$source_dir/$artifact"
     done
+    [[ -f "$source_dir/web/index.html" ]] || fail "缺少前端入口文件：$source_dir/web/index.html"
     [[ -f "$SCRIPT_DIR/systemd/Scert.service" ]] || fail "缺少 Scert systemd unit"
     [[ -f "$SCRIPT_DIR/systemd/Scert-admin.service" ]] || fail "缺少 Scert-admin systemd unit"
     [[ -f "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" ]] || fail "缺少 Scert-admin 服务管理说明"
@@ -184,6 +186,7 @@ ensure_service_account() {
 create_directories() {
     install -d -o root -g "$SERVICE_GROUP" -m 0750 "$INSTALL_DIR"
     install -d -o root -g root -m 0755 "$INSTALL_DIR/docs"
+    install -d -o root -g root -m 0755 "$INSTALL_DIR/web"
     install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 \
         "$INSTALL_DIR/conf" \
         "$INSTALL_DIR/data" \
@@ -215,6 +218,12 @@ write_install_metadata() {
 install_binaries() {
     install -o root -g root -m 0755 "$source_dir/scert" "$INSTALL_DIR/scert"
     install -o root -g root -m 0755 "$source_dir/scert-admin" "$INSTALL_DIR/scert-admin"
+}
+
+install_web() {
+    cp -a "$source_dir/web/." "$INSTALL_DIR/web/"
+    find "$INSTALL_DIR/web" -type d -exec chmod 0755 {} +
+    find "$INSTALL_DIR/web" -type f -exec chown root:root {} + -exec chmod 0644 {} +
 }
 
 install_service_files() {
@@ -269,6 +278,7 @@ main() {
     create_directories
     write_install_metadata
     install_binaries
+    install_web
     install_service_files
     reload_systemd
     print_completion

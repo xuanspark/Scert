@@ -34,9 +34,14 @@ export function useSetupWizard(props, emit) {
   const dnsVerification = ref(null);
   const verificationClock = ref(Date.now());
   const currentStep = ref(1);
+  const notificationAdvancedVisible = ref(false);
   const selectedEmailDomain = ref("");
   const emailLocalPart = ref("");
+  const emailInputElement = ref(null);
+  const emailAutofillElement = ref(null);
+  let emailVisibleEdited = false;
   let verificationTimer;
+  let emailAutofillTimer;
   const targetType = ref(props.status.web_public_ip ? "ip" : "hostname");
   const form = ref({
     admin_username: "",
@@ -45,6 +50,13 @@ export function useSetupWizard(props, emit) {
     confirm_password: "",
     server_port: props.status.server_port || 8080,
     email_http_enabled: false,
+    email_smtp_enabled: false,
+    email_smtp_host: "",
+    email_smtp_port: 587,
+    email_smtp_username: "",
+    email_smtp_password: "",
+    email_smtp_mode: "starttls",
+    email_smtp_allow_plaintext_auth: false,
     email_provider: "",
     email_endpoint: "",
     email_http_path: "/api/email/send",
@@ -142,7 +154,47 @@ export function useSetupWizard(props, emit) {
     }).format(new Date(value));
   }
 
+  function formatVerificationStageStatus(status) {
+    switch (status) {
+      case "completed":
+        return "已完成";
+      case "warning":
+        return "警告";
+      case "failed":
+        return "失败";
+      default:
+        return "处理中";
+    }
+  }
+
+  function findCommonEmailDomain(domain) {
+    const normalizedDomain = String(domain || "").trim().toLowerCase();
+    return commonEmailDomains.find(
+      (option) =>
+        option.value &&
+        option.value !== "custom" &&
+        option.value === normalizedDomain,
+    );
+  }
+
+  function getEmailLocalPart(value) {
+    const text = String(value || "").trim();
+    const atIndex = text.indexOf("@");
+    return (atIndex >= 0 ? text.slice(0, atIndex) : text).trim();
+  }
+
+  function isCompleteEmail(localPart, domain) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(
+      `${localPart}@${domain}`,
+    );
+  }
+  function updateEmailAutofillValue(value) {
+    if (!emailAutofillElement.value) return;
+    emailAutofillElement.value.value = String(value || "");
+  }
+
   function handleEmailInput(value) {
+    emailVisibleEdited = true;
     error.value = "";
     const rawValue = String(value || "").trim();
 
@@ -150,6 +202,7 @@ export function useSetupWizard(props, emit) {
       emailLocalPart.value = "";
       selectedEmailDomain.value = "";
       form.value.admin_email = "";
+      updateEmailAutofillValue("");
       return;
     }
 
@@ -159,6 +212,7 @@ export function useSetupWizard(props, emit) {
       form.value.admin_email = selectedEmailDomain.value && selectedEmailDomain.value !== "custom"
         ? `${rawValue}@${selectedEmailDomain.value}`
         : rawValue;
+      updateEmailAutofillValue(form.value.admin_email);
       return;
     }
 
@@ -167,16 +221,87 @@ export function useSetupWizard(props, emit) {
 
     if (!localPart || !domain) {
       emailLocalPart.value = rawValue;
-      selectedEmailDomain.value = "";
+      selectedEmailDomain.value = domain ? "custom" : "";
       form.value.admin_email = rawValue;
+      updateEmailAutofillValue(form.value.admin_email);
       return;
     }
 
-    emailLocalPart.value = localPart;
-    selectedEmailDomain.value = commonEmailDomains.some(
-      (option) => option.value === domain && option.value !== "custom",
-    ) ? domain : "custom";
-    form.value.admin_email = `${localPart}@${domain}`;
+    const commonDomain = findCommonEmailDomain(domain);
+    if (commonDomain) {
+      emailLocalPart.value = localPart;
+      selectedEmailDomain.value = commonDomain.value;
+      form.value.admin_email = `${localPart}@${commonDomain.value}`;
+      updateEmailAutofillValue(form.value.admin_email);
+      return;
+    }
+
+    emailLocalPart.value = rawValue;
+    selectedEmailDomain.value = "";
+    form.value.admin_email = rawValue;
+    updateEmailAutofillValue(form.value.admin_email);
+  }
+
+  function synchronizeEmailField(value) {
+    const visibleValue = emailInputElement.value?.value?.trim() || "";
+    const autofillValue = emailAutofillElement.value?.value?.trim() || "";
+    const inputValue =
+      value !== undefined
+        ? value
+        : visibleValue.includes("@")
+          ? visibleValue
+          : emailVisibleEdited
+            ? visibleValue
+            : autofillValue.includes("@")
+              ? autofillValue
+              : visibleValue;
+    const rawValue = String(inputValue || "").trim();
+
+    if (!rawValue) return;
+
+    if (rawValue.includes("@") || rawValue !== emailLocalPart.value) {
+      handleEmailInput(rawValue);
+      return;
+    }
+
+    if (
+      selectedEmailDomain.value &&
+      selectedEmailDomain.value !== "custom"
+    ) {
+      form.value.admin_email = `${rawValue}@${selectedEmailDomain.value}`;
+      updateEmailAutofillValue(form.value.admin_email);
+    }
+  }
+  function handleEmailAutofill() {
+    synchronizeEmailField();
+  }
+
+  function handleEmailPaste(event) {
+    const pastedValue = event.clipboardData?.getData("text") || "";
+    if (!pastedValue.includes("@")) return;
+
+    event.preventDefault();
+    handleEmailInput(pastedValue);
+    handleEmailBlur();
+  }
+
+  function handleEmailBlur(value) {
+    synchronizeEmailField(value);
+    const rawValue = String(emailLocalPart.value || "").trim();
+    const atIndex = rawValue.indexOf("@");
+    if (atIndex < 0) {
+      handleEmailInput(rawValue);
+      return;
+    }
+
+    const localPart = rawValue.slice(0, atIndex).trim();
+    const domain = rawValue.slice(atIndex + 1).trim().toLowerCase();
+    if (localPart && isCompleteEmail(localPart, domain)) {
+      emailLocalPart.value = localPart;
+      selectedEmailDomain.value = findCommonEmailDomain(domain)?.value || "custom";
+      form.value.admin_email = `${localPart}@${domain}`;
+      updateEmailAutofillValue(form.value.admin_email);
+    }
   }
 
   function applyEmailDomain(domain) {
@@ -184,7 +309,8 @@ export function useSetupWizard(props, emit) {
     if (!domain || domain === "custom") return;
 
     const currentEmail = form.value.admin_email.trim();
-    const localPart = emailLocalPart.value.trim() || currentEmail.split("@")[0].trim();
+    const localPart =
+      getEmailLocalPart(emailLocalPart.value) || getEmailLocalPart(currentEmail);
     if (!localPart) {
       selectedEmailDomain.value = "";
       error.value = "请先输入邮箱名称，再选择常用邮箱。";
@@ -193,7 +319,13 @@ export function useSetupWizard(props, emit) {
 
     emailLocalPart.value = localPart;
     form.value.admin_email = `${localPart}@${domain}`;
+    updateEmailAutofillValue(form.value.admin_email);
   }
+
+  function toggleNotificationAdvanced() {
+    notificationAdvancedVisible.value = !notificationAdvancedVisible.value;
+  }
+
   async function loadDNSProviders() {
     dnsCatalogLoading.value = true;
     dnsCatalogError.value = "";
@@ -294,6 +426,9 @@ export function useSetupWizard(props, emit) {
         }),
       });
       const result = await response.json().catch(() => ({}));
+      if (result.test_report) {
+        dnsVerification.value = { test_report: result.test_report };
+      }
       if (!response.ok) throw new Error(result.error || "DNS API 在线验证失败");
       dnsVerification.value = result;
     } catch (err) {
@@ -304,6 +439,7 @@ export function useSetupWizard(props, emit) {
   }
 
   function validateCurrentStep() {
+    if (currentStep.value === 1) synchronizeEmailField();
     error.value = "";
     resultMessage.value = "";
 
@@ -320,21 +456,59 @@ export function useSetupWizard(props, emit) {
         error.value = "请输入合法的超级管理员绑定邮箱。";
         return false;
       }
-      if (form.value.admin_password.length < 8) {
-        error.value = "超级管理员密码至少需要 8 个字符。";
+      if (
+        form.value.admin_password.length < 8 ||
+        form.value.admin_password.length > 12
+      ) {
+        error.value = "超级管理员密码长度必须为 8 至 12 个字符。";
         return false;
       }
       if (form.value.admin_password !== form.value.confirm_password) {
         error.value = "两次输入的超级管理员密码不一致。";
         return false;
       }
-    }
-
-    if (currentStep.value === 2) {
       const port = Number(form.value.server_port);
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
         error.value = "请输入 1 至 65535 之间的主服务端口。";
         return false;
+      }
+      const hostname =
+        targetType.value === "hostname" ? form.value.web_hostname.trim() : "";
+      const publicIP =
+        targetType.value === "ip" ? form.value.web_public_ip.trim() : "";
+      if (!hostname && !publicIP) {
+        error.value = `请填写${targetLabel.value}。`;
+        return false;
+      }
+    }
+
+    if (currentStep.value === 2) {
+      if (form.value.email_smtp_enabled) {
+        if (!form.value.email_smtp_host.trim()) {
+          error.value = "启用 SMTP 通知后必须填写 SMTP 主机。";
+          return false;
+        }
+        const smtpPort = Number(form.value.email_smtp_port);
+        if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+          error.value = "SMTP 端口必须在 1 至 65535 之间。";
+          return false;
+        }
+        if (!form.value.email_smtp_username.trim()) {
+          error.value = "启用 SMTP 通知后必须填写 SMTP 用户名。";
+          return false;
+        }
+        if (!form.value.email_smtp_password) {
+          error.value = "启用 SMTP 通知后必须填写 SMTP 密码。";
+          return false;
+        }
+        if (!["plain", "starttls", "implicit_tls"].includes(form.value.email_smtp_mode)) {
+          error.value = "SMTP 连接模式无效。";
+          return false;
+        }
+        if (form.value.email_smtp_mode === "plain" && !form.value.email_smtp_allow_plaintext_auth) {
+          error.value = "SMTP 明文模式必须明确允许明文认证，建议改用 STARTTLS 或隐式 TLS。";
+          return false;
+        }
       }
       if (form.value.email_http_enabled && !form.value.email_endpoint.trim()) {
         error.value = "启用 HTTP 邮件通知后必须填写 API 地址。";
@@ -424,14 +598,6 @@ export function useSetupWizard(props, emit) {
     }
 
     if (currentStep.value === 4) {
-      const hostname =
-        targetType.value === "hostname" ? form.value.web_hostname.trim() : "";
-      const publicIP =
-        targetType.value === "ip" ? form.value.web_public_ip.trim() : "";
-      if (!hostname && !publicIP) {
-        error.value = `请填写${targetLabel.value}。`;
-        return false;
-      }
       if (!form.value.certificate_root.trim()) {
         error.value = "请填写证书部署根目录。";
         return false;
@@ -482,8 +648,11 @@ export function useSetupWizard(props, emit) {
   async function submit() {
     error.value = "";
     resultMessage.value = "";
-    if (form.value.admin_password.length < 8) {
-      error.value = "超级管理员密码至少需要 8 个字符。";
+    if (
+      form.value.admin_password.length < 8 ||
+      form.value.admin_password.length > 12
+    ) {
+      error.value = "超级管理员密码长度必须为 8 至 12 个字符。";
       return;
     }
     if (form.value.admin_password !== form.value.confirm_password) {
@@ -493,6 +662,29 @@ export function useSetupWizard(props, emit) {
     if (!dnsVerificationValid.value) {
       error.value = "必须先完成 DNS API 在线验证；验证结果已过期时请重新测试。";
       return;
+    }
+    if (form.value.email_smtp_enabled) {
+      const smtpPort = Number(form.value.email_smtp_port);
+      if (!form.value.email_smtp_host.trim()) {
+        error.value = "启用 SMTP 通知后必须填写 SMTP 主机。";
+        return;
+      }
+      if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+        error.value = "SMTP 端口必须在 1 至 65535 之间。";
+        return;
+      }
+      if (!form.value.email_smtp_username.trim()) {
+        error.value = "启用 SMTP 通知后必须填写 SMTP 用户名。";
+        return;
+      }
+      if (!form.value.email_smtp_password) {
+        error.value = "启用 SMTP 通知后必须填写 SMTP 密码。";
+        return;
+      }
+      if (form.value.email_smtp_mode === "plain" && !form.value.email_smtp_allow_plaintext_auth) {
+        error.value = "SMTP 明文模式必须明确允许明文认证，建议改用 STARTTLS 或隐式 TLS。";
+        return;
+      }
     }
     try {
       emailCredentialPayload();
@@ -520,14 +712,21 @@ export function useSetupWizard(props, emit) {
           admin_password: form.value.admin_password,
           server_port: Number(form.value.server_port),
           email_http_enabled: form.value.email_http_enabled,
+          email_smtp_enabled: form.value.email_smtp_enabled,
+          email_smtp_host: form.value.email_smtp_host,
+          email_smtp_port: Number(form.value.email_smtp_port),
+          email_smtp_username: form.value.email_smtp_username,
+          email_smtp_password: form.value.email_smtp_password,
+          email_smtp_mode: form.value.email_smtp_mode,
+          email_smtp_allow_plaintext_auth: form.value.email_smtp_allow_plaintext_auth,
           email_provider: form.value.email_provider,
           email_endpoint: form.value.email_endpoint,
           email_http_path: form.value.email_http_path,
           email_http_login_path: form.value.email_http_login_path,
-           email_http_auth_mode: form.value.email_http_auth_mode,
-           email_http_credential_ref: form.value.email_http_credential_ref,
-           email_http_credentials: emailCredentialPayload(),
-           email_http_headers: emailHeaders(),
+          email_http_auth_mode: form.value.email_http_auth_mode,
+          email_http_credential_ref: form.value.email_http_credential_ref,
+          email_http_credentials: emailCredentialPayload(),
+          email_http_headers: emailHeaders(),
           email_event_mode: form.value.email_event_mode,
           email_include_deployment_details:
             form.value.email_include_deployment_details,
@@ -581,6 +780,9 @@ export function useSetupWizard(props, emit) {
 
   onMounted(() => {
     loadDNSProviders();
+    emailAutofillTimer = window.setInterval(() => {
+      if (currentStep.value === 1) synchronizeEmailField();
+    }, 250);
     verificationTimer = window.setInterval(() => {
       verificationClock.value = Date.now();
     }, 30000);
@@ -588,6 +790,7 @@ export function useSetupWizard(props, emit) {
 
   onUnmounted(() => {
     if (verificationTimer) window.clearInterval(verificationTimer);
+    if (emailAutofillTimer) window.clearInterval(emailAutofillTimer);
   });
 
   return {
@@ -608,11 +811,15 @@ export function useSetupWizard(props, emit) {
     dnsTestDomain,
     dnsVerification,
     currentStep,
+    notificationAdvancedVisible,
     targetType,
     form,
     commonEmailDomains,
     selectedEmailDomain,
     emailLocalPart,
+    emailInputElement,
+    emailAutofillElement,
+    handleEmailAutofill,
     targetLabel,
     emailCredentialLabel,
     emailCredentialPlaceholder,
@@ -620,8 +827,13 @@ export function useSetupWizard(props, emit) {
     selectedDNSProvider,
     dnsVerificationValid,
     formatVerificationExpiry,
+    formatVerificationStageStatus,
     applyEmailDomain,
+    toggleNotificationAdvanced,
     handleEmailInput,
+    synchronizeEmailField,
+    handleEmailPaste,
+    handleEmailBlur,
     testDNS,
     handleSubmit,
     previousStep,

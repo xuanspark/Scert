@@ -29,7 +29,8 @@ type fakeSetupDNSVerifier struct {
 }
 
 type fakeSetupSecretWriter struct {
-	values map[string]map[string]string
+	values  map[string]map[string]string
+	deleted []string
 }
 
 func (f *fakeSetupSecretWriter) Put(_ context.Context, reference string, value map[string]string) error {
@@ -41,6 +42,18 @@ func (f *fakeSetupSecretWriter) Put(_ context.Context, reference string, value m
 		copyValue[key] = item
 	}
 	f.values[reference] = copyValue
+	return nil
+}
+
+func (f *fakeSetupSecretWriter) Delete(_ context.Context, reference string) error {
+	if f.values == nil {
+		return errors.New("secret not found")
+	}
+	if _, ok := f.values[reference]; !ok {
+		return errors.New("secret not found")
+	}
+	delete(f.values, reference)
+	f.deleted = append(f.deleted, reference)
 	return nil
 }
 
@@ -99,6 +112,14 @@ func (f *fakeSetupDNSVerifier) Verify(context.Context, setup.DNSVerificationInpu
 			CredentialRef:     "secret://dns/cloudflare/test",
 			VerificationToken: "verified-token",
 			ExpiresAt:         time.Now().UTC().Add(15 * time.Minute),
+			TestReport: setup.DNSVerificationReport{
+				RecordName: "_acme-challenge.example.com.",
+				Stages: []setup.DNSVerificationStage{
+					{Name: "创建记录", Status: "completed", Message: "已创建测试记录"},
+					{Name: "查询记录", Status: "completed", Message: "已确认测试记录"},
+					{Name: "清理记录", Status: "completed", Message: "已清理测试记录"},
+				},
+			},
 		}
 	}
 	return f.verifyResult, f.verifyErr
@@ -175,6 +196,11 @@ func TestSetupDNSProviderCatalogAndOnlineTest(t *testing.T) {
 	if strings.Contains(testResponse.Body.String(), "secret-token") {
 		t.Fatal("DNS 在线测试响应不应返回明文凭据")
 	}
+	if !strings.Contains(testResponse.Body.String(), "test_report") ||
+		!strings.Contains(testResponse.Body.String(), "创建记录") ||
+		!strings.Contains(testResponse.Body.String(), "清理记录") {
+		t.Fatalf("DNS 在线测试响应应包含阶段报告：%s", testResponse.Body.String())
+	}
 }
 
 func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
@@ -193,7 +219,7 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	payload := `{
 		"admin_username":"root-admin",
 		"admin_email":"admin@example.test",
-		"admin_password":"secure-pass-123",
+		"admin_password":"secure1234",
 		"server_port":8443,
 		"email_provider":"mail-api",
 		"email_endpoint":"https://mail.example.test/send",
@@ -234,7 +260,7 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取保存后的配置失败：%v", err)
 	}
-	if strings.Contains(string(data), "secure-pass-123") {
+	if strings.Contains(string(data), "secure1234") {
 		t.Fatal("配置文件不应保存管理员明文密码")
 	}
 	var saved config.Config
@@ -275,7 +301,7 @@ func TestSetupApplyEncryptsNotificationCredentialsAndPersistsReference(t *testin
 	payload := `{
 		"admin_username":"root-admin",
 		"admin_email":"admin@example.test",
-		"admin_password":"secure-pass-123",
+		"admin_password":"secure1234",
 		"server_port":8443,
 		"email_http_enabled":true,
 		"email_provider":"mail-api",
@@ -368,7 +394,7 @@ func TestSetupApplyRejectsMissingNotificationCredentials(t *testing.T) {
 	payload := `{
 		"admin_username":"root-admin",
 		"admin_email":"admin@example.test",
-		"admin_password":"secure-pass-123",
+		"admin_password":"secure1234",
 		"server_port":8443,
 		"email_http_enabled":true,
 		"email_endpoint":"https://mail.example.test",
@@ -483,7 +509,7 @@ func TestSetupSaveFailureDoesNotConsumeDNSToken(t *testing.T) {
 		Repository: &stubDomainRepository{}, SetupDNS: verifier, Firewall: firewallManager,
 		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure1234")))
 	request.RemoteAddr = "127.0.0.1:53000"
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -513,7 +539,7 @@ func TestSetupSaveFailureKeepsExistingFirewallRule(t *testing.T) {
 		Repository: &stubDomainRepository{}, SetupDNS: &fakeSetupDNSVerifier{}, Firewall: firewallManager,
 		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure1234")))
 	request.RemoteAddr = "127.0.0.1:53000"
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -536,7 +562,7 @@ func TestSetupFirewallFailureDoesNotSaveOrConsumeToken(t *testing.T) {
 		Repository: &stubDomainRepository{}, SetupDNS: verifier, Firewall: firewallManager,
 		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure1234")))
 	request.RemoteAddr = "127.0.0.1:53000"
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -549,6 +575,48 @@ func TestSetupFirewallFailureDoesNotSaveOrConsumeToken(t *testing.T) {
 	}
 	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("防火墙配置失败时不得保存初始化配置：%v", err)
+	}
+}
+
+func TestSetupLateFailureDeletesNewNotificationCredentials(t *testing.T) {
+	baseDir := t.TempDir()
+	blockedParent := filepath.Join(baseDir, "blocked")
+	if err := os.WriteFile(blockedParent, []byte("blocked"), 0o600); err != nil {
+		t.Fatalf("create blocked path: %v", err)
+	}
+	secrets := &fakeSetupSecretWriter{}
+	firewallManager := &fakeFirewallManager{result: firewall.Result{
+		Backend: "ufw", RuleName: "Scert Web TCP 8443", Port: 8443, Created: true,
+	}}
+	server := New(Dependencies{
+		Config: config.Default(baseDir), ConfigPath: filepath.Join(blockedParent, "scert.json"),
+		Repository: &stubDomainRepository{}, SetupDNS: &fakeSetupDNSVerifier{}, Secrets: secrets,
+		Firewall: firewallManager, IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
+	})
+	payload := strings.Replace(setupPayload(baseDir, "secure1234"),
+		`"server_port":8443,`,
+		`"server_port":8443,
+		"email_http_enabled":true,
+		"email_provider":"mail-api",
+		"email_endpoint":"https://mail.example.test/send",
+		"email_http_auth_mode":"bearer",
+		"email_http_credentials":{"token":"http-secret"},
+		"email_smtp_enabled":true,
+		"email_smtp_host":"smtp.example.test",
+		"email_smtp_port":587,
+		"email_smtp_username":"smtp-user",
+		"email_smtp_password":"smtp-secret",
+		"email_smtp_mode":"starttls",`, 1)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(payload))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("late setup failure should return 500: %d %s", response.Code, response.Body.String())
+	}
+	if len(secrets.deleted) != 2 || len(secrets.values) != 0 {
+		t.Fatalf("new notification credentials should be deleted: deleted=%v values=%v", secrets.deleted, secrets.values)
 	}
 }
 
@@ -578,7 +646,7 @@ func TestSetupCertificateFailureDoesNotSaveOrConsumeDNSToken(t *testing.T) {
 		Repository: &stubDomainRepository{}, SetupDNS: verifier,
 		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, errors.New("模拟证书申请失败")),
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure1234")))
 	request.RemoteAddr = "127.0.0.1:53000"
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -609,7 +677,7 @@ func TestSetupCertificateFileValidationDoesNotSaveOrConsumeDNSToken(t *testing.T
 		Repository: &stubDomainRepository{}, SetupDNS: verifier,
 		IssueSetupCertificate: issuer,
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure1234")))
 	request.RemoteAddr = "127.0.0.1:53000"
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -634,7 +702,7 @@ func TestSetupWithPublicIPRejectsDNSAutomaticCertificate(t *testing.T) {
 		Repository: &stubDomainRepository{}, SetupDNS: verifier,
 		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, nil),
 	})
-	payload := strings.Replace(setupPayload(baseDir, "secure-pass-123"),
+	payload := strings.Replace(setupPayload(baseDir, "secure1234"),
 		`"web_hostname":"scert.example.test",`,
 		`"web_hostname":"","web_public_ip":"192.0.2.10",`, 1)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(payload))
@@ -667,7 +735,7 @@ func TestSetupFirewallFailureRollsBackIssuedCertificate(t *testing.T) {
 			return certificate.RollbackSavedResource(context.Background(), saved)
 		},
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure-pass-123")))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure1234")))
 	request.RemoteAddr = "127.0.0.1:53000"
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

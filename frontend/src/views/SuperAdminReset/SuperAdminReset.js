@@ -52,8 +52,8 @@ export function useSuperAdminReset() {
     if (!verificationCode.value.trim()) {
       return "请输入一次性校验码。";
     }
-    if (password.value.length < 8) {
-      return "新密码至少需要 8 个字符。";
+    if (password.value.length < 8 || password.value.length > 12) {
+      return "新密码长度必须为 8 至 12 个字符。";
     }
     if (password.value !== confirmPassword.value) {
       return "两次输入的新密码不一致。";

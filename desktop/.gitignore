@@ -1,0 +1,8 @@
+# Wails 桌面版生成资源
+frontend/dist/*
+!frontend/dist/index.html
+bin/
+
+build/
+frontend/wailsjs/
+frontend/package.json.md5

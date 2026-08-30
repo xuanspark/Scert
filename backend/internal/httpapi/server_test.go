@@ -134,8 +134,8 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	form := url.Values{
 		"csrf_token":       {cookie.Value},
 		"reset_code":       {session.Code},
-		"new_password":     {"NewPassword123"},
-		"confirm_password": {"NewPassword123"},
+		"new_password":     {"NewPass1234"},
+		"confirm_password": {"NewPass1234"},
 	}
 	request := httptest.NewRequest(http.MethodPost, "http://scert.example.test/reset", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -157,7 +157,7 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取重置后的配置失败：%v", err)
 	}
-	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("NewPassword123")) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("NewPass1234")) != nil {
 		t.Fatal("新密码摘要无法验证新密码")
 	}
 	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("OldPassword123")) == nil {
@@ -191,7 +191,7 @@ func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 	get := httptest.NewRecorder()
 	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
 	cookie := get.Result().Cookies()[0]
-	base := url.Values{"csrf_token": {cookie.Value}, "reset_code": {session.Code}, "new_password": {"NewPassword123"}, "confirm_password": {"NewPassword123"}}
+	base := url.Values{"csrf_token": {cookie.Value}, "reset_code": {session.Code}, "new_password": {"NewPass1234"}, "confirm_password": {"NewPass1234"}}
 	for i := 0; i < 5; i++ {
 		request := httptest.NewRequest(http.MethodPost, "http://scert.example.test/reset", strings.NewReader(base.Encode()))
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -296,7 +296,7 @@ func TestResetConfigSaveFailureKeepsSessionAndPassword(t *testing.T) {
 	}
 	fixture.server.configPath = blockedPath
 
-	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPassword123")
+	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPass1234")
 	request := httptest.NewRequest(http.MethodPost, "https://scert.example.test/reset", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", "https://scert.example.test")
@@ -329,7 +329,7 @@ func TestResetConfigSaveFailureKeepsSessionAndPassword(t *testing.T) {
 
 func TestResetRejectsOversizedRequestBody(t *testing.T) {
 	fixture := newResetTestFixture(t)
-	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPassword123")
+	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPass1234")
 	form.Set("padding", strings.Repeat("x", resetMaxBodyBytes))
 	request := httptest.NewRequest(http.MethodPost, "https://scert.example.test/reset", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -365,7 +365,7 @@ func TestResetCSRFCookieHasRestrictedAttributes(t *testing.T) {
 
 func TestResetConcurrentSubmissionsAllowOnlyOneSuccess(t *testing.T) {
 	fixture := newResetTestFixture(t)
-	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPassword123")
+	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPass1234")
 	start := make(chan struct{})
 	responses := make(chan int, 2)
 	var waitGroup sync.WaitGroup
@@ -410,7 +410,7 @@ func TestResetConcurrentSubmissionsAllowOnlyOneSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取并发提交后的配置失败：%v", err)
 	}
-	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("NewPassword123")) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(loaded.Admin.PasswordHash), []byte("NewPass1234")) != nil {
 		t.Fatal("并发提交后的密码摘要无法验证新密码")
 	}
 }

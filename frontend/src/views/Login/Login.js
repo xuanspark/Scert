@@ -24,7 +24,7 @@ export function useLogin() {
     if (stage.value === "complete") {
       return `${roleLabels[accountRole.value] || "用户"}登录成功`;
     }
-    return "管理员登录";
+    return "用户登录";
   });
   const stageMessage = computed(() => {
     if (stage.value === "totp") return "该账户还需完成两步验证。";

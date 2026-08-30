@@ -1,0 +1,8 @@
+{
+  "name": "scert-desktop-frontend",
+  "private": true,
+  "scripts": {
+    "build": "node ../scripts/build-frontend.mjs",
+    "dev": "npm --prefix ../../frontend run dev"
+  }
+}

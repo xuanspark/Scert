@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -88,17 +89,18 @@ func (e *sessionExpiredError) Error() string {
 
 // Service 通过 HTTP 邮件 API 发送通知。
 type Service struct {
-	config      config.NotificationConfig
-	credentials CredentialReader
-	client      HTTPDoer
-	now         func() time.Time
-	requestID   func() string
-	sleep       func(context.Context, time.Duration) error
+	config        config.NotificationConfig
+	credentials   CredentialReader
+	client        HTTPDoer
+	now           func() time.Time
+	requestID     func() string
+	sleep         func(context.Context, time.Duration) error
+	smtpTLSConfig func(string) *tls.Config
 }
 
 // New 创建 HTTP 通知服务。SMTP 配置暂保留为兼容字段，当前发送器只执行 HTTP 通知。
 func New(cfg config.NotificationConfig, credentials CredentialReader) *Service {
-	return &Service{
+	service := &Service{
 		config:      cfg,
 		credentials: credentials,
 		client:      &http.Client{},
@@ -106,18 +108,19 @@ func New(cfg config.NotificationConfig, credentials CredentialReader) *Service {
 		requestID:   newRequestID,
 		sleep:       sleepContext,
 	}
+	service.smtpTLSConfig = func(host string) *tls.Config {
+		return &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	}
+	return service
 }
 
 // Send 按配置发送通知；未启用任何通知通道时直接返回成功。
-func (s *Service) Send(ctx context.Context, event Event) error {
+func (s *Service) sendHTTP(ctx context.Context, event Event) error {
 	if s == nil {
 		return errors.New("通知服务未初始化")
 	}
-	if !s.config.HTTPEnabled && !s.config.SMTPEnabled {
-		return nil
-	}
 	if !s.config.HTTPEnabled {
-		return errors.New("当前仅支持 HTTP 邮件通知，SMTP 通知发送器尚未接入")
+		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -272,7 +275,7 @@ func (s *Service) sendOnce(ctx context.Context, endpoint string, body []byte, cr
 func (s *Service) loginSession(ctx context.Context, credentials map[string]string) (sessionAuth, error) {
 	account := credentialValue(credentials, "account", "username", "identifier")
 	password := credentials["password"]
-	if account == "" || strings.TrimSpace(password) == "" {
+	if account == "" || password == "" {
 		return sessionAuth{}, errors.New("HTTP 通知会话凭据必须包含账号和密码")
 	}
 	loginURL, err := notificationURL(s.config.Endpoint, s.config.HTTPLoginPath)
@@ -321,7 +324,7 @@ func (s *Service) loginSession(ctx context.Context, credentials map[string]strin
 		if strings.TrimSpace(envelope.ErrorMsg) == "" {
 			return sessionAuth{}, fmt.Errorf("HTTP 通知登录失败，错误码 %d", *envelope.ErrorNo)
 		}
-		return sessionAuth{}, fmt.Errorf("HTTP 通知登录失败，错误码 %d", *envelope.ErrorNo)
+		return sessionAuth{}, fmt.Errorf("HTTP 通知登录失败，错误码 %d：%s", *envelope.ErrorNo, strings.TrimSpace(envelope.ErrorMsg))
 	}
 	cookies := make([]string, 0, len(response.Cookies()))
 	csrf := ""

@@ -18,6 +18,14 @@ type Input struct {
 	AdminPassword                  string
 	ServerPort                     int
 	EmailHTTPEnabled               bool
+	EmailSMTPEnabled               bool
+	EmailSMTPHost                  string
+	EmailSMTPPort                  int
+	EmailSMTPUsername              string
+	EmailSMTPPassword              string
+	EmailSMTPCredentialRef         string
+	EmailSMTPMode                  string
+	EmailSMTPAllowPlaintextAuth    bool
 	EmailProvider                  string
 	EmailEndpoint                  string
 	EmailHTTPPath                  string
@@ -118,7 +126,17 @@ func Apply(cfg *config.Config, input Input) error {
 	cfg.DNS.CredentialRef = strings.TrimSpace(input.DNSCredentialRef)
 	cfg.DNS.VerificationState = "verified"
 	cfg.Notification.HTTPEnabled = input.EmailHTTPEnabled
-	cfg.Notification.SMTPEnabled = false
+	cfg.Notification.SMTPEnabled = input.EmailSMTPEnabled
+	cfg.Notification.SMTPHost = strings.TrimSpace(input.EmailSMTPHost)
+	if input.EmailSMTPPort != 0 {
+		cfg.Notification.SMTPPort = input.EmailSMTPPort
+	}
+	cfg.Notification.SMTPUsername = strings.TrimSpace(input.EmailSMTPUsername)
+	cfg.Notification.SMTPCredentialRef = strings.TrimSpace(input.EmailSMTPCredentialRef)
+	if strings.TrimSpace(input.EmailSMTPMode) != "" {
+		cfg.Notification.SMTPMode = strings.TrimSpace(input.EmailSMTPMode)
+	}
+	cfg.Notification.SMTPAllowPlaintextAuth = input.EmailSMTPAllowPlaintextAuth
 	cfg.Notification.Provider = strings.TrimSpace(input.EmailProvider)
 	cfg.Notification.Endpoint = strings.TrimSpace(input.EmailEndpoint)
 	if strings.TrimSpace(input.EmailHTTPPath) != "" {
@@ -162,6 +180,9 @@ func Apply(cfg *config.Config, input Input) error {
 		cfg.Notification.Recipients = []string{adminEmail}
 	}
 	cfg.SetupReady = true
+	if cfg.Notification.SMTPEnabled && strings.TrimSpace(cfg.Notification.SMTPCredentialRef) == "" {
+		return fmt.Errorf("启用 SMTP 通知后必须配置加密凭据引用")
+	}
 	return cfg.Validate()
 }
 

@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,7 +74,7 @@ func newRootCommand() *cobra.Command {
 		&cobra.Command{Use: "version", Short: "显示版本信息", Run: func(cmd *cobra.Command, args []string) { cmd.Printf("Scert %s\n", version) }},
 		newInitCommand(), newStatusCommand(), newServeCommand(), newDomainCommand(), newCertificateCommand(),
 		newRenewCommand(), newDeployCommand(), newLogsCommand(), newConfigCommand(), newBackupCommand(), newRestoreCommand(),
-		newServerCommand(), newSSHKeyCommand(),
+		newServerCommand(), newSSHKeyCommand(), newServiceCommand(),
 	)
 	localizeHelpFlags(root)
 	return root
@@ -117,11 +119,12 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 	var (
 		adminUsername, adminEmail, adminPassword, emailProvider, emailEndpoint                         string
 		emailHTTPPath, emailHTTPLoginPath, emailHTTPAuthMode, emailHTTPCredentialRef, emailHTTPHeaders string
+		emailSMTPHost, emailSMTPUsername, emailSMTPPassword, emailSMTPMode                             string
 		emailEventMode, emailSenderName, emailSenderEmail, emailRetryIntervals                         string
 		recipients, dnsProvider, dnsCredentialRef, certificateRoot                                     string
 		webHostname, webPublicIP, httpsMode                                                            string
-		serverPort, emailTimeoutSecs, emailRetryCount                                                  int
-		emailHTTPEnabled, emailIncludeDeploymentDetails                                                bool
+		serverPort, emailTimeoutSecs, emailRetryCount, emailSMTPPort                                   int
+		emailHTTPEnabled, emailSMTPEnabled, emailSMTPAllowPlaintextAuth, emailIncludeDeploymentDetails bool
 		emailIncludeCertificateSerial, emailIncludeManagementURL                                       bool
 		dnsVerified, webEnabled                                                                        bool
 	)
@@ -143,8 +146,11 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 		}
 		input := setup.Input{
 			AdminUsername: adminUsername, AdminEmail: adminEmail, AdminPassword: adminPassword, ServerPort: serverPort,
-			EmailHTTPEnabled: emailHTTPEnabled,
-			EmailProvider:    emailProvider, EmailEndpoint: emailEndpoint,
+			EmailHTTPEnabled: emailHTTPEnabled, EmailSMTPEnabled: emailSMTPEnabled,
+			EmailSMTPHost: emailSMTPHost, EmailSMTPPort: emailSMTPPort, EmailSMTPUsername: emailSMTPUsername,
+			EmailSMTPPassword: emailSMTPPassword,
+			EmailSMTPMode:     emailSMTPMode, EmailSMTPAllowPlaintextAuth: emailSMTPAllowPlaintextAuth,
+			EmailProvider: emailProvider, EmailEndpoint: emailEndpoint,
 			EmailHTTPPath: emailHTTPPath, EmailHTTPLoginPath: emailHTTPLoginPath, EmailHTTPAuthMode: emailHTTPAuthMode,
 			EmailHTTPCredentialRef: emailHTTPCredentialRef, EmailHTTPHeaders: emailHeaders,
 			EmailEventMode: emailEventMode, EmailIncludeDeploymentDetails: emailIncludeDeploymentDetails,
@@ -161,9 +167,18 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 				return err
 			}
 		}
-		cleanupSecret, err := prepareDNSCredentials(cmd.Context(), cfg, &input, cmd.OutOrStdout())
+		cleanupDNS, err := prepareDNSCredentials(cmd.Context(), cfg, &input, cmd.OutOrStdout())
 		if err != nil {
 			return err
+		}
+		cleanupSMTP, err := prepareSMTPCredentials(cmd.Context(), cfg, &input)
+		if err != nil {
+			cleanupDNS()
+			return err
+		}
+		cleanupSecret := func() {
+			cleanupSMTP()
+			cleanupDNS()
 		}
 		if err := setup.Apply(&cfg, input); err != nil {
 			cleanupSecret()
@@ -185,6 +200,13 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 	command.Flags().StringVar(&adminPassword, "admin-password", "", "超级管理员密码（仅建议临时使用参数，优先交互输入）")
 	command.Flags().IntVar(&serverPort, "server-port", 8080, "Scert 主服务端口")
 	command.Flags().BoolVar(&emailHTTPEnabled, "email-http-enabled", false, "是否启用 HTTP 邮件通知")
+	command.Flags().BoolVar(&emailSMTPEnabled, "email-smtp-enabled", false, "是否启用 SMTP 邮件通知")
+	command.Flags().StringVar(&emailSMTPHost, "email-smtp-host", "", "SMTP 服务器主机")
+	command.Flags().IntVar(&emailSMTPPort, "email-smtp-port", 587, "SMTP 服务器端口")
+	command.Flags().StringVar(&emailSMTPUsername, "email-smtp-username", "", "SMTP 用户名")
+	command.Flags().StringVar(&emailSMTPPassword, "email-smtp-password", "", "SMTP 密码（仅建议临时使用参数，优先交互输入）")
+	command.Flags().StringVar(&emailSMTPMode, "email-smtp-mode", "starttls", "SMTP 连接模式：plain、starttls、implicit_tls")
+	command.Flags().BoolVar(&emailSMTPAllowPlaintextAuth, "email-smtp-allow-plaintext-auth", false, "是否允许 SMTP 明文连接认证")
 	command.Flags().StringVar(&emailHTTPPath, "email-http-path", "/api/email/send", "HTTP 邮件通知请求路径")
 	command.Flags().StringVar(&emailHTTPLoginPath, "email-http-login-path", "/api/login", "HTTP 会话认证登录请求路径")
 	command.Flags().StringVar(&emailHTTPAuthMode, "email-http-auth-mode", "none", "HTTP 邮件通知认证方式：none、bearer、hmac_sha256、session")
@@ -262,13 +284,51 @@ func readInteractiveInit(input io.Reader, output io.Writer, value *setup.Input, 
 		return err
 	}
 	value.ServerPort = port
-	value.EmailProvider, err = ask(reader, output, "第三方邮箱服务标识", "")
+	value.EmailHTTPEnabled, err = askYesNo(reader, output, "是否启用 HTTP 邮件通知？", false)
 	if err != nil {
 		return err
 	}
-	value.EmailEndpoint, err = ask(reader, output, "第三方邮箱 API 地址", "")
+	if value.EmailHTTPEnabled {
+		value.EmailProvider, err = ask(reader, output, "第三方邮箱服务标识", "")
+		if err != nil {
+			return err
+		}
+		value.EmailEndpoint, err = ask(reader, output, "第三方邮箱 API 地址", "")
+		if err != nil {
+			return err
+		}
+	}
+	value.EmailSMTPEnabled, err = askYesNo(reader, output, "是否启用 SMTP 邮件通知？", false)
 	if err != nil {
 		return err
+	}
+	if value.EmailSMTPEnabled {
+		value.EmailSMTPHost, err = ask(reader, output, "SMTP 服务器主机 *", "")
+		if err != nil {
+			return err
+		}
+		value.EmailSMTPPort, err = askInt(reader, output, "SMTP 服务器端口 *", 587)
+		if err != nil {
+			return err
+		}
+		value.EmailSMTPUsername, err = ask(reader, output, "SMTP 用户名 *", "")
+		if err != nil {
+			return err
+		}
+		value.EmailSMTPPassword, err = ask(reader, output, "SMTP 密码或授权码 *", "")
+		if err != nil {
+			return err
+		}
+		value.EmailSMTPMode, err = ask(reader, output, "SMTP 连接模式（plain/starttls/implicit_tls）", "starttls")
+		if err != nil {
+			return err
+		}
+		if value.EmailSMTPMode == "plain" {
+			value.EmailSMTPAllowPlaintextAuth, err = askYesNo(reader, output, "是否允许 SMTP 明文认证？", false)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	receiver, err := ask(reader, output, "通知收件人（逗号分隔）", "")
 	if err != nil {
@@ -326,6 +386,55 @@ func askDNSCredentials(reader *bufio.Reader, output io.Writer, providerID string
 		}
 	}
 	return credentials, nil
+}
+
+func prepareSMTPCredentials(ctx context.Context, cfg config.Config, input *setup.Input) (func(), error) {
+	if input == nil {
+		return func() {}, errors.New("初始化输入不能为空")
+	}
+	if !input.EmailSMTPEnabled {
+		return func() {}, nil
+	}
+	if strings.TrimSpace(input.EmailSMTPCredentialRef) != "" {
+		return func() {}, nil
+	}
+	if strings.TrimSpace(input.EmailSMTPUsername) == "" {
+		return func() {}, errors.New("启用 SMTP 通知后必须填写 SMTP 用户名")
+	}
+	if input.EmailSMTPPassword == "" {
+		return func() {}, errors.New("启用 SMTP 通知后必须填写 SMTP 密码")
+	}
+	if cfg.Paths.Config == "" {
+		return func() {}, errors.New("SMTP 敏感凭据存储目录不能为空")
+	}
+	store, err := secretstore.Open(cfg.Paths.Config)
+	if err != nil {
+		return func() {}, fmt.Errorf("初始化 SMTP 凭据存储失败：%w", err)
+	}
+	reference, err := newSMTPCredentialReference()
+	if err != nil {
+		return func() {}, err
+	}
+	if err := store.Put(ctx, reference, map[string]string{
+		"username": strings.TrimSpace(input.EmailSMTPUsername),
+		"password": input.EmailSMTPPassword,
+	}); err != nil {
+		return func() {}, fmt.Errorf("保存 SMTP 凭据失败：%w", err)
+	}
+	input.EmailSMTPCredentialRef = reference
+	return func() {
+		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_ = store.Delete(cleanupContext, reference)
+	}, nil
+}
+
+func newSMTPCredentialReference() (string, error) {
+	buffer := make([]byte, 18)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", fmt.Errorf("生成 SMTP 凭据引用失败：%w", err)
+	}
+	return "secret://notification/smtp/" + hex.EncodeToString(buffer), nil
 }
 
 func prepareDNSCredentials(ctx context.Context, cfg config.Config, input *setup.Input, output io.Writer) (func(), error) {

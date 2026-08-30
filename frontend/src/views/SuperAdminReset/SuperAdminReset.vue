@@ -60,8 +60,9 @@ const {
             v-model="password"
             type="password"
             autocomplete="new-password"
-            placeholder="至少 8 个字符"
+            placeholder="8-12 个字符"
             minlength="8"
+            maxlength="12"
             :disabled="loading || submitting || success"
             required
           />
@@ -77,6 +78,7 @@ const {
             autocomplete="new-password"
             placeholder="请再次输入新密码"
             minlength="8"
+            maxlength="12"
             :disabled="loading || submitting || success"
             required
           />

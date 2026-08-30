@@ -13,6 +13,8 @@ func TestValidate(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "合法密码", password: "Password123", username: "admin"},
+		{name: "length at max", password: "Pass12345678", username: "admin"},
+		{name: "length above max", password: "Pass123456789", username: "admin", wantErr: true},
 		{name: "支持中文字符", password: "安全密码2026", username: "admin"},
 		{name: "长度不足", password: "Pass123", username: "admin", wantErr: true},
 		{name: "缺少数字", password: "PasswordOnly", username: "admin", wantErr: true},

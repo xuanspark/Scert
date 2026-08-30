@@ -7,6 +7,11 @@ const {
   domains,
   servers,
   sshKeys,
+  certificates,
+  tasks,
+  auditLogs,
+  settings,
+  settingsForm,
   domainServers,
   loading,
   saving,
@@ -34,6 +39,14 @@ const {
   sshKeyForm,
   sshKeyPlatform,
   sshKeyPassphraseVisible,
+  sshKeyCommandUsername,
+  sshKeyCommandHost,
+  sshKeyFileName,
+  sshKeyPath,
+  sshKeyPublicPath,
+  showSettings,
+  settingsSaving,
+  settingsError,
   sshKeyCommands,
   sshPublicKeyCommands,
   defaultCertificatePath,
@@ -56,6 +69,13 @@ const {
   saveDomain,
   deleteDomain,
   loadData,
+  openSettings,
+  closeSettings,
+  saveSettings,
+  issueDomain,
+  validateDomain,
+  deployDomain,
+  runRenewalNow,
   displayLabel,
   formatDate,
   daysRemaining,
@@ -73,6 +93,12 @@ const {
       <div class="topbar-actions">
         <button class="secondary-button" type="button" @click="loadData">
           刷新状态
+        </button>
+        <button class="secondary-button" type="button" @click="runRenewalNow">
+          立即检查续期
+        </button>
+        <button class="secondary-button" type="button" @click="openSettings">
+          系统设置
         </button>
         <button
           class="secondary-button"
@@ -102,8 +128,8 @@ const {
         }}</span>
         <h2>让证书续期和部署变得可追踪</h2>
         <p>
-          统一管理单域名、泛域名和 SAN 证书，后续将接入 lego、DNS
-          验证与远程部署流程。
+          统一管理单域名、泛域名和 SAN 证书，当前已接入 lego、DNS
+          验证、自动续期、远程部署与部署后校验流程。
         </p>
       </div>
       <img class="hero-mark" :src="scertLogo" alt="Scert 标志" />
@@ -134,6 +160,59 @@ const {
       <article class="metric-card">
         <span>托管域名</span><strong>{{ domains.length }}</strong>
       </article>
+    </section>
+
+    <section class="panel operations-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">运行概览</p>
+          <h2>最近活动</h2>
+        </div>
+        <span class="muted">最近 20 条记录</span>
+      </div>
+      <div class="operation-columns">
+        <div>
+          <h3>证书状态</h3>
+          <div v-if="certificates.length === 0" class="empty-state compact-empty">暂无证书记录</div>
+          <div v-else class="record-list">
+            <article v-for="item in certificates" :key="item.domain.id" class="record-row">
+              <div>
+                <strong>{{ item.domain.name }}</strong>
+                <span v-if="item.certificate" class="muted">到期：{{ formatDate(item.certificate.saved.not_after) }}</span>
+                <span v-else class="muted">{{ item.certificate_error || "读取失败" }}</span>
+              </div>
+              <span v-if="item.certificate" class="tag success">已保存</span>
+              <span v-else class="tag warning">未保存</span>
+            </article>
+          </div>
+        </div>
+        <div>
+          <h3>任务记录</h3>
+          <div v-if="tasks.length === 0" class="empty-state compact-empty">暂无任务记录</div>
+          <div v-else class="record-list">
+            <article v-for="item in tasks" :key="item.id" class="record-row">
+              <div>
+                <strong>{{ item.task_type }}</strong>
+                <span class="muted">{{ item.message || "无附加信息" }}</span>
+              </div>
+              <span class="tag" :class="statusClass(item.status)">{{ item.status }}</span>
+            </article>
+          </div>
+        </div>
+        <div>
+          <h3>审计日志</h3>
+          <div v-if="auditLogs.length === 0" class="empty-state compact-empty">暂无审计日志</div>
+          <div v-else class="record-list">
+            <article v-for="item in auditLogs" :key="item.id" class="record-row">
+              <div>
+                <strong>{{ item.action }}</strong>
+                <span class="muted">{{ item.message || item.resource_type }}</span>
+              </div>
+              <span class="tag" :class="item.status === 'success' ? 'success' : 'danger'">{{ item.status }}</span>
+            </article>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
@@ -186,6 +265,18 @@ const {
             ><span>{{ formatDate(item.expires_at) }}</span>
           </div>
           <div class="row-actions">
+            <button class="text-button" type="button" @click="issueDomain(item)">
+              申请证书
+            </button>
+            <button class="text-button" type="button" @click="validateDomain(item)">
+              校验证书
+            </button>
+            <button class="text-button" type="button" @click="deployDomain(item)">
+              部署证书
+            </button>
+            <button class="text-button" type="button" @click="openCertificateImport(item)">
+              导入证书
+            </button>
             <button class="text-button" type="button" @click="openEdit(item)">
               编辑</button
             ><button
@@ -288,7 +379,121 @@ const {
       </div>
     </section>
 
-    <div v-if="showForm" class="modal-backdrop" @click.self="closeForm">
+    <div v-if="showSettings" class="modal-backdrop" @click.self="closeSettings">
+      <section class="modal-card settings-modal" role="dialog" aria-modal="true" aria-label="系统设置">
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">系统配置</p>
+            <h2>系统设置</h2>
+          </div>
+          <button class="close-button" type="button" aria-label="关闭" @click="closeSettings">×</button>
+        </div>
+        <form @submit.prevent="saveSettings">
+          <h3>服务监听</h3>
+          <div class="form-grid">
+            <label class="field"><span>监听地址</span><input v-model="settingsForm.server.host" required /></label>
+            <label class="field"><span>服务端口</span><input v-model.number="settingsForm.server.port" type="number" min="1" max="65535" required /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>HTTPS 模式</span><select v-model="settingsForm.server.https_mode"><option value="direct">直接终止 HTTPS</option><option value="proxy">反向代理 HTTPS</option></select></label>
+            <label class="field"><span>证书存储路径</span><input v-model="settingsForm.paths.certificate" required /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>管理页面域名</span><input v-model="settingsForm.web.hostname" placeholder="例如 ssl.example.com" /></label>
+            <label class="field"><span>管理页面公网 IP</span><input v-model="settingsForm.web.public_ip" placeholder="例如 203.0.113.10" /></label>
+          </div>
+          <h3>ACME 设置</h3>
+          <div class="form-grid">
+            <label class="field"><span>ACME 环境</span><select v-model="settingsForm.acme.environment"><option value="staging">测试环境</option><option value="production">生产环境</option></select></label>
+            <label class="field"><span>自动续期阈值（天）</span><input v-model.number="settingsForm.acme.renewal_threshold_days" type="number" min="1" max="365" /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>DNS 传播等待（秒）</span><input v-model.number="settingsForm.acme.propagation_timeout_secs" type="number" min="1" /></label>
+            <label class="field"><span>DNS 检测间隔（秒）</span><input v-model.number="settingsForm.acme.propagation_polling_interval_secs" type="number" min="1" /></label>
+          </div>
+          <h3>HTTP 通知</h3>
+          <div class="form-grid">
+            <label class="switch-field">
+              <input v-model="settingsForm.notification.http_enabled" type="checkbox" />
+              <span><strong>启用 HTTP 通知</strong><small>通过外部邮件或消息服务 API 发送通知</small></span>
+            </label>
+            <label class="field"><span>通知服务商</span><input v-model="settingsForm.notification.provider" placeholder="例如 temporary-mail" /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>通知接口地址</span><input v-model="settingsForm.notification.endpoint" placeholder="https://..." /></label>
+            <label class="field"><span>发件人邮箱</span><input v-model="settingsForm.notification.sender_email" type="email" /></label>
+          </div>
+          <label class="field"><span>收件人</span><input :value="settingsForm.notification.recipients.join(', ')" @input="settingsForm.notification.recipients = $event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean)" placeholder="多个地址用逗号分隔" /></label>
+          <h3>SMTP 通知</h3>
+          <label class="switch-field">
+            <input v-model="settingsForm.notification.smtp_enabled" type="checkbox" />
+            <span><strong>启用 SMTP 通知</strong><small>使用外部 SMTP 服务发送证书任务通知，不会实现邮件服务器端</small></span>
+          </label>
+          <div class="form-grid">
+            <label class="field"><span>SMTP 主机</span><input v-model="settingsForm.notification.smtp_host" placeholder="例如 smtp.example.com" /></label>
+            <label class="field"><span>SMTP 端口</span><input v-model.number="settingsForm.notification.smtp_port" type="number" min="1" max="65535" /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>SMTP 用户名</span><input v-model="settingsForm.notification.smtp_username" autocomplete="username" /></label>
+            <label class="field"><span>SMTP 密码</span><input v-model="settingsForm.notification.smtp_password" type="password" autocomplete="new-password" placeholder="留空表示不更新已保存密码" /></label>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>连接模式</span><select v-model="settingsForm.notification.smtp_mode"><option value="plain">明文连接</option><option value="starttls">STARTTLS</option><option value="implicit_tls">隐式 TLS</option></select></label>
+            <label class="switch-field">
+              <input v-model="settingsForm.notification.smtp_allow_plaintext_auth" type="checkbox" />
+              <span><strong>允许明文认证</strong><small>仅在明确确认 SMTP 网络受保护时开启</small></span>
+            </label>
+          </div>
+          <p class="security-hint">
+            {{ settingsForm.notification.smtp_credential_configured ? "SMTP 凭据已配置；密码不会回显。填写新密码后保存即可更新。" : "SMTP 凭据尚未配置；启用 SMTP 时请填写用户名和密码。" }}
+          </p>
+          <p v-if="settingsError" class="form-error">{{ settingsError }}</p>
+          <div class="modal-actions">
+            <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
+            <button class="primary-button" type="submit" :disabled="settingsSaving">{{ settingsSaving ? "保存中……" : "保存设置" }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+
+    <div v-if="showCertificateImport" class="modal-backdrop" @click.self="closeCertificateImport">
+      <section class="modal-card certificate-import-modal" role="dialog" aria-modal="true" aria-label="导入证书">
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">证书管理</p>
+            <h2>导入证书</h2>
+            <p class="muted">目标域名：{{ importDomain?.name }}</p>
+          </div>
+          <button class="close-button" type="button" aria-label="关闭" @click="closeCertificateImport">×</button>
+        </div>
+        <form @submit.prevent="importCertificate">
+          <label class="field">
+            <span>证书文件 <small>必选，支持 PEM / CRT</small></span>
+            <input type="file" accept=".pem,.crt,.cer,.txt" required @change="selectCertificateImportFile('certificate', $event)" />
+          </label>
+          <label class="field">
+            <span>私钥文件 <small>必选，内容只上传到服务端并按安全流程处理</small></span>
+            <input type="file" accept=".pem,.key,.txt" required @change="selectCertificateImportFile('private_key', $event)" />
+          </label>
+          <label class="field">
+            <span>证书链文件 <small>可选，支持 PEM / CRT</small></span>
+            <input type="file" accept=".pem,.crt,.cer,.txt" @change="selectCertificateImportFile('issuer_bundle', $event)" />
+          </label>
+          <p class="security-hint">单个文件不能超过 20 MB。导入成功后会自动刷新证书、任务和审计数据。</p>
+          <p v-if="importError" class="form-error">{{ importError }}</p>
+          <div v-if="importResult" class="import-result">
+            <strong>证书导入完成</strong>
+            <span v-if="importResult.deployment">部署结果已返回，请在任务记录中查看详情。</span>
+            <span v-else>证书已保存，可以稍后执行部署。</span>
+          </div>
+          <div class="modal-actions">
+            <button class="secondary-button" type="button" :disabled="importSaving" @click="closeCertificateImport">关闭</button>
+            <button class="primary-button" type="submit" :disabled="importSaving">{{ importSaving ? "导入中……" : "导入证书" }}</button>
+          </div>
+        </form>
+      </section>
+    </div>    <div v-if="showForm" class="modal-backdrop" @click.self="closeForm">
       <section
         class="modal-card"
         role="dialog"
@@ -591,7 +796,7 @@ const {
       @click.self="closeSSHKeyForm"
     >
       <section
-        class="modal-card"
+        class="modal-card ssh-key-modal"
         role="dialog"
         aria-modal="true"
         aria-label="添加 SSH 私钥"
@@ -664,6 +869,25 @@ const {
                 Linux / macOS
               </button>
             </div>
+            <div class="ssh-key-path-line">
+              <span>本次密钥文件名</span>
+              <code>{{ sshKeyFileName }}</code>
+              <span class="guide-badge">每次随机生成</span>
+            </div>
+            <div class="ssh-key-path-summary">
+              <div>
+                <span>本地私钥位置</span>
+                <code>{{ sshKeyPath }}</code>
+              </div>
+              <div>
+                <span>本地公钥位置</span>
+                <code>{{ sshKeyPublicPath }}</code>
+              </div>
+              <div>
+                <span>远程登录目标</span>
+                <code>{{ sshKeyCommandUsername }}@{{ sshKeyCommandHost }}</code>
+              </div>
+            </div>
             <div class="ssh-command-card">
               <div class="ssh-command-heading">
                 <span>生成命令</span>
@@ -700,8 +924,8 @@ const {
               </div>
               <code>{{ sshPublicKeyCommands[sshKeyPlatform] }}</code>
               <small>
-                Linux 服务器默认位置：<code>~/.ssh/authorized_keys</code>；Windows
-                OpenSSH 服务器请按照系统说明配置授权文件。
+                本地公钥文件是上面显示的随机路径；安装后会追加到远程用户的
+                <code>~/.ssh/authorized_keys</code>。每台主机、每次新建配置都会生成新的文件名。
               </small>
             </div>
             <p class="ssh-key-guide-note">
@@ -709,67 +933,69 @@ const {
               <code>.pub</code> 公钥内容追加到授权文件，最后在下方选择私钥文件即可。
             </p>
           </section>
-          <label class="field"
-            ><span>私钥名称</span
-            ><input
-              v-model="sshKeyForm.name"
-              required
-              type="text"
-              maxlength="128"
-              placeholder="例如生产环境部署私钥"
-              autocomplete="off"
-          /></label>
-          <label class="field"
-            ><span>读取本机私钥文件 <small>可选，读取后仍需点击加密保存</small></span
-            ><input type="file" @change="importSSHKeyFile" /></label
-          >
-          <label class="field"
-            ><span
-              >私钥内容
-              <small>支持 RSA、ECDSA、Ed25519 和 OpenSSH 私钥</small></span
-            ><textarea
-              v-model="sshKeyForm.private_key"
-              required
-              rows="11"
-              spellcheck="false"
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-            ></textarea>
-          </label>
-          <label class="field"
-            ><span class="field-label-row"
-              ><span>私钥口令 <small>未加密私钥请留空</small></span
-              ><button
-                class="inline-button"
+          <div class="ssh-key-form-fields">
+            <label class="field"
+              ><span>私钥名称</span
+              ><input
+                v-model="sshKeyForm.name"
+                required
+                type="text"
+                maxlength="128"
+                placeholder="例如生产环境部署私钥"
+                autocomplete="off"
+            /></label>
+            <label class="field"
+              ><span>读取本机私钥文件 <small>可选，读取后仍需点击加密保存</small></span
+              ><input type="file" @change="importSSHKeyFile" /></label
+            >
+            <label class="field"
+              ><span
+                >私钥内容
+                <small>支持 RSA、ECDSA、Ed25519 和 OpenSSH 私钥</small></span
+              ><textarea
+                v-model="sshKeyForm.private_key"
+                required
+                rows="11"
+                spellcheck="false"
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+              ></textarea>
+            </label>
+            <label class="field"
+              ><span class="field-label-row"
+                ><span>私钥口令 <small>未加密私钥请留空</small></span
+                ><button
+                  class="inline-button"
+                  type="button"
+                  @click="sshKeyPassphraseVisible = !sshKeyPassphraseVisible"
+                >
+                  {{ sshKeyPassphraseVisible ? "隐藏口令" : "显示口令" }}
+                </button></span
+              ><input
+                v-model="sshKeyForm.passphrase"
+                :type="sshKeyPassphraseVisible ? 'text' : 'password'"
+                maxlength="4096"
+                autocomplete="new-password"
+            /></label>
+            <p class="security-hint">
+              保存后私钥和口令只进入本机加密敏感信息存储，后续接口不会返回明文。
+            </p>
+            <p v-if="sshKeyFormError" class="form-error">{{ sshKeyFormError }}</p>
+            <div class="modal-actions">
+              <button
+                class="secondary-button"
                 type="button"
-                @click="sshKeyPassphraseVisible = !sshKeyPassphraseVisible"
+                :disabled="sshKeySaving"
+                @click="closeSSHKeyForm"
               >
-                {{ sshKeyPassphraseVisible ? "隐藏口令" : "显示口令" }}
-              </button></span
-            ><input
-              v-model="sshKeyForm.passphrase"
-              :type="sshKeyPassphraseVisible ? 'text' : 'password'"
-              maxlength="4096"
-              autocomplete="new-password"
-          /></label>
-          <p class="security-hint">
-            保存后私钥和口令只进入本机加密敏感信息存储，后续接口不会返回明文。
-          </p>
-          <p v-if="sshKeyFormError" class="form-error">{{ sshKeyFormError }}</p>
-          <div class="modal-actions">
-            <button
-              class="secondary-button"
-              type="button"
-              :disabled="sshKeySaving"
-              @click="closeSSHKeyForm"
-            >
-              取消</button
-            ><button
-              class="primary-button"
-              type="submit"
-              :disabled="sshKeySaving"
-            >
-              {{ sshKeySaving ? "加密保存中……" : "加密保存" }}
-            </button>
+                取消</button
+              ><button
+                class="primary-button"
+                type="submit"
+                :disabled="sshKeySaving"
+              >
+                {{ sshKeySaving ? "加密保存中……" : "加密保存" }}
+              </button>
+            </div>
           </div>
         </form>
       </section>

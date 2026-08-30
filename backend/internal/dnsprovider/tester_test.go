@@ -3,9 +3,11 @@ package dnsprovider
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-acme/lego/v5/challenge"
+	"github.com/go-acme/lego/v5/challenge/dns01"
 )
 
 type fakeFactory struct {
@@ -18,43 +20,107 @@ func (f fakeFactory) Create(string, map[string]string) (challenge.Provider, erro
 }
 
 type fakeProvider struct {
-	presented  bool
-	cleaned    bool
-	presentErr error
-	cleanupErr error
+	presented          bool
+	cleaned            bool
+	cleanupSawCanceled bool
+	presentErr         error
+	cleanupErr         error
+	domain             string
+	keyAuth            string
 }
 
-func (p *fakeProvider) Present(context.Context, string, string, string) error {
+type fakeTXTResolver struct {
+	provider *fakeProvider
+}
+
+func (r fakeTXTResolver) LookupTXT(ctx context.Context, _ string) ([]string, error) {
+	if r.provider == nil || r.provider.domain == "" || r.provider.keyAuth == "" {
+		return nil, errors.New("测试 DNS 记录尚未创建")
+	}
+	return []string{dns01.GetChallengeInfo(ctx, r.provider.domain, r.provider.keyAuth).Value}, nil
+}
+
+func (p *fakeProvider) Present(_ context.Context, domain, _, keyAuth string) error {
 	p.presented = true
+	p.domain = domain
+	p.keyAuth = keyAuth
 	return p.presentErr
 }
 
-func (p *fakeProvider) CleanUp(context.Context, string, string, string) error {
+func (p *fakeProvider) CleanUp(ctx context.Context, _ string, _ string, _ string) error {
 	p.cleaned = true
+	p.cleanupSawCanceled = ctx.Err() != nil
 	return p.cleanupErr
+}
+
+type missingTXTResolver struct{}
+
+func (missingTXTResolver) LookupTXT(context.Context, string) ([]string, error) {
+	return nil, nil
 }
 
 func TestTesterCreatesAndCleansChallengeRecord(t *testing.T) {
 	provider := &fakeProvider{}
-	tester := NewTester(fakeFactory{provider: provider})
-	err := tester.Verify(t.Context(), Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
+	tester := NewTesterWithResolver(fakeFactory{provider: provider}, fakeTXTResolver{provider: provider})
+	report, err := tester.Verify(t.Context(), Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
 	if err != nil {
 		t.Fatalf("DNS 测试失败：%v", err)
 	}
 	if !provider.presented || !provider.cleaned {
 		t.Fatalf("DNS 测试未完整执行：presented=%v cleaned=%v", provider.presented, provider.cleaned)
 	}
+	if report.RecordName == "" || len(report.Stages) != 3 {
+		t.Fatalf("DNS 测试阶段报告不完整：%+v", report)
+	}
+	for index, stage := range report.Stages {
+		if stage.Status != "completed" && !(index == 2 && stage.Status == "warning") {
+			t.Fatalf("DNS 测试阶段状态异常：%+v", report.Stages)
+		}
+	}
 }
 
 func TestTesterDoesNotCleanupWhenPresentFails(t *testing.T) {
 	provider := &fakeProvider{presentErr: errors.New("拒绝访问")}
 	tester := NewTester(fakeFactory{provider: provider})
-	err := tester.Verify(t.Context(), Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
+	_, err := tester.Verify(t.Context(), Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
 	if err == nil {
 		t.Fatal("创建测试记录失败时应返回错误")
 	}
 	if provider.cleaned {
 		t.Fatal("创建测试记录失败时不应执行清理")
+	}
+}
+
+func TestTesterCleansUpWithIndependentContextAfterQueryCancellation(t *testing.T) {
+	provider := &fakeProvider{}
+	tester := NewTesterWithResolver(fakeFactory{provider: provider}, missingTXTResolver{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := tester.Verify(ctx, Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
+	if err == nil {
+		t.Fatal("公网查询被取消时应返回错误")
+	}
+	if !provider.cleaned {
+		t.Fatal("公网查询被取消时仍应尝试清理测试记录")
+	}
+	if provider.cleanupSawCanceled {
+		t.Fatal("清理测试记录不应继承已取消的请求上下文")
+	}
+}
+
+func TestTesterReportsCleanupFailureAfterQueryFailure(t *testing.T) {
+	provider := &fakeProvider{cleanupErr: errors.New("权限不足")}
+	tester := NewTesterWithResolver(fakeFactory{provider: provider}, missingTXTResolver{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	report, err := tester.Verify(ctx, Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
+	if err == nil || !strings.Contains(err.Error(), "自动清理失败") {
+		t.Fatalf("查询失败且清理失败时应返回组合诊断：%v", err)
+	}
+	if len(report.Stages) != 3 || report.Stages[1].Status != "failed" || report.Stages[2].Status != "failed" {
+		t.Fatalf("查询和清理失败阶段报告不完整：%+v", report.Stages)
 	}
 }
 
@@ -65,10 +131,13 @@ func TestValidateCredentialsRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestUnavailableProviderReturnsTypedError(t *testing.T) {
-	_, err := NewLegoFactory().Create(CNAME, map[string]string{"delegated_domain": "acme.example.com", "delegated_provider": "cloudflare"})
-	if !errors.Is(err, ErrProviderUnavailable) {
-		t.Fatalf("未开放适配器应返回指定错误：%v", err)
+func TestCNAMEProviderIsAvailable(t *testing.T) {
+	descriptor, err := GetDescriptor(CNAME)
+	if err != nil {
+		t.Fatalf("failed to read CNAME descriptor: %v", err)
+	}
+	if !descriptor.Available {
+		t.Fatal("CNAME delegation adapter should be available")
 	}
 }
 
@@ -95,7 +164,7 @@ func TestLegoFactoryCreatesConfiguredProviders(t *testing.T) {
 			},
 		},
 		{
-			name:       "华为云无效区域校验",
+			name:       "DNSPod",
 			providerID: HuaweiCloud,
 			credentials: map[string]string{
 				"access_key_id":     "id",
@@ -104,7 +173,7 @@ func TestLegoFactoryCreatesConfiguredProviders(t *testing.T) {
 			},
 		},
 		{
-			name:       "腾讯云",
+			name:       "华为云无效区域校验",
 			providerID: TencentCloud,
 			credentials: map[string]string{
 				"secret_id":  "id",

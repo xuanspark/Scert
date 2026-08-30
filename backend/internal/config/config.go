@@ -108,6 +108,12 @@ type NotificationConfig struct {
 	TimeoutSecs              int               `json:"timeout_secs"`
 	RetryCount               int               `json:"retry_count"`
 	RetryIntervalsSecs       []int             `json:"retry_intervals_secs"`
+	SMTPHost                 string            `json:"smtp_host"`
+	SMTPPort                 int               `json:"smtp_port"`
+	SMTPUsername             string            `json:"smtp_username"`
+	SMTPCredentialRef        string            `json:"smtp_credential_ref"`
+	SMTPMode                 string            `json:"smtp_mode"`
+	SMTPAllowPlaintextAuth   bool              `json:"smtp_allow_plaintext_auth"`
 }
 
 func Default(baseDir string) Config {
@@ -141,6 +147,8 @@ func Default(baseDir string) Config {
 			TimeoutSecs:        10,
 			RetryCount:         3,
 			RetryIntervalsSecs: []int{30, 120, 600},
+			SMTPPort:           587,
+			SMTPMode:           "starttls",
 		},
 	}
 }
@@ -249,6 +257,12 @@ func (c *Config) Normalize() {
 	}
 	if c.Notification.HTTPHeaders == nil {
 		c.Notification.HTTPHeaders = map[string]string{}
+	}
+	if c.Notification.SMTPPort == 0 {
+		c.Notification.SMTPPort = 587
+	}
+	if c.Notification.SMTPMode == "" {
+		c.Notification.SMTPMode = "starttls"
 	}
 }
 func (c Config) Save(path string) error {
@@ -390,6 +404,20 @@ func (c Config) Validate() error {
 	}
 	if c.Notification.EventMode != "detailed" && c.Notification.EventMode != "unified" {
 		return fmt.Errorf("通知事件模式无效：%s", c.Notification.EventMode)
+	}
+	if c.Notification.SMTPMode != "plain" && c.Notification.SMTPMode != "starttls" && c.Notification.SMTPMode != "implicit_tls" {
+		return fmt.Errorf("\u0053\u004d\u0054\u0050 \u8fde\u63a5\u6a21\u5f0f\u65e0\u6548\uff1a%s", c.Notification.SMTPMode)
+	}
+	if c.Notification.SMTPEnabled {
+		if strings.TrimSpace(c.Notification.SMTPHost) == "" {
+			return fmt.Errorf("\u542f\u7528 SMTP \u901a\u77e5\u65f6\u5fc5\u987b\u914d\u7f6e SMTP \u4e3b\u673a")
+		}
+		if c.Notification.SMTPPort < 1 || c.Notification.SMTPPort > 65535 {
+			return fmt.Errorf("SMTP \u7aef\u53e3\u65e0\u6548\uff1a%d", c.Notification.SMTPPort)
+		}
+		if strings.TrimSpace(c.Notification.SMTPUsername) != "" && strings.TrimSpace(c.Notification.SMTPCredentialRef) == "" {
+			return fmt.Errorf("SMTP \u914d\u7f6e\u7528\u6237\u540d\u540e\u5fc5\u987b\u914d\u7f6e\u52a0\u5bc6\u51ed\u636e\u5f15\u7528")
+		}
 	}
 	if strings.TrimSpace(c.Notification.HTTPPath) == "" || !strings.HasPrefix(strings.TrimSpace(c.Notification.HTTPPath), "/") {
 		return fmt.Errorf("HTTP 通知请求路径必须以 / 开头")

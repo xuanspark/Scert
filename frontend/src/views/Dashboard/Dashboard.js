@@ -1,4 +1,4 @@
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 export function useDashboard() {
   const scertLogo = "/Scert.png";
@@ -7,6 +7,10 @@ export function useDashboard() {
   const domains = ref([]);
   const servers = ref([]);
   const sshKeys = ref([]);
+  const certificates = ref([]);
+  const tasks = ref([]);
+  const auditLogs = ref([]);
+  const settings = ref(null);
   const domainServers = ref({});
   const loading = ref(true);
   const saving = ref(false);
@@ -24,19 +28,63 @@ export function useDashboard() {
   const sshKeyFormError = ref("");
   const sshKeyPlatform = ref("windows");
   const sshKeyPassphraseVisible = ref(false);
+  const sshKeyCommandUsername = ref("用户名");
+  const sshKeyCommandHost = ref("服务器地址");
+  const sshKeyRandomSuffix = ref(createSSHKeyRandomSuffix());
+  const showSettings = ref(false);
+  const settingsSaving = ref(false);
+  const settingsError = ref("");
+  const settingsForm = ref(createEmptySettingsForm());
+  const showCertificateImport = ref(false);
+  const importDomain = ref(null);
+  const importSaving = ref(false);
+  const importError = ref("");
+  const importResult = ref(null);
+  const importFiles = ref({
+    certificate: null,
+    private_key: null,
+    issuer_bundle: null,
+  });
+  const hasOpenModal = computed(
+    () =>
+      showForm.value ||
+      showServerForm.value ||
+      showSSHKeyForm.value ||
+      showSettings.value,
+  );
+  let previousBodyOverflow = "";
 
-  const sshKeyCommands = {
+  watch(hasOpenModal, (isOpen) => {
+    if (isOpen) {
+      previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return;
+    }
+    document.body.style.overflow = previousBodyOverflow;
+  });
+
+  const sshKeyFileName = computed(
+    () =>
+      `${sanitizeSSHKeySegment(sshKeyCommandUsername.value, "用户名")}+scert-${sshKeyRandomSuffix.value}`,
+  );
+  const sshKeyPath = computed(() => `/ssl/ssh/${sshKeyFileName.value}`);
+  const sshKeyPublicPath = computed(() => `${sshKeyPath.value}.pub`);
+  const sshKeyRemoteTarget = computed(
+    () =>
+      `${sanitizeSSHKeySegment(sshKeyCommandUsername.value, "用户名")}@${sanitizeSSHHost(sshKeyCommandHost.value)}`,
+  );
+  const sshKeyCommands = computed(() => ({
     windows:
-      'ssh-keygen -t ed25519 -C "scert-deploy" -f "$HOME\\.ssh\\scert_deploy_ed25519"',
+      `New-Item -ItemType Directory -Force -Path "/ssl/ssh" | Out-Null; ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPath.value}"`,
     linux:
-      'ssh-keygen -t ed25519 -C "scert-deploy" -f ~/.ssh/scert_deploy_ed25519',
-  };
-  const sshPublicKeyCommands = {
+      `sudo install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /ssl/ssh && ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPath.value}"`,
+  }));
+  const sshPublicKeyCommands = computed(() => ({
     windows:
-      'Get-Content "$HOME\\.ssh\\scert_deploy_ed25519.pub" | ssh root@服务器地址 "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"',
+      `Get-Content "${sshKeyPublicPath.value}" | ssh ${sshKeyRemoteTarget.value} "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"`,
     linux:
-      'ssh-copy-id -i ~/.ssh/scert_deploy_ed25519.pub 用户名@服务器地址',
-  };
+      `ssh-copy-id -i "${sshKeyPublicPath.value}" ${sshKeyRemoteTarget.value}`,
+  }));
 
   const certificateTypeLabels = {
     single: "单域名",
@@ -81,6 +129,18 @@ export function useDashboard() {
   const serverForm = ref(createEmptyServerForm());
   const sshKeyForm = ref(createEmptySSHKeyForm());
 
+  async function fetchAdmin(path, options = {}) {
+    const response = await fetch(path, {
+      ...options,
+      credentials: "include",
+    });
+    if (response.status === 401) {
+      window.location.assign("/login");
+      throw new Error("登录会话已过期，请重新登录");
+    }
+    return response;
+  }
+
   function createEmptyForm() {
     return {
       name: "",
@@ -112,6 +172,94 @@ export function useDashboard() {
 
   function createEmptySSHKeyForm() {
     return { name: "", private_key: "", passphrase: "" };
+  }
+
+  function createSSHKeyRandomSuffix() {
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(
+      "",
+    );
+  }
+
+  function sanitizeSSHKeySegment(value, fallback) {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/[^\p{L}\p{N}._-]+/gu, "-")
+      .replace(/^-+|-+$/g, "");
+    return normalized || fallback;
+  }
+
+  function sanitizeSSHHost(value) {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/[^a-zA-Z0-9.:[\]-]+/g, "");
+    return normalized || "服务器地址";
+  }
+
+  function createEmptySettingsForm() {
+    return {
+      server: { host: "", port: 5200, https_mode: "direct" },
+      web: { enabled: true, hostname: "", public_ip: "" },
+      paths: { certificate: "" },
+      acme: {
+        ca: "letsencrypt",
+        environment: "staging",
+        account_email: "",
+        renewal_threshold_days: 6,
+        propagation_timeout_secs: 900,
+        propagation_polling_interval_secs: 10,
+      },
+      dns: { provider: "" },
+      notification: {
+        http_enabled: false,
+        smtp_enabled: false,
+        provider: "",
+        endpoint: "",
+        http_path: "/api/email/send",
+        http_login_path: "/api/login",
+        http_auth_mode: "none",
+        event_mode: "detailed",
+        include_deployment_details: true,
+        include_certificate_serial: false,
+        include_management_url: false,
+        sender_name: "Scert",
+        sender_email: "",
+        recipients: [],
+        timeout_secs: 10,
+        retry_count: 3,
+        retry_intervals_secs: [30, 120, 600],
+        smtp_host: "",
+        smtp_port: 587,
+        smtp_username: "",
+        smtp_password: "",
+        smtp_mode: "starttls",
+        smtp_allow_plaintext_auth: false,
+        smtp_credential_configured: false,
+      },
+    };
+  }
+
+  function normalizeSettings(value) {
+    const defaults = createEmptySettingsForm();
+    const source = value || {};
+    return {
+      ...defaults,
+      ...source,
+      server: { ...defaults.server, ...(source.server || {}) },
+      web: { ...defaults.web, ...(source.web || {}) },
+      paths: { ...defaults.paths, ...(source.paths || {}) },
+      acme: { ...defaults.acme, ...(source.acme || {}) },
+      dns: { ...defaults.dns, ...(source.dns || {}) },
+      notification: {
+        ...defaults.notification,
+        ...(source.notification || {}),
+        smtp_password: "",
+        recipients: Array.isArray(source.notification?.recipients)
+          ? source.notification.recipients
+          : [],
+      },
+    };
   }
 
   function displayLabel(labels, value) {
@@ -195,6 +343,10 @@ export function useDashboard() {
     sshKeyFormError.value = "";
     sshKeyPlatform.value = "windows";
     sshKeyPassphraseVisible.value = false;
+    sshKeyCommandUsername.value = serverForm.value.username.trim() || "用户名";
+    sshKeyCommandHost.value = serverForm.value.address.trim() || "服务器地址";
+    sshKeyRandomSuffix.value = createSSHKeyRandomSuffix();
+    sshKeyForm.value.name = sshKeyFileName.value;
     showSSHKeyForm.value = true;
   }
 
@@ -234,7 +386,7 @@ export function useDashboard() {
     sshKeyFormError.value = "";
     sshKeySaving.value = true;
     try {
-      const response = await fetch("/api/v1/ssh-keys", {
+      const response = await fetchAdmin("/api/v1/ssh-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sshKeyForm.value),
@@ -260,7 +412,7 @@ export function useDashboard() {
     )
       return;
     try {
-      const response = await fetch(`/api/v1/ssh-keys/${item.id}`, {
+      const response = await fetchAdmin(`/api/v1/ssh-keys/${item.id}`, {
         method: "DELETE",
       });
       const result = await response.json().catch(() => ({}));
@@ -299,7 +451,7 @@ export function useDashboard() {
       const path = serverEditingId.value
         ? `/api/v1/servers/${serverEditingId.value}`
         : "/api/v1/servers";
-      const response = await fetch(path, {
+      const response = await fetchAdmin(path, {
         method: serverEditingId.value ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -318,11 +470,147 @@ export function useDashboard() {
     }
   }
 
+  async function runDomainAction(item, action, successMessage) {
+    error.value = "";
+    notice.value = "";
+    try {
+      const response = await fetchAdmin(`/api/v1/domains/${item.id}/${action}`, {
+        method: "POST",
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "域名操作失败");
+      notice.value = successMessage;
+      await loadData();
+    } catch (err) {
+      error.value = err.message || "域名操作失败";
+    }
+  }
+
+  function issueDomain(item) {
+    return runDomainAction(item, "issue", `已提交 ${item.name} 的证书申请`);
+  }
+
+  function validateDomain(item) {
+    return runDomainAction(item, "certificate/validate", `已提交 ${item.name} 的证书校验`);
+  }
+
+  function deployDomain(item) {
+    return runDomainAction(item, "deploy", `已提交 ${item.name} 的证书部署`);
+  }
+
+  async function runRenewalNow() {
+    error.value = "";
+    notice.value = "";
+    try {
+      const response = await fetchAdmin("/api/v1/renewal/run", { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "执行续期检查失败");
+      const report = result.report || {};
+      notice.value = `续期检查完成：检查 ${report.checked || 0} 项，选中 ${report.selected || 0} 项，成功 ${report.succeeded || 0} 项，失败 ${report.failed || 0} 项`;
+      await loadData();
+    } catch (err) {
+      error.value = err.message || "执行续期检查失败";
+    }
+  }
+
+  function openSettings() {
+    settingsError.value = "";
+    settingsForm.value = normalizeSettings(settings.value);
+    showSettings.value = true;
+  }
+
+  function closeSettings() {
+    if (!settingsSaving.value) showSettings.value = false;
+  }
+
+  async function saveSettings() {
+    settingsError.value = "";
+    settingsSaving.value = true;
+    try {
+      const response = await fetchAdmin("/api/v1/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settingsForm.value),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "保存系统设置失败");
+      settings.value = result.settings;
+      showSettings.value = false;
+      notice.value = result.message || "系统设置已保存";
+      await loadData();
+    } catch (err) {
+      settingsError.value = err.message || "保存系统设置失败";
+    } finally {
+      settingsSaving.value = false;
+    }
+  }
+
+  function openCertificateImport(item) {
+    importDomain.value = item;
+    importFiles.value = {
+      certificate: null,
+      private_key: null,
+      issuer_bundle: null,
+    };
+    importResult.value = null;
+    importError.value = "";
+    showCertificateImport.value = true;
+  }
+
+  function closeCertificateImport() {
+    if (!importSaving.value) showCertificateImport.value = false;
+  }
+
+  function selectCertificateImportFile(kind, event) {
+    importFiles.value[kind] = event.target.files?.[0] || null;
+    event.target.value = "";
+    importError.value = "";
+  }
+
+  async function importCertificate() {
+    importError.value = "";
+    importResult.value = null;
+    if (!importFiles.value.certificate || !importFiles.value.private_key) {
+      importError.value = "请选择证书文件和私钥文件";
+      return;
+    }
+    const maxSize = 20 * 1024 * 1024;
+    const files = Object.values(importFiles.value).filter(Boolean);
+    if (files.some((file) => file.size > maxSize)) {
+      importError.value = "单个证书文件不能超过 20 MB";
+      return;
+    }
+    importSaving.value = true;
+    try {
+      const body = new FormData();
+      body.append("certificate", importFiles.value.certificate);
+      body.append("private_key", importFiles.value.private_key);
+      if (importFiles.value.issuer_bundle) {
+        body.append("issuer_bundle", importFiles.value.issuer_bundle);
+      }
+      const response = await fetchAdmin(
+        `/api/v1/domains/${importDomain.value.id}/certificate/import`,
+        { method: "POST", body },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || "导入证书失败");
+      }
+      importResult.value = result;
+      notice.value = `域名 ${importDomain.value.name} 的证书已导入`;
+      await loadData();
+    } catch (err) {
+      importError.value = err.message || "导入证书失败";
+    } finally {
+      importSaving.value = false;
+    }
+  }
+
   async function deleteServer(item) {
     if (!window.confirm(`确定删除服务器“${item.name}”吗？关联域名也会解除。`))
       return;
     try {
-      const response = await fetch(`/api/v1/servers/${item.id}`, {
+      const response = await fetchAdmin(`/api/v1/servers/${item.id}`, {
         method: "DELETE",
       });
       const result = await response.json().catch(() => ({}));
@@ -335,7 +623,7 @@ export function useDashboard() {
   }
 
   async function saveDomainServers(domainId, serverIds) {
-    const response = await fetch(`/api/v1/domains/${domainId}/servers`, {
+    const response = await fetchAdmin(`/api/v1/domains/${domainId}/servers`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ server_ids: serverIds }),
@@ -382,7 +670,7 @@ export function useDashboard() {
       const path = isEditing.value
         ? `/api/v1/domains/${editingId.value}`
         : "/api/v1/domains";
-      const response = await fetch(path, {
+      const response = await fetchAdmin(path, {
         method: isEditing.value ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -412,7 +700,7 @@ export function useDashboard() {
     error.value = "";
     notice.value = "";
     try {
-      const response = await fetch(`/api/v1/domains/${item.id}`, {
+      const response = await fetchAdmin(`/api/v1/domains/${item.id}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -430,27 +718,42 @@ export function useDashboard() {
     loading.value = true;
     error.value = "";
     try {
-      const [statusResponse, domainResponse, serverResponse, sshKeyResponse] =
-        await Promise.all([
-          fetch("/api/v1/status"),
-          fetch("/api/v1/domains"),
-          fetch("/api/v1/servers"),
-          fetch("/api/v1/ssh-keys"),
-        ]);
-      if (
-        !statusResponse.ok ||
-        !domainResponse.ok ||
-        !serverResponse.ok ||
-        !sshKeyResponse.ok
-      )
-        throw new Error("服务接口返回失败");
+      const [
+        statusResponse,
+        domainResponse,
+        serverResponse,
+        sshKeyResponse,
+        certificateResponse,
+        taskResponse,
+        auditResponse,
+        settingsResponse,
+      ] = await Promise.all([
+        fetchAdmin("/api/v1/status"),
+        fetchAdmin("/api/v1/domains"),
+        fetchAdmin("/api/v1/servers"),
+        fetchAdmin("/api/v1/ssh-keys"),
+        fetchAdmin("/api/v1/certificates"),
+        fetchAdmin("/api/v1/tasks?limit=20"),
+        fetchAdmin("/api/v1/audit-logs?limit=20"),
+        fetchAdmin("/api/v1/settings"),
+      ]);
+      if ([statusResponse, domainResponse, serverResponse, sshKeyResponse, certificateResponse, taskResponse, auditResponse, settingsResponse].some((response) => !response.ok)) {
+        throw new Error("读取管理数据失败");
+      }
       status.value = await statusResponse.json();
       domains.value = (await domainResponse.json()).items || [];
       servers.value = (await serverResponse.json()).items || [];
       sshKeys.value = (await sshKeyResponse.json()).items || [];
+      certificates.value = (await certificateResponse.json()).items || [];
+      tasks.value = (await taskResponse.json()).items || [];
+      auditLogs.value = (await auditResponse.json()).items || [];
+      settings.value = await settingsResponse.json();
+      settingsForm.value = normalizeSettings(settings.value);
       const associations = await Promise.all(
         domains.value.map(async (item) => {
-          const response = await fetch(`/api/v1/domains/${item.id}/servers`);
+          const response = await fetchAdmin(
+            `/api/v1/domains/${item.id}/servers`,
+          );
           return [
             item.id,
             response.ok ? (await response.json()).items || [] : [],
@@ -466,6 +769,9 @@ export function useDashboard() {
   }
 
   onMounted(loadData);
+  onBeforeUnmount(() => {
+    document.body.style.overflow = previousBodyOverflow;
+  });
 
   return {
     scertLogo,
@@ -473,6 +779,11 @@ export function useDashboard() {
     domains,
     servers,
     sshKeys,
+    certificates,
+    tasks,
+    auditLogs,
+    settings,
+    settingsForm,
     domainServers,
     loading,
     saving,
@@ -500,6 +811,19 @@ export function useDashboard() {
     sshKeyForm,
     sshKeyPlatform,
     sshKeyPassphraseVisible,
+    sshKeyCommandUsername,
+    sshKeyCommandHost,
+    sshKeyFileName,
+    sshKeyPath,
+    sshKeyPublicPath,
+    showSettings,
+    settingsSaving,
+    settingsError,
+    showCertificateImport,
+    importDomain,
+    importSaving,
+    importError,
+    importResult,
     sshKeyCommands,
     sshPublicKeyCommands,
     defaultCertificatePath,
@@ -517,6 +841,10 @@ export function useDashboard() {
     copySSHKeyCommand,
     saveSSHKey,
     deleteSSHKey,
+    openCertificateImport,
+    closeCertificateImport,
+    selectCertificateImportFile,
+    importCertificate,
     saveServer,
     deleteServer,
     saveDomain,

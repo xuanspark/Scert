@@ -16,7 +16,37 @@ import (
 const dnsVerificationLifetime = 15 * time.Minute
 
 type DNSCredentialTester interface {
-	Verify(ctx context.Context, providerID, testDomain string, credentials map[string]string) error
+	Verify(ctx context.Context, providerID, testDomain string, credentials map[string]string) (DNSVerificationReport, error)
+}
+
+type DNSVerificationStage struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+type DNSVerificationReport struct {
+	RecordName string                 `json:"record_name"`
+	Stages     []DNSVerificationStage `json:"stages"`
+}
+
+type DNSVerificationError struct {
+	Report DNSVerificationReport
+	Err    error
+}
+
+func (e *DNSVerificationError) Error() string {
+	if e == nil || e.Err == nil {
+		return "DNS API 在线验证失败"
+	}
+	return e.Err.Error()
+}
+
+func (e *DNSVerificationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }
 
 type SecretWriter interface {
@@ -33,6 +63,7 @@ type DNSVerificationResult struct {
 	CredentialRef     string
 	VerificationToken string
 	ExpiresAt         time.Time
+	TestReport        DNSVerificationReport
 }
 
 type dnsVerificationSession struct {
@@ -69,15 +100,20 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 	if !domain.IsValidName(testDomain) {
 		return DNSVerificationResult{}, fmt.Errorf("DNS 测试域名格式无效：%s", testDomain)
 	}
-	if err := m.tester.Verify(ctx, providerID, testDomain, input.Credentials); err != nil {
-		return DNSVerificationResult{}, err
+	normalizedCredentials := normalizeCredentials(input.Credentials)
+	testReport, err := m.tester.Verify(ctx, providerID, testDomain, normalizedCredentials)
+	if err != nil {
+		return DNSVerificationResult{TestReport: testReport}, &DNSVerificationError{
+			Report: testReport,
+			Err:    err,
+		}
 	}
 	credentialID, err := secureToken(18)
 	if err != nil {
 		return DNSVerificationResult{}, fmt.Errorf("生成 DNS 凭据引用失败：%w", err)
 	}
 	credentialRef := fmt.Sprintf("secret://dns/%s/%s", providerID, credentialID)
-	if err := m.store.Put(ctx, credentialRef, input.Credentials); err != nil {
+	if err := m.store.Put(ctx, credentialRef, normalizedCredentials); err != nil {
 		return DNSVerificationResult{}, fmt.Errorf("加密保存 DNS 凭据失败：%w", err)
 	}
 	verificationToken, err := secureToken(32)
@@ -94,6 +130,7 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 	m.mu.Unlock()
 	return DNSVerificationResult{
 		CredentialRef: credentialRef, VerificationToken: verificationToken, ExpiresAt: expiresAt,
+		TestReport: testReport,
 	}, nil
 }
 
@@ -138,6 +175,17 @@ func (m *DNSVerificationManager) clearExpiredLocked(now time.Time) {
 			delete(m.sessions, token)
 		}
 	}
+}
+
+func normalizeCredentials(credentials map[string]string) map[string]string {
+	if credentials == nil {
+		return nil
+	}
+	normalized := make(map[string]string, len(credentials))
+	for key, value := range credentials {
+		normalized[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return normalized
 }
 
 func normalizeTestDomain(value string) string {

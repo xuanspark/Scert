@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func TestFileStoreVersionedLayoutAndHistory(t *testing.T) {
+func TestFileStoreUsesSingleDatedCurrentVersion(t *testing.T) {
 	root := t.TempDir()
 	store := FileStore{
 		Root:       filepath.Join(root, "ssl"),
@@ -26,24 +26,27 @@ func TestFileStoreVersionedLayoutAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("保存第二版证书失败：%v", err)
 	}
-	if first.Version == second.Version {
-		t.Fatalf("重复保存不应覆盖历史版本：%q", first.Version)
+	if first.Version != "20260827-V1.0" || second.Version != "20260827-V1.1" {
+		t.Fatalf("证书版本命名错误：first=%q second=%q", first.Version, second.Version)
 	}
-	wantCurrent := filepath.Join(root, "ssl", "example.com", "single", "current")
+	wantCurrent := filepath.Join(root, "ssl", "example.com", "single", second.Version)
 	if second.Directory != wantCurrent {
 		t.Fatalf("当前目录错误：got=%q want=%q", second.Directory, wantCurrent)
 	}
-	for _, path := range []string{
-		filepath.Join(wantCurrent, "cert.pem"),
-		filepath.Join(wantCurrent, "fullchain.pem"),
-		filepath.Join(wantCurrent, "key.pem"),
-		filepath.Join(wantCurrent, "metadata.json"),
-		filepath.Join(root, "ssl", "example.com", "single", "versions", first.Version, "metadata.json"),
-		filepath.Join(root, "ssl", "example.com", "single", "versions", second.Version, "metadata.json"),
-	} {
-		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("证书文件不存在：%s：%v", path, err)
+	if _, err := os.Stat(first.Directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("旧当前版本目录仍存在：%v", err)
+	}
+	for _, name := range []string{"cert.pem", "fullchain.pem", "key.pem", "metadata.json"} {
+		if _, err := os.Stat(filepath.Join(wantCurrent, name)); err != nil {
+			t.Fatalf("当前证书文件不存在：%s：%v", name, err)
 		}
+	}
+	entries, err := os.ReadDir(filepath.Dir(wantCurrent))
+	if err != nil {
+		t.Fatalf("读取证书类型目录失败：%v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != second.Version {
+		t.Fatalf("正式证书目录应只保留一个版本：%v", entries)
 	}
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(second.PrivateKeyPath)
@@ -56,44 +59,47 @@ func TestFileStoreVersionedLayoutAndHistory(t *testing.T) {
 	}
 	versions, err := store.ListVersions(context.Background(), "example.com", "single")
 	if err != nil {
-		t.Fatalf("读取证书版本失败：%v", err)
+		t.Fatalf("读取当前证书版本失败：%v", err)
 	}
-	if len(versions) != 2 || versions[0].Version != second.Version || versions[1].Version != first.Version {
-		t.Fatalf("证书版本历史错误：%+v", versions)
+	if len(versions) != 1 || versions[0].Version != second.Version {
+		t.Fatalf("当前证书版本列表错误：%+v", versions)
 	}
 	metadata, loaded, err := store.LoadCurrent(context.Background(), "example.com", "single")
 	if err != nil {
 		t.Fatalf("读取当前证书失败：%v", err)
 	}
-	if metadata.Version != second.Version || len(loaded.Certificate) == 0 || len(loaded.PrivateKey) == 0 {
+	if metadata.Version != second.Version || metadata.Directory != second.Directory || len(loaded.Certificate) == 0 || len(loaded.PrivateKey) == 0 {
 		t.Fatalf("当前证书内容错误：metadata=%+v", metadata)
 	}
 }
 
-func TestFileStoreListVersionsReturnsEmptyWhenNoHistory(t *testing.T) {
+func TestFileStoreListVersionsReturnsEmptyWhenNoCurrentCertificate(t *testing.T) {
 	store := FileStore{Root: t.TempDir()}
 	versions, err := store.ListVersions(context.Background(), "example.com", "san")
 	if err != nil {
-		t.Fatalf("无版本记录时查询失败：%v", err)
+		t.Fatalf("无当前证书时查询失败：%v", err)
 	}
 	if versions == nil || len(versions) != 0 {
-		t.Fatalf("无版本记录时应返回空列表：%+v", versions)
+		t.Fatalf("无当前证书时应返回空列表：%+v", versions)
 	}
 }
 
-func TestRollbackSavedResourceRestoresPreviousCertificate(t *testing.T) {
+func TestRollbackSavedResourceRestoresPreviousCertificateInCurrentDirectory(t *testing.T) {
 	root := t.TempDir()
 	store := FileStore{
 		Root:       filepath.Join(root, "ssl"),
 		BackupRoot: filepath.Join(root, "backups"),
 		Now:        func() time.Time { return time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC) },
 	}
-	resource := testResource(t, "example.com")
-	first, err := store.SaveForType(context.Background(), "example.com", "single", resource)
+	first, err := store.SaveForType(context.Background(), "example.com", "single", testResource(t, "example.com"))
 	if err != nil {
 		t.Fatalf("保存初始证书失败：%v", err)
 	}
-	second, err := store.SaveForType(context.Background(), "example.com", "single", resource)
+	firstCertificate, err := os.ReadFile(first.CertificatePath)
+	if err != nil {
+		t.Fatalf("读取初始证书失败：%v", err)
+	}
+	second, err := store.SaveForType(context.Background(), "example.com", "single", testResource(t, "example.com"))
 	if err != nil {
 		t.Fatalf("保存新证书失败：%v", err)
 	}
@@ -103,11 +109,19 @@ func TestRollbackSavedResourceRestoresPreviousCertificate(t *testing.T) {
 	if err := RollbackSavedResource(context.Background(), second); err != nil {
 		t.Fatalf("回滚证书失败：%v", err)
 	}
-	if _, err := os.Stat(first.FullChainPath); err != nil {
+	currentCertificate, err := os.ReadFile(second.CertificatePath)
+	if err != nil {
 		t.Fatalf("回滚后当前证书不存在：%v", err)
 	}
-	if _, err := os.Stat(second.PrivateKeyPath); err != nil {
-		t.Fatalf("回滚后当前私钥不存在：%v", err)
+	if string(currentCertificate) != string(firstCertificate) {
+		t.Fatal("回滚后当前证书内容不匹配")
+	}
+	current, _, err := store.LoadCurrent(context.Background(), "example.com", "single")
+	if err != nil {
+		t.Fatalf("读取回滚后的当前证书失败：%v", err)
+	}
+	if current.Version != first.Version || current.Directory != second.Directory {
+		t.Fatalf("回滚后的当前元数据错误：%+v", current)
 	}
 }
 
@@ -124,9 +138,62 @@ func TestRollbackSavedResourceClearsNewCertificateFiles(t *testing.T) {
 	if err := RollbackSavedResource(context.Background(), saved); err != nil {
 		t.Fatalf("清理失败证书失败：%v", err)
 	}
-	for _, name := range []string{"cert.pem", "fullchain.pem", "key.pem", "metadata.json"} {
-		if _, err := os.Stat(filepath.Join(saved.Directory, name)); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("回滚后文件仍存在：%s，错误：%v", name, err)
-		}
+	if _, err := os.Stat(saved.Directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("回滚后当前版本目录仍存在：%v", err)
+	}
+}
+
+func TestFileStoreDoesNotRestoreHistoricalVersion(t *testing.T) {
+	store := FileStore{Root: t.TempDir()}
+	if _, err := store.RestoreVersion(context.Background(), "example.com", "single", "20260830-V1.0"); err == nil {
+		t.Fatal("仅保留当前版本时不应支持历史版本恢复")
+	}
+}
+
+func TestFileStoreUsesStableSANIdentifierAndRemovesPreviousIdentifier(t *testing.T) {
+	root := t.TempDir()
+	store := FileStore{
+		Root:       filepath.Join(root, "ssl"),
+		BackupRoot: filepath.Join(root, "backups"),
+		Now:        func() time.Time { return time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC) },
+	}
+	firstResource := testResource(t, "example.com")
+	firstResource.Domains = []string{"example.com", "www.example.com"}
+	first, err := store.SaveForType(context.Background(), "example.com", "san", firstResource)
+	if err != nil {
+		t.Fatalf("save first SAN certificate: %v", err)
+	}
+	if first.CertificateIdentifier == "" {
+		t.Fatal("SAN certificate identifier should be stored")
+	}
+	if first.Version != "20260830-V1.0" {
+		t.Fatalf("unexpected first SAN version: %s", first.Version)
+	}
+	wantFirst := filepath.Join(root, "ssl", "example.com", "san", first.CertificateIdentifier, first.Version)
+	if first.Directory != wantFirst {
+		t.Fatalf("unexpected first SAN directory: got=%q want=%q", first.Directory, wantFirst)
+	}
+
+	secondResource := firstResource
+	secondResource.Domains = []string{"api.example.com", "example.com"}
+	second, err := store.SaveForType(context.Background(), "example.com", "san", secondResource)
+	if err != nil {
+		t.Fatalf("save second SAN certificate: %v", err)
+	}
+	if second.CertificateIdentifier == first.CertificateIdentifier {
+		t.Fatal("different SAN sets should use different identifiers")
+	}
+	if second.Version != "20260830-V1.0" {
+		t.Fatalf("unexpected second SAN version: %s", second.Version)
+	}
+	if _, err := os.Stat(first.Directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("previous SAN certificate directory still exists: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "ssl", "example.com", "san"))
+	if err != nil {
+		t.Fatalf("read SAN directory: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != second.CertificateIdentifier {
+		t.Fatalf("SAN directory should keep only the active identifier: %v", entries)
 	}
 }

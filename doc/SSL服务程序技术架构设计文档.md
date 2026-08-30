@@ -687,7 +687,7 @@ POST   /api/v1/domains/{id}/test-servers
 | fingerprint | 证书指纹 |
 | issued_at | 签发时间 |
 | expires_at | 到期时间 |
-| status | `current`、`history`、`failed`、`rolled_back` |
+| status | `current`、`failed`、`rolled_back` |
 | created_at | 创建时间 |
 
 ### 5.4 servers
@@ -795,29 +795,20 @@ SAN 进入默认 UI、自动续期、证书版本保存、部署关联和验收�
 
 ```text
 {storage_root}/{domain}/
-├── production/
-│   ├── wildcard/
-│   │   ├── current/
-│   │   └── versions/{version}/
-│   └── single/
-│       ├── current/
-│       └── versions/{version}/
-└── development/
-    ├── wildcard/
-    │   ├── current/
-    │   └── versions/{version}/
-    └── single/
-        ├── current/
-        └── versions/{version}/
+├── wildcard/
+│   └── YYYYMMDD-Vx.x/
+├── single/
+│   └── YYYYMMDD-Vx.x/
+└── san/{certificate_identifier}/
+    └── YYYYMMDD-Vx.x/
 ```
 
 每个版本目录至少包含：
 
 ```text
 cert.pem
-chain.pem
 fullchain.pem
-privkey.pem
+key.pem
 metadata.json
 ```
 
@@ -825,9 +816,11 @@ metadata.json
 
 - Linux 私钥文件使用 600 或更严格权限。
 - Windows 使用仅服务账户和授权管理员可读的 ACL。
-- `current` 可以使用目录切换或受控复制，不直接覆盖正在使用的版本。
+- 生产和开发申请环境由域名配置中的 ACME 环境字段区分，不再创建两套证书目录。
+- 每个证书类型正式目录只保留一个当前版本目录；版本目录名称使用 `YYYYMMDD-Vx.x`。
+- 新证书写入新版本目录并完成校验后移除旧当前版本；失败时从备份目录恢复。
 - 删除域名时先停止相关任务，再删除数据库记录和证书文件。
-- 用户上传证书默认保留当前版本和一个最近历史版本。
+- 用户上传证书默认只保留当前版本，备份目录仅用于失败回滚，不作为历史版本目录展示。
 
 ### 6.1 跨平台默认路径
 

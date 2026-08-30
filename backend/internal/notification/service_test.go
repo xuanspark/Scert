@@ -271,3 +271,80 @@ func TestSendRefreshesExpiredSession(t *testing.T) {
 		t.Fatalf("未使用刷新后的会话：%v", cookies)
 	}
 }
+
+func TestSendRejectsEmptySessionPasswordWithoutTrimmingValidPassword(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cfg := newTestConfig(server.URL)
+	cfg.HTTPAuthMode = "session"
+	cfg.HTTPCredentialRef = "secret://mail-session"
+	service := New(cfg, credentialReaderStub{values: map[string]string{
+		"account":  "xuans",
+		"password": "",
+	}})
+	err := service.Send(context.Background(), Event{Status: "success", Domain: "example.com"})
+	if err == nil || !strings.Contains(err.Error(), "必须包含账号和密码") {
+		t.Fatalf("空密码应在发起登录请求前被拒绝：%v", err)
+	}
+}
+
+func TestSessionLoginPreservesWhitespacePassword(t *testing.T) {
+	var loginPayload map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/login" {
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(body, &loginPayload); err != nil {
+			t.Fatal(err)
+		}
+		writer.Header().Add("Set-Cookie", "session=whitespace-session; Path=/; HttpOnly")
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = writer.Write([]byte(`{"errorNo":0,"errorMsg":""}`))
+	}))
+	defer server.Close()
+
+	cfg := newTestConfig(server.URL)
+	cfg.HTTPAuthMode = "session"
+	cfg.HTTPCredentialRef = "secret://mail-session"
+	service := New(cfg, credentialReaderStub{values: map[string]string{
+		"account":  "xuans",
+		"password": " test-password ",
+	}})
+	if err := service.Send(context.Background(), Event{Status: "success", Domain: "example.com"}); err != nil {
+		t.Fatalf("保留空白密码的会话登录失败：%v", err)
+	}
+	if loginPayload["password"] != " test-password " {
+		t.Fatalf("密码不应被 TrimSpace：%q", loginPayload["password"])
+	}
+}
+
+func TestSessionLoginReturnsBusinessMessageWithoutCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = writer.Write([]byte(`{"errorNo":403,"errorMsg":"账号或密码错误"}`))
+	}))
+	defer server.Close()
+
+	cfg := newTestConfig(server.URL)
+	cfg.HTTPAuthMode = "session"
+	cfg.HTTPCredentialRef = "secret://mail-session"
+	service := New(cfg, credentialReaderStub{values: map[string]string{
+		"account":  "xuans",
+		"password": "test-password",
+	}})
+	err := service.Send(context.Background(), Event{Status: "success", Domain: "example.com"})
+	if err == nil || !strings.Contains(err.Error(), "错误码 403") || !strings.Contains(err.Error(), "账号或密码错误") {
+		t.Fatalf("登录业务错误应包含安全诊断：%v", err)
+	}
+	if strings.Contains(err.Error(), "test-password") {
+		t.Fatalf("登录错误不得包含密码：%v", err)
+	}
+}

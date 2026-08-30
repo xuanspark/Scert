@@ -16,8 +16,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
-
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 )
 
 func newCertificateCommand() *cobra.Command {
@@ -203,7 +203,7 @@ func newLogsCommand() *cobra.Command {
 
 func newConfigCommand() *cobra.Command {
 	command := &cobra.Command{Use: "config", Short: "查看和修改服务配置"}
-	command.AddCommand(newConfigShowCommand(), newConfigSetCommand(), newConfigValidateCommand())
+	command.AddCommand(newConfigShowCommand(), newConfigSetCommand(), newConfigSetSecretCommand(), newConfigValidateCommand())
 	return command
 }
 
@@ -221,6 +221,60 @@ func newConfigShowCommand() *cobra.Command {
 	}
 }
 
+func newConfigSetSecretCommand() *cobra.Command {
+	var key, value string
+	command := &cobra.Command{
+		Use:   "set-secret",
+		Short: "安全更新 SMTP 敏感凭据",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if key != "notification.smtp_password" {
+				return fmt.Errorf("不支持更新的敏感配置项：%s", key)
+			}
+			if value == "" {
+				var err error
+				value, err = ask(bufio.NewReader(cmd.InOrStdin()), cmd.OutOrStdout(), "请输入新的 SMTP 密码或授权码", "")
+				if err != nil {
+					return err
+				}
+			}
+			if value == "" {
+				return errors.New("SMTP 密码不能为空")
+			}
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			username := strings.TrimSpace(cfg.Notification.SMTPUsername)
+			if username == "" {
+				return errors.New("填写 SMTP 密码前必须配置 SMTP 用户名")
+			}
+			store, err := secretstore.Open(cfg.Paths.Config)
+			if err != nil {
+				return fmt.Errorf("初始化 SMTP 凭据存储失败：%w", err)
+			}
+			ref, err := newSMTPCredentialReference()
+			if err != nil {
+				return err
+			}
+			if err := store.Put(cmd.Context(), ref, map[string]string{"username": username, "password": value}); err != nil {
+				return fmt.Errorf("保存 SMTP 凭据失败：%w", err)
+			}
+			cfg.Notification.SMTPCredentialRef = ref
+			if err := cfg.Save(resolveConfigPath()); err != nil {
+				cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cleanupCancel()
+				_ = store.Delete(cleanupContext, ref)
+				return err
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), "SMTP 凭据已加密更新。")
+			return err
+		},
+	}
+	command.Flags().StringVar(&key, "key", "", "敏感配置项名称")
+	command.Flags().StringVar(&value, "value", "", "SMTP 密码；留空时交互输入")
+	_ = command.MarkFlagRequired("key")
+	return command
+}
 func newConfigValidateCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate",
@@ -551,6 +605,27 @@ func setConfigValue(cfg *config.Config, key, value string) error {
 			return fmt.Errorf("SMTP 通知开关格式无效：%w", err)
 		}
 		cfg.Notification.SMTPEnabled = parsed
+
+	case "notification.smtp_host":
+		cfg.Notification.SMTPHost = value
+	case "notification.smtp_port":
+		parsed, err := parseInt()
+		if err != nil {
+			return fmt.Errorf("SMTP 端口格式无效：%w", err)
+		}
+		cfg.Notification.SMTPPort = parsed
+	case "notification.smtp_username":
+		cfg.Notification.SMTPUsername = value
+	case "notification.smtp_mode":
+		cfg.Notification.SMTPMode = value
+	case "notification.smtp_allow_plaintext_auth":
+		parsed, err := parseBool()
+		if err != nil {
+			return fmt.Errorf("SMTP 明文认证开关格式无效：%w", err)
+		}
+		cfg.Notification.SMTPAllowPlaintextAuth = parsed
+	case "notification.smtp_password":
+		return errors.New("SMTP 密码属于敏感信息，请使用 scert config set-secret --key notification.smtp_password")
 	case "notification.provider":
 		cfg.Notification.Provider = value
 	case "notification.endpoint":

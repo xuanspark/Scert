@@ -22,8 +22,9 @@ import (
 )
 
 type serviceRepository struct {
-	item   domain.Domain
-	states []string
+	item      domain.Domain
+	states    []string
+	updateErr error
 }
 
 func (r *serviceRepository) GetByID(_ context.Context, _ string) (domain.Domain, error) {
@@ -31,6 +32,9 @@ func (r *serviceRepository) GetByID(_ context.Context, _ string) (domain.Domain,
 }
 
 func (r *serviceRepository) UpdateCertificateState(_ context.Context, _ string, status string, expiresAt *time.Time) error {
+	if status == "valid" && r.updateErr != nil {
+		return r.updateErr
+	}
 	r.states = append(r.states, status)
 	r.item.Status = status
 	r.item.ExpiresAt = expiresAt
@@ -212,6 +216,55 @@ func TestServiceRejectsOwnedCertificateForWrongDomain(t *testing.T) {
 	}
 }
 
+func TestServiceRestoreVersionRollsBackFilesWhenStateUpdateFails(t *testing.T) {
+	root := t.TempDir()
+	cfg := certificateTestConfig(root)
+	item, err := domain.NewDomainWithOptions("example.com", domain.CertificateSingle, nil, true, domain.ACMEEnvironmentStaging, "cloudflare")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := FileStore{Root: cfg.Paths.Certificate, BackupRoot: cfg.Paths.Backup}
+	first, err := store.SaveForType(context.Background(), item.Name, "single", testResource(t, "example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.SaveForType(context.Background(), item.Name, "single", testResource(t, "example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeCertificate, err := os.ReadFile(second.CertificatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeKey, err := os.ReadFile(second.PrivateKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &serviceRepository{item: item, updateErr: errors.New("simulated state update failure")}
+	service := NewService(cfg, repository, nil, nil, nil)
+	if _, err := service.RestoreVersion(context.Background(), item.ID, first.Version); err == nil {
+		t.Fatal("state update failure should be returned")
+	}
+	afterCertificate, err := os.ReadFile(second.CertificatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterKey, err := os.ReadFile(second.PrivateKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterCertificate) != string(beforeCertificate) || string(afterKey) != string(beforeKey) {
+		t.Fatal("certificate files were not rolled back after state update failure")
+	}
+	current, _, err := store.LoadCurrent(context.Background(), item.Name, string(item.CertificateType))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Version != second.Version {
+		t.Fatalf("current metadata was not rolled back: got=%s want=%s", current.Version, second.Version)
+	}
+}
+
 func certificateTestConfig(root string) config.Config {
 	cfg := config.Default(root)
 	cfg.Paths.Certificate = filepath.Join(root, "ssl")
@@ -261,7 +314,7 @@ func TestServiceIssuesSetupCertificateWithTypedLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("申请初始化证书失败：%v", err)
 	}
-	wantDirectory := filepath.Join(cfg.Paths.Certificate, "scert.example.com", "single", "current")
+	wantDirectory := filepath.Join(cfg.Paths.Certificate, "scert.example.com", "single", saved.Version)
 	if saved.Directory != wantDirectory {
 		t.Fatalf("初始化证书目录错误：got=%q want=%q", saved.Directory, wantDirectory)
 	}

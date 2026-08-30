@@ -8,6 +8,7 @@ import SuperAdminReset from "./views/SuperAdminReset/SuperAdminReset.vue";
 
 const {
   setupState,
+  authenticated,
   bootstrapping,
   error,
   routePath,
@@ -41,5 +42,7 @@ const {
     @initialized="handleInitialized"
   />
 
-  <Dashboard v-else />
+  <Login v-else-if="setupState && authenticated === false" />
+
+  <Dashboard v-else-if="setupState && authenticated === true" />
 </template>

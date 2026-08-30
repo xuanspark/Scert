@@ -29,33 +29,39 @@ import (
 
 type setupSecretWriter interface {
 	Put(context.Context, string, map[string]string) error
+	Delete(context.Context, string) error
 }
 
 type Dependencies struct {
-	Config                   config.Config
-	ConfigPath               string
-	Logger                   *logging.Logger
-	Repository               repository.DomainRepository
-	Servers                  repository.ServerRepository
-	SSHKeys                  *sshkey.Service
-	SetupDNS                 setupDNSVerifier
-	Secrets                  setupSecretWriter
-	Firewall                 firewall.Manager
-	IssueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	IssueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
-	RollbackSetupCertificate func(context.Context, certificate.SavedResource) error
-	ImportCertificate        func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
-	DeployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	CurrentCertificate       certificateReader
-	ResetStatePath           string
-	Audit                    repository.AuditRepository
-	Tasks                    repository.TaskRepository
+	Config                    config.Config
+	ConfigPath                string
+	FrontendDir               string
+	Logger                    *logging.Logger
+	Repository                repository.DomainRepository
+	Servers                   repository.ServerRepository
+	SSHKeys                   *sshkey.Service
+	SetupDNS                  setupDNSVerifier
+	Secrets                   setupSecretWriter
+	Firewall                  firewall.Manager
+	IssueCertificate          func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	IssueSetupCertificate     func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
+	RollbackSetupCertificate  func(context.Context, certificate.SavedResource) error
+	ImportCertificate         func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
+	DeployCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
+
+	RunRenewal         func(context.Context) (certificate.RenewalReport, error)
+	CurrentCertificate certificateReader
+	ResetStatePath     string
+	Audit              repository.AuditRepository
+	Tasks              repository.TaskRepository
 }
 
 type Server struct {
 	configMu                 sync.RWMutex
 	config                   config.Config
 	configPath               string
+	frontendDir              string
 	logger                   *logging.Logger
 	repository               repository.DomainRepository
 	servers                  repository.ServerRepository
@@ -68,28 +74,35 @@ type Server struct {
 	rollbackSetupCertificate func(context.Context, certificate.SavedResource) error
 	importCertificate        func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
 	deployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	currentCertificate       certificateReader
-	resetStatePath           string
-	audit                    repository.AuditRepository
-	tasks                    repository.TaskRepository
-	resetMu                  sync.Mutex
-	resetClosedHash          string
-	resetLimiter             *resetRateLimiter
-	authSessions             map[string]authSession
-	authMu                   sync.RWMutex
-	loginAttempts            map[string]loginAttempt
-	loginMu                  sync.Mutex
-	now                      func() time.Time
-	httpServer               *http.Server
-	router                   *gin.Engine
+	restoreVersion           func(context.Context, string, string) (certificate.IssueResult, error)
+
+	runRenewal         func(context.Context) (certificate.RenewalReport, error)
+	currentCertificate certificateReader
+	resetStatePath     string
+	audit              repository.AuditRepository
+	tasks              repository.TaskRepository
+	resetMu            sync.Mutex
+	resetClosedHash    string
+	resetLimiter       *resetRateLimiter
+	authSessions       map[string]authSession
+	authMu             sync.RWMutex
+	loginAttempts      map[string]loginAttempt
+	loginMu            sync.Mutex
+	now                func() time.Time
+	httpServer         *http.Server
+	router             *gin.Engine
 }
 
 func New(deps Dependencies) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
+	frontendDir := strings.TrimSpace(deps.FrontendDir)
+	if frontendDir == "" {
+		frontendDir = filepath.Join(deps.Config.Paths.Install, "web")
+	}
 	server := &Server{
-		config: deps.Config, configPath: deps.ConfigPath, logger: deps.Logger,
+		config: deps.Config, configPath: deps.ConfigPath, frontendDir: filepath.Clean(frontendDir), logger: deps.Logger,
 		repository: deps.Repository, setupDNS: deps.SetupDNS, secrets: deps.Secrets, firewall: deps.Firewall, router: router,
 		servers:                  deps.Servers,
 		sshKeys:                  deps.SSHKeys,
@@ -98,6 +111,8 @@ func New(deps Dependencies) *Server {
 		rollbackSetupCertificate: deps.RollbackSetupCertificate,
 		importCertificate:        deps.ImportCertificate,
 		deployCertificate:        deps.DeployCertificate,
+		restoreVersion:           deps.RestoreCertificateVersion,
+		runRenewal:               deps.RunRenewal,
 		currentCertificate:       deps.CurrentCertificate,
 		resetStatePath:           deps.ResetStatePath,
 		audit:                    deps.Audit,
@@ -133,12 +148,16 @@ func (s *Server) registerRoutes() {
 	adminAPI.GET("/tasks/:id", s.getTask)
 	adminAPI.GET("/tasks/:id/attempts", s.listTaskAttempts)
 	adminAPI.GET("/audit-logs", s.listAuditLogs)
+	adminAPI.GET("/settings", s.getSettings)
+	adminAPI.PUT("/settings", s.updateSettings)
+	adminAPI.POST("/renewal/run", s.runRenewalNow)
 	adminAPI.GET("/certificates", s.listCertificates)
 	adminAPI.GET("/certificates/:id", s.getCertificate)
 	adminAPI.POST("/domains/:id/certificate/import", s.importCertificateFiles)
 	adminAPI.POST("/domains/:id/certificate/validate", s.validateCertificate)
 	adminAPI.POST("/domains/:id/deploy", s.deployCertificateCurrent)
 	adminAPI.GET("/domains/:id/certificate/versions", s.listCertificateVersions)
+	adminAPI.POST("/domains/:id/certificate/versions/:version/restore", s.restoreCertificateVersion)
 	adminAPI.GET("/domains/:id/servers", s.listDomainServers)
 	adminAPI.PUT("/domains/:id/servers", s.replaceDomainServers)
 	adminAPI.GET("/servers", s.listServers)
@@ -149,6 +168,7 @@ func (s *Server) registerRoutes() {
 	adminAPI.GET("/ssh-keys", s.listSSHKeys)
 	adminAPI.POST("/ssh-keys", s.createSSHKey)
 	adminAPI.DELETE("/ssh-keys/:id", s.deleteSSHKey)
+	s.router.NoRoute(s.frontend)
 }
 
 func (s *Server) Handler() http.Handler {

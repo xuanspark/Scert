@@ -65,10 +65,12 @@ var descriptors = map[string]Descriptor{
 		},
 	},
 	CNAME: {
-		ID: CNAME, Name: "CNAME 委派", Description: "需要先配置委派目标和目标 DNS 服务商，后续任务接入自动验证。",
+		ID: CNAME, Name: "CNAME 委派", Description: "使用已配置的 CNAME 将 DNS-01 挑战转发到专用验证域，并由目标 DNS 服务商创建和清理 TXT 记录。",
+		Available: true,
 		CredentialFields: []CredentialField{
 			{Name: "delegated_domain", Label: "专用验证域", Required: true, Placeholder: "例如 acme.example.com"},
 			{Name: "delegated_provider", Label: "委派目标 DNS 服务商", Required: true},
+			{Name: "delegated_credentials_json", Label: "委派凭据 JSON", Secret: true, Required: true, Placeholder: "例如 {\"api_token\":\"...\"}"},
 		},
 	},
 	HuaweiCloud: {

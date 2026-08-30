@@ -26,6 +26,7 @@ systemctl daemon-reload
 
 ```text
 /scert              安装目录
+/scert/web          Web 管理页面静态资源
 /scert/conf         配置目录
 /scert/data         数据目录
 /scert/log          日志目录

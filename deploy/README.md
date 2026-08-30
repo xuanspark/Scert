@@ -9,6 +9,9 @@ deploy/
 ├── install-linux.sh
 ├── scert
 ├── scert-admin
+├── web/
+│   ├── index.html
+│   └── assets/
 └── systemd/
     ├── Scert.service
     ├── Scert-admin.service
@@ -37,8 +40,8 @@ sudo ./install-linux.sh --source-dir /tmp/scert-linux-amd64
 
 1. 检查 Linux、root 权限、`systemctl` 和安装产物。
 2. 创建 `Scert` 系统用户和同名系统用户组，禁止交互式登录。
-3. 创建 `/scert`、`/scert/conf`、`/scert/data`、`/scert/log`、`/scert/backups`、`/scert/docs` 和证书目录。
-4. 安装 `scert`、`scert-admin` 以及两个 systemd unit。
+3. 创建 `/scert`、`/scert/conf`、`/scert/data`、`/scert/log`、`/scert/backups`、`/scert/docs`、`/scert/web` 和证书目录。
+4. 安装 `scert`、`scert-admin`、Web 静态资源以及两个 systemd unit。
 5. 设置安装目录、服务目录和配置目录权限，防止 `Scert` 运行用户替换 root 所有的程序文件。
 6. 为证书根目录生成 systemd drop-in，并执行一次 `systemctl daemon-reload`。
 
@@ -64,9 +67,99 @@ systemctl stop Scert-admin
 
 ## 参数说明
 
-- `--source-dir`：包含两个 Linux 可执行文件的目录，默认是安装器所在目录。
+- `--source-dir`：包含两个 Linux 可执行文件和 `web/index.html` 的目录，默认是安装器所在目录。
 - `--certificate-dir`：证书根目录参数，默认 `/ssl`。安装器会创建该目录，写入 `/scert/conf/installation.json`，并生成对应的 `Scert.service.d/10-certificate-path.conf`。首次初始化会读取该记录作为证书目录默认值。
 
 Linux 安装目录当前固定为 `/scert`。自定义证书根目录必须是规范化的安全绝对路径，只允许字母、数字、点、下划线、连字符和斜杠，不允许空格、`..` 路径片段、符号链接、受保护系统目录或 `/scert` 下的路径；`/var` 下仅允许 `/var/lib/scert` 专用目录。
 
 安装器是文件部署阶段，不负责替代首次初始化向导，也不代替真实 ACME 申请和远程部署验收。
+
+## 开发阶段反向代理部署
+
+开发阶段可以使用测试域名 `web.xuans.com` 验证 Web 页面和反向代理链路。推荐让 Scert 只监听本机端口 `9003`，由 Nginx 对外提供 HTTPS：
+
+```text
+公网 HTTPS 443
+    ↓
+Nginx
+    ↓ https://127.0.0.1:9003
+Scert
+```
+
+对应配置为：
+
+```json
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9003,
+    "https_mode": "proxy"
+  }
+}
+```
+
+Nginx 示例：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name web.xuans.com;
+
+    ssl_certificate /etc/letsencrypt/live/web.xuans.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/web.xuans.com/privkey.pem;
+
+    location / {
+        proxy_pass https://127.0.0.1:9003;
+        proxy_ssl_server_name on;
+        proxy_ssl_name web.xuans.com;
+        proxy_ssl_verify off;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+```
+
+如果需要 HTTP 自动跳转，再配置并开放 `80`；正常访问只需开放公网 `443`。`9003` 仅供本机 Nginx 使用，不应加入公网防火墙规则。端口可以在配置文件的 `server.port` 修改，修改后需要重启 Scert；如果改为直接对外监听，则还需要同步调整防火墙和安全组规则。
+
+`web.xuans.com` 仅用于开发阶段测试，不能作为生产环境证书、DNS、ACME 或最终 HTTPS 验收依据。
+
+## Windows 部署
+
+Windows 发布目录应包含：
+
+```text
+scert.exe
+scert-admin.exe
+install-windows.ps1
+```
+
+使用管理员 PowerShell 执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -SourceDirectory .
+```
+
+默认目录：
+
+- 程序目录：`C:\Program Files\Scert`
+- 配置和运行数据目录：`C:\ProgramData\Scert`
+- 证书目录：`C:\ProgramData\Scert\ssl`
+
+安装器会检查 Windows、管理员权限、`sc.exe`、`icacls.exe` 和两个程序产物；创建配置、数据、日志、备份、文档、运行时和证书目录；设置 Windows ACL；使用 `LocalService` 身份注册 `Scert` 与 `Scert-admin` 服务；并写入不含凭据的安装记录。
+
+安装器不会删除或覆盖已有配置、数据库、证书和备份，不会启动或重启服务，也不会创建公网防火墙规则。`Scert` 注册为自动启动，`Scert-admin` 注册为手动启动；只有确需密码重置时才应由管理员启动 `Scert-admin`，完成后立即停止。
+
+自定义目录示例：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 `
+  -SourceDirectory D:\release\Scert\windows-amd64 `
+  -InstallDirectory D:\Apps\Scert `
+  -DataDirectory D:\ScertData `
+  -CertificateDirectory D:\ScertCertificates
+```
+
+Windows Service 实机安装、开机启动、停止、升级和 ACL 仍需在授权 Windows 主机上验收。

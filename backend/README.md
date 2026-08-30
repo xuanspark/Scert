@@ -1,6 +1,6 @@
 # Scert
 
-Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码处于首轮基础骨架阶段，已建立配置、数据库、日志、CLI、HTTP API 和前端占位结构。
+Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码已覆盖核心证书生命周期、DNS-01、自动续期、SSH 部署、通知、认证和 Web 管理流程。
 
 ## 当前已实现
 
@@ -12,7 +12,7 @@ Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码处�
 - 域名基础模型与 Repository。
 - 健康检查、状态和域名基础 API。
 - 中文 CLI：`version`、`help`、`init`、`status`、`serve`、`domain list`、`domain add`。
-- Vue 前端状态占位页面。
+- Vue 前端管理页面。
 
 ## 首轮运行
 
@@ -34,7 +34,13 @@ go run ./cmd/scert serve --base-dir C:\ScertData
 - `POST /api/v1/domains`
 - `DELETE /api/v1/domains/:id`
 
-当前 `serve` 是 HTTP 基础骨架。HTTPS 双模式、ACME 证书申请、DNS-01、远程部署等功能按开发任务清单在后续阶段实现。
+当前 `serve` 已接入配置加载、数据库迁移、认证、DNS 在线测试、ACME 证书申请、自动续期、证书导入、SSH 部署和通知流程。HTTPS 生产切换、真实 DNS/ACME 申请、远程服务器及平台安装仍需授权环境验收。
+
+### 开发阶段使用 9003 端口
+
+反向代理开发测试时，将配置中的服务地址设为 `127.0.0.1`、端口设为 `9003`，并将 `https_mode` 设为 `proxy`。Scert 只提供本机内部 HTTPS，公网 HTTPS 由 Nginx 监听 `443` 并转发到 `https://127.0.0.1:9003`。端口可通过配置文件 `server.port` 或初始化参数 `--server-port` 修改；修改后需要重启服务。
+
+SMTP 通知是 Scert 的出站连接，不需要为 Scert 开放 SMTP 入站端口。公网防火墙通常只需放行 Nginx 使用的 `443`，若配置 HTTP 跳转再放行 `80`；内部端口 `9003` 不应对公网开放。
 
 ## 测试和构建
 
@@ -62,9 +68,9 @@ Remove-Item Env:GOARCH
 - 数据库密码不得写入 Git、脚本参数或日志。
 - MySQL 客户端和服务实例必须使用明确路径、端口和 DSN，不能通过 PATH 中的单个 `mysql` 命令判断版本。
 
-## 当前未实现
+## 当前生产验收边界
 
-ACME/lego 实际申请、DNS 服务商 API、自动续期、SSH/SFTP 部署、Nginx/Caddy/Apache reload、完整 Web 管理界面、Wails 桌面版、Windows Service 和 Linux systemd 均未在首轮基础骨架中宣称完成。
+代码层已实现 ACME/lego 申请、第一批 DNS Provider、CNAME 委派、自动续期、证书导入、SSH/SFTP 部署、Nginx/Caddy/Apache reload、通知和 Web 管理接口。以下项目不能仅凭本地自动化测试宣称生产完成：真实 DNS 权限与公网传播、Let’s Encrypt Production 签发、真实远程服务器部署、Windows Service、Linux systemd 实机安装、Wails 桌面封装、Windows ACL、MySQL 真实实例和最终 HTTPS 到达性验收。
 
 ## 首轮复审状态
 

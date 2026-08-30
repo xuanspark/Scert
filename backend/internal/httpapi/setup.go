@@ -34,6 +34,13 @@ type setupRequest struct {
 	AdminPassword                  string            `json:"admin_password"`
 	ServerPort                     int               `json:"server_port"`
 	EmailHTTPEnabled               *bool             `json:"email_http_enabled"`
+	EmailSMTPEnabled               *bool             `json:"email_smtp_enabled"`
+	EmailSMTPHost                  string            `json:"email_smtp_host"`
+	EmailSMTPPort                  int               `json:"email_smtp_port"`
+	EmailSMTPUsername              string            `json:"email_smtp_username"`
+	EmailSMTPPassword              string            `json:"email_smtp_password"`
+	EmailSMTPMode                  string            `json:"email_smtp_mode"`
+	EmailSMTPAllowPlaintextAuth    bool              `json:"email_smtp_allow_plaintext_auth"`
 	EmailProvider                  string            `json:"email_provider"`
 	EmailEndpoint                  string            `json:"email_endpoint"`
 	EmailHTTPPath                  string            `json:"email_http_path"`
@@ -145,10 +152,15 @@ func (s *Server) testSetupDNS(c *gin.Context) {
 			s.writeError(c, http.StatusNotImplemented, "该 DNS 服务商在线验证适配器尚未开放", nil)
 			return
 		}
+		report := result.TestReport
+		var verificationErr *setup.DNSVerificationError
+		if errors.As(err, &verificationErr) {
+			report = verificationErr.Report
+		}
 		if s.logger != nil {
 			s.logger.Error("DNS API 在线验证失败", "provider", request.ProviderID, "test_domain", request.TestDomain)
 		}
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "DNS API 在线验证失败，请检查凭据、测试域名和 DNS 权限"})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "DNS API 在线验证失败，请检查凭据、测试域名和 DNS 权限", "test_report": report})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -156,6 +168,7 @@ func (s *Server) testSetupDNS(c *gin.Context) {
 		"credential_ref":     result.CredentialRef,
 		"verification_token": result.VerificationToken,
 		"expires_at":         result.ExpiresAt,
+		"test_report":        result.TestReport,
 		"message":            "DNS API 在线验证通过，凭据已加密保存。",
 	})
 }
@@ -197,7 +210,37 @@ func (s *Server) applySetup(c *gin.Context) {
 	if request.EmailHTTPEnabled != nil {
 		emailHTTPEnabled = *request.EmailHTTPEnabled
 	}
+	emailSMTPEnabled := false
+	if request.EmailSMTPEnabled != nil {
+		emailSMTPEnabled = *request.EmailSMTPEnabled
+	}
+	createdCredentialRefs := make([]string, 0, 2)
 	emailCredentialRef := strings.TrimSpace(request.EmailHTTPCredentialRef)
+	smtpCredentialRef := ""
+	if emailSMTPEnabled {
+		smtpCredentialRef = strings.TrimSpace(s.config.Notification.SMTPCredentialRef)
+		if strings.TrimSpace(request.EmailSMTPPassword) != "" {
+			if strings.TrimSpace(request.EmailSMTPUsername) == "" {
+				s.writeError(c, http.StatusBadRequest, "填写 SMTP 密码前必须配置 SMTP 用户名", nil)
+				return
+			}
+			if s.secrets == nil {
+				s.writeError(c, http.StatusServiceUnavailable, "SMTP 通知敏感凭据存储尚未初始化", nil)
+				return
+			}
+			var smtpErr error
+			smtpCredentialRef, smtpErr = newNotificationCredentialReference()
+			if smtpErr != nil {
+				s.writeError(c, http.StatusInternalServerError, "生成 SMTP 通知凭据引用失败", smtpErr)
+				return
+			}
+			createdCredentialRefs = append(createdCredentialRefs, smtpCredentialRef)
+		}
+		if smtpCredentialRef == "" {
+			s.writeError(c, http.StatusBadRequest, "启用 SMTP 通知后必须填写 SMTP 密码或使用已有凭据", nil)
+			return
+		}
+	}
 	var notificationCredentials map[string]string
 	var credentialErr error
 	if emailHTTPEnabled && strings.ToLower(strings.TrimSpace(request.EmailHTTPAuthMode)) != "none" {
@@ -216,6 +259,7 @@ func (s *Server) applySetup(c *gin.Context) {
 				s.writeError(c, http.StatusInternalServerError, "生成 HTTP 通知凭据引用失败", credentialErr)
 				return
 			}
+			createdCredentialRefs = append(createdCredentialRefs, emailCredentialRef)
 		} else if emailCredentialRef == "" {
 			s.writeError(c, http.StatusBadRequest, "启用 HTTP 通知认证后必须填写明文凭据或已有凭据引用", nil)
 			return
@@ -228,6 +272,13 @@ func (s *Server) applySetup(c *gin.Context) {
 		AdminPassword:                  request.AdminPassword,
 		ServerPort:                     request.ServerPort,
 		EmailHTTPEnabled:               emailHTTPEnabled,
+		EmailSMTPEnabled:               emailSMTPEnabled,
+		EmailSMTPHost:                  request.EmailSMTPHost,
+		EmailSMTPPort:                  request.EmailSMTPPort,
+		EmailSMTPUsername:              request.EmailSMTPUsername,
+		EmailSMTPCredentialRef:         smtpCredentialRef,
+		EmailSMTPMode:                  request.EmailSMTPMode,
+		EmailSMTPAllowPlaintextAuth:    request.EmailSMTPAllowPlaintextAuth,
 		EmailProvider:                  request.EmailProvider,
 		EmailEndpoint:                  request.EmailEndpoint,
 		EmailHTTPPath:                  request.EmailHTTPPath,
@@ -257,18 +308,22 @@ func (s *Server) applySetup(c *gin.Context) {
 		HTTPSMode:                      request.HTTPSMode,
 	})
 	if err != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.writeError(c, http.StatusBadRequest, err.Error(), err)
 		return
 	}
 	if strings.TrimSpace(s.configPath) == "" {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.writeError(c, http.StatusInternalServerError, "服务未配置配置文件路径，无法保存初始化结果", nil)
 		return
 	}
 	if strings.TrimSpace(updated.Web.PublicIP) != "" {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.writeError(c, http.StatusBadRequest, "公网 IP 暂不支持通过 DNS-01 自动申请管理后台证书，请先配置域名或上传自有证书", nil)
 		return
 	}
 	if s.issueSetupCertificate == nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.writeError(c, http.StatusServiceUnavailable, "初始化证书申请服务尚未配置", nil)
 		return
 	}
@@ -286,10 +341,12 @@ func (s *Server) applySetup(c *gin.Context) {
 	})
 	certificateCancel()
 	if certificateErr != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.writeError(c, http.StatusBadGateway, "申请管理后台证书失败，初始化尚未完成", certificateErr)
 		return
 	}
 	if err := validateSetupCertificateFiles(savedCertificate); err != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {
 			s.logger.Error("管理后台证书文件校验失败，且证书回滚失败", "error", rollbackErr)
 		}
@@ -300,6 +357,7 @@ func (s *Server) applySetup(c *gin.Context) {
 	updated.Server.TLSKey = savedCertificate.PrivateKeyPath
 	if len(notificationCredentials) > 0 {
 		if err := s.secrets.Put(c.Request.Context(), emailCredentialRef, notificationCredentials); err != nil {
+			s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 			if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {
 				s.logger.Error("保存 HTTP 通知凭据失败，且证书回滚失败", "error", rollbackErr)
 			}
@@ -307,8 +365,22 @@ func (s *Server) applySetup(c *gin.Context) {
 			return
 		}
 	}
+	if emailSMTPEnabled && strings.TrimSpace(request.EmailSMTPPassword) != "" {
+		if err := s.secrets.Put(c.Request.Context(), smtpCredentialRef, map[string]string{
+			"username": strings.TrimSpace(request.EmailSMTPUsername),
+			"password": request.EmailSMTPPassword,
+		}); err != nil {
+			s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
+			if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {
+				s.logger.Error("保存 SMTP 通知凭据失败，且证书回滚失败", "error", rollbackErr)
+			}
+			s.writeError(c, http.StatusInternalServerError, "保存 SMTP 通知凭据失败，初始化尚未完成", err)
+			return
+		}
+	}
 	updated.SetupReady = true
 	if err := updated.Validate(); err != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {
 			s.logger.Error("初始化证书配置无效，且证书回滚失败", "error", rollbackErr)
 		}
@@ -324,6 +396,7 @@ func (s *Server) applySetup(c *gin.Context) {
 		firewallResult, err = s.firewall.OpenTCP(firewallContext, updated.Server.Port)
 		cancel()
 		if err != nil {
+			s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 			if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {
 				s.logger.Error("自动配置本机防火墙失败，且证书回滚失败", "error", rollbackErr)
 			}
@@ -345,6 +418,7 @@ func (s *Server) applySetup(c *gin.Context) {
 		if certificateRollbackErr != nil && s.logger != nil {
 			s.logger.Error("保存初始化配置失败，且初始化证书回滚失败", "error", certificateRollbackErr)
 		}
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		if firewallRollbackErr != nil {
 			s.writeError(c, http.StatusInternalServerError, "保存初始化配置失败，且自动创建的防火墙规则回滚失败，请手动检查本机防火墙", err)
 			return
@@ -374,6 +448,36 @@ func (s *Server) applySetup(c *gin.Context) {
 			"firewall":    firewallResult,
 		},
 	})
+}
+
+func (s *Server) rollbackSetupCredentialsWithLog(references []string) {
+	if err := s.rollbackSetupCredentials(references); err != nil && s.logger != nil {
+		s.logger.Error("\u521d\u59cb\u5316\u654f\u611f\u51ed\u636e\u56de\u6eda\u5931\u8d25", "error", err)
+	}
+}
+
+func (s *Server) rollbackSetupCredentials(references []string) error {
+	if s == nil || s.secrets == nil || len(references) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	seen := make(map[string]struct{}, len(references))
+	var rollbackErrors []error
+	for _, reference := range references {
+		reference = strings.TrimSpace(reference)
+		if reference == "" {
+			continue
+		}
+		if _, ok := seen[reference]; ok {
+			continue
+		}
+		seen[reference] = struct{}{}
+		if err := s.secrets.Delete(ctx, reference); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("\u56de\u6eda\u654f\u611f\u51ed\u636e %s \u5931\u8d25\uFF1A%w", reference, err))
+		}
+	}
+	return errors.Join(rollbackErrors...)
 }
 
 func (s *Server) rollbackIssuedSetupCertificate(saved certificate.SavedResource) error {

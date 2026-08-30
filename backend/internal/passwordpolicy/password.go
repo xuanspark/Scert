@@ -9,7 +9,7 @@ import (
 
 const (
 	MinLength = 8
-	MaxLength = 128
+	MaxLength = 12
 )
 
 func Validate(password, username string) error {

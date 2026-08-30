@@ -187,7 +187,7 @@ func TestAskDNSProviderUsesNumberedSelection(t *testing.T) {
 
 func TestAskDNSProviderRejectsUnavailableSelection(t *testing.T) {
 	var output bytes.Buffer
-	provider, err := askDNSProvider(bufio.NewReader(strings.NewReader("4\n1\n")), &output)
+	provider, err := askDNSProvider(bufio.NewReader(strings.NewReader("9\n1\n")), &output)
 	if err != nil {
 		t.Fatalf("DNS 服务商选择失败：%v", err)
 	}
@@ -198,6 +198,7 @@ func TestAskDNSProviderRejectsUnavailableSelection(t *testing.T) {
 		t.Fatalf("选择未开放服务商时未给出提示：%s", output.String())
 	}
 }
+
 func TestSaveSetupWithFirewallRollsBackNewRuleOnSaveFailure(t *testing.T) {
 	baseDir := t.TempDir()
 	blockedParent := filepath.Join(baseDir, "blocked")
@@ -236,9 +237,9 @@ type cliFakeDNSCredentialTester struct {
 	credentials map[string]string
 }
 
-func (f *cliFakeDNSCredentialTester) Verify(_ context.Context, _ string, _ string, credentials map[string]string) error {
+func (f *cliFakeDNSCredentialTester) Verify(_ context.Context, _ string, _ string, credentials map[string]string) (setup.DNSVerificationReport, error) {
 	f.credentials = credentials
-	return nil
+	return setup.DNSVerificationReport{}, nil
 }
 
 func TestPrepareDNSCredentialsEncryptsAndClearsInput(t *testing.T) {

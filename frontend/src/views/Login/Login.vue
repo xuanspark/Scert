@@ -20,7 +20,7 @@ const {
 </script>
 
 <template>
-  <AccessShell variant="compact" aria-label="Scert 管理员登录">
+  <AccessShell variant="compact" aria-label="Scert 用户登录">
     <template #brand>
       <img class="access-logo" src="/Scert.png" alt="Scert 标志" />
       <p class="access-eyebrow">SCERT 管理后台</p>
@@ -33,8 +33,8 @@ const {
     <section class="access-card login-card">
       <header class="access-card-header">
         <p class="access-eyebrow">安全访问</p>
-        <h2 class="access-card-title">管理员登录</h2>
-        <p class="access-card-description">请输入管理员账号，进入 Scert 管理后台。</p>
+        <h2 class="access-card-title">用户登录</h2>
+        <p class="access-card-description">请输入用户账号，进入 Scert 管理后台。</p>
       </header>
 
       <section v-if="stage === 'credentials'">
@@ -60,7 +60,7 @@ const {
               v-model="password"
               type="password"
               autocomplete="current-password"
-              placeholder="请输入管理员密码"
+              placeholder="请输入用户密码"
               required
             />
           </label>

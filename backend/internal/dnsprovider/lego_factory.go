@@ -15,6 +15,8 @@ import (
 	"github.com/go-acme/lego/v5/providers/dns/tencentcloud"
 	"golang.org/x/oauth2/google"
 	gdns "google.golang.org/api/dns/v1"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
 type LegoFactory struct{}
@@ -37,6 +39,27 @@ func (LegoFactory) Create(providerID string, credentials map[string]string) (cha
 		return nil, err
 	}
 	switch providerID {
+	case CNAME:
+		delegatedDomain := normalizeProviderDomain(cleaned["delegated_domain"])
+		if delegatedDomain == "" || strings.HasPrefix(delegatedDomain, "*.") || !domain.IsValidName(delegatedDomain) {
+			return nil, ErrInvalidDelegatedDomain
+		}
+		delegatedProvider := strings.ToLower(strings.TrimSpace(cleaned["delegated_provider"]))
+		if delegatedProvider == CNAME || delegatedProvider == Other || delegatedProvider == "" {
+			return nil, fmt.Errorf("%w: %s", ErrDelegatedProviderUnavailable, delegatedProvider)
+		}
+		var delegatedCredentials map[string]string
+		if err := json.Unmarshal([]byte(cleaned["delegated_credentials_json"]), &delegatedCredentials); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidDelegatedCredentials, err)
+		}
+		if delegatedCredentials == nil {
+			return nil, ErrInvalidDelegatedCredentials
+		}
+		target, err := (LegoFactory{}).Create(delegatedProvider, delegatedCredentials)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDelegatedProviderUnavailable, err)
+		}
+		return newCNAMEDelegationProvider(delegatedDomain, target)
 	case Cloudflare:
 		cfg := cloudflare.NewDefaultConfig()
 		cfg.AuthToken = cleaned["api_token"]

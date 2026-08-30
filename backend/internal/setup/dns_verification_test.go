@@ -11,8 +11,8 @@ type fakeDNSTester struct {
 	err error
 }
 
-func (f fakeDNSTester) Verify(context.Context, string, string, map[string]string) error {
-	return f.err
+func (f fakeDNSTester) Verify(context.Context, string, string, map[string]string) (DNSVerificationReport, error) {
+	return DNSVerificationReport{}, f.err
 }
 
 type memorySecretWriter struct {
@@ -103,5 +103,40 @@ func TestDNSVerificationManagerDoesNotStoreFailedCredential(t *testing.T) {
 	}
 	if len(store.values) != 0 {
 		t.Fatal("DNS 测试失败时不应保存凭据")
+	}
+}
+
+type recordingDNSTester struct {
+	credentials map[string]string
+}
+
+func (f *recordingDNSTester) Verify(_ context.Context, _ string, _ string, credentials map[string]string) (DNSVerificationReport, error) {
+	f.credentials = credentials
+	return DNSVerificationReport{}, nil
+}
+
+func TestDNSVerificationManagerNormalizesCredentialCopyBeforeTestingAndStoring(t *testing.T) {
+	store := &memorySecretWriter{}
+	tester := &recordingDNSTester{}
+	manager := NewDNSVerificationManager(tester, store)
+	inputCredentials := map[string]string{" api_token ": " secret-token "}
+	result, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com", Credentials: inputCredentials,
+	})
+	if err != nil {
+		t.Fatalf("DNS 在线验证失败：%v", err)
+	}
+	if tester.credentials["api_token"] != "secret-token" {
+		t.Fatalf("传给测试器的凭据未规范化：%v", tester.credentials)
+	}
+	if _, ok := tester.credentials[" api_token "]; ok {
+		t.Fatal("测试器不应收到带首尾空格的凭据键")
+	}
+	stored := store.values[result.CredentialRef]
+	if stored["api_token"] != "secret-token" {
+		t.Fatalf("保存的凭据未规范化：%v", stored)
+	}
+	if inputCredentials[" api_token "] != " secret-token " {
+		t.Fatal("规范化过程不应修改调用方的原始凭据 Map")
 	}
 }

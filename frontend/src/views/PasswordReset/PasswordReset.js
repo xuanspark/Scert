@@ -1,32 +1,61 @@
 import { ref } from "vue";
 
 export function usePasswordReset() {
-  const username = ref("");
-  const password = ref("");
-  const confirmPassword = ref("");
+  const identifier = ref("");
+  const resolution = ref(null);
   const message = ref("");
   const error = ref("");
+  const submitting = ref(false);
 
-  function submit() {
+  async function submit() {
+    if (submitting.value) {
+      return;
+    }
     message.value = "";
     error.value = "";
-    if (password.value.length < 8) {
-      error.value = "新密码至少需要 8 个字符。";
+    resolution.value = null;
+    if (!identifier.value.trim()) {
+      error.value = "请输入用户名或绑定邮箱。";
       return;
     }
-    if (password.value !== confirmPassword.value) {
-      error.value = "两次输入的新密码不一致。";
-      return;
+
+    submitting.value = true;
+    try {
+      const response = await fetch("/api/v1/password-reset/resolve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ identifier: identifier.value.trim() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || "暂时无法处理密码重置请求，请稍后重试。");
+      }
+      resolution.value = result;
+      message.value = result.description || "已返回密码处理方式。";
+    } catch (submitError) {
+      error.value = submitError.message || "查询密码重置方式失败，请稍后重试。";
+    } finally {
+      submitting.value = false;
     }
-    error.value = "普通管理员密码重置接口尚未接入，请联系超级管理员处理。";
+  }
+
+  function reset() {
+    resolution.value = null;
+    message.value = "";
+    error.value = "";
   }
 
   return {
-    username,
-    password,
-    confirmPassword,
+    identifier,
+    resolution,
     message,
     error,
+    submitting,
     submit,
+    reset,
   };
 }

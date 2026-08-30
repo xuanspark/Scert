@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,20 +40,21 @@ type Resource struct {
 }
 
 type SavedResource struct {
-	Domain            string    `json:"domain"`
-	CertificateType   string    `json:"certificate_type,omitempty"`
-	Version           string    `json:"version,omitempty"`
-	SANs              []string  `json:"sans,omitempty"`
-	SerialNumber      string    `json:"serial_number,omitempty"`
-	FingerprintSHA256 string    `json:"fingerprint_sha256,omitempty"`
-	ChainLength       int       `json:"chain_length,omitempty"`
-	Directory         string    `json:"directory"`
-	CertificatePath   string    `json:"certificate_path"`
-	FullChainPath     string    `json:"fullchain_path"`
-	PrivateKeyPath    string    `json:"private_key_path"`
-	NotBefore         time.Time `json:"not_before"`
-	NotAfter          time.Time `json:"not_after"`
-	BackupDirectory   string    `json:"backup_directory,omitempty"`
+	Domain                string    `json:"domain"`
+	CertificateType       string    `json:"certificate_type,omitempty"`
+	CertificateIdentifier string    `json:"certificate_identifier,omitempty"`
+	Version               string    `json:"version,omitempty"`
+	SANs                  []string  `json:"sans,omitempty"`
+	SerialNumber          string    `json:"serial_number,omitempty"`
+	FingerprintSHA256     string    `json:"fingerprint_sha256,omitempty"`
+	ChainLength           int       `json:"chain_length,omitempty"`
+	Directory             string    `json:"directory"`
+	CertificatePath       string    `json:"certificate_path"`
+	FullChainPath         string    `json:"fullchain_path"`
+	PrivateKeyPath        string    `json:"private_key_path"`
+	NotBefore             time.Time `json:"not_before"`
+	NotAfter              time.Time `json:"not_after"`
+	BackupDirectory       string    `json:"backup_directory,omitempty"`
 }
 
 type FileStore struct {
@@ -158,7 +160,7 @@ func (s FileStore) Save(ctx context.Context, domain string, resource Resource) (
 	return s.save(ctx, domain, "", resource)
 }
 
-// SaveForType 按证书类型保存当前证书和历史版本。
+// SaveForType 按证书类型保存唯一的当前证书版本。
 func (s FileStore) SaveForType(ctx context.Context, domain, certificateType string, resource Resource) (SavedResource, error) {
 	return s.save(ctx, domain, certificateType, resource)
 }
@@ -183,59 +185,66 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 		return SavedResource{}, errors.New("证书存储根目录不能为空")
 	}
 	baseDirectory := filepath.Join(root, directoryName(primary))
+	typeDirectory := baseDirectory
 	directory := baseDirectory
+	certificateIdentifier := ""
 	if certificateType != "" {
 		certificateType = strings.ToLower(strings.TrimSpace(certificateType))
 		if certificateType != "single" && certificateType != "wildcard" && certificateType != "san" {
 			return SavedResource{}, fmt.Errorf("证书类型无效：%s", certificateType)
 		}
-		directory = filepath.Join(baseDirectory, certificateType)
+		typeDirectory = filepath.Join(baseDirectory, certificateType)
+		directory = typeDirectory
+		if certificateType == "san" {
+			certificateIdentifier = sanCertificateIdentifier(resource.Domains)
+			directory = filepath.Join(typeDirectory, certificateIdentifier)
+		}
 	}
+	activeDirectory := directory
 	currentDirectory := directory
+	version := ""
 	if certificateType != "" {
-		currentDirectory = filepath.Join(directory, "current")
+		activeDirectory, err = s.activeCertificateDirectoryForType(typeDirectory, certificateType)
+		if err != nil {
+			return SavedResource{}, err
+		}
+		if !directoryContainsCertificateFiles(activeDirectory) {
+			activeDirectory = ""
+		}
+		now := time.Now().UTC()
+		if s.Now != nil {
+			now = s.Now().UTC()
+		}
+		version, err = nextCertificateVersion(directory, now)
+		if err != nil {
+			return SavedResource{}, err
+		}
+		currentDirectory = filepath.Join(directory, version)
+	}
+	backupDirectory := ""
+	if activeDirectory != "" {
+		backupDirectory, err = s.backupExisting(activeDirectory, primary)
+		if err != nil {
+			return SavedResource{}, err
+		}
 	}
 	if err := os.MkdirAll(currentDirectory, 0o700); err != nil {
 		return SavedResource{}, fmt.Errorf("创建证书目录失败：%w", err)
-	}
-	backupDirectory, err := s.backupExisting(currentDirectory, primary)
-	if err != nil {
-		return SavedResource{}, err
 	}
 	fullChain := resource.Certificate
 	if len(resource.IssuerCertificate) > 0 && !bytes.Contains(resource.Certificate, resource.IssuerCertificate) {
 		fullChain = append(append([]byte(nil), resource.Certificate...), resource.IssuerCertificate...)
 	}
-	version := ""
-	if certificateType != "" {
-		now := time.Now
-		if s.Now != nil {
-			now = s.Now
-		}
-		version = now().UTC().Format("20060102-150405.000000000")
-		versionDirectory := filepath.Join(directory, "versions", version)
-		for suffix := 1; ; suffix++ {
-			if _, statErr := os.Stat(versionDirectory); errors.Is(statErr, os.ErrNotExist) {
-				break
-			} else if statErr != nil {
-				return SavedResource{}, fmt.Errorf("读取证书版本目录失败：%w", statErr)
-			}
-			version = fmt.Sprintf("%s-%02d", now().UTC().Format("20060102-150405.000000000"), suffix)
-			versionDirectory = filepath.Join(directory, "versions", version)
-		}
-		if err := os.MkdirAll(versionDirectory, 0o700); err != nil {
-			return SavedResource{}, fmt.Errorf("创建证书版本目录失败：%w", err)
-		}
-		if err := writeCertificateFiles(versionDirectory, resource.Certificate, fullChain, resource.PrivateKey); err != nil {
-			return SavedResource{}, err
-		}
-	}
 	if err := writeCertificateFiles(currentDirectory, resource.Certificate, fullChain, resource.PrivateKey); err != nil {
+		if certificateType != "" {
+			_ = os.RemoveAll(currentDirectory)
+		}
 		return SavedResource{}, err
 	}
 	leaf, _ := parseLeafCertificate(resource.Certificate)
 	result := SavedResource{
-		Domain: primary, CertificateType: certificateType, Version: version, SANs: append([]string(nil), resource.Domains...),
+		Domain: primary, CertificateType: certificateType, CertificateIdentifier: certificateIdentifier,
+		Version: version, SANs: append([]string(nil), resource.Domains...),
 		Directory: currentDirectory, CertificatePath: filepath.Join(currentDirectory, "cert.pem"),
 		FullChainPath: filepath.Join(currentDirectory, "fullchain.pem"), PrivateKeyPath: filepath.Join(currentDirectory, "key.pem"),
 		NotBefore: resource.NotBefore, NotAfter: resource.NotAfter, BackupDirectory: backupDirectory,
@@ -247,15 +256,20 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 	}
 	metadata, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
+		if certificateType != "" {
+			_ = os.RemoveAll(currentDirectory)
+		}
 		return SavedResource{}, fmt.Errorf("生成证书元数据失败：%w", err)
 	}
 	if err := atomicWrite(filepath.Join(currentDirectory, "metadata.json"), metadata, 0o600); err != nil {
+		if certificateType != "" {
+			_ = os.RemoveAll(currentDirectory)
+		}
 		return SavedResource{}, fmt.Errorf("写入证书元数据失败：%w", err)
 	}
-	if certificateType != "" {
-		versionMetadata := filepath.Join(directory, "versions", version, "metadata.json")
-		if err := atomicWrite(versionMetadata, metadata, 0o600); err != nil {
-			return SavedResource{}, fmt.Errorf("写入历史证书元数据失败：%w", err)
+	if certificateType != "" && activeDirectory != "" && activeDirectory != currentDirectory {
+		if err := removeCertificateDirectory(activeDirectory, typeDirectory); err != nil {
+			return SavedResource{}, fmt.Errorf("清理旧当前证书目录失败：%w", err)
 		}
 	}
 	return result, nil
@@ -309,7 +323,16 @@ func (s FileStore) backupExisting(directory, domain string) (string, error) {
 	if s.Now != nil {
 		now = s.Now
 	}
-	backupDirectory := filepath.Join(backupRoot, directoryName(domain), now().UTC().Format("20060102-150405.000000000"))
+	backupBase := filepath.Join(backupRoot, directoryName(domain), now().UTC().Format("20060102-150405.000000000"))
+	backupDirectory := backupBase
+	for suffix := 1; ; suffix++ {
+		if _, statErr := os.Stat(backupDirectory); errors.Is(statErr, os.ErrNotExist) {
+			break
+		} else if statErr != nil {
+			return "", fmt.Errorf("读取证书备份目录失败：%w", statErr)
+		}
+		backupDirectory = fmt.Sprintf("%s-%02d", backupBase, suffix)
+	}
 	if err := os.MkdirAll(filepath.Dir(backupDirectory), 0o700); err != nil {
 		return "", fmt.Errorf("创建证书备份目录失败：%w", err)
 	}
@@ -395,6 +418,200 @@ func directoryName(domain string) string {
 	return name
 }
 
+func nextCertificateVersion(directory string, now time.Time) (string, error) {
+	date := now.UTC().Format("20060102")
+	major := 1
+	minor := -1
+	entries, err := os.ReadDir(directory)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("读取证书类型目录失败：%w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		entryDate, entryMajor, entryMinor, valid := parseCertificateVersion(entry.Name())
+		if !valid || entryDate != date {
+			continue
+		}
+		if entryMajor > major || entryMajor == major && entryMinor > minor {
+			major = entryMajor
+			minor = entryMinor
+		}
+	}
+	if minor < 0 {
+		minor = 0
+	} else {
+		minor++
+	}
+	return fmt.Sprintf("%s-V%d.%d", date, major, minor), nil
+}
+
+func parseCertificateVersion(version string) (string, int, int, bool) {
+	if len(version) < len("20060102-V1.0") || filepath.Base(version) != version || strings.ContainsAny(version, `/\\`) {
+		return "", 0, 0, false
+	}
+	if version[8:10] != "-V" {
+		return "", 0, 0, false
+	}
+	date := version[:8]
+	for _, r := range date {
+		if r < '0' || r > '9' {
+			return "", 0, 0, false
+		}
+	}
+	parts := strings.Split(version[10:], ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", 0, 0, false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil || major < 1 {
+		return "", 0, 0, false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil || minor < 0 {
+		return "", 0, 0, false
+	}
+	return date, major, minor, true
+}
+
+func (s FileStore) activeCertificateDirectory(directory string) (string, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return directory, nil
+		}
+		return "", fmt.Errorf("读取证书类型目录失败：%w", err)
+	}
+	active := ""
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(directory, entry.Name())
+		if _, _, _, valid := parseCertificateVersion(entry.Name()); valid && newerCertificateDirectory(candidate, active) {
+			active = candidate
+		}
+	}
+	if active != "" {
+		return active, nil
+	}
+	legacyCurrent := filepath.Join(directory, "current")
+	if info, statErr := os.Stat(legacyCurrent); statErr == nil && info.IsDir() {
+		return legacyCurrent, nil
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return "", fmt.Errorf("读取旧版当前证书目录失败：%w", statErr)
+	}
+	return directory, nil
+}
+
+func sanCertificateIdentifier(domains []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(domains, "\n")))
+	return fmt.Sprintf("san-%x", sum[:8])
+}
+
+func directoryContainsCertificateFiles(directory string) bool {
+	if strings.TrimSpace(directory) == "" {
+		return false
+	}
+	for _, name := range []string{"cert.pem", "fullchain.pem", "key.pem", "metadata.json"} {
+		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func newerCertificateDirectory(candidate, current string) bool {
+	if current == "" {
+		return true
+	}
+	candidateDate, candidateMajor, candidateMinor, candidateValid := parseCertificateVersion(filepath.Base(candidate))
+	currentDate, currentMajor, currentMinor, currentValid := parseCertificateVersion(filepath.Base(current))
+	if !candidateValid {
+		return false
+	}
+	if !currentValid {
+		return true
+	}
+	if candidateDate != currentDate {
+		return candidateDate > currentDate
+	}
+	if candidateMajor != currentMajor {
+		return candidateMajor > currentMajor
+	}
+	if candidateMinor != currentMinor {
+		return candidateMinor > currentMinor
+	}
+	return candidate > current
+}
+
+func (s FileStore) activeCertificateDirectoryForType(typeDirectory, certificateType string) (string, error) {
+	active, err := s.activeCertificateDirectory(typeDirectory)
+	if err != nil {
+		return "", err
+	}
+	if certificateType != "san" || directoryContainsCertificateFiles(active) {
+		return active, nil
+	}
+	entries, err := os.ReadDir(typeDirectory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return typeDirectory, nil
+		}
+		return "", err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "current" {
+			continue
+		}
+		if !strings.HasPrefix(entry.Name(), "san-") {
+			continue
+		}
+		if _, _, _, valid := parseCertificateVersion(entry.Name()); valid {
+			continue
+		}
+		candidate, candidateErr := s.activeCertificateDirectory(filepath.Join(typeDirectory, entry.Name()))
+		if candidateErr != nil {
+			return "", candidateErr
+		}
+		if directoryContainsCertificateFiles(candidate) && newerCertificateDirectory(candidate, active) {
+			active = candidate
+		}
+	}
+	return active, nil
+}
+func removeCertificateDirectory(directory, certificateTypeDirectory string) error {
+	directory = filepath.Clean(directory)
+	certificateTypeDirectory = filepath.Clean(certificateTypeDirectory)
+	parentDirectory := filepath.Dir(directory)
+	if parentDirectory != certificateTypeDirectory && filepath.Dir(parentDirectory) != certificateTypeDirectory {
+		return errors.New("旧证书目录超出证书类型目录")
+	}
+	name := filepath.Base(directory)
+	if name != "current" {
+		if err := validateCertificateVersion(name); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		return err
+	}
+	if parentDirectory != certificateTypeDirectory {
+		entries, err := os.ReadDir(parentDirectory)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if len(entries) == 0 {
+			return os.Remove(parentDirectory)
+		}
+	}
+	return nil
+}
+
 func validDomain(value string) bool {
 	value = strings.TrimPrefix(value, "*.")
 	if len(value) < 3 || len(value) > 253 || !strings.Contains(value, ".") {
@@ -413,7 +630,7 @@ func validDomain(value string) bool {
 	return true
 }
 
-// CurrentDirectory returns the active certificate directory for a domain and certificate type.
+// CurrentDirectory 返回当前唯一使用的证书版本目录。
 func (s FileStore) CurrentDirectory(domain, certificateType string) (string, error) {
 	primary := strings.TrimSpace(domain)
 	if _, err := NormalizeDomains([]string{primary}); err != nil {
@@ -427,7 +644,8 @@ func (s FileStore) CurrentDirectory(domain, certificateType string) (string, err
 	if root == "." || root == "" {
 		return "", errors.New("证书存储根目录不能为空")
 	}
-	return filepath.Join(root, directoryName(primary), certificateType, "current"), nil
+	directory := filepath.Join(root, directoryName(primary), certificateType)
+	return s.activeCertificateDirectoryForType(directory, certificateType)
 }
 
 // LoadCurrent reads the active certificate files and metadata.
@@ -485,41 +703,113 @@ func (s FileStore) LoadCurrent(ctx context.Context, domain, certificateType stri
 	return saved, resource, nil
 }
 
-// ListVersions returns all stored certificate versions in descending order.
+// LoadVersion 仅允许读取当前使用的版本，保留该方法用于兼容已有接口。
+func (s FileStore) LoadVersion(ctx context.Context, domain, certificateType, version string) (SavedResource, Resource, error) {
+	if err := ctx.Err(); err != nil {
+		return SavedResource{}, Resource{}, err
+	}
+	if err := validateCertificateVersion(version); err != nil {
+		return SavedResource{}, Resource{}, err
+	}
+	directory, err := s.CurrentDirectory(domain, certificateType)
+	if err != nil {
+		return SavedResource{}, Resource{}, err
+	}
+	if filepath.Base(directory) != version {
+		return SavedResource{}, Resource{}, errors.New("指定版本不是当前使用的证书版本")
+	}
+	certificateData, err := os.ReadFile(filepath.Join(directory, "cert.pem"))
+	if err != nil {
+		return SavedResource{}, Resource{}, fmt.Errorf("读取当前证书失败：%w", err)
+	}
+	fullChainData, err := os.ReadFile(filepath.Join(directory, "fullchain.pem"))
+	if err != nil {
+		return SavedResource{}, Resource{}, fmt.Errorf("读取当前完整证书链失败：%w", err)
+	}
+	privateKeyData, err := os.ReadFile(filepath.Join(directory, "key.pem"))
+	if err != nil {
+		return SavedResource{}, Resource{}, fmt.Errorf("读取当前私钥失败：%w", err)
+	}
+	var saved SavedResource
+	metadata, err := os.ReadFile(filepath.Join(directory, "metadata.json"))
+	if err != nil {
+		return SavedResource{}, Resource{}, fmt.Errorf("读取当前证书元数据失败：%w", err)
+	}
+	if err := json.Unmarshal(metadata, &saved); err != nil {
+		return SavedResource{}, Resource{}, fmt.Errorf("解析当前证书元数据失败：%w", err)
+	}
+	if saved.Version != version {
+		return SavedResource{}, Resource{}, errors.New("当前证书版本标识不一致")
+	}
+	domains := saved.SANs
+	if len(domains) == 0 {
+		domains = []string{domain}
+	}
+	resource, err := ValidateResourceForDomains(Resource{
+		Domains:           domains,
+		Certificate:       certificateData,
+		IssuerCertificate: fullChainData,
+		PrivateKey:        privateKeyData,
+	}, domains)
+	if err != nil {
+		return SavedResource{}, Resource{}, fmt.Errorf("当前证书校验失败：%w", err)
+	}
+	saved.Directory = directory
+	saved.CertificatePath = filepath.Join(directory, "cert.pem")
+	saved.FullChainPath = filepath.Join(directory, "fullchain.pem")
+	saved.PrivateKeyPath = filepath.Join(directory, "key.pem")
+	saved.BackupDirectory = ""
+	resource.IssuerCertificate = nil
+	return saved, resource, nil
+}
+
+// RestoreVersion 已停用，正式证书目录只保留当前使用的版本。
+func (s FileStore) RestoreVersion(ctx context.Context, domain, certificateType, version string) (SavedResource, error) {
+	if err := ctx.Err(); err != nil {
+		return SavedResource{}, err
+	}
+	if err := validateCertificateVersion(version); err != nil {
+		return SavedResource{}, err
+	}
+	return SavedResource{}, errors.New("当前仅保留当前使用的证书版本，不支持历史版本恢复")
+}
+
+// ListVersions 返回当前唯一使用的证书版本，保留该方法用于兼容已有接口。
 func (s FileStore) ListVersions(ctx context.Context, domain, certificateType string) ([]SavedResource, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	current, err := s.CurrentDirectory(domain, certificateType)
+	directory, err := s.CurrentDirectory(domain, certificateType)
 	if err != nil {
 		return nil, err
 	}
-	certificateDirectory := filepath.Dir(current)
-	versionsDirectory := filepath.Join(certificateDirectory, "versions")
-	entries, err := os.ReadDir(versionsDirectory)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+	if _, statErr := os.Stat(filepath.Join(directory, "metadata.json")); statErr != nil {
+		if errors.Is(statErr, os.ErrNotExist) {
 			return []SavedResource{}, nil
 		}
-		return nil, fmt.Errorf("读取证书版本失败：%w", err)
+		return nil, fmt.Errorf("读取当前证书版本失败：%w", statErr)
 	}
-	versions := make([]SavedResource, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		metadata, readErr := os.ReadFile(filepath.Join(versionsDirectory, entry.Name(), "metadata.json"))
-		if readErr != nil {
-			return nil, fmt.Errorf("读取证书版本元数据失败：%w", readErr)
-		}
-		var item SavedResource
-		if err := json.Unmarshal(metadata, &item); err != nil {
-			return nil, fmt.Errorf("解析证书版本元数据失败：%w", err)
-		}
-		versions = append(versions, item)
+	saved, _, err := s.LoadCurrent(ctx, domain, certificateType)
+	if err != nil {
+		return nil, err
 	}
-	sort.SliceStable(versions, func(i, j int) bool { return versions[i].Version > versions[j].Version })
-	return versions, nil
+	return []SavedResource{saved}, nil
+}
+
+func validateCertificateVersion(version string) error {
+	if _, _, _, valid := parseCertificateVersion(version); !valid {
+		return errors.New("证书版本标识无效，应使用 YYYYMMDD-Vx.x 格式")
+	}
+	return nil
+}
+
+func removeCertificateFiles(directory string) error {
+	for _, name := range []string{"cert.pem", "fullchain.pem", "key.pem", "metadata.json"} {
+		if err := os.Remove(filepath.Join(directory, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // RollbackSavedResource 在初始化后续阶段失败时恢复证书目录。
@@ -543,12 +833,20 @@ func RollbackSavedResource(ctx context.Context, saved SavedResource) error {
 		if err := restoreCertificateFiles(directory, backupDirectory); err != nil {
 			return fmt.Errorf("恢复原证书失败：%w", err)
 		}
+		if err := rewriteRestoredMetadata(directory); err != nil {
+			return fmt.Errorf("更新回滚证书元数据失败：%w", err)
+		}
 		return nil
 	}
 	for _, name := range []string{"cert.pem", "fullchain.pem", "key.pem", "metadata.json"} {
 		path := filepath.Join(directory, name)
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("清理失败证书文件 %s 失败：%w", name, err)
+		}
+	}
+	if _, _, _, valid := parseCertificateVersion(filepath.Base(directory)); valid {
+		if err := os.Remove(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("清理失败证书目录失败：%w", err)
 		}
 	}
 	return nil
@@ -576,4 +874,26 @@ func restoreCertificateFiles(directory, backupDirectory string) error {
 		}
 	}
 	return nil
+}
+
+func rewriteRestoredMetadata(directory string) error {
+	path := filepath.Join(directory, "metadata.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var saved SavedResource
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return err
+	}
+	saved.Directory = directory
+	saved.CertificatePath = filepath.Join(directory, "cert.pem")
+	saved.FullChainPath = filepath.Join(directory, "fullchain.pem")
+	saved.PrivateKeyPath = filepath.Join(directory, "key.pem")
+	saved.BackupDirectory = ""
+	data, err = json.MarshalIndent(saved, "", "  ")
+	if err != nil {
+		return err
+	}
+	return atomicWrite(path, data, 0o600)
 }

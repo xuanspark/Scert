@@ -116,6 +116,12 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			result, err := workflow.DeployCurrent(ctx, domainID)
 			return result.Certificate, result.Deployment, err
 		},
+		RestoreCertificateVersion: func(ctx context.Context, domainID, version string) (certificate.IssueResult, error) {
+			return certificates.RestoreVersion(ctx, domainID, version)
+		},
+		RunRenewal: func(ctx context.Context) (certificate.RenewalReport, error) {
+			return renewal.RunOnce(ctx)
+		},
 		CurrentCertificate: certificates,
 		ResetStatePath:     admin.StatePath(cfg.Paths.Data),
 		Audit:              auditRepo,
@@ -123,7 +129,9 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	})
 	return &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,
+		Servers:     serverRepo,
 		Tasks:       taskRepo,
+		Deployment:  deploymentService,
 		SecretStore: secretStore, SSHKeys: sshKeys, DNSVerification: dnsVerification, HTTP: server,
 		Certificates: certificates,
 		Workflow:     workflow,
