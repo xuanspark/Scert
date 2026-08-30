@@ -263,6 +263,23 @@ func (c *Config) ApplyEnvironment() error {
 			*override.target = strings.TrimSpace(value)
 		}
 	}
+	boolOverrides := []struct {
+		name   string
+		target *bool
+	}{
+		{"SCERT_WEB_ENABLED", &c.Web.Enabled},
+	}
+	for _, override := range boolOverrides {
+		value, ok := os.LookupEnv(override.name)
+		if !ok {
+			continue
+		}
+		parsed, err := parseEnvironmentBool(override.name, value)
+		if err != nil {
+			return err
+		}
+		*override.target = parsed
+	}
 	intOverrides := []struct {
 		name   string
 		target *int
@@ -289,6 +306,17 @@ func (c *Config) ApplyEnvironment() error {
 		*override.target = parsed
 	}
 	return nil
+}
+
+func parseEnvironmentBool(name, value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("环境变量 %s 必须是 true 或 false", name)
+	}
 }
 
 func (c *Config) Normalize() {

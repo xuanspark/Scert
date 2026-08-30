@@ -165,3 +165,34 @@ func TestRenewalSchedulerUpdatePolicyWakesRunningScheduler(t *testing.T) {
 		t.Fatal("\u66f4\u65b0\u7eed\u671f\u7b56\u7565\u540e\u8c03\u5ea6\u5668\u672a\u88ab\u7acb\u5373\u5524\u9192")
 	}
 }
+
+func TestRenewalSchedulerStopStopsRunningScheduler(t *testing.T) {
+	lister := &wakeRenewalLister{calls: make(chan struct{}, 4)}
+	scheduler := NewRenewalSchedulerWithPolicy(lister, &renewalService{}, RenewalPolicy{
+		CheckInterval: time.Hour,
+		RetryInterval: time.Nanosecond,
+	})
+	scheduler.Start(context.Background())
+	select {
+	case <-lister.calls:
+	case <-time.After(time.Second):
+		t.Fatal("续期调度器启动后未执行首次检查")
+	}
+
+	scheduler.Stop()
+	scheduler.UpdatePolicy(RenewalPolicy{CheckInterval: time.Hour})
+	select {
+	case <-lister.calls:
+		t.Fatal("续期调度器停止后不应继续执行检查")
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
+func TestRenewalSchedulerStopIsIdempotent(t *testing.T) {
+	scheduler := NewRenewalSchedulerWithPolicy(&wakeRenewalLister{calls: make(chan struct{}, 1)}, &renewalService{}, RenewalPolicy{CheckInterval: time.Hour})
+	scheduler.Stop()
+	scheduler.Stop()
+	scheduler.Start(context.Background())
+	scheduler.Stop()
+	scheduler.Stop()
+}

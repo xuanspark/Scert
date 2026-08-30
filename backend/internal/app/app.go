@@ -169,6 +169,9 @@ func (a *App) Close() error {
 		return nil
 	}
 	var first error
+	if a.Renewal != nil {
+		a.Renewal.Stop()
+	}
 	if a.HTTP != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := a.HTTP.Shutdown(ctx); err != nil && first == nil {

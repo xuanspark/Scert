@@ -65,6 +65,19 @@ systemctl stop Scert-admin
 
 `Scert-admin` 不监听任何 TCP/UDP 端口。启动后，它只维护 Scert 主服务 `/reset` 路径的短时激活租约，并将一次性校验码写入 `/run/scert-admin/reset-code` 受保护临时文件，不写入标准输出或 systemd 日志；停止后入口立即失效，异常退出后入口会在租约过期时失效。管理员可使用 `sudo cat /run/scert-admin/reset-code` 读取校验码，校验码在成功消费、服务停止或租约失效后自动销毁。云安全组只需由管理员根据初始化提示放行主服务端口。
 
+### 环境变量覆盖
+
+`Scert` 启动时支持使用 `SCERT_*` 环境变量覆盖当前进程配置，适合写入 systemd 的 `EnvironmentFile`。例如：
+
+```text
+SCERT_SERVER_HOST=127.0.0.1
+SCERT_SERVER_PORT=9004
+SCERT_SERVER_HTTPS_MODE=proxy
+SCERT_WEB_ENABLED=true
+```
+
+`SCERT_WEB_ENABLED=false` 只关闭 Scert 提供的 Web 静态页面，不会关闭核心 API 或桌面端本地管理能力。环境变量不会回写 `scert.json`；修改后需要重启 `Scert` 服务。
+
 ## 参数说明
 
 - `--source-dir`：包含两个 Linux 可执行文件和 `web/index.html` 的目录，默认是安装器所在目录。

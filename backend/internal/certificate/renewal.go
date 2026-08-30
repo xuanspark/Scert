@@ -36,6 +36,8 @@ type RenewalScheduler struct {
 	policyMu sync.RWMutex
 	runMu    sync.Mutex
 	running  bool
+	cancel   context.CancelFunc
+	done     chan struct{}
 	wake     chan struct{}
 }
 
@@ -138,20 +140,31 @@ func (s *RenewalScheduler) Start(ctx context.Context) {
 	if s == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
+		cancel()
 		return
 	}
 	s.running = true
+	s.cancel = cancel
+	s.done = make(chan struct{})
+	done := s.done
 	s.mu.Unlock()
 	go func() {
 		defer func() {
 			s.mu.Lock()
 			s.running = false
+			s.cancel = nil
+			s.done = nil
 			s.mu.Unlock()
+			close(done)
 		}()
-		report, err := s.RunOnce(ctx)
+		report, err := s.RunOnce(runCtx)
 		for {
 			interval := s.Policy().CheckInterval
 			if err == nil && report.NearExpiry > 0 {
@@ -159,7 +172,7 @@ func (s *RenewalScheduler) Start(ctx context.Context) {
 			}
 			timer := time.NewTimer(interval)
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				if !timer.Stop() {
 					<-timer.C
 				}
@@ -167,12 +180,33 @@ func (s *RenewalScheduler) Start(ctx context.Context) {
 			case <-timer.C:
 			case <-s.wake:
 			}
-			if ctx.Err() != nil {
+			if runCtx.Err() != nil {
 				return
 			}
-			report, err = s.RunOnce(ctx)
+			report, err = s.RunOnce(runCtx)
 		}
 	}()
+}
+
+// Stop 停止后台续期调度并等待当前检查安全退出。
+func (s *RenewalScheduler) Stop() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	if !s.running {
+		s.mu.Unlock()
+		return
+	}
+	cancel := s.cancel
+	done := s.done
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
 }
 
 func (s *RenewalScheduler) issueWithRetry(ctx context.Context, domainID string, urgent bool, policy RenewalPolicy) error {
