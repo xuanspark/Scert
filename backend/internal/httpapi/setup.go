@@ -125,6 +125,14 @@ func (s *Server) setupDNSProviders(c *gin.Context) {
 	if !s.allowSetupRequest(c) {
 		return
 	}
+	s.listDNSProviders(c)
+}
+
+func (s *Server) listAdminDNSProviders(c *gin.Context) {
+	s.listDNSProviders(c)
+}
+
+func (s *Server) listDNSProviders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": dnsprovider.Descriptors()})
 }
 
@@ -132,6 +140,14 @@ func (s *Server) testSetupDNS(c *gin.Context) {
 	if !s.allowSetupRequest(c) {
 		return
 	}
+	s.testDNS(c)
+}
+
+func (s *Server) testAdminDNS(c *gin.Context) {
+	s.testDNS(c)
+}
+
+func (s *Server) testDNS(c *gin.Context) {
 	if s.setupDNS == nil {
 		s.writeError(c, http.StatusServiceUnavailable, "DNS 在线验证服务尚未初始化", nil)
 		return

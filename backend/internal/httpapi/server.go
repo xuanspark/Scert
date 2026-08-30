@@ -164,6 +164,8 @@ func (s *Server) registerRoutes() {
 	adminAPI.GET("/audit-logs", s.listAuditLogs)
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.updateSettings)
+	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
+	adminAPI.POST("/dns/test", s.testAdminDNS)
 	adminAPI.POST("/renewal/run", s.runRenewalNow)
 	adminAPI.GET("/certificates", s.listCertificates)
 	adminAPI.GET("/certificates/:id", s.getCertificate)
