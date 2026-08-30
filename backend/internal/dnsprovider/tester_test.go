@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-acme/lego/v5/challenge"
 	"github.com/go-acme/lego/v5/challenge/dns01"
@@ -76,6 +77,22 @@ func TestTesterCreatesAndCleansChallengeRecord(t *testing.T) {
 		if stage.Status != "completed" && !(index == 2 && stage.Status == "warning") {
 			t.Fatalf("DNS 测试阶段状态异常：%+v", report.Stages)
 		}
+	}
+}
+
+func TestTesterUsesConfiguredPropagationSettings(t *testing.T) {
+	provider := &fakeProvider{}
+	tester := NewTesterWithResolverAndSettings(fakeFactory{provider: provider}, missingTXTResolver{}, 20*time.Millisecond, 5*time.Millisecond)
+	started := time.Now()
+	_, err := tester.Verify(context.Background(), Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
+	if err == nil {
+		t.Fatal("missing TXT record should fail")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("configured propagation timeout was ignored: %s", elapsed)
+	}
+	if !provider.cleaned {
+		t.Fatal("failed propagation check should clean up the record")
 	}
 }
 

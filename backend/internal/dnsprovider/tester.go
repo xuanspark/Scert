@@ -26,18 +26,44 @@ type TXTResolver interface {
 }
 
 type Tester struct {
-	factory  Factory
-	resolver TXTResolver
+	factory             Factory
+	resolver            TXTResolver
+	propagationTimeout  time.Duration
+	propagationInterval time.Duration
 }
 
 const dnsCleanupTimeout = 30 * time.Second
+const defaultDNSPropagationTimeout = 30 * time.Second
+const defaultDNSPropagationInterval = 2 * time.Second
 
 func NewTester(factory Factory) *Tester {
-	return NewTesterWithResolver(factory, legoTXTResolver{})
+	return NewTesterWithResolverAndSettings(factory, legoTXTResolver{}, defaultDNSPropagationTimeout, defaultDNSPropagationInterval)
 }
 
 func NewTesterWithResolver(factory Factory, resolver TXTResolver) *Tester {
-	return &Tester{factory: factory, resolver: resolver}
+	return NewTesterWithResolverAndSettings(factory, resolver, defaultDNSPropagationTimeout, defaultDNSPropagationInterval)
+}
+
+func NewTesterWithSettings(factory Factory, timeout, interval time.Duration) *Tester {
+	return NewTesterWithResolverAndSettings(factory, legoTXTResolver{}, timeout, interval)
+}
+
+func NewTesterWithResolverAndSettings(factory Factory, resolver TXTResolver, timeout, interval time.Duration) *Tester {
+	if timeout <= 0 {
+		timeout = defaultDNSPropagationTimeout
+	}
+	if interval <= 0 || interval > timeout {
+		interval = defaultDNSPropagationInterval
+		if interval > timeout {
+			interval = timeout
+		}
+	}
+	return &Tester{
+		factory:             factory,
+		resolver:            resolver,
+		propagationTimeout:  timeout,
+		propagationInterval: interval,
+	}
 }
 
 type VerificationError struct {
@@ -100,7 +126,7 @@ func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain st
 		Name: "创建记录", Status: "completed", Message: "已调用 DNS API 创建临时 TXT 记录。",
 	})
 
-	if err := waitForTXT(ctx, t.resolver, report.RecordName, challengeInfo.Value); err != nil {
+	if err := waitForTXT(ctx, t.resolver, report.RecordName, challengeInfo.Value, t.propagationTimeout, t.propagationInterval); err != nil {
 		report.Stages = append(report.Stages, setup.DNSVerificationStage{
 			Name: "查询记录", Status: "failed", Message: "公网 DNS 查询未确认 TXT 记录已生效。",
 		})
@@ -158,13 +184,22 @@ func (legoTXTResolver) LookupTXT(ctx context.Context, fqdn string) ([]string, er
 	return values, nil
 }
 
-func waitForTXT(ctx context.Context, resolver TXTResolver, fqdn, expected string) error {
+func waitForTXT(ctx context.Context, resolver TXTResolver, fqdn, expected string, timeout, interval time.Duration) error {
 	if resolver == nil {
 		return errors.New("TXT 查询服务未初始化")
 	}
-	deadline := time.NewTimer(30 * time.Second)
+	if timeout <= 0 {
+		timeout = defaultDNSPropagationTimeout
+	}
+	if interval <= 0 || interval > timeout {
+		interval = defaultDNSPropagationInterval
+		if interval > timeout {
+			interval = timeout
+		}
+	}
+	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		values, err := resolver.LookupTXT(ctx, fqdn)

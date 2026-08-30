@@ -20,12 +20,14 @@ import (
 )
 
 type fakeSetupDNSVerifier struct {
-	verifyResult setup.DNSVerificationResult
-	verifyErr    error
-	checkErr     error
-	consumeErr   error
-	checked      bool
-	consumed     bool
+	verifyResult      setup.DNSVerificationResult
+	verifyErr         error
+	checkErr          error
+	consumeErr        error
+	checked           bool
+	consumed          bool
+	verifyDeadline    time.Time
+	verifyHasDeadline bool
 }
 
 type fakeSetupSecretWriter struct {
@@ -106,7 +108,11 @@ func (f *fakeFirewallManager) Rollback(_ context.Context, result firewall.Result
 	return f.rollbackErr
 }
 
-func (f *fakeSetupDNSVerifier) Verify(context.Context, setup.DNSVerificationInput) (setup.DNSVerificationResult, error) {
+func (f *fakeSetupDNSVerifier) Verify(ctx context.Context, _ setup.DNSVerificationInput) (setup.DNSVerificationResult, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		f.verifyDeadline = deadline
+		f.verifyHasDeadline = true
+	}
 	if f.verifyResult.CredentialRef == "" {
 		f.verifyResult = setup.DNSVerificationResult{
 			CredentialRef:     "secret://dns/cloudflare/test",
@@ -203,6 +209,35 @@ func TestSetupDNSProviderCatalogAndOnlineTest(t *testing.T) {
 	}
 }
 
+func TestSetupDNSTestUsesConfiguredRequestTimeout(t *testing.T) {
+	baseDir := t.TempDir()
+	cfg := config.Default(baseDir)
+	cfg.ACME.PropagationTimeoutSecs = 1
+	cfg.ACME.PropagationPollingIntervalSecs = 1
+	verifier := &fakeSetupDNSVerifier{verifyErr: errors.New("测试 DNS 验证失败")}
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, SetupDNS: verifier})
+
+	started := time.Now()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup/dns/test", strings.NewReader(`{
+		"provider":"cloudflare",
+		"test_domain":"example.com",
+		"credentials":{"api_token":"test-token"}
+	}`))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("模拟 DNS 验证失败应返回 422，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !verifier.verifyHasDeadline {
+		t.Fatal("DNS 在线测试应收到带截止时间的上下文")
+	}
+	remaining := verifier.verifyDeadline.Sub(started)
+	if remaining < 30*time.Second || remaining > 32*time.Second {
+		t.Fatalf("DNS 在线测试请求超时未按配置计算：剩余时间=%s", remaining)
+	}
+}
 func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := config.Default(baseDir)

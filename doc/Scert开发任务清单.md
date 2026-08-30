@@ -3104,3 +3104,37 @@ Linux Ubuntu 22.04 上的 `Scert-admin` 手动启停、无开机自启动、无�
 
 - `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 证书部署、Nginx 反向代理、生产 HTTPS、Windows Service、Linux systemd、Wails 打包、Windows ACL 和 MySQL 实例仍需在授权目标环境执行实机验收。
 - `[!]` 工作区中已有的 `desktop/frontend/dist/index.html`、`dist/` 和 `backend/.patch*` 未删除、未纳入本轮提交，等待用户单独授权清理。
+## 八十一、DNS 在线测试传播参数接入与全量复核（2026-08-30）
+
+### 81.1 本轮需求清单
+
+- `[✓]` DNS 测试器支持使用配置中的 DNS 传播等待时间，不再固定使用 30 秒。
+- `[✓]` DNS 测试器支持使用配置中的 DNS 轮询检测间隔，不再固定使用 2 秒。
+- `[✓]` Web 初始化 DNS 在线测试的请求上下文超时与传播等待配置同步，并保留清理记录所需的缓冲时间。
+- `[✓]` CLI 初始化 DNS 在线测试使用与配置一致的传播等待参数和请求超时。
+- `[✓]` 保留无效配置和旧构造函数的安全默认值，避免已有调用方失去超时保护。
+- `[✓]` 增加 DNS 测试器配置生效和 Web 请求截止时间的回归测试。
+
+### 81.2 代码与验证状态
+
+- `[✓]` 更新 `backend/internal/dnsprovider/tester.go`，增加可配置传播等待时间和轮询间隔的构造函数。
+- `[✓]` 更新 `backend/internal/app/app.go`，应用启动时注入 ACME DNS 传播配置。
+- `[✓]` 更新 `backend/internal/cli/root.go`，CLI 初始化流程注入 DNS 传播配置并计算请求超时。
+- `[✓]` 更新 `backend/internal/httpapi/setup.go`，Web DNS 在线测试按配置计算请求上下文超时。
+- `[✓]` 增加 DNS 测试器和 Web API 超时专项回归测试。
+- `[✓]` `go test ./...`
+- `[✓]` `go test -race ./...`
+- `[✓]` `go vet ./...`
+- `[✓]` `go mod verify`
+- `[✓]` `go build ./cmd/scert`
+- `[✓]` `go build ./cmd/scert-admin`
+- `[✓]` 网页端 `npm.cmd run build`
+- `[✓]` 桌面端前端 `npm.cmd run build`
+- `[✓]` `git diff --check`
+
+### 81.3 验收边界
+
+- `[!]` 尚未使用新的真实 DNS 服务商凭据执行公网 TXT 创建、传播和清理验收。
+- `[!]` Let’s Encrypt Production、真实 SSH 主机、公钥安装、证书部署、Nginx 反向代理和生产 HTTPS 仍需在用户授权的目标环境执行实机验收。
+- `[!]` Windows Service、Linux systemd、Wails 桌面打包、Windows ACL、MySQL 实例和真实防火墙链路仍需目标环境验收。
+- `[!]` 工作区中已有的 `desktop/frontend/dist/index.html`、`dist/` 和 `backend/.patch*` 未删除、未纳入本轮提交，等待用户单独授权清理。

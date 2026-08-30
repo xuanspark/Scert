@@ -157,7 +157,7 @@ func (s *Server) testDNS(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "DNS 测试请求参数无效", err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), s.dnsVerificationTimeout())
 	defer cancel()
 	result, err := s.setupDNS.Verify(ctx, setup.DNSVerificationInput{
 		ProviderID: request.ProviderID, TestDomain: request.TestDomain, Credentials: request.Credentials,
@@ -187,6 +187,20 @@ func (s *Server) testDNS(c *gin.Context) {
 		"message":            "DNS API 在线验证通过，凭据已加密保存。",
 	})
 }
+
+func (s *Server) dnsVerificationTimeout() time.Duration {
+	s.configMu.RLock()
+	cfg := s.config
+	s.configMu.RUnlock()
+	timeout := time.Duration(cfg.ACME.PropagationTimeoutSecs)*time.Second + dnsCleanupRequestBuffer
+	if timeout <= dnsCleanupRequestBuffer {
+		return defaultDNSRequestTimeout
+	}
+	return timeout
+}
+
+const defaultDNSRequestTimeout = 45 * time.Second
+const dnsCleanupRequestBuffer = 30 * time.Second
 
 func (s *Server) applySetup(c *gin.Context) {
 	s.configMu.Lock()
