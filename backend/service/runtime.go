@@ -28,12 +28,18 @@ func Open(configPath, baseDir string) (*Runtime, error) {
 		baseDir = filepath.Dir(filepath.Dir(configPath))
 	}
 
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadWithEnv(configPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 		cfg = defaultConfig(baseDir)
+		if err := cfg.ApplyEnvironment(); err != nil {
+			return nil, err
+		}
+		if err := cfg.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

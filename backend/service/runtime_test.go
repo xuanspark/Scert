@@ -66,3 +66,41 @@ func (r *recordingResponse) Write(body []byte) (int, error) {
 	r.body += string(body)
 	return len(body), nil
 }
+
+func TestOpenAppliesEnvironmentOverrides(t *testing.T) {
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, "config", "scert.json")
+	cfg := defaultConfig(baseDir)
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	t.Setenv("SCERT_WEB_ENABLED", "false")
+	runtime, err := Open(configPath, baseDir)
+	if err != nil {
+		t.Fatalf("应用环境覆盖后打开桌面核心服务失败：%v", err)
+	}
+	defer runtime.Close()
+
+	request, err := http.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.RemoteAddr = "127.0.0.1:1234"
+	response := newRecordingResponse()
+	runtime.Handler().ServeHTTP(response, request)
+	if response.status != http.StatusNotFound {
+		t.Fatalf("SCERT_WEB_ENABLED=false 未关闭 Web 页面，状态码：%d", response.status)
+	}
+}
+
+func TestOpenRejectsInvalidEnvironmentOverride(t *testing.T) {
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, "config", "scert.json")
+	if err := defaultConfig(baseDir).Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	t.Setenv("SCERT_WEB_ENABLED", "无效")
+	if _, err := Open(configPath, baseDir); err == nil {
+		t.Fatal("无效环境覆盖不应打开桌面核心服务")
+	}
+}
