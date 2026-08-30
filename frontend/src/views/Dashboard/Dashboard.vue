@@ -30,6 +30,7 @@ const {
   sshKeyFormError,
   certificateTypeLabels,
   domainStatusLabels,
+  taskStatusLabels,
   httpsModeLabels,
   environmentLabels,
   webServerLabels,
@@ -78,6 +79,7 @@ const {
   validateDomain,
   deployDomain,
   runRenewalNow,
+  cancelTask,
   displayLabel,
   formatDate,
   daysRemaining,
@@ -199,7 +201,17 @@ const {
                 <strong>{{ item.task_type }}</strong>
                 <span class="muted">{{ item.message || "无附加信息" }}</span>
               </div>
-              <span class="tag" :class="statusClass(item.status)">{{ item.status }}</span>
+              <div class="record-row-actions">
+                <span class="tag" :class="statusClass(item.status)">{{ displayLabel(taskStatusLabels, item.status) }}</span>
+                <button
+                  v-if="item.status === 'queued' || item.status === 'running'"
+                  class="text-button"
+                  type="button"
+                  @click="cancelTask(item)"
+                >
+                  取消任务
+                </button>
+              </div>
             </article>
           </div>
         </div>

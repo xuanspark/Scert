@@ -83,6 +83,8 @@ type Server struct {
 	resetStatePath     string
 	audit              repository.AuditRepository
 	tasks              repository.TaskRepository
+	taskMu             sync.Mutex
+	taskCancels        map[string]context.CancelFunc
 	resetMu            sync.Mutex
 	resetClosedHash    string
 	resetLimiter       *resetRateLimiter
@@ -120,6 +122,7 @@ func New(deps Dependencies) *Server {
 		resetStatePath:           deps.ResetStatePath,
 		audit:                    deps.Audit,
 		tasks:                    deps.Tasks,
+		taskCancels:              make(map[string]context.CancelFunc),
 		resetLimiter:             newResetRateLimiter(),
 		authSessions:             make(map[string]authSession),
 		loginAttempts:            make(map[string]loginAttempt),
@@ -155,6 +158,7 @@ func (s *Server) registerRoutes() {
 	adminAPI.POST("/domains/:id/issue", s.issueDomain)
 	adminAPI.GET("/tasks", s.listTasks)
 	adminAPI.GET("/tasks/:id", s.getTask)
+	adminAPI.DELETE("/tasks/:id", s.cancelTask)
 	adminAPI.GET("/tasks/:id/attempts", s.listTaskAttempts)
 	adminAPI.GET("/audit-logs", s.listAuditLogs)
 	adminAPI.GET("/settings", s.getSettings)

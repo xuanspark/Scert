@@ -183,7 +183,13 @@ h2 {
   border-radius: 11px;
   background: #fbfcfe;
 }
-.record-row > div {
+.record-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}.record-row > div {
   display: grid;
   gap: 5px;
   min-width: 0;

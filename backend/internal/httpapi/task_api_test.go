@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
@@ -147,5 +148,79 @@ func TestTaskAPIRejectsUnknownTask(t *testing.T) {
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodGet, "/api/v1/tasks/unknown", nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("未知任务应返回 404：%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestTaskAPICanCancelRunningIssue(t *testing.T) {
+	started := make(chan struct{})
+	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(ctx context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		close(started)
+		<-ctx.Done()
+		return certificate.IssueResult{DomainID: id}, deployment.Report{}, ctx.Err()
+	})
+	defer closeDB()
+
+	issueResponse := httptest.NewRecorder()
+	issueDone := make(chan struct{})
+	go func() {
+		serveAdminHTTP(server, issueResponse, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+		close(issueDone)
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("证书任务没有进入执行状态")
+	}
+	items, err := taskRepo.ListTasks(context.Background(), "", 10)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("读取运行中任务失败：%+v %v", items, err)
+	}
+	cancelResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, cancelResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+items[0].ID, nil))
+	if cancelResponse.Code != http.StatusOK || !strings.Contains(cancelResponse.Body.String(), "cancelled") {
+		t.Fatalf("取消任务响应错误：%d %s", cancelResponse.Code, cancelResponse.Body.String())
+	}
+	select {
+	case <-issueDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消后证书任务没有结束")
+	}
+	if issueResponse.Code != http.StatusConflict {
+		t.Fatalf("取消任务的申请请求应返回 409：%d %s", issueResponse.Code, issueResponse.Body.String())
+	}
+	item, err := taskRepo.GetTask(context.Background(), items[0].ID)
+	if err != nil || item.Status != "cancelled" {
+		t.Fatalf("任务取消状态没有持久化：%+v %v", item, err)
+	}
+}
+
+func TestTaskAPIReplaysIdempotentIssue(t *testing.T) {
+	calls := 0
+	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		calls++
+		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
+	})
+	defer closeDB()
+
+	firstRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil)
+	firstRequest.Header.Set("Idempotency-Key", "issue-key-20260830")
+	firstResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, firstResponse, firstRequest)
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("首次幂等请求失败：%d %s", firstResponse.Code, firstResponse.Body.String())
+	}
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil)
+	secondRequest.Header.Set("Idempotency-Key", "issue-key-20260830")
+	secondResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, secondResponse, secondRequest)
+	if secondResponse.Code != http.StatusOK || !strings.Contains(secondResponse.Body.String(), "replayed") {
+		t.Fatalf("重复幂等请求响应错误：%d %s", secondResponse.Code, secondResponse.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("幂等请求重复执行了证书申请：%d", calls)
+	}
+	items, err := taskRepo.ListTasks(context.Background(), "", 10)
+	if err != nil || len(items) != 1 || items[0].IdempotencyKey != "issue-key-20260830" {
+		t.Fatalf("幂等键没有正确保存：%+v %v", items, err)
 	}
 }

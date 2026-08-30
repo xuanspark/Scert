@@ -44,7 +44,9 @@ type TaskRepository interface {
 	GetTask(context.Context, string) (Task, error)
 	ListTasks(context.Context, string, int) ([]Task, error)
 	UpdateTask(context.Context, string, string, string, string, *time.Time, *time.Time) error
+	CancelTask(context.Context, string, string, *time.Time) error
 	FindActiveTaskByDomain(context.Context, string, string) (Task, error)
+	FindTaskByIdempotencyKey(context.Context, string, string) (Task, error)
 	CreateAttempt(context.Context, TaskAttempt) error
 	FinishAttempt(context.Context, string, string, string, *time.Time) error
 	ListAttempts(context.Context, string) ([]TaskAttempt, error)
@@ -157,6 +159,34 @@ func (r *SQLTaskRepository) UpdateTask(ctx context.Context, id, status, stage, m
 	return nil
 }
 
+func (r *SQLTaskRepository) CancelTask(ctx context.Context, id, message string, finishedAt *time.Time) error {
+	if r == nil || r.db == nil {
+		return errors.New("数据库连接不能为空")
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("任务 ID 不能为空")
+	}
+	result, err := r.db.ExecContext(ctx, `UPDATE tasks SET status = 'cancelled', message = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')`, message, nullableTime(finishedAt), time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("取消任务失败：%w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("读取任务取消结果失败：%w", err)
+	}
+	if count == 0 {
+		item, getErr := r.GetTask(ctx, id)
+		if getErr != nil {
+			return getErr
+		}
+		if item.Status == "cancelled" {
+			return nil
+		}
+		return errors.New("任务当前无法取消")
+	}
+	return nil
+}
 func (r *SQLTaskRepository) FindActiveTaskByDomain(ctx context.Context, domainID, taskType string) (Task, error) {
 	if r == nil || r.db == nil {
 		return Task{}, errors.New("数据库连接不能为空")
@@ -167,6 +197,18 @@ func (r *SQLTaskRepository) FindActiveTaskByDomain(ctx context.Context, domainID
 		return Task{}, errors.New("域名 ID 和任务类型不能为空")
 	}
 	return scanTask(r.db.QueryRowContext(ctx, taskSelect+` WHERE domain_id = ? AND task_type = ? AND status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1`, domainID, taskType))
+}
+
+func (r *SQLTaskRepository) FindTaskByIdempotencyKey(ctx context.Context, domainID, key string) (Task, error) {
+	if r == nil || r.db == nil {
+		return Task{}, errors.New("数据库连接不能为空")
+	}
+	domainID = strings.TrimSpace(domainID)
+	key = strings.TrimSpace(key)
+	if domainID == "" || key == "" {
+		return Task{}, errors.New("域名 ID 和幂等键不能为空")
+	}
+	return scanTask(r.db.QueryRowContext(ctx, taskSelect+` WHERE domain_id = ? AND idempotency_key = ? ORDER BY created_at DESC LIMIT 1`, domainID, key))
 }
 
 func (r *SQLTaskRepository) CreateAttempt(ctx context.Context, item TaskAttempt) error {

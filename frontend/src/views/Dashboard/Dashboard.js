@@ -92,7 +92,13 @@ export function useDashboard() {
     wildcard: "泛域名",
     san: "SAN 多域名",
   };
-  const domainStatusLabels = {
+  const taskStatusLabels = {
+    queued: "排队中",
+    running: "执行中",
+    success: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+  };  const domainStatusLabels = {
     pending: "等待申请",
     active: "正常",
     error: "错误",
@@ -484,9 +490,12 @@ export function useDashboard() {
     error.value = "";
     notice.value = "";
     try {
-      const response = await fetchAdmin(`/api/v1/domains/${item.id}/${action}`, {
-        method: "POST",
-      });
+      const options = { method: "POST" };
+      if (action === "issue") {
+        const suffix = crypto.randomUUID ? crypto.randomUUID() : createSSHKeyRandomSuffix();
+        options.headers = { "Idempotency-Key": `issue-${item.id}-${suffix}` };
+      }
+      const response = await fetchAdmin(`/api/v1/domains/${item.id}/${action}`, options);
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "域名操作失败");
       notice.value = successMessage;
@@ -495,7 +504,6 @@ export function useDashboard() {
       error.value = err.message || "域名操作失败";
     }
   }
-
   function issueDomain(item) {
     return runDomainAction(item, "issue", `已提交 ${item.name} 的证书申请`);
   }
@@ -508,6 +516,20 @@ export function useDashboard() {
     return runDomainAction(item, "deploy", `已提交 ${item.name} 的证书部署`);
   }
 
+  async function cancelTask(item) {
+    if (!window.confirm("确定取消这项正在执行的证书任务吗？")) return;
+    error.value = "";
+    notice.value = "";
+    try {
+      const response = await fetchAdmin(`/api/v1/tasks/${item.id}`, { method: "DELETE" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "取消任务失败");
+      notice.value = "证书任务已取消";
+      await loadData();
+    } catch (err) {
+      error.value = err.message || "取消任务失败";
+    }
+  }
   async function runRenewalNow() {
     error.value = "";
     notice.value = "";
@@ -821,6 +843,7 @@ export function useDashboard() {
     sshKeyFormError,
     certificateTypeLabels,
     domainStatusLabels,
+    taskStatusLabels,
     httpsModeLabels,
     environmentLabels,
     webServerLabels,
@@ -870,6 +893,14 @@ export function useDashboard() {
     deleteServer,
     saveDomain,
     deleteDomain,
+    issueDomain,
+    validateDomain,
+    deployDomain,
+    cancelTask,
+    runRenewalNow,
+    openSettings,
+    closeSettings,
+    saveSettings,
     loadData,
     displayLabel,
     formatDate,
