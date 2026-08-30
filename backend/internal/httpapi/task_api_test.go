@@ -224,3 +224,19 @@ func TestTaskAPIReplaysIdempotentIssue(t *testing.T) {
 		t.Fatalf("幂等键没有正确保存：%+v %v", items, err)
 	}
 }
+
+func TestTaskAPIReturnsNotImplementedWhenTaskDependenciesAreMissing(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	server := New(Dependencies{
+		Config: cfg,
+		Tasks:  (*repository.SQLTaskRepository)(nil),
+		IssueCertificate: func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+			return certificate.IssueResult{}, deployment.Report{}, nil
+		},
+	})
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusNotImplemented || !strings.Contains(response.Body.String(), "证书任务接口尚未配置") {
+		t.Fatalf("任务依赖缺失时应返回 501：%d %s", response.Code, response.Body.String())
+	}
+}

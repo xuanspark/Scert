@@ -20,6 +20,10 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
 		return
 	}
+	if s.repository == nil || s.tasks == nil {
+		s.writeError(c, http.StatusNotImplemented, "证书任务接口尚未配置", errors.New("域名仓储或任务仓储未配置"))
+		return
+	}
 	domainID := strings.TrimSpace(c.Param("id"))
 	if _, err := s.repository.GetByID(c.Request.Context(), domainID); err != nil {
 		if repository.IsNotFound(err) {
