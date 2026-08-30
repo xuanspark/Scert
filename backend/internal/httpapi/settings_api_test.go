@@ -365,6 +365,33 @@ func TestRenewalAPIUsesConfiguredRunner(t *testing.T) {
 	}
 }
 
+func TestRenewalAPIHidesWorkflowErrors(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	cfg.Admin.Username = "admin"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	server := New(Dependencies{
+		Config: cfg,
+		RunRenewal: func(context.Context) (certificate.RenewalReport, error) {
+			return certificate.RenewalReport{}, errors.New("private-key-secret-path")
+		},
+	})
+	cookie := loginForSettingsTest(t, server)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("renewal failure returned an unexpected status: %d %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if strings.Contains(body, "private-key-secret-path") {
+		t.Fatalf("renewal API leaked an internal error: %s", body)
+	}
+	if !strings.Contains(body, "\u6267\u884c\u8bc1\u4e66\u7eed\u671f\u5931\u8d25") {
+		t.Fatalf("renewal API did not include the safe error message: %s", body)
+	}
+}
 func loginForSettingsTest(t *testing.T, server *Server) *http.Cookie {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identifier":"admin","password":"Password123"}`))
