@@ -142,6 +142,15 @@ export function useDashboard() {
     return response;
   }
 
+  async function responseError(response, fallback) {
+    const result = await response.json().catch(() => ({}));
+    if (result.error) return result.error;
+    if (response.status === 403) return "当前账号没有管理权限";
+    if (response.status === 409) return "当前服务状态不允许执行此操作";
+    if (response.status >= 500) return "核心服务暂时不可用，请稍后重试";
+    return fallback;
+  }
+
   function createEmptyForm() {
     return {
       name: "",
@@ -738,8 +747,18 @@ export function useDashboard() {
         fetchAdmin("/api/v1/audit-logs?limit=20"),
         fetchAdmin("/api/v1/settings"),
       ]);
-      if ([statusResponse, domainResponse, serverResponse, sshKeyResponse, certificateResponse, taskResponse, auditResponse, settingsResponse].some((response) => !response.ok)) {
-        throw new Error("读取管理数据失败");
+      const failedResponse = [
+        statusResponse,
+        domainResponse,
+        serverResponse,
+        sshKeyResponse,
+        certificateResponse,
+        taskResponse,
+        auditResponse,
+        settingsResponse,
+      ].find((response) => !response.ok);
+      if (failedResponse) {
+        throw new Error(await responseError(failedResponse, "读取管理数据失败"));
       }
       status.value = await statusResponse.json();
       domains.value = (await domainResponse.json()).items || [];
@@ -762,8 +781,8 @@ export function useDashboard() {
         }),
       );
       domainServers.value = Object.fromEntries(associations);
-    } catch {
-      error.value = "无法连接核心服务，请先启动 scert serve";
+    } catch (err) {
+      error.value = err.message || "无法连接核心服务，请先启动 scert serve";
     } finally {
       loading.value = false;
     }
