@@ -101,6 +101,20 @@ func TestUserManagementAuthorizationAndCRUD(t *testing.T) {
 	}
 }
 
+func TestUserManagementRejectsRequestsBeforeSetup(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = false
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
+
+	response := serveUserRequest(server, nil, http.MethodGet, "/api/v1/users", "")
+	if response.Code != http.StatusConflict {
+		t.Fatalf("users API should return 409 before setup: %d %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "\u8bf7\u5148\u5b8c\u6210\u521d\u59cb\u5316\u914d\u7f6e") {
+		t.Fatalf("unexpected setup error: %s", response.Body.String())
+	}
+}
+
 func serveUserRequest(server *Server, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 	if body != "" {
