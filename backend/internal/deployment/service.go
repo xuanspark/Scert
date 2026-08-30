@@ -35,6 +35,8 @@ type Result struct {
 	BackupID string `json:"backup_id,omitempty"`
 }
 
+const deploymentRollbackTimeout = 30 * time.Second
+
 type Report struct {
 	Total   int      `json:"total"`
 	Success int      `json:"success"`
@@ -135,50 +137,57 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	backups := make([]backup, 0, len(paths))
 	temporary := make([]string, 0, len(paths))
 	installed := make([]string, 0, len(paths))
-	rollback := func() {
+	rollback := func() error {
+		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), deploymentRollbackTimeout)
+		defer cancel()
+		var rollbackErrors []error
 		for _, path := range temporary {
-			_ = client.Remove(context.Background(), path)
+			if err := client.Remove(rollbackContext, path); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("删除临时文件 %s 失败：%w", path, err))
+			}
 		}
 		for _, path := range installed {
-			_ = client.Remove(context.Background(), path)
+			if err := client.Remove(rollbackContext, path); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("删除新证书文件 %s 失败：%w", path, err))
+			}
 		}
 		for index := len(backups) - 1; index >= 0; index-- {
 			item := backups[index]
-			_ = client.Rename(context.Background(), item.saved, item.original)
+			if err := client.Rename(rollbackContext, item.saved, item.original); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("恢复备份文件 %s 失败：%w", item.original, err))
+			}
 		}
+		return errors.Join(rollbackErrors...)
+	}
+	failed := func(message string) Result {
+		if rollbackErr := rollback(); rollbackErr != nil {
+			message += fmt.Sprintf("；自动回滚失败：%v", rollbackErr)
+		}
+		result.Message = message
+		return result
 	}
 	for _, file := range paths {
 		if err := client.MkdirAll(ctx, parentPath(file.path)); err != nil {
-			result.Message = fmt.Sprintf("创建远程目录失败：%v", err)
-			rollback()
-			return result
+			return failed(fmt.Sprintf("创建远程目录失败：%v", err))
 		}
 		exists, err := client.Exists(ctx, file.path)
 		if err != nil {
-			result.Message = fmt.Sprintf("检查远程文件失败：%v", err)
-			rollback()
-			return result
+			return failed(fmt.Sprintf("检查远程文件失败：%v", err))
 		}
 		if exists {
 			backupPath := file.path + ".scert-backup-" + backupID
 			if err := client.Rename(ctx, file.path, backupPath); err != nil {
-				result.Message = fmt.Sprintf("备份远程证书失败：%v", err)
-				rollback()
-				return result
+				return failed(fmt.Sprintf("备份远程证书失败：%v", err))
 			}
 			backups = append(backups, backup{original: file.path, saved: backupPath})
 		}
 		temporaryPath := file.path + ".scert-tmp-" + backupID
 		if err := client.Upload(ctx, temporaryPath, file.data, file.mode); err != nil {
-			result.Message = fmt.Sprintf("上传远程证书失败：%v", err)
-			rollback()
-			return result
+			return failed(fmt.Sprintf("上传远程证书失败：%v", err))
 		}
 		temporary = append(temporary, temporaryPath)
 		if err := client.Rename(ctx, temporaryPath, file.path); err != nil {
-			result.Message = fmt.Sprintf("替换远程证书失败：%v", err)
-			rollback()
-			return result
+			return failed(fmt.Sprintf("替换远程证书失败：%v", err))
 		}
 		temporary = temporary[:len(temporary)-1]
 		installed = append(installed, file.path)
@@ -188,9 +197,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		if err == nil {
 			err = fmt.Errorf("退出码 %d", commandResult.ExitCode)
 		}
-		result.Message = fmt.Sprintf("reload 失败：%v", err)
-		rollback()
-		return result
+		return failed(fmt.Sprintf("reload 失败：%v", err))
 	}
 	result.Status = "success"
 	result.Message = "证书部署并 reload 成功"

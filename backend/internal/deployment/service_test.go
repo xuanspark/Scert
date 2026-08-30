@@ -14,11 +14,14 @@ type memoryFile struct {
 }
 
 type memoryClient struct {
-	files       map[string]memoryFile
-	command     []string
-	runResult   CommandResult
-	runErr      error
-	uploadError string
+	files        map[string]memoryFile
+	command      []string
+	runResult    CommandResult
+	runErr       error
+	uploadError  string
+	removeError  string
+	renameError  string
+	restoreError bool
 }
 
 func newMemoryClient() *memoryClient {
@@ -41,6 +44,12 @@ func (c *memoryClient) Upload(_ context.Context, path string, data []byte, mode 
 }
 
 func (c *memoryClient) Rename(_ context.Context, source, target string) error {
+	if c.renameError != "" && (strings.Contains(source, c.renameError) || strings.Contains(target, c.renameError)) {
+		return errors.New("模拟重命名失败")
+	}
+	if c.restoreError && strings.Contains(source, ".scert-backup-") && !strings.Contains(target, ".scert-backup-") {
+		return errors.New("模拟恢复备份失败")
+	}
 	value, ok := c.files[source]
 	if !ok {
 		return errors.New("源文件不存在")
@@ -51,6 +60,9 @@ func (c *memoryClient) Rename(_ context.Context, source, target string) error {
 }
 
 func (c *memoryClient) Remove(_ context.Context, path string) error {
+	if c.removeError != "" && strings.Contains(path, c.removeError) {
+		return errors.New("模拟删除失败")
+	}
 	delete(c.files, path)
 	return nil
 }
@@ -123,6 +135,22 @@ func TestDeployRollsBackWhenReloadFails(t *testing.T) {
 		if strings.Contains(path, ".scert-tmp-") || strings.Contains(path, ".scert-backup-") {
 			t.Fatalf("回滚后不应残留临时文件或备份文件：%s", path)
 		}
+	}
+}
+
+func TestDeployReportsRollbackFailure(t *testing.T) {
+	client := newMemoryClient()
+	client.runResult.ExitCode = 1
+	client.restoreError = true
+	server := testServer("server-1")
+	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	if report.Status != "failed" || report.Failed != 1 {
+		t.Fatalf("回滚失败结果错误：%+v", report)
+	}
+	if !strings.Contains(report.Results[0].Message, "自动回滚失败") || !strings.Contains(report.Results[0].Message, "恢复备份文件") {
+		t.Fatalf("应报告自动回滚失败原因：%s", report.Results[0].Message)
 	}
 }
 
