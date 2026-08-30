@@ -26,7 +26,10 @@ func (s *Server) requireSuperAdmin(c *gin.Context) {
 	setupReady := s.config.SetupReady
 	s.configMu.RUnlock()
 	if !setupReady {
-		c.Next()
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+			"error":      "请先完成初始化配置",
+			"request_id": requestIDFromContext(c),
+		})
 		return
 	}
 	session, ok := s.currentAuthSession(c)
