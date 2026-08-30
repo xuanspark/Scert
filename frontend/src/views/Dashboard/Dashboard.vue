@@ -1,4 +1,5 @@
 <script setup>
+import ChangePassword from "../components/ChangePassword/ChangePassword.vue";
 import UserManagement from "../UserManagement/UserManagement.vue";
 import { useDashboard } from "./Dashboard.js";
 
@@ -115,6 +116,7 @@ const {
         <h1>证书管理总览</h1>
       </div>
       <div class="topbar-actions">
+        <ChangePassword />
         <button class="secondary-button" type="button" @click="loadData">
           刷新状态
         </button>

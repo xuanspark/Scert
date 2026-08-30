@@ -74,6 +74,34 @@ func (s *Server) requireAdmin(c *gin.Context) {
 	c.Next()
 }
 
+func (s *Server) requireAuthenticated(c *gin.Context) {
+	s.configMu.RLock()
+	setupReady := s.config.SetupReady
+	s.configMu.RUnlock()
+	if !setupReady {
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+			"error":      "请先完成初始化配置",
+			"request_id": requestIDFromContext(c),
+		})
+		return
+	}
+	if _, ok := s.currentAuthSession(c); !ok {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error":      "请先登录管理后台",
+			"request_id": requestIDFromContext(c),
+		})
+		return
+	}
+	if !s.sameOriginForAPI(c.Request) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error":      "请求来源校验失败",
+			"request_id": requestIDFromContext(c),
+		})
+		return
+	}
+	c.Next()
+}
+
 func (s *Server) sameOriginForAPI(request *http.Request) bool {
 	if request == nil {
 		return false

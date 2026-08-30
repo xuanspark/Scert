@@ -147,6 +147,7 @@ func (s *Server) registerRoutes() {
 	s.router.GET("/api/v1/auth/session", s.authSession)
 	s.router.POST("/api/v1/auth/login", s.authLogin)
 	s.router.POST("/api/v1/auth/logout", s.authLogout)
+	s.router.POST("/api/v1/auth/password", s.requireAuthenticated, s.changePassword)
 	s.router.POST("/api/v1/password-reset/resolve", s.resolvePasswordResetAccount)
 	adminAPI := s.router.Group("/api/v1", s.requireAdmin)
 	userAPI := s.router.Group("/api/v1/users", s.requireSuperAdmin)
