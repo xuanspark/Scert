@@ -11,6 +11,7 @@ export function useDashboard() {
   const tasks = ref([]);
   const auditLogs = ref([]);
   const settings = ref(null);
+  const dnsProviderCatalog = ref([]);
   const domainServers = ref({});
   const loading = ref(true);
   const saving = ref(false);
@@ -34,6 +35,8 @@ export function useDashboard() {
   const showSettings = ref(false);
   const settingsSaving = ref(false);
   const settingsError = ref("");
+  const dnsTesting = ref(false);
+  const dnsTestError = ref("");
   const settingsForm = ref(createEmptySettingsForm());
   const showCertificateImport = ref(false);
   const importDomain = ref(null);
@@ -184,6 +187,27 @@ export function useDashboard() {
   const formTitle = computed(() =>
     isEditing.value ? "编辑域名配置" : "添加托管域名",
   );
+  const selectedDNSProvider = computed(() =>
+    dnsProviderCatalog.value.find(
+      (provider) => provider.id === settingsForm.value.dns.provider,
+    ) || null,
+  );
+  const dnsVerificationRequired = computed(() => {
+    const current = settingsForm.value.dns;
+    const saved = settings.value?.dns;
+    if (!current.provider) return false;
+    return (
+      current.provider !== saved?.provider ||
+      !saved?.credential_configured ||
+      current.verification_state === "pending"
+    );
+  });
+  const dnsReadyToSave = computed(
+    () =>
+      !dnsVerificationRequired.value ||
+      (Boolean(settingsForm.value.dns.credential_ref) &&
+        Boolean(settingsForm.value.dns.verification_token)),
+  );
 
   const defaultCertificatePath = "/ssl/{域名}/{证书类型}/cert.pem";
   const defaultCertificateChainPath = "/ssl/{域名}/{证书类型}/fullchain.pem";
@@ -304,7 +328,16 @@ export function useDashboard() {
         propagation_timeout_secs: 900,
         propagation_polling_interval_secs: 10,
       },
-      dns: { provider: "" },
+      dns: {
+        provider: "",
+        credential_configured: false,
+        verification_state: "not_configured",
+        test_domain: "",
+        credentials: {},
+        credential_ref: "",
+        verification_token: "",
+        test_report: null,
+      },
       notification: {
         http_enabled: false,
         smtp_enabled: false,
@@ -344,7 +377,15 @@ export function useDashboard() {
       web: { ...defaults.web, ...(source.web || {}) },
       paths: { ...defaults.paths, ...(source.paths || {}) },
       acme: { ...defaults.acme, ...(source.acme || {}) },
-      dns: { ...defaults.dns, ...(source.dns || {}) },
+      dns: {
+        ...defaults.dns,
+        ...(source.dns || {}),
+        credentials: {},
+        credential_ref: "",
+        verification_token: "",
+        test_domain: "",
+        test_report: null,
+      },
       notification: {
         ...defaults.notification,
         ...(source.notification || {}),
@@ -682,8 +723,84 @@ export function useDashboard() {
     }
   }
 
+  function handleDNSProviderChange() {
+    const dns = settingsForm.value.dns;
+    const saved = settings.value?.dns;
+    dnsTestError.value = "";
+    dns.credential_ref = "";
+    dns.verification_token = "";
+    dns.test_report = null;
+    if (dns.provider && dns.provider === saved?.provider && saved.credential_configured) {
+      dns.verification_state = saved.verification_state || "verified";
+      return;
+    }
+    dns.verification_state = dns.provider ? "pending" : "not_configured";
+  }
+
+  function clearDNSCredentials() {
+    settingsForm.value.dns.credentials = {};
+    dnsTestError.value = "";
+  }
+
+  async function testDNS() {
+    const dns = settingsForm.value.dns;
+    const provider = selectedDNSProvider.value;
+    dnsTestError.value = "";
+    dns.test_report = null;
+    if (!dns.provider || !provider) {
+      dnsTestError.value = "请选择 DNS 验证服务商";
+      return;
+    }
+    if (!dns.test_domain.trim()) {
+      dnsTestError.value = "请输入 DNS 在线测试域名";
+      return;
+    }
+    const credentials = Object.fromEntries(
+      Object.entries(dns.credentials || {})
+        .map(([key, value]) => [key, String(value || "").trim()])
+        .filter(([, value]) => value),
+    );
+    const missingField = (provider.credential_fields || []).find(
+      (field) => field.required && !credentials[field.name],
+    );
+    if (missingField) {
+      dnsTestError.value = `请填写${missingField.label}`;
+      return;
+    }
+    dnsTesting.value = true;
+    try {
+      const response = await fetchAdmin("/api/v1/dns/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: dns.provider,
+          test_domain: dns.test_domain.trim(),
+          credentials,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      dns.test_report = result.test_report || null;
+      if (!response.ok) {
+        throw new Error(result.error || "DNS API 在线测试失败");
+      }
+      dns.credential_ref = result.credential_ref || "";
+      dns.verification_token = result.verification_token || "";
+      dns.verification_state = "verified";
+      dns.credential_configured = true;
+      notice.value = "DNS API 在线测试通过，可以保存系统设置";
+    } catch (err) {
+      dns.credential_ref = "";
+      dns.verification_token = "";
+      dns.verification_state = "pending";
+      dnsTestError.value = err.message || "DNS API 在线测试失败";
+    } finally {
+      dnsTesting.value = false;
+    }
+  }
+
   function openSettings() {
     settingsError.value = "";
+    dnsTestError.value = "";
     settingsForm.value = normalizeSettings(settings.value);
     showSettings.value = true;
   }
@@ -694,12 +811,28 @@ export function useDashboard() {
 
   async function saveSettings() {
     settingsError.value = "";
+    if (!dnsReadyToSave.value) {
+      settingsError.value = "DNS 服务商配置尚未通过在线测试，请先完成测试";
+      return;
+    }
     settingsSaving.value = true;
     try {
+      const current = settingsForm.value;
+      const payload = {
+        ...current,
+        dns: {
+          provider: current.dns.provider,
+        },
+      };
+      if (current.dns.credential_ref && current.dns.verification_token) {
+        payload.dns.credential_ref = current.dns.credential_ref;
+        payload.dns.verification_token = current.dns.verification_token;
+        payload.dns.test_domain = current.dns.test_domain;
+      }
       const response = await fetchAdmin("/api/v1/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settingsForm.value),
+        body: JSON.stringify(payload),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存系统设置失败");

@@ -3,8 +3,10 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
 func TestSettingsAPIRequiresAuthentication(t *testing.T) {
@@ -437,5 +440,240 @@ func TestSettingsAPIRollsBackEarlierCredentialWhenLaterCredentialFails(t *testin
 	}
 	if len(secrets.values) != 0 || len(secrets.deleted) != 1 {
 		t.Fatalf("earlier HTTP credentials should be rolled back: values=%v deleted=%v", secrets.values, secrets.deleted)
+	}
+}
+
+func TestSettingsAPIDNSRequiresCompleteVerification(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.DNS.Provider = "cloudflare"
+	cfg.DNS.CredentialRef = "secret://dns/cloudflare/old"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	server := New(Dependencies{
+		Config: cfg, ConfigPath: configPath,
+		SetupDNS: &fakeSetupDNSVerifier{},
+	})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "dns": {"provider": "cloudflare", "verification_token": "token-only"}
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("DNS 验证参数不完整应返回 400，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "保存 DNS 设置失败") {
+		t.Fatalf("错误响应应说明 DNS 设置保存失败：%s", response.Body.String())
+	}
+}
+
+func TestSettingsAPIDNSProviderChangeRequiresReverification(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.DNS.Provider = "cloudflare"
+	cfg.DNS.CredentialRef = "secret://dns/cloudflare/old"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "dns": {"provider": "aliyun"}
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("更换 DNS 服务商但未重新验证应返回 400，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "设置内容校验失败") {
+		t.Fatalf("错误响应应说明设置校验失败：%s", response.Body.String())
+	}
+}
+
+func TestSettingsAPISavesVerifiedDNSCredentialWithoutReturningSecret(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.DNS.Provider = "cloudflare"
+	cfg.DNS.CredentialRef = "secret://dns/cloudflare/old"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	const newCredentialRef = "secret://dns/cloudflare/new"
+	verifier := &fakeSetupDNSVerifier{verifyResult: setup.DNSVerificationResult{
+		CredentialRef: newCredentialRef, VerificationToken: "new-verification-token",
+	}}
+	secrets := &fakeSetupSecretWriter{values: map[string]map[string]string{
+		cfg.DNS.CredentialRef: {"api_token": "old-token"},
+		newCredentialRef:      {"api_token": "new-token"},
+	}}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath, SetupDNS: verifier, Secrets: secrets})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "dns": {
+            "provider": "cloudflare",
+            "credential_ref": "secret://dns/cloudflare/new",
+            "verification_token": "new-verification-token",
+            "test_domain": "example.com"
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("保存已验证 DNS 设置应成功，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, secret := range []string{"new-verification-token", newCredentialRef, "new-token", "credential_ref"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("设置响应不应返回 DNS 敏感内容 %q：%s", secret, body)
+		}
+	}
+	if !verifier.consumed {
+		t.Fatal("保存成功后应消费 DNS 验证令牌")
+	}
+	if _, ok := secrets.values[cfg.DNS.CredentialRef]; ok {
+		t.Fatal("替换后的旧 DNS 凭据应被清理")
+	}
+	if _, ok := secrets.values[newCredentialRef]; !ok {
+		t.Fatal("新的 DNS 凭据应继续保留")
+	}
+	saved, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("读取保存后的配置失败：%v", err)
+	}
+	if saved.DNS.CredentialRef != newCredentialRef || saved.DNS.VerificationState != "verified" {
+		t.Fatalf("DNS 配置没有正确持久化：%+v", saved.DNS)
+	}
+}
+
+func TestSettingsAPIDNSCheckFailureRollsBackCredential(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.DNS.Provider = "cloudflare"
+	cfg.DNS.CredentialRef = "secret://dns/cloudflare/old"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	const newCredentialRef = "secret://dns/cloudflare/new"
+	verifier := &fakeSetupDNSVerifier{checkErr: errors.New("DNS 验证令牌无效")}
+	secrets := &fakeSetupSecretWriter{values: map[string]map[string]string{
+		newCredentialRef: {"api_token": "new-token"},
+	}}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath, SetupDNS: verifier, Secrets: secrets})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "dns": {
+            "provider": "cloudflare",
+            "credential_ref": "secret://dns/cloudflare/new",
+            "verification_token": "invalid-token",
+            "test_domain": "example.com"
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("无效 DNS 验证令牌应返回 400，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if _, ok := secrets.values[newCredentialRef]; ok {
+		t.Fatal("DNS 验证失败后不应保留新凭据")
+	}
+	if len(secrets.deleted) != 1 || secrets.deleted[0] != newCredentialRef {
+		t.Fatalf("DNS 验证失败后应删除新凭据：%v", secrets.deleted)
+	}
+}
+
+func TestSettingsAPIDNSSaveFailureRollsBackCredential(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.DNS.Provider = "cloudflare"
+	cfg.DNS.CredentialRef = "secret://dns/cloudflare/old"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	initialConfigPath := dir + "\\config\\initial.json"
+	if err := cfg.Save(initialConfigPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	blockedPath := dir + "\\blocked"
+	if err := os.WriteFile(blockedPath, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("创建保存失败测试文件失败：%v", err)
+	}
+	const newCredentialRef = "secret://dns/cloudflare/new"
+	verifier := &fakeSetupDNSVerifier{verifyResult: setup.DNSVerificationResult{
+		CredentialRef: newCredentialRef, VerificationToken: "new-verification-token",
+	}}
+	secrets := &fakeSetupSecretWriter{values: map[string]map[string]string{
+		newCredentialRef: {"api_token": "new-token"},
+	}}
+	server := New(Dependencies{Config: cfg, ConfigPath: blockedPath + "\\scert.json", SetupDNS: verifier, Secrets: secrets})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "dns": {
+            "provider": "cloudflare",
+            "credential_ref": "secret://dns/cloudflare/new",
+            "verification_token": "new-verification-token",
+            "test_domain": "example.com"
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("配置保存失败应返回 500，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if _, ok := secrets.values[newCredentialRef]; ok {
+		t.Fatal("配置保存失败后不应保留新 DNS 凭据")
+	}
+	if len(secrets.deleted) != 1 || secrets.deleted[0] != newCredentialRef {
+		t.Fatalf("配置保存失败后应删除新 DNS 凭据：%v", secrets.deleted)
+	}
+	if verifier.consumed {
+		t.Fatal("配置保存失败后不应消费 DNS 验证令牌")
 	}
 }

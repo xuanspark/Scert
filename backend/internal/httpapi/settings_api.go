@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"reflect"
@@ -51,8 +52,9 @@ type settingsACMEView struct {
 }
 
 type settingsDNSView struct {
-	Provider          string `json:"provider"`
-	VerificationState string `json:"verification_state"`
+	Provider             string `json:"provider"`
+	VerificationState    string `json:"verification_state"`
+	CredentialConfigured bool   `json:"credential_configured"`
 }
 
 type settingsNotificationView struct {
@@ -122,7 +124,10 @@ type settingsACMERequest struct {
 }
 
 type settingsDNSRequest struct {
-	Provider *string `json:"provider"`
+	Provider          *string `json:"provider"`
+	CredentialRef     *string `json:"credential_ref"`
+	VerificationToken *string `json:"verification_token"`
+	TestDomain        *string `json:"test_domain"`
 }
 
 type settingsNotificationRequest struct {
@@ -182,6 +187,19 @@ func (s *Server) updateSettings(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "保存通知凭据失败", err)
 		return
 	}
+	dnsCredentialRef, dnsVerificationToken, dnsTestDomain, err := s.applySettingsDNS(c.Request.Context(), &updated, previous, request.DNS)
+	if err != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
+		if dnsCredentialRef != "" && dnsCredentialRef != previous.DNS.CredentialRef {
+			s.rollbackSetupCredentialsWithLog([]string{dnsCredentialRef})
+		}
+		s.configMu.Unlock()
+		s.writeError(c, http.StatusBadRequest, "保存 DNS 设置失败", err)
+		return
+	}
+	if dnsCredentialRef != "" && dnsCredentialRef != previous.DNS.CredentialRef {
+		createdCredentialRefs = append(createdCredentialRefs, dnsCredentialRef)
+	}
 	if err := updated.Validate(); err != nil {
 		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.configMu.Unlock()
@@ -208,10 +226,12 @@ func (s *Server) updateSettings(c *gin.Context) {
 	s.config = updated
 	s.configMu.Unlock()
 	oldCredentialRefs := []string{
+		previous.DNS.CredentialRef,
 		previous.Notification.HTTPCredentialRef,
 		previous.Notification.SMTPCredentialRef,
 	}
 	newCredentialRefs := map[string]struct{}{
+		updated.DNS.CredentialRef:              {},
 		updated.Notification.HTTPCredentialRef: {},
 		updated.Notification.SMTPCredentialRef: {},
 	}
@@ -227,7 +247,12 @@ func (s *Server) updateSettings(c *gin.Context) {
 	}
 	if len(obsoleteCredentialRefs) > 0 {
 		if err := s.rollbackSetupCredentials(obsoleteCredentialRefs); err != nil && s.logger != nil {
-			s.logger.Warn("\u6e05\u7406\u5df2\u66ff\u6362\u7684\u901a\u77e5\u654f\u611f\u51ed\u636e\u5931\u8d25", "error", err)
+			s.logger.Warn("\u6e05\u7406\u5df2\u66ff\u6362\u7684\u654f\u611f\u51ed\u636e\u5931\u8d25", "error", err)
+		}
+	}
+	if dnsVerificationToken != "" && s.setupDNS != nil {
+		if err := s.setupDNS.Consume(dnsVerificationToken, updated.DNS.Provider, dnsCredentialRef, dnsTestDomain); err != nil && s.logger != nil {
+			s.logger.Warn("系统设置已保存，但清理 DNS 验证令牌失败", "error", err)
 		}
 	}
 
@@ -236,6 +261,39 @@ func (s *Server) updateSettings(c *gin.Context) {
 		"restart_required": restartRequired,
 		"message":          message,
 	})
+}
+
+func (s *Server) applySettingsDNS(ctx context.Context, cfg *config.Config, previous config.Config, request *settingsDNSRequest) (string, string, string, error) {
+	if cfg == nil || request == nil {
+		return "", "", "", nil
+	}
+	providerChanged := cfg.DNS.Provider != strings.TrimSpace(previous.DNS.Provider)
+	hasVerificationInput := request.CredentialRef != nil || request.VerificationToken != nil || request.TestDomain != nil
+	if !hasVerificationInput {
+		if providerChanged {
+			cfg.DNS.CredentialRef = ""
+			cfg.DNS.VerificationState = "pending"
+		}
+		return "", "", "", nil
+	}
+	if s.setupDNS == nil {
+		return "", "", "", errors.New("DNS 在线验证服务尚未初始化")
+	}
+	if request.CredentialRef == nil || request.VerificationToken == nil || request.TestDomain == nil {
+		return "", "", "", errors.New("DNS 验证参数不完整，请先完成在线测试")
+	}
+	credentialRef := strings.TrimSpace(*request.CredentialRef)
+	verificationToken := strings.TrimSpace(*request.VerificationToken)
+	testDomain := strings.TrimSpace(*request.TestDomain)
+	if credentialRef == "" || verificationToken == "" || testDomain == "" {
+		return credentialRef, verificationToken, testDomain, errors.New("DNS 验证参数不完整，请先完成在线测试")
+	}
+	if err := s.setupDNS.Check(verificationToken, cfg.DNS.Provider, credentialRef, testDomain); err != nil {
+		return credentialRef, verificationToken, testDomain, err
+	}
+	cfg.DNS.CredentialRef = credentialRef
+	cfg.DNS.VerificationState = "verified"
+	return credentialRef, verificationToken, testDomain, nil
 }
 
 func settingsViewFromConfig(cfg config.Config) settingsView {
@@ -250,7 +308,10 @@ func settingsViewFromConfig(cfg config.Config) settingsView {
 			RenewalMaxRetries: cfg.ACME.RenewalMaxRetries, RenewalRetryIntervalMins: cfg.ACME.RenewalRetryIntervalMins,
 			PropagationTimeoutSecs: cfg.ACME.PropagationTimeoutSecs, PropagationPollingIntervalSecs: cfg.ACME.PropagationPollingIntervalSecs,
 		},
-		DNS: settingsDNSView{Provider: cfg.DNS.Provider, VerificationState: cfg.DNS.VerificationState},
+		DNS: settingsDNSView{
+			Provider: cfg.DNS.Provider, VerificationState: cfg.DNS.VerificationState,
+			CredentialConfigured: strings.TrimSpace(cfg.DNS.CredentialRef) != "",
+		},
 		Notification: settingsNotificationView{
 			HTTPEnabled: cfg.Notification.HTTPEnabled, SMTPEnabled: cfg.Notification.SMTPEnabled, Provider: cfg.Notification.Provider,
 			SMTPHost: cfg.Notification.SMTPHost, SMTPPort: cfg.Notification.SMTPPort, SMTPUsername: cfg.Notification.SMTPUsername,
