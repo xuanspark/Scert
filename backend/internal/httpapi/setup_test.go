@@ -355,7 +355,7 @@ func TestSetupApplyRejectsUnverifiedDNSConfiguration(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "DNS 验证令牌") {
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "DNS 验证状态无效") {
 		t.Fatalf("未验证 DNS 配置应被拒绝：%d %s", response.Code, response.Body.String())
 	}
 }
