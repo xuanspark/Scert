@@ -46,7 +46,10 @@ func (s *Server) listCertificates(c *gin.Context) {
 		if currentErr == nil {
 			entry["certificate"] = current
 		} else {
-			entry["certificate_error"] = currentErr.Error()
+			entry["certificate_error"] = "当前证书不可用"
+			if s.logger != nil {
+				s.logger.Warn("读取域名当前证书失败", "domain_id", item.ID, "error", currentErr)
+			}
 		}
 		result = append(result, entry)
 	}
