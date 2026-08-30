@@ -85,6 +85,7 @@ type Server struct {
 	tasks              repository.TaskRepository
 	taskMu             sync.Mutex
 	taskCancels        map[string]context.CancelFunc
+	issueTaskMu        sync.Mutex
 	resetMu            sync.Mutex
 	resetClosedHash    string
 	resetLimiter       *resetRateLimiter

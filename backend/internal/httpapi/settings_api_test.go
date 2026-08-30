@@ -124,6 +124,116 @@ func TestSettingsAPIWebAddressChangeDoesNotRequireRestart(t *testing.T) {
 	}
 }
 
+func TestSettingsAPIReturnsAndUpdatesRenewalPolicy(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath})
+	cookie := loginForSettingsTest(t, server)
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	getRequest.AddCookie(cookie)
+	getResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("读取设置应成功，实际为 %d：%s", getResponse.Code, getResponse.Body.String())
+	}
+	var initial struct {
+		ACME settingsACMEView `json:"acme"`
+	}
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &initial); err != nil {
+		t.Fatalf("解析初始设置失败：%v", err)
+	}
+	if initial.ACME.RenewalCheckIntervalDays != 3 || initial.ACME.RenewalNearExpiryDays != 10 || initial.ACME.RenewalThresholdDays != 6 || initial.ACME.RenewalUrgentThresholdDays != 3 || initial.ACME.RenewalMaxRetries != 3 || initial.ACME.RenewalRetryIntervalMins != 30 {
+		t.Fatalf("初始续期策略返回不完整：%+v", initial.ACME)
+	}
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "acme": {
+            "renewal_check_interval_days": 2,
+            "renewal_near_expiry_days": 14,
+            "renewal_threshold_days": 7,
+            "renewal_urgent_threshold_days": 2,
+            "renewal_max_retries": 5,
+            "renewal_retry_interval_mins": 45
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("更新续期策略应成功，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Settings settingsView `json:"settings"`
+		Restart  bool         `json:"restart_required"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("解析续期策略响应失败：%v", err)
+	}
+	if !payload.Restart || payload.Settings.ACME.RenewalCheckIntervalDays != 2 || payload.Settings.ACME.RenewalNearExpiryDays != 14 || payload.Settings.ACME.RenewalThresholdDays != 7 || payload.Settings.ACME.RenewalUrgentThresholdDays != 2 || payload.Settings.ACME.RenewalMaxRetries != 5 || payload.Settings.ACME.RenewalRetryIntervalMins != 45 {
+		t.Fatalf("更新后的续期策略不正确：restart=%v acme=%+v", payload.Restart, payload.Settings.ACME)
+	}
+	saved, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("读取续期策略配置失败：%v", err)
+	}
+	if saved.ACME.RenewalCheckIntervalDays != 2 || saved.ACME.RenewalNearExpiryDays != 14 || saved.ACME.RenewalThresholdDays != 7 || saved.ACME.RenewalUrgentThresholdDays != 2 || saved.ACME.RenewalMaxRetries != 5 || saved.ACME.RenewalRetryIntervalMins != 45 {
+		t.Fatalf("续期策略没有正确持久化：%+v", saved.ACME)
+	}
+}
+
+func TestSettingsAPIRejectsInvalidRenewalPolicy(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "acme": {
+            "renewal_near_expiry_days": 2,
+            "renewal_threshold_days": 7
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("非法续期阈值关系应返回 400，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "设置内容校验失败") {
+		t.Fatalf("错误响应应说明设置校验失败：%s", response.Body.String())
+	}
+	saved, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("读取回滚后的配置失败：%v", err)
+	}
+	if saved.ACME.RenewalNearExpiryDays != cfg.ACME.RenewalNearExpiryDays || saved.ACME.RenewalThresholdDays != cfg.ACME.RenewalThresholdDays {
+		t.Fatalf("非法设置不应持久化：before=%+v after=%+v", cfg.ACME, saved.ACME)
+	}
+}
+
 func TestSettingsAPIReturnsChineseNotificationCredentialError(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default(dir)

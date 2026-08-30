@@ -29,9 +29,11 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "读取域名失败", err)
 		return
 	}
+	s.issueTaskMu.Lock()
 	idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
 	if idempotencyKey != "" {
 		if !validTaskIdempotencyKey(idempotencyKey) {
+			s.issueTaskMu.Unlock()
 			s.writeError(c, http.StatusBadRequest, "幂等键格式无效", errors.New("幂等键长度或字符无效"))
 			return
 		}
@@ -41,16 +43,20 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 				status = http.StatusConflict
 			}
 			c.JSON(status, gin.H{"task": existing, "replayed": true})
+			s.issueTaskMu.Unlock()
 			return
 		} else if !errors.Is(err, sql.ErrNoRows) {
+			s.issueTaskMu.Unlock()
 			s.writeError(c, http.StatusInternalServerError, "检查幂等任务失败", err)
 			return
 		}
 	}
 	if active, err := s.tasks.FindActiveTaskByDomain(c.Request.Context(), domainID, "certificate_issue"); err == nil {
+		s.issueTaskMu.Unlock()
 		c.JSON(http.StatusConflict, gin.H{"error": "该域名已有正在执行的证书任务", "task": active})
 		return
 	} else if !errors.Is(err, sql.ErrNoRows) {
+		s.issueTaskMu.Unlock()
 		s.writeError(c, http.StatusInternalServerError, "检查正在执行的任务失败", err)
 		return
 	}
@@ -60,9 +66,11 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		Message: "等待执行证书申请", IdempotencyKey: idempotencyKey, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.tasks.CreateTask(c.Request.Context(), task); err != nil {
+		s.issueTaskMu.Unlock()
 		s.writeError(c, http.StatusInternalServerError, "创建证书任务失败", err)
 		return
 	}
+	s.issueTaskMu.Unlock()
 	attempt := repository.TaskAttempt{
 		ID: domain.NewID(), TaskID: task.ID, AttemptNumber: 1, Stage: "certificate_issue", Status: "running",
 		Message: "开始申请证书", StartedAt: &now, CreatedAt: now,
