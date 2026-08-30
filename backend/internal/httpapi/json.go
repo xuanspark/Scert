@@ -9,10 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// bindJSON ???? JSON ?????????????????? JSON?
+// bindJSON 严格解析 JSON 请求，并拒绝未知字段和多段 JSON。
 func bindJSON(c *gin.Context, target any, limit int64) error {
 	if c == nil || c.Request == nil || c.Request.Body == nil {
-		return errors.New("???????")
+		return errors.New("请求上下文或请求体为空")
 	}
 	if limit > 0 {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
@@ -24,7 +24,7 @@ func bindJSON(c *gin.Context, target any, limit int64) error {
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		if err == nil {
-			return errors.New("????????? JSON ??")
+			return errors.New("请求体包含多段 JSON 数据")
 		}
 		return err
 	}

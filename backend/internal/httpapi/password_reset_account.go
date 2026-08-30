@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -27,11 +26,8 @@ type passwordResetResolution struct {
 
 // resolvePasswordResetAccount 根据账户标识返回对应的密码处理内容。
 func (s *Server) resolvePasswordResetAccount(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, passwordResetResolveBodyLimit)
 	var request passwordResetResolveRequest
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
+	if err := bindJSON(c, &request, passwordResetResolveBodyLimit); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "账户信息格式无效"})
 		return
 	}
