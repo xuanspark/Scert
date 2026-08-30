@@ -3078,3 +3078,29 @@ Linux Ubuntu 22.04 上的 `Scert-admin` 手动启停、无开机自启动、无�
 - `[✓]` 后端 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go mod verify` 和 `git diff --check` 已通过。
 - `[~]` 本批源码提交和远程推送待完成。
 - `[!]` 真实 ACME、DNS Provider、SSH 部署、Nginx 反向代理和生产 HTTPS 仍需在授权目标环境执行实机验收。
+
+## 八十、证书部署接口报告脱敏与本轮复核（2026-08-30）
+
+### 80.1 本轮需求清单
+
+- `[✓]` 直接证书部署接口统一调用部署报告脱敏逻辑。
+- `[✓]` 证书文件导入接口统一调用部署报告脱敏逻辑。
+- `[✓]` 失败报告仅保留服务器编号、服务器名称、汇总数量和状态，不返回远程证书路径、私钥路径、命令输出或权限错误。
+- `[✓]` 增加直接部署接口和证书导入接口的内部错误脱敏回归测试。
+- `[✓]` 保留日志中的底层错误，便于管理员排查真实部署失败原因。
+
+### 80.2 本轮验证状态
+
+- `[✓]` `go test ./internal/httpapi`
+- `[✓]` `go test ./...`
+- `[✓]` `go test -race ./...`
+- `[✓]` `go vet ./...`
+- `[✓]` `go mod verify`
+- `[✓]` `npm.cmd run build`
+- `[✓]` `git diff --check`
+- `[✓]` 本轮源码提交已推送，且本地 `main` 与远程 `Scert/main` 哈希一致。
+
+### 80.3 验收边界
+
+- `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 证书部署、Nginx 反向代理、生产 HTTPS、Windows Service、Linux systemd、Wails 打包、Windows ACL 和 MySQL 实例仍需在授权目标环境执行实机验收。
+- `[!]` 工作区中已有的 `desktop/frontend/dist/index.html`、`dist/` 和 `backend/.patch*` 未删除、未纳入本轮提交，等待用户单独授权清理。
