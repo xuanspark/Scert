@@ -49,9 +49,8 @@ type authLoginRequest struct {
 }
 
 func (s *Server) authLogin(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, authRequestBodyLimit)
 	var request authLoginRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := bindJSON(c, &request, authRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "登录请求参数无效", err)
 		return
 	}

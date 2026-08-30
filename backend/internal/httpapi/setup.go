@@ -136,9 +136,8 @@ func (s *Server) testSetupDNS(c *gin.Context) {
 		s.writeError(c, http.StatusServiceUnavailable, "DNS 在线验证服务尚未初始化", nil)
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, setupRequestLimit)
 	var request dnsTestRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := bindJSON(c, &request, setupRequestLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "DNS 测试请求参数无效", err)
 		return
 	}
@@ -184,9 +183,8 @@ func (s *Server) applySetup(c *gin.Context) {
 		s.writeError(c, http.StatusConflict, "初始化已经完成，不能重复提交", nil)
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, setupRequestLimit)
 	var request setupRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := bindJSON(c, &request, setupRequestLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "初始化请求参数无效", err)
 		return
 	}

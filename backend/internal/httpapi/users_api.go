@@ -79,13 +79,12 @@ func (s *Server) getUser(c *gin.Context) {
 }
 
 func (s *Server) createUser(c *gin.Context) {
-	limitJSONBody(c)
 	if s.users == nil {
 		s.writeError(c, http.StatusNotImplemented, "用户管理接口尚未配置", errors.New("用户仓储未配置"))
 		return
 	}
 	var request userRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "用户参数无效", err)
 		return
 	}
@@ -103,7 +102,6 @@ func (s *Server) createUser(c *gin.Context) {
 }
 
 func (s *Server) updateUser(c *gin.Context) {
-	limitJSONBody(c)
 	if s.users == nil {
 		s.writeError(c, http.StatusNotImplemented, "用户管理接口尚未配置", errors.New("用户仓储未配置"))
 		return
@@ -119,7 +117,7 @@ func (s *Server) updateUser(c *gin.Context) {
 		return
 	}
 	var request userRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "用户参数无效", err)
 		return
 	}

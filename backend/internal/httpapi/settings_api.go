@@ -150,13 +150,12 @@ func (s *Server) getSettings(c *gin.Context) {
 }
 
 func (s *Server) updateSettings(c *gin.Context) {
-	limitJSONBody(c)
 	if strings.TrimSpace(s.configPath) == "" {
 		s.writeError(c, http.StatusInternalServerError, "配置文件路径未配置", errors.New("配置文件路径为空"))
 		return
 	}
 	var request settingsRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "设置请求格式不正确", err)
 		return
 	}
