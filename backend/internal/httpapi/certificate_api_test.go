@@ -135,3 +135,28 @@ func TestCertificateImportAPIRejectsMissingFiles(t *testing.T) {
 		t.Fatalf("缺少证书路径应返回参数错误：%d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestCertificateImportAPIRejectsInvalidPathJSON(t *testing.T) {
+	server := New(Dependencies{
+		Config:     readyTestConfig(t.TempDir()),
+		Repository: &stubDomainRepository{},
+		ImportCertificate: func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+			t.Fatal("无效证书路径请求不应调用导入服务")
+			return certificate.IssueResult{}, deployment.Report{}, nil
+		},
+	})
+
+	tests := []string{
+		`{"certificate_path":"/ssl/cert.pem","private_key_path":"/ssl/key.pem","unexpected":true}`,
+		`{"certificate_path":"/ssl/cert.pem","private_key_path":"/ssl/key.pem"}{"certificate_path":"again"}`,
+	}
+	for _, body := range tests {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		serveAdminHTTP(server, response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("无效证书路径请求应返回 400，实际为 %d：%s", response.Code, response.Body.String())
+		}
+	}
+}

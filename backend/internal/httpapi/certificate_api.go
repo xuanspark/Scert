@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -173,7 +172,7 @@ func parseCertificateImportRequest(c *gin.Context) (certificate.ImportRequest, f
 		}, cleanup, nil
 	}
 	var body certificatePathRequest
-	if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
+	if err := bindJSON(c, &body, certificateUploadLimit); err != nil {
 		return certificate.ImportRequest{}, cleanup, fmt.Errorf("读取证书路径失败：%w", err)
 	}
 	if strings.TrimSpace(body.CertificatePath) == "" {
