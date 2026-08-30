@@ -28,13 +28,15 @@ type RenewalPolicy struct {
 }
 
 type RenewalScheduler struct {
-	lister  DomainLister
-	issuer  CertificateIssuer
-	policy  RenewalPolicy
-	now     func() time.Time
-	mu      sync.Mutex
-	runMu   sync.Mutex
-	running bool
+	lister   DomainLister
+	issuer   CertificateIssuer
+	policy   RenewalPolicy
+	now      func() time.Time
+	mu       sync.Mutex
+	policyMu sync.RWMutex
+	runMu    sync.Mutex
+	running  bool
+	wake     chan struct{}
 }
 
 type RenewalReport struct {
@@ -63,7 +65,32 @@ func NewRenewalScheduler(lister DomainLister, issuer CertificateIssuer, threshol
 
 func NewRenewalSchedulerWithPolicy(lister DomainLister, issuer CertificateIssuer, policy RenewalPolicy) *RenewalScheduler {
 	policy = normalizeRenewalPolicy(policy)
-	return &RenewalScheduler{lister: lister, issuer: issuer, policy: policy, now: time.Now}
+	return &RenewalScheduler{lister: lister, issuer: issuer, policy: policy, now: time.Now, wake: make(chan struct{}, 1)}
+}
+
+func (s *RenewalScheduler) UpdatePolicy(policy RenewalPolicy) {
+	if s == nil {
+		return
+	}
+	policy = normalizeRenewalPolicy(policy)
+	s.policyMu.Lock()
+	s.policy = policy
+	s.policyMu.Unlock()
+	if s.wake != nil {
+		select {
+		case s.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *RenewalScheduler) Policy() RenewalPolicy {
+	if s == nil {
+		return normalizeRenewalPolicy(RenewalPolicy{})
+	}
+	s.policyMu.RLock()
+	defer s.policyMu.RUnlock()
+	return s.policy
 }
 
 func (s *RenewalScheduler) RunOnce(ctx context.Context) (RenewalReport, error) {
@@ -79,24 +106,25 @@ func (s *RenewalScheduler) RunOnce(ctx context.Context) (RenewalReport, error) {
 		return RenewalReport{}, fmt.Errorf("查询续期域名失败：%w", err)
 	}
 	report := RenewalReport{Checked: len(items)}
+	policy := s.Policy()
 	now := s.now().UTC()
 	for _, item := range items {
 		if !item.AutoRenew || item.Status == "issuing" {
 			continue
 		}
 		remaining := renewalRemaining(item.ExpiresAt, now)
-		if item.ExpiresAt != nil && remaining <= s.policy.NearExpiryThreshold {
+		if item.ExpiresAt != nil && remaining <= policy.NearExpiryThreshold {
 			report.NearExpiry++
 		}
-		if item.ExpiresAt != nil && remaining > s.policy.RenewalThreshold {
+		if item.ExpiresAt != nil && remaining > policy.RenewalThreshold {
 			continue
 		}
 		report.Selected++
-		urgent := item.ExpiresAt != nil && remaining <= s.policy.UrgentThreshold
+		urgent := item.ExpiresAt != nil && remaining <= policy.UrgentThreshold
 		if urgent {
 			report.Urgent++
 		}
-		if err := s.issueWithRetry(ctx, item.ID, urgent); err != nil {
+		if err := s.issueWithRetry(ctx, item.ID, urgent, policy); err != nil {
 			report.Failed++
 			report.Errors = append(report.Errors, fmt.Sprintf("%s：%v", item.Name, err))
 			continue
@@ -125,7 +153,7 @@ func (s *RenewalScheduler) Start(ctx context.Context) {
 		}()
 		report, err := s.RunOnce(ctx)
 		for {
-			interval := s.policy.CheckInterval
+			interval := s.Policy().CheckInterval
 			if err == nil && report.NearExpiry > 0 {
 				interval = 24 * time.Hour
 			}
@@ -137,16 +165,20 @@ func (s *RenewalScheduler) Start(ctx context.Context) {
 				}
 				return
 			case <-timer.C:
+			case <-s.wake:
+			}
+			if ctx.Err() != nil {
+				return
 			}
 			report, err = s.RunOnce(ctx)
 		}
 	}()
 }
 
-func (s *RenewalScheduler) issueWithRetry(ctx context.Context, domainID string, urgent bool) error {
+func (s *RenewalScheduler) issueWithRetry(ctx context.Context, domainID string, urgent bool, policy RenewalPolicy) error {
 	attempts := 1
 	if urgent {
-		attempts = s.policy.MaxRetries
+		attempts = policy.MaxRetries
 	}
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -158,7 +190,7 @@ func (s *RenewalScheduler) issueWithRetry(ctx context.Context, domainID string, 
 		if attempt == attempts {
 			break
 		}
-		if err := waitForRenewalRetry(ctx, s.policy.RetryInterval); err != nil {
+		if err := waitForRenewalRetry(ctx, policy.RetryInterval); err != nil {
 			return fmt.Errorf("第 %d 次续期失败，等待重试被取消：%w", attempt, err)
 		}
 	}

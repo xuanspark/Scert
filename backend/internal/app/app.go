@@ -138,10 +138,11 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		RunRenewal: func(ctx context.Context) (certificate.RenewalReport, error) {
 			return renewal.RunOnce(ctx)
 		},
-		CurrentCertificate: certificates,
-		ResetStatePath:     admin.StatePath(cfg.Paths.Data),
-		Audit:              auditRepo,
-		Tasks:              taskRepo,
+		UpdateRenewalPolicy: renewal.UpdatePolicy,
+		CurrentCertificate:  certificates,
+		ResetStatePath:      admin.StatePath(cfg.Paths.Data),
+		Audit:               auditRepo,
+		Tasks:               taskRepo,
 	})
 	return &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,

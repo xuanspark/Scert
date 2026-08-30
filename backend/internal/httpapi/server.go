@@ -51,11 +51,12 @@ type Dependencies struct {
 	DeployCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
 
-	RunRenewal         func(context.Context) (certificate.RenewalReport, error)
-	CurrentCertificate certificateReader
-	ResetStatePath     string
-	Audit              repository.AuditRepository
-	Tasks              repository.TaskRepository
+	RunRenewal          func(context.Context) (certificate.RenewalReport, error)
+	UpdateRenewalPolicy func(certificate.RenewalPolicy)
+	CurrentCertificate  certificateReader
+	ResetStatePath      string
+	Audit               repository.AuditRepository
+	Tasks               repository.TaskRepository
 }
 
 type Server struct {
@@ -78,24 +79,25 @@ type Server struct {
 	deployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	restoreVersion           func(context.Context, string, string) (certificate.IssueResult, error)
 
-	runRenewal         func(context.Context) (certificate.RenewalReport, error)
-	currentCertificate certificateReader
-	resetStatePath     string
-	audit              repository.AuditRepository
-	tasks              repository.TaskRepository
-	taskMu             sync.Mutex
-	taskCancels        map[string]context.CancelFunc
-	issueTaskMu        sync.Mutex
-	resetMu            sync.Mutex
-	resetClosedHash    string
-	resetLimiter       *resetRateLimiter
-	authSessions       map[string]authSession
-	authMu             sync.RWMutex
-	loginAttempts      map[string]loginAttempt
-	loginMu            sync.Mutex
-	now                func() time.Time
-	httpServer         *http.Server
-	router             *gin.Engine
+	runRenewal          func(context.Context) (certificate.RenewalReport, error)
+	updateRenewalPolicy func(certificate.RenewalPolicy)
+	currentCertificate  certificateReader
+	resetStatePath      string
+	audit               repository.AuditRepository
+	tasks               repository.TaskRepository
+	taskMu              sync.Mutex
+	taskCancels         map[string]context.CancelFunc
+	issueTaskMu         sync.Mutex
+	resetMu             sync.Mutex
+	resetClosedHash     string
+	resetLimiter        *resetRateLimiter
+	authSessions        map[string]authSession
+	authMu              sync.RWMutex
+	loginAttempts       map[string]loginAttempt
+	loginMu             sync.Mutex
+	now                 func() time.Time
+	httpServer          *http.Server
+	router              *gin.Engine
 }
 
 func New(deps Dependencies) *Server {
@@ -119,6 +121,7 @@ func New(deps Dependencies) *Server {
 		deployCertificate:        deps.DeployCertificate,
 		restoreVersion:           deps.RestoreCertificateVersion,
 		runRenewal:               deps.RunRenewal,
+		updateRenewalPolicy:      deps.UpdateRenewalPolicy,
 		currentCertificate:       deps.CurrentCertificate,
 		resetStatePath:           deps.ResetStatePath,
 		audit:                    deps.Audit,

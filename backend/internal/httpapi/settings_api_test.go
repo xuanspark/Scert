@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -140,7 +141,16 @@ func TestSettingsAPIReturnsAndUpdatesRenewalPolicy(t *testing.T) {
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
-	server := New(Dependencies{Config: cfg, ConfigPath: configPath})
+	var applied certificate.RenewalPolicy
+	appliedCalled := false
+	server := New(Dependencies{
+		Config:     cfg,
+		ConfigPath: configPath,
+		UpdateRenewalPolicy: func(policy certificate.RenewalPolicy) {
+			applied = policy
+			appliedCalled = true
+		},
+	})
 	cookie := loginForSettingsTest(t, server)
 
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
@@ -184,8 +194,14 @@ func TestSettingsAPIReturnsAndUpdatesRenewalPolicy(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("解析续期策略响应失败：%v", err)
 	}
-	if !payload.Restart || payload.Settings.ACME.RenewalCheckIntervalDays != 2 || payload.Settings.ACME.RenewalNearExpiryDays != 14 || payload.Settings.ACME.RenewalThresholdDays != 7 || payload.Settings.ACME.RenewalUrgentThresholdDays != 2 || payload.Settings.ACME.RenewalMaxRetries != 5 || payload.Settings.ACME.RenewalRetryIntervalMins != 45 {
+	if payload.Restart || payload.Settings.ACME.RenewalCheckIntervalDays != 2 || payload.Settings.ACME.RenewalNearExpiryDays != 14 || payload.Settings.ACME.RenewalThresholdDays != 7 || payload.Settings.ACME.RenewalUrgentThresholdDays != 2 || payload.Settings.ACME.RenewalMaxRetries != 5 || payload.Settings.ACME.RenewalRetryIntervalMins != 45 {
 		t.Fatalf("更新后的续期策略不正确：restart=%v acme=%+v", payload.Restart, payload.Settings.ACME)
+	}
+	if !appliedCalled {
+		t.Fatal("\u4fdd\u5b58\u7eed\u671f\u7b56\u7565\u540e\u5e94\u7acb\u5373\u8c03\u7528\u8fd0\u884c\u65f6\u66f4\u65b0\u56de\u8c03")
+	}
+	if applied.CheckInterval != 2*24*time.Hour || applied.NearExpiryThreshold != 14*24*time.Hour || applied.RenewalThreshold != 7*24*time.Hour || applied.UrgentThreshold != 2*24*time.Hour || applied.MaxRetries != 5 || applied.RetryInterval != 45*time.Minute {
+		t.Fatalf("\u8fd0\u884c\u65f6\u7eed\u671f\u7b56\u7565\u672a\u6b63\u786e\u8f6c\u6362\uff1a%+v", applied)
 	}
 	saved, err := config.Load(configPath)
 	if err != nil {

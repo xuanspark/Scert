@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 )
 
@@ -212,16 +214,22 @@ func (s *Server) updateSettings(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "保存设置失败", err)
 		return
 	}
-	restartRequired := previous.Server.Host != updated.Server.Host ||
+	listenerRestartRequired := previous.Server.Host != updated.Server.Host ||
 		previous.Server.Port != updated.Server.Port ||
-		previous.Server.HTTPSMode != updated.Server.HTTPSMode ||
+		previous.Server.HTTPSMode != updated.Server.HTTPSMode
+	configRestartRequired := listenerRestartRequired ||
 		previous.Paths.Certificate != updated.Paths.Certificate ||
-		!reflect.DeepEqual(previous.ACME, updated.ACME) ||
+		!reflect.DeepEqual(nonRenewalACMEConfig(previous.ACME), nonRenewalACMEConfig(updated.ACME)) ||
 		!reflect.DeepEqual(previous.DNS, updated.DNS) ||
 		!reflect.DeepEqual(previous.Notification, updated.Notification)
+	if s.updateRenewalPolicy != nil {
+		s.updateRenewalPolicy(renewalPolicyFromConfig(updated))
+	}
 	message := "设置已保存"
-	if restartRequired {
+	if listenerRestartRequired {
 		message = "设置已保存；服务监听地址、端口或 HTTPS 模式已变更，请重启 Scert 服务"
+	} else if configRestartRequired {
+		message = "设置已保存；部分证书、DNS 或通知运行配置已变更，请重启 Scert 服务"
 	}
 	s.config = updated
 	s.configMu.Unlock()
@@ -258,7 +266,7 @@ func (s *Server) updateSettings(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"settings":         settingsViewFromConfig(updated),
-		"restart_required": restartRequired,
+		"restart_required": configRestartRequired,
 		"message":          message,
 	})
 }
@@ -294,6 +302,27 @@ func (s *Server) applySettingsDNS(ctx context.Context, cfg *config.Config, previ
 	cfg.DNS.CredentialRef = credentialRef
 	cfg.DNS.VerificationState = "verified"
 	return credentialRef, verificationToken, testDomain, nil
+}
+
+func renewalPolicyFromConfig(cfg config.Config) certificate.RenewalPolicy {
+	return certificate.RenewalPolicy{
+		CheckInterval:       time.Duration(cfg.ACME.RenewalCheckIntervalDays) * 24 * time.Hour,
+		NearExpiryThreshold: time.Duration(cfg.ACME.RenewalNearExpiryDays) * 24 * time.Hour,
+		RenewalThreshold:    time.Duration(cfg.ACME.RenewalThresholdDays) * 24 * time.Hour,
+		UrgentThreshold:     time.Duration(cfg.ACME.RenewalUrgentThresholdDays) * 24 * time.Hour,
+		MaxRetries:          cfg.ACME.RenewalMaxRetries,
+		RetryInterval:       time.Duration(cfg.ACME.RenewalRetryIntervalMins) * time.Minute,
+	}
+}
+
+func nonRenewalACMEConfig(cfg config.ACMEConfig) config.ACMEConfig {
+	cfg.RenewalCheckIntervalDays = 0
+	cfg.RenewalNearExpiryDays = 0
+	cfg.RenewalThresholdDays = 0
+	cfg.RenewalUrgentThresholdDays = 0
+	cfg.RenewalMaxRetries = 0
+	cfg.RenewalRetryIntervalMins = 0
+	return cfg
 }
 
 func settingsViewFromConfig(cfg config.Config) settingsView {
