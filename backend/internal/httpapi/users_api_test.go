@@ -42,7 +42,11 @@ func TestUserManagementAuthorizationAndCRUD(t *testing.T) {
 		t.Fatalf("保存用户 API 测试超级管理员失败：%v", err)
 	}
 	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, Users: users})
-
+	overSized := `{"username":"operator","password":"` + strings.Repeat("x", 70*1024) + `"}`
+	overSizedResponse := serveUserRequest(server, httpUserSessionCookie(server, "primary-super-admin", repository.UserRoleSuperAdmin), http.MethodPost, "/api/v1/users", overSized)
+	if overSizedResponse.Code != http.StatusBadRequest {
+		t.Fatalf("oversized user request should return 400: %d %s", overSizedResponse.Code, overSizedResponse.Body.String())
+	}
 	unauthorized := serveUserRequest(server, nil, http.MethodGet, "/api/v1/users", "")
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("未登录请求应返回 401：%d %s", unauthorized.Code, unauthorized.Body.String())
