@@ -892,3 +892,132 @@ code {
     width: min(100%, 980px);
   }
 }
+.page-shell {
+  max-width: 1380px;
+}
+
+.task-details-modal,
+.certificate-versions-modal {
+  width: min(100%, 860px);
+}
+
+.task-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.task-detail-summary > div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid #e0e8f2;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.task-detail-summary span,
+.task-detail-message > span {
+  color: #718198;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-detail-summary strong {
+  min-width: 0;
+  color: #243653;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-summary strong.tag {
+  width: fit-content;
+  color: inherit;
+}
+
+.task-detail-message {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid #e0e8f2;
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.task-detail-message p {
+  margin: 8px 0 0;
+  color: #3f506b;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.modal-section-title {
+  margin: 0 0 10px;
+  color: #32405a;
+  font-size: 15px;
+}
+
+.attempt-list,
+.version-list {
+  display: grid;
+  gap: 9px;
+}
+
+.attempt-row,
+.version-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+  border: 1px solid #e1e8f1;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.attempt-row > div,
+.version-row > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.attempt-row strong,
+.version-row strong {
+  color: #2d4568;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.attempt-error {
+  color: #b14e4e;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.version-row .muted {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .task-detail-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .page-shell {
+    padding: 28px 16px 52px;
+  }
+
+  .task-detail-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .attempt-row,
+  .version-row {
+    flex-direction: column;
+  }
+}

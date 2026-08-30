@@ -45,6 +45,16 @@ export function useDashboard() {
     private_key: null,
     issuer_bundle: null,
   });
+  const showTaskDetails = ref(false);
+  const taskDetails = ref(null);
+  const taskAttempts = ref([]);
+  const taskDetailsLoading = ref(false);
+  const taskDetailsError = ref("");
+  const showCertificateVersions = ref(false);
+  const certificateVersions = ref([]);
+  const certificateVersionsDomain = ref(null);
+  const certificateVersionsLoading = ref(false);
+  const certificateVersionsError = ref("");
   const hasOpenModal = computed(
     () =>
       showForm.value ||
@@ -95,6 +105,49 @@ export function useDashboard() {
   };
   const taskStatusLabels = {
     queued: "排队中",
+    running: "执行中",
+    success: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+  };
+  const taskTypeLabels = {
+    certificate_issue: "申请证书",
+    certificate_import: "导入证书",
+    certificate_deploy: "部署证书",
+    certificate_validate: "校验证书",
+    certificate_restore: "恢复证书版本",
+    renewal_run: "自动续期",
+    dns_test: "DNS 在线测试",
+  };
+  const auditActionLabels = {
+    certificate_issue: "申请证书",
+    certificate_import: "导入证书",
+    certificate_deploy: "部署证书",
+    certificate_validate: "校验证书",
+    certificate_version_restore: "恢复证书版本",
+    task_cancel: "取消任务",
+    settings_update: "更新系统设置",
+    domain_create: "创建域名",
+    domain_update: "更新域名",
+    domain_delete: "删除域名",
+    server_create: "创建服务器",
+    server_update: "更新服务器",
+    server_delete: "删除服务器",
+    ssh_key_create: "添加 SSH 私钥",
+    ssh_key_delete: "删除 SSH 私钥",
+    renewal_run: "执行自动续期",
+  };
+  const taskStageLabels = {
+    queued: "排队中",
+    certificate_issue: "申请证书",
+    certificate_validate: "校验证书",
+    certificate_deploy: "部署证书",
+    deployment: "远程部署",
+    verification: "部署后校验",
+    rollback: "回滚处理",
+    completed: "已完成",
+  };
+  const attemptStatusLabels = {
     running: "执行中",
     success: "已完成",
     failed: "失败",
@@ -157,6 +210,22 @@ export function useDashboard() {
     if (response.status === 409) return "当前服务状态不允许执行此操作";
     if (response.status >= 500) return "核心服务暂时不可用，请稍后重试";
     return fallback;
+  }
+
+  function taskTypeLabel(value) {
+    return displayLabel(taskTypeLabels, value);
+  }
+
+  function auditActionLabel(value) {
+    return displayLabel(auditActionLabels, value);
+  }
+
+  function taskStageLabel(value) {
+    return displayLabel(taskStageLabels, value);
+  }
+
+  function attemptStatusLabel(value) {
+    return displayLabel(attemptStatusLabels, value);
   }
 
   function createEmptyForm() {
@@ -523,6 +592,65 @@ export function useDashboard() {
     return runDomainAction(item, "deploy", `已提交 ${item.name} 的证书部署`);
   }
 
+  async function openTaskDetails(item) {
+    showTaskDetails.value = true;
+    taskDetails.value = null;
+    taskAttempts.value = [];
+    taskDetailsError.value = "";
+    taskDetailsLoading.value = true;
+    try {
+      const [taskResponse, attemptsResponse] = await Promise.all([
+        fetchAdmin(`/api/v1/tasks/${item.id}`),
+        fetchAdmin(`/api/v1/tasks/${item.id}/attempts`),
+      ]);
+      if (!taskResponse.ok) {
+        throw new Error(await responseError(taskResponse, "读取任务详情失败"));
+      }
+      if (!attemptsResponse.ok) {
+        throw new Error(await responseError(attemptsResponse, "读取任务尝试记录失败"));
+      }
+      taskDetails.value = await taskResponse.json();
+      taskAttempts.value = (await attemptsResponse.json()).items || [];
+    } catch (err) {
+      taskDetailsError.value = err.message || "读取任务详情失败";
+    } finally {
+      taskDetailsLoading.value = false;
+    }
+  }
+
+  function closeTaskDetails() {
+    showTaskDetails.value = false;
+    taskDetails.value = null;
+    taskAttempts.value = [];
+    taskDetailsError.value = "";
+  }
+
+  async function openCertificateVersions(item) {
+    showCertificateVersions.value = true;
+    certificateVersionsDomain.value = item;
+    certificateVersions.value = [];
+    certificateVersionsError.value = "";
+    certificateVersionsLoading.value = true;
+    try {
+      const response = await fetchAdmin(`/api/v1/domains/${item.id}/certificate/versions`);
+      if (!response.ok) {
+        throw new Error(await responseError(response, "查询证书版本失败"));
+      }
+      certificateVersions.value = (await response.json()).items || [];
+    } catch (err) {
+      certificateVersionsError.value = err.message || "查询证书版本失败";
+    } finally {
+      certificateVersionsLoading.value = false;
+    }
+  }
+
+  function closeCertificateVersions() {
+    showCertificateVersions.value = false;
+    certificateVersions.value = [];
+    certificateVersionsDomain.value = null;
+    certificateVersionsError.value = "";
+  }
+
   async function cancelTask(item) {
     if (!window.confirm("确定取消这项正在执行的证书任务吗？")) return;
     error.value = "";
@@ -851,6 +979,10 @@ export function useDashboard() {
     certificateTypeLabels,
     domainStatusLabels,
     taskStatusLabels,
+    taskTypeLabels,
+    auditActionLabels,
+    taskStageLabels,
+    attemptStatusLabels,
     httpsModeLabels,
     environmentLabels,
     webServerLabels,
@@ -904,6 +1036,24 @@ export function useDashboard() {
     validateDomain,
     deployDomain,
     cancelTask,
+    openTaskDetails,
+    closeTaskDetails,
+    showTaskDetails,
+    taskDetails,
+    taskAttempts,
+    taskDetailsLoading,
+    taskDetailsError,
+    openCertificateVersions,
+    closeCertificateVersions,
+    showCertificateVersions,
+    certificateVersions,
+    certificateVersionsDomain,
+    certificateVersionsLoading,
+    certificateVersionsError,
+    taskTypeLabel,
+    auditActionLabel,
+    taskStageLabel,
+    attemptStatusLabel,
     runRenewalNow,
     openSettings,
     closeSettings,
