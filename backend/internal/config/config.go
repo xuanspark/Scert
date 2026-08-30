@@ -209,6 +209,73 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+// LoadWithEnv 读取配置文件，并应用受控的 SCERT_* 环境变量覆盖。
+// 环境变量只影响当前进程，不会回写配置文件。
+func LoadWithEnv(path string) (Config, error) {
+	cfg, err := Load(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := cfg.ApplyEnvironment(); err != nil {
+		return Config{}, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// ApplyEnvironment 将部署环境常用配置映射到当前配置。
+// 未设置的变量保持配置文件中的值，敏感值只从环境读取，不写入日志或配置文件。
+func (c *Config) ApplyEnvironment() error {
+	if c == nil {
+		return fmt.Errorf("配置不能为空")
+	}
+	stringOverrides := []struct {
+		name   string
+		target *string
+	}{
+		{"SCERT_SERVER_HOST", &c.Server.Host},
+		{"SCERT_SERVER_HTTPS_MODE", &c.Server.HTTPSMode},
+		{"SCERT_WEB_HOSTNAME", &c.Web.Hostname},
+		{"SCERT_WEB_PUBLIC_IP", &c.Web.PublicIP},
+		{"SCERT_DATABASE_DRIVER", &c.Database.Driver},
+		{"SCERT_DATABASE_DSN", &c.Database.DSN},
+		{"SCERT_ACME_ENVIRONMENT", &c.ACME.Environment},
+		{"SCERT_ACME_ACCOUNT_EMAIL", &c.ACME.AccountEmail},
+		{"SCERT_DNS_PROVIDER", &c.DNS.Provider},
+		{"SCERT_DNS_CREDENTIAL_REF", &c.DNS.CredentialRef},
+		{"SCERT_NOTIFICATION_HTTP_CREDENTIAL_REF", &c.Notification.HTTPCredentialRef},
+		{"SCERT_NOTIFICATION_SMTP_CREDENTIAL_REF", &c.Notification.SMTPCredentialRef},
+	}
+	for _, override := range stringOverrides {
+		if value, ok := os.LookupEnv(override.name); ok {
+			*override.target = strings.TrimSpace(value)
+		}
+	}
+	intOverrides := []struct {
+		name   string
+		target *int
+	}{
+		{"SCERT_SERVER_PORT", &c.Server.Port},
+		{"SCERT_ACME_RENEWAL_THRESHOLD_DAYS", &c.ACME.RenewalThresholdDays},
+		{"SCERT_ACME_PROPAGATION_TIMEOUT_SECS", &c.ACME.PropagationTimeoutSecs},
+		{"SCERT_ACME_PROPAGATION_POLLING_INTERVAL_SECS", &c.ACME.PropagationPollingIntervalSecs},
+	}
+	for _, override := range intOverrides {
+		value, ok := os.LookupEnv(override.name)
+		if !ok {
+			continue
+		}
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return fmt.Errorf("环境变量 %s 必须是整数：%w", override.name, err)
+		}
+		*override.target = parsed
+	}
+	return nil
+}
+
 func (c *Config) Normalize() {
 	if c == nil {
 		return

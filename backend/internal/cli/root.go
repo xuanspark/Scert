@@ -855,7 +855,7 @@ func printJSON(cmd *cobra.Command, value any) error {
 	return err
 }
 
-func loadConfig() (config.Config, error) { return config.Load(resolveConfigPath()) }
+func loadConfig() (config.Config, error) { return config.LoadWithEnv(resolveConfigPath()) }
 
 func resolveConfigPath() string {
 	if configPath != "" {

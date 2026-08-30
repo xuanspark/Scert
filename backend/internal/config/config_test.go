@@ -208,3 +208,47 @@ func TestSaveAndLoadACMEPropagationSettings(t *testing.T) {
 		t.Fatalf("DNS 传播参数持久化不一致：%+v", loaded.ACME)
 	}
 }
+
+func TestLoadWithEnvOverridesRuntimeSettings(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Default(dir)
+	path := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("保存配置失败：%v", err)
+	}
+	t.Setenv("SCERT_SERVER_HOST", "127.0.0.1")
+	t.Setenv("SCERT_SERVER_PORT", "9004")
+	t.Setenv("SCERT_SERVER_HTTPS_MODE", "proxy")
+	t.Setenv("SCERT_WEB_PUBLIC_IP", "192.168.2.3")
+	t.Setenv("SCERT_ACME_PROPAGATION_TIMEOUT_SECS", "1200")
+	loaded, err := LoadWithEnv(path)
+	if err != nil {
+		t.Fatalf("带环境覆盖读取配置失败：%v", err)
+	}
+	if loaded.Server.Host != "127.0.0.1" || loaded.Server.Port != 9004 || loaded.Server.HTTPSMode != "proxy" {
+		t.Fatalf("服务运行配置覆盖不正确：%+v", loaded.Server)
+	}
+	if loaded.Web.PublicIP != "192.168.2.3" || loaded.ACME.PropagationTimeoutSecs != 1200 {
+		t.Fatalf("运行时辅助配置覆盖不正确：web=%+v acme=%+v", loaded.Web, loaded.ACME)
+	}
+	fileConfig, err := Load(path)
+	if err != nil {
+		t.Fatalf("重新读取原配置失败：%v", err)
+	}
+	if fileConfig.Server.Port != 8080 || fileConfig.Web.PublicIP != "" {
+		t.Fatalf("环境覆盖不应回写配置文件：%+v", fileConfig)
+	}
+}
+
+func TestLoadWithEnvRejectsInvalidInteger(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Default(dir)
+	path := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("保存配置失败：%v", err)
+	}
+	t.Setenv("SCERT_SERVER_PORT", "九千零四")
+	if _, err := LoadWithEnv(path); err == nil {
+		t.Fatal("无效端口环境变量未被拒绝")
+	}
+}

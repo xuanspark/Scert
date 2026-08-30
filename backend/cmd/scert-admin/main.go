@@ -31,7 +31,7 @@ func main() {
 	if path == "" {
 		path = filepath.Join(config.DefaultPaths(*baseDir).Config, "scert.json")
 	}
-	cfg, err := config.Load(path)
+	cfg, err := config.LoadWithEnv(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "读取配置失败：", err)
 		os.Exit(1)

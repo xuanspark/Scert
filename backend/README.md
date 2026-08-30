@@ -42,6 +42,41 @@ go run ./cmd/scert serve --base-dir C:\ScertData
 
 SMTP 通知是 Scert 的出站连接，不需要为 Scert 开放 SMTP 入站端口。公网防火墙通常只需放行 Nginx 使用的 `443`，若配置 HTTP 跳转再放行 `80`；内部端口 `9004` 和 Nginx 测试端口 `9003` 都不应对公网开放。
 
+### systemd 环境变量覆盖
+
+服务启动时可以使用 `SCERT_*` 环境变量覆盖当前进程的配置文件值，适合在 systemd 的 `EnvironmentFile` 中配置端口和部署环境。覆盖只在本次进程生效，不会修改 `scert.json`，敏感凭据仍应使用加密凭据引用，不要直接写入日志。
+
+常用变量如下：
+
+```text
+SCERT_SERVER_HOST=127.0.0.1
+SCERT_SERVER_PORT=9004
+SCERT_SERVER_HTTPS_MODE=proxy
+SCERT_WEB_HOSTNAME=web.example.com
+SCERT_WEB_PUBLIC_IP=192.168.2.3
+SCERT_DATABASE_DRIVER=sqlite
+SCERT_DATABASE_DSN=/scert/data/scert.db
+SCERT_ACME_ENVIRONMENT=staging
+SCERT_ACME_ACCOUNT_EMAIL=admin@example.com
+SCERT_ACME_RENEWAL_THRESHOLD_DAYS=6
+SCERT_ACME_PROPAGATION_TIMEOUT_SECS=900
+SCERT_ACME_PROPAGATION_POLLING_INTERVAL_SECS=10
+SCERT_DNS_PROVIDER=cloudflare
+SCERT_DNS_CREDENTIAL_REF=secret://dns/cloudflare
+SCERT_NOTIFICATION_HTTP_CREDENTIAL_REF=secret://notification/http
+SCERT_NOTIFICATION_SMTP_CREDENTIAL_REF=secret://notification/smtp
+```
+
+例如 Scert 内部服务使用 9004、Nginx 使用 9003 时，Scert 的环境文件可以写成：
+
+```text
+SCERT_SERVER_HOST=127.0.0.1
+SCERT_SERVER_PORT=9004
+SCERT_SERVER_HTTPS_MODE=proxy
+```
+
+修改环境文件后必须重启 Scert 服务；Nginx 仍按现有配置监听 9003 并代理到 `https://127.0.0.1:9004`。
+
 ## 测试和构建
 
 ```powershell
