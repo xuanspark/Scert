@@ -29,6 +29,10 @@ func TestFileStoreUsesSingleDatedCurrentVersion(t *testing.T) {
 	if first.Version != "20260827-V1.0" || second.Version != "20260827-V1.1" {
 		t.Fatalf("证书版本命名错误：first=%q second=%q", first.Version, second.Version)
 	}
+	expectedSavedAt := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	if !first.SavedAt.Equal(expectedSavedAt) || !second.SavedAt.Equal(expectedSavedAt) {
+		t.Fatalf("saved timestamp mismatch: first=%s second=%s", first.SavedAt, second.SavedAt)
+	}
 	wantCurrent := filepath.Join(root, "ssl", "example.com", "single", second.Version)
 	if second.Directory != wantCurrent {
 		t.Fatalf("当前目录错误：got=%q want=%q", second.Directory, wantCurrent)
@@ -68,7 +72,7 @@ func TestFileStoreUsesSingleDatedCurrentVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取当前证书失败：%v", err)
 	}
-	if metadata.Version != second.Version || metadata.Directory != second.Directory || len(loaded.Certificate) == 0 || len(loaded.PrivateKey) == 0 {
+	if metadata.Version != second.Version || metadata.Directory != second.Directory || !metadata.SavedAt.Equal(expectedSavedAt) || len(loaded.Certificate) == 0 || len(loaded.PrivateKey) == 0 {
 		t.Fatalf("当前证书内容错误：metadata=%+v", metadata)
 	}
 }

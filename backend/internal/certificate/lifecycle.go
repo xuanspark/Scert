@@ -44,6 +44,7 @@ type SavedResource struct {
 	CertificateType       string    `json:"certificate_type,omitempty"`
 	CertificateIdentifier string    `json:"certificate_identifier,omitempty"`
 	Version               string    `json:"version,omitempty"`
+	SavedAt               time.Time `json:"saved_at"`
 	SANs                  []string  `json:"sans,omitempty"`
 	SerialNumber          string    `json:"serial_number,omitempty"`
 	FingerprintSHA256     string    `json:"fingerprint_sha256,omitempty"`
@@ -185,6 +186,10 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 		return SavedResource{}, errors.New("证书存储根目录不能为空")
 	}
 	baseDirectory := filepath.Join(root, directoryName(primary))
+	savedAt := time.Now().UTC()
+	if s.Now != nil {
+		savedAt = s.Now().UTC()
+	}
 	typeDirectory := baseDirectory
 	directory := baseDirectory
 	certificateIdentifier := ""
@@ -211,11 +216,7 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 		if !directoryContainsCertificateFiles(activeDirectory) {
 			activeDirectory = ""
 		}
-		now := time.Now().UTC()
-		if s.Now != nil {
-			now = s.Now().UTC()
-		}
-		version, err = nextCertificateVersion(directory, now)
+		version, err = nextCertificateVersion(directory, savedAt)
 		if err != nil {
 			return SavedResource{}, err
 		}
@@ -244,7 +245,7 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 	leaf, _ := parseLeafCertificate(resource.Certificate)
 	result := SavedResource{
 		Domain: primary, CertificateType: certificateType, CertificateIdentifier: certificateIdentifier,
-		Version: version, SANs: append([]string(nil), resource.Domains...),
+		Version: version, SavedAt: savedAt, SANs: append([]string(nil), resource.Domains...),
 		Directory: currentDirectory, CertificatePath: filepath.Join(currentDirectory, "cert.pem"),
 		FullChainPath: filepath.Join(currentDirectory, "fullchain.pem"), PrivateKeyPath: filepath.Join(currentDirectory, "key.pem"),
 		NotBefore: resource.NotBefore, NotAfter: resource.NotAfter, BackupDirectory: backupDirectory,
