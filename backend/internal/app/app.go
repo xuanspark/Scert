@@ -29,6 +29,7 @@ type App struct {
 	Database        *database.Database
 	Repository      *repository.SQLDomainRepository
 	Servers         *repository.SQLServerRepository
+	Users           *repository.SQLUserRepository
 	Tasks           *repository.SQLTaskRepository
 	Deployment      *deployment.Service
 	SecretStore     *secretstore.Store
@@ -77,6 +78,14 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	dnsVerification := setup.NewDNSVerificationManager(dnsTester, secretStore)
 	repo := repository.NewSQLDomainRepository(db.DB)
 	serverRepo := repository.NewSQLServerRepository(db.DB)
+	userRepo := repository.NewSQLUserRepository(db.DB, cfg.Database.Driver)
+	if cfg.SetupReady && cfg.Admin.Username != "" && cfg.Admin.PasswordHash != "" {
+		if err := userRepo.EnsureSuperAdmin(ctx, repository.User{ID: "primary-super-admin", Username: cfg.Admin.Username, Email: cfg.Admin.Email, PasswordHash: cfg.Admin.PasswordHash}); err != nil {
+			_ = db.Close()
+			_ = logger.Close()
+			return nil, fmt.Errorf("初始化超级管理员用户失败：%w", err)
+		}
+	}
 	taskRepo := repository.NewSQLTaskRepository(db.DB)
 	auditRepo := repository.NewSQLAuditRepository(db.DB)
 	sshKeys := sshkey.NewService(secretStore)
@@ -99,7 +108,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	}
 	renewal := certificate.NewRenewalScheduler(repo, workflow, cfg.ACME.RenewalThresholdDays)
 	server := httpapi.New(httpapi.Dependencies{
-		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, SSHKeys: sshKeys,
+		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, SSHKeys: sshKeys,
 		SetupDNS: dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(),
 		IssueCertificate: workflow.IssueForHTTP,
 		IssueSetupCertificate: func(ctx context.Context, request certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
@@ -130,6 +139,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	return &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,
 		Servers:     serverRepo,
+		Users:       userRepo,
 		Tasks:       taskRepo,
 		Deployment:  deploymentService,
 		SecretStore: secretStore, SSHKeys: sshKeys, DNSVerification: dnsVerification, HTTP: server,

@@ -108,6 +108,10 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 			Err:    err,
 		}
 	}
+	verificationToken, err := secureToken(32)
+	if err != nil {
+		return DNSVerificationResult{}, fmt.Errorf("生成 DNS 验证令牌失败：%w", err)
+	}
 	credentialID, err := secureToken(18)
 	if err != nil {
 		return DNSVerificationResult{}, fmt.Errorf("生成 DNS 凭据引用失败：%w", err)
@@ -115,10 +119,6 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 	credentialRef := fmt.Sprintf("secret://dns/%s/%s", providerID, credentialID)
 	if err := m.store.Put(ctx, credentialRef, normalizedCredentials); err != nil {
 		return DNSVerificationResult{}, fmt.Errorf("加密保存 DNS 凭据失败：%w", err)
-	}
-	verificationToken, err := secureToken(32)
-	if err != nil {
-		return DNSVerificationResult{}, fmt.Errorf("生成 DNS 验证令牌失败：%w", err)
 	}
 	expiresAt := m.now().UTC().Add(dnsVerificationLifetime)
 	m.mu.Lock()

@@ -1,4 +1,5 @@
 <script setup>
+import UserManagement from "../UserManagement/UserManagement.vue";
 import { useDashboard } from "./Dashboard.js";
 
 const {
@@ -43,6 +44,7 @@ const {
   sshKeyCommandHost,
   sshKeyFileName,
   sshKeyPath,
+  sshKeyPrivatePath,
   sshKeyPublicPath,
   showSettings,
   settingsSaving,
@@ -161,6 +163,8 @@ const {
         <span>托管域名</span><strong>{{ domains.length }}</strong>
       </article>
     </section>
+
+    <UserManagement />
 
     <section class="panel operations-panel">
       <div class="panel-heading">
@@ -877,7 +881,7 @@ const {
             <div class="ssh-key-path-summary">
               <div>
                 <span>本地私钥位置</span>
-                <code>{{ sshKeyPath }}</code>
+                <code>{{ sshKeyPrivatePath }}</code>
               </div>
               <div>
                 <span>本地公钥位置</span>
@@ -924,13 +928,12 @@ const {
               </div>
               <code>{{ sshPublicKeyCommands[sshKeyPlatform] }}</code>
               <small>
-                本地公钥文件是上面显示的随机路径；安装后会追加到远程用户的
+                本地公钥文件就是上面显示的随机路径；安装后会追加到远程用户的
                 <code>~/.ssh/authorized_keys</code>。每台主机、每次新建配置都会生成新的文件名。
               </small>
             </div>
             <p class="ssh-key-guide-note">
-              懒人方式：如果你能登录服务器控制台，只需执行生成命令，再把生成的
-              <code>.pub</code> 公钥内容追加到授权文件，最后在下方选择私钥文件即可。
+              懒人方式：如果你能登录服务器控制台，只需执行生成命令，再把随机路径中的公钥内容追加到授权文件，最后在下方选择私钥文件即可。
             </p>
           </section>
           <div class="ssh-key-form-fields">

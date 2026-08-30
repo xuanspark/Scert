@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/sqlite/0004_task_attempts.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql migrations/mysql/0004_task_attempts.sql
+//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/sqlite/0004_task_attempts.sql migrations/sqlite/0005_users.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql migrations/mysql/0004_task_attempts.sql migrations/mysql/0005_users.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -38,7 +38,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 4
+const latestMigrationVersion = 5
 
 func applyMigration(ctx context.Context, db *sql.DB, driver string, version int) error {
 	path := fmt.Sprintf("migrations/%s/%04d_%s.sql", driver, version, migrationName(version))
@@ -123,6 +123,8 @@ func migrationName(version int) string {
 		return "deployment"
 	case 4:
 		return "task_attempts"
+	case 5:
+		return "users"
 	default:
 		return "unknown"
 	}

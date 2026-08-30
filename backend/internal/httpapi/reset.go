@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/admin"
+	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/passwordpolicy"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
@@ -134,6 +136,7 @@ func (s *Server) resetSubmit(c *gin.Context) {
 		s.renderResetPage(c, http.StatusBadRequest, token, err.Error())
 		return
 	}
+	previousConfig := cfg
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		s.recordResetAudit(c, "error", "生成新密码摘要失败")
@@ -141,16 +144,26 @@ func (s *Server) resetSubmit(c *gin.Context) {
 		return
 	}
 	cfg.Admin.PasswordHash = string(hash)
+	if err := s.syncPrimarySuperAdmin(c.Request.Context(), cfg); err != nil {
+		s.recordResetAudit(c, "error", "同步超级管理员用户失败")
+		s.writeResetFailure(c, http.StatusInternalServerError, "暂时无法同步管理员账户，请稍后重试")
+		return
+	}
 	if strings.TrimSpace(s.configPath) == "" {
+		_ = s.syncPrimarySuperAdmin(c.Request.Context(), previousConfig)
 		s.recordResetAudit(c, "error", "密码重置配置路径未配置")
 		s.writeResetFailure(c, http.StatusInternalServerError, "服务配置路径未就绪，请联系管理员")
 		return
 	}
 	if err := cfg.Save(s.configPath); err != nil {
+		if restoreErr := s.syncPrimarySuperAdmin(c.Request.Context(), previousConfig); restoreErr != nil && s.logger != nil {
+			s.logger.Error("配置保存失败后恢复超级管理员用户摘要失败", "error", restoreErr)
+		}
 		s.recordResetAudit(c, "error", "保存密码重置配置失败")
 		s.writeResetFailure(c, http.StatusInternalServerError, "暂时无法保存新密码，请稍后重试")
 		return
 	}
+	s.invalidateUserSessions("primary-super-admin")
 	if err := admin.Consume(s.resetStatePath, verified, now); err != nil {
 		s.resetClosedHash = session.CodeHash
 		s.configMu.Lock()
@@ -169,6 +182,18 @@ func (s *Server) resetSubmit(c *gin.Context) {
 	s.recordResetAudit(c, "success", "超级管理员密码重置成功")
 	s.clearResetCookie(c)
 	s.renderResetSuccess(c, "密码重置成功，请停止 Scert-admin 以结束本次维护窗口")
+}
+
+func (s *Server) syncPrimarySuperAdmin(ctx context.Context, cfg config.Config) error {
+	if s.users == nil {
+		return nil
+	}
+	return s.users.EnsureSuperAdmin(ctx, repository.User{
+		ID:           "primary-super-admin",
+		Username:     cfg.Admin.Username,
+		Email:        cfg.Admin.Email,
+		PasswordHash: cfg.Admin.PasswordHash,
+	})
 }
 
 func (s *Server) sameOrigin(request *http.Request) bool {

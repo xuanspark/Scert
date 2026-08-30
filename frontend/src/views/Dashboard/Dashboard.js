@@ -68,16 +68,17 @@ export function useDashboard() {
       `${sanitizeSSHKeySegment(sshKeyCommandUsername.value, "用户名")}+scert-${sshKeyRandomSuffix.value}`,
   );
   const sshKeyPath = computed(() => `/ssl/ssh/${sshKeyFileName.value}`);
-  const sshKeyPublicPath = computed(() => `${sshKeyPath.value}.pub`);
+  const sshKeyPrivatePath = computed(() => `${sshKeyPath.value}.key`);
+  const sshKeyPublicPath = computed(() => sshKeyPath.value);
   const sshKeyRemoteTarget = computed(
     () =>
       `${sanitizeSSHKeySegment(sshKeyCommandUsername.value, "用户名")}@${sanitizeSSHHost(sshKeyCommandHost.value)}`,
   );
   const sshKeyCommands = computed(() => ({
     windows:
-      `New-Item -ItemType Directory -Force -Path "/ssl/ssh" | Out-Null; ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPath.value}"`,
+      `New-Item -ItemType Directory -Force -Path "/ssl/ssh" | Out-Null; ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPrivatePath.value}"; Move-Item -Force "${sshKeyPrivatePath.value}.pub" "${sshKeyPublicPath.value}"`,
     linux:
-      `sudo install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /ssl/ssh && ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPath.value}"`,
+      `sudo install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /ssl/ssh && ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPrivatePath.value}" && mv -f "${sshKeyPrivatePath.value}.pub" "${sshKeyPublicPath.value}" && chmod 644 "${sshKeyPublicPath.value}"`,
   }));
   const sshPublicKeyCommands = computed(() => ({
     windows:
@@ -815,6 +816,7 @@ export function useDashboard() {
     sshKeyCommandHost,
     sshKeyFileName,
     sshKeyPath,
+    sshKeyPrivatePath,
     sshKeyPublicPath,
     showSettings,
     settingsSaving,

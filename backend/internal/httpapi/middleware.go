@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
 const requestIDHeader = "X-Scert-Request-ID"
@@ -43,9 +45,17 @@ func (s *Server) requireAdmin(c *gin.Context) {
 		c.Next()
 		return
 	}
-	if _, ok := s.currentAuthSession(c); !ok {
+	session, ok := s.currentAuthSession(c)
+	if !ok {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"error":      "请先登录管理后台",
+			"request_id": requestIDFromContext(c),
+		})
+		return
+	}
+	if session.Role != repository.UserRoleSuperAdmin && session.Role != repository.UserRoleAdmin {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error":      "当前账号没有管理权限",
 			"request_id": requestIDFromContext(c),
 		})
 		return

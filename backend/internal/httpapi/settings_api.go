@@ -165,17 +165,21 @@ func (s *Server) updateSettings(c *gin.Context) {
 	updated := s.config
 	applySettingsRequest(&updated, request)
 	updated.Normalize()
-	if err := s.saveSettingsNotificationCredentials(c.Request.Context(), &updated, request); err != nil {
+	createdCredentialRefs, err := s.saveSettingsNotificationCredentials(c.Request.Context(), &updated, request)
+	if err != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.configMu.Unlock()
 		s.writeError(c, http.StatusBadRequest, "保存通知凭据失败", err)
 		return
 	}
 	if err := updated.Validate(); err != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.configMu.Unlock()
 		s.writeError(c, http.StatusBadRequest, "设置内容校验失败", err)
 		return
 	}
 	if err := updated.Save(s.configPath); err != nil {
+		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		s.configMu.Unlock()
 		s.writeError(c, http.StatusInternalServerError, "保存设置失败", err)
 		return
@@ -193,6 +197,29 @@ func (s *Server) updateSettings(c *gin.Context) {
 	}
 	s.config = updated
 	s.configMu.Unlock()
+	oldCredentialRefs := []string{
+		previous.Notification.HTTPCredentialRef,
+		previous.Notification.SMTPCredentialRef,
+	}
+	newCredentialRefs := map[string]struct{}{
+		updated.Notification.HTTPCredentialRef: {},
+		updated.Notification.SMTPCredentialRef: {},
+	}
+	var obsoleteCredentialRefs []string
+	for _, reference := range oldCredentialRefs {
+		reference = strings.TrimSpace(reference)
+		if reference == "" {
+			continue
+		}
+		if _, stillUsed := newCredentialRefs[reference]; !stillUsed {
+			obsoleteCredentialRefs = append(obsoleteCredentialRefs, reference)
+		}
+	}
+	if len(obsoleteCredentialRefs) > 0 {
+		if err := s.rollbackSetupCredentials(obsoleteCredentialRefs); err != nil && s.logger != nil {
+			s.logger.Warn("\u6e05\u7406\u5df2\u66ff\u6362\u7684\u901a\u77e5\u654f\u611f\u51ed\u636e\u5931\u8d25", "error", err)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"settings":         settingsViewFromConfig(updated),

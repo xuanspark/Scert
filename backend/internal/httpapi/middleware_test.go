@@ -10,6 +10,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
 func TestRequestMiddlewareAddsAndPreservesRequestID(t *testing.T) {
@@ -92,5 +93,26 @@ func TestAdminAPIAcceptsAuthenticatedSessionAndRejectsCrossOrigin(t *testing.T) 
 	server.Handler().ServeHTTP(crossOriginResponse, crossOriginRequest)
 	if crossOriginResponse.Code != http.StatusForbidden {
 		t.Fatalf("跨来源管理请求应返回 403，实际为 %d：%s", crossOriginResponse.Code, crossOriginResponse.Body.String())
+	}
+}
+
+func TestAdminAPIRejectsAuthenticatedRegularUser(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.com"
+	hash, err := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("生成测试密码摘要失败：%v", err)
+	}
+	cfg.Admin.PasswordHash = string(hash)
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
+	cookie := httpUserSessionCookie(server, "user-1", repository.UserRoleUser)
+	response := serveUserRequest(server, cookie, http.MethodGet, "/api/v1/domains", "")
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("普通用户访问管理接口应返回 403，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "没有管理权限") {
+		t.Fatalf("普通用户权限错误提示不明确：%s", response.Body.String())
 	}
 }

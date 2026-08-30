@@ -747,3 +747,31 @@ func TestSetupFirewallFailureRollsBackIssuedCertificate(t *testing.T) {
 		t.Fatal("防火墙配置失败时应回滚已保存的初始化证书")
 	}
 }
+
+func TestSetupFailureDeletesTemporaryDNSCredential(t *testing.T) {
+	baseDir := t.TempDir()
+	configPath := filepath.Join(baseDir, "config", "scert.json")
+	verifier := &fakeSetupDNSVerifier{}
+	secrets := &fakeSetupSecretWriter{values: map[string]map[string]string{
+		"secret://dns/cloudflare/test": {"api_token": "temporary-token"},
+	}}
+	server := New(Dependencies{
+		Config: config.Default(baseDir), ConfigPath: configPath,
+		Repository: &stubDomainRepository{}, SetupDNS: verifier, Secrets: secrets,
+		IssueSetupCertificate: newSetupCertificateIssuer(t, baseDir, errors.New("simulated certificate failure")),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(setupPayload(baseDir, "secure1234")))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("setup certificate failure should return 502: %d %s", response.Code, response.Body.String())
+	}
+	if _, ok := secrets.values["secret://dns/cloudflare/test"]; ok {
+		t.Fatal("temporary DNS credential should be deleted after setup failure")
+	}
+	if len(secrets.deleted) != 1 || secrets.deleted[0] != "secret://dns/cloudflare/test" {
+		t.Fatalf("unexpected deleted DNS credentials: %v", secrets.deleted)
+	}
+}

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/auth"
+	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
@@ -25,10 +27,13 @@ const (
 )
 
 type authSession struct {
-	Username  string
-	Email     string
-	Role      string
-	ExpiresAt time.Time
+	UserID            string
+	Username          string
+	Email             string
+	Role              string
+	PasswordHash      string
+	ExpiresAt         time.Time
+	AbsoluteExpiresAt time.Time
 }
 
 type loginAttempt struct {
@@ -64,13 +69,8 @@ func (s *Server) authLogin(c *gin.Context) {
 		s.writeError(c, http.StatusTooManyRequests, "登录失败次数过多，请稍后再试", nil)
 		return
 	}
-	account, err := auth.AuthenticateAdmin(
-		request.Identifier,
-		request.Password,
-		cfg.Admin.Username,
-		cfg.Admin.Email,
-		cfg.Admin.PasswordHash,
-	)
+
+	account, userID, passwordHash, err := s.authenticateAccount(c.Request.Context(), request, cfg)
 	if err != nil {
 		s.recordLoginFailure(key)
 		s.recordAuthAudit(c, "登录失败", "failed", "登录凭据校验失败")
@@ -84,31 +84,54 @@ func (s *Server) authLogin(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "无法创建登录会话，请稍后重试", err)
 		return
 	}
-	lifetime := authSessionLifetime
+	now := s.now()
+	absoluteExpiresAt := now.Add(authSessionLifetime)
 	if request.Remember {
-		lifetime = rememberSessionLife
+		absoluteExpiresAt = now.Add(rememberSessionLife)
 	}
-	expiresAt := s.now().Add(lifetime)
+	expiresAt := minTime(now.Add(authSessionLifetime), absoluteExpiresAt)
 	s.authMu.Lock()
 	s.authSessions[token] = authSession{
-		Username:  account.Username,
-		Email:     account.Email,
-		Role:      account.Role,
-		ExpiresAt: expiresAt,
+		UserID:            userID,
+		Username:          account.Username,
+		Email:             account.Email,
+		Role:              account.Role,
+		PasswordHash:      passwordHash,
+		ExpiresAt:         expiresAt,
+		AbsoluteExpiresAt: absoluteExpiresAt,
 	}
 	s.authMu.Unlock()
 	s.setAuthCookie(c, token, expiresAt)
-	s.recordAuthAudit(c, "登录成功", "success", "超级管理员登录成功")
+	s.recordAuthAudit(c, "登录成功", "success", "用户登录成功")
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated":  true,
 		"account":        account.Username,
 		"email":          account.Email,
 		"role":           account.Role,
-		"is_admin":       true,
+		"is_admin":       account.Role == repository.UserRoleSuperAdmin || account.Role == repository.UserRoleAdmin,
 		"next_step":      "complete",
 		"required_steps": []string{},
 		"expires_at":     expiresAt,
 	})
+}
+
+func (s *Server) authenticateAccount(ctx context.Context, request authLoginRequest, cfg config.Config) (auth.AdminAccount, string, string, error) {
+	account, err := auth.AuthenticateAdmin(request.Identifier, request.Password, cfg.Admin.Username, cfg.Admin.Email, cfg.Admin.PasswordHash)
+	if err == nil {
+		return account, "primary-super-admin", cfg.Admin.PasswordHash, nil
+	}
+	if s.users == nil {
+		return auth.AdminAccount{}, "", "", auth.ErrInvalidCredentials
+	}
+	user, lookupErr := s.users.FindByIdentifier(ctx, request.Identifier)
+	if lookupErr != nil || user.Status != repository.UserStatusActive {
+		return auth.AdminAccount{}, "", "", auth.ErrInvalidCredentials
+	}
+	account, err = auth.AuthenticateAccount(request.Identifier, request.Password, user.Username, user.Email, user.PasswordHash, user.Role)
+	if err != nil {
+		return auth.AdminAccount{}, "", "", auth.ErrInvalidCredentials
+	}
+	return account, user.ID, user.PasswordHash, nil
 }
 
 func (s *Server) authSession(c *gin.Context) {
@@ -122,7 +145,7 @@ func (s *Server) authSession(c *gin.Context) {
 		"account":        session.Username,
 		"email":          session.Email,
 		"role":           session.Role,
-		"is_admin":       session.Role == "super_admin" || session.Role == "admin",
+		"is_admin":       session.Role == repository.UserRoleSuperAdmin || session.Role == repository.UserRoleAdmin,
 		"next_step":      "complete",
 		"required_steps": []string{},
 		"expires_at":     session.ExpiresAt,
@@ -151,24 +174,97 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 	s.authMu.RLock()
 	session, ok := s.authSessions[token]
 	s.authMu.RUnlock()
-	if !ok {
+	if !ok || !session.ExpiresAt.After(now) || (!session.AbsoluteExpiresAt.IsZero() && !session.AbsoluteExpiresAt.After(now)) {
+		if ok {
+			s.authMu.Lock()
+			delete(s.authSessions, token)
+			s.authMu.Unlock()
+		}
 		return authSession{}, false
 	}
-	if !session.ExpiresAt.After(now) {
+	if !s.authSessionAccountIsValid(c.Request.Context(), session) {
 		s.authMu.Lock()
 		delete(s.authSessions, token)
 		s.authMu.Unlock()
+		s.clearAuthCookie(c)
 		return authSession{}, false
+	}
+	newExpiresAt := minTime(now.Add(authSessionLifetime), session.AbsoluteExpiresAt)
+	if newExpiresAt.After(session.ExpiresAt) {
+		session.ExpiresAt = newExpiresAt
+		s.authMu.Lock()
+		if current, exists := s.authSessions[token]; exists {
+			current.ExpiresAt = newExpiresAt
+			s.authSessions[token] = current
+			session = current
+		}
+		s.authMu.Unlock()
+		s.setAuthCookie(c, token, session.ExpiresAt)
 	}
 	return session, true
 }
 
+func (s *Server) authSessionAccountIsValid(ctx context.Context, session authSession) bool {
+	if session.UserID == "" {
+		return true
+	}
+	if session.PasswordHash == "" {
+		return true
+	}
+	if session.UserID == "primary-super-admin" {
+		s.configMu.RLock()
+		cfg := s.config
+		s.configMu.RUnlock()
+		if !cfg.SetupReady || session.Role != repository.UserRoleSuperAdmin {
+			return false
+		}
+		if !strings.EqualFold(strings.TrimSpace(session.Username), strings.TrimSpace(cfg.Admin.Username)) ||
+			!strings.EqualFold(strings.TrimSpace(session.Email), strings.TrimSpace(cfg.Admin.Email)) {
+			return false
+		}
+		return session.PasswordHash == cfg.Admin.PasswordHash
+	}
+	if s.users == nil {
+		return false
+	}
+	user, err := s.users.GetUserByID(ctx, session.UserID)
+	if err != nil || user.Status != repository.UserStatusActive {
+		return false
+	}
+	if user.Role != session.Role || !strings.EqualFold(user.Username, session.Username) || !strings.EqualFold(user.Email, session.Email) {
+		return false
+	}
+	return session.PasswordHash == user.PasswordHash
+}
+
 func (s *Server) setAuthCookie(c *gin.Context, token string, expiresAt time.Time) {
+	maxAge := int(expiresAt.Sub(s.now()).Seconds())
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name: authCookieName, Value: token, Path: "/",
-		Expires: expiresAt, MaxAge: max(1, int(time.Until(expiresAt).Seconds())),
+		Expires: expiresAt, MaxAge: max(1, maxAge),
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.requestIsHTTPS(c.Request),
 	})
+}
+
+func (s *Server) clearAuthCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name: authCookieName, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.requestIsHTTPS(c.Request),
+	})
+}
+
+func (s *Server) invalidateUserSessions(userID string) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return
+	}
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	for token, session := range s.authSessions {
+		if session.UserID == userID {
+			delete(s.authSessions, token)
+		}
+	}
 }
 
 func (s *Server) allowLogin(key string) bool {
@@ -254,6 +350,13 @@ func (s *Server) requestIsHTTPS(request *http.Request) bool {
 	}
 	forwardedProto := strings.TrimSpace(strings.Split(request.Header.Get("X-Forwarded-Proto"), ",")[0])
 	return strings.EqualFold(forwardedProto, "https")
+}
+
+func minTime(left, right time.Time) time.Time {
+	if right.IsZero() || left.Before(right) {
+		return left
+	}
+	return right
 }
 
 func max(left, right int) int {

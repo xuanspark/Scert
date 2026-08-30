@@ -17,6 +17,11 @@ type AdminAccount struct {
 
 // AuthenticateAdmin 统一执行用户名或邮箱登录，并只返回后端确认的真实权限。
 func AuthenticateAdmin(identifier, password, username, email, passwordHash string) (AdminAccount, error) {
+	return AuthenticateAccount(identifier, password, username, email, passwordHash, "super_admin")
+}
+
+// AuthenticateAccount 校验任意已启用账户的登录凭据，并返回其实际角色。
+func AuthenticateAccount(identifier, password, username, email, passwordHash, role string) (AdminAccount, error) {
 	matched := IsMatch(identifier, username, email)
 	if !matched || strings.TrimSpace(password) == "" || len([]byte(password)) > 256 {
 		_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
@@ -28,7 +33,7 @@ func AuthenticateAdmin(identifier, password, username, email, passwordHash strin
 	return AdminAccount{
 		Username: strings.TrimSpace(username),
 		Email:    strings.TrimSpace(email),
-		Role:     "super_admin",
+		Role:     role,
 	}, nil
 }
 

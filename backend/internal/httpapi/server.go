@@ -39,6 +39,7 @@ type Dependencies struct {
 	Logger                    *logging.Logger
 	Repository                repository.DomainRepository
 	Servers                   repository.ServerRepository
+	Users                     repository.UserRepository
 	SSHKeys                   *sshkey.Service
 	SetupDNS                  setupDNSVerifier
 	Secrets                   setupSecretWriter
@@ -65,6 +66,7 @@ type Server struct {
 	logger                   *logging.Logger
 	repository               repository.DomainRepository
 	servers                  repository.ServerRepository
+	users                    repository.UserRepository
 	sshKeys                  *sshkey.Service
 	setupDNS                 setupDNSVerifier
 	secrets                  setupSecretWriter
@@ -105,6 +107,7 @@ func New(deps Dependencies) *Server {
 		config: deps.Config, configPath: deps.ConfigPath, frontendDir: filepath.Clean(frontendDir), logger: deps.Logger,
 		repository: deps.Repository, setupDNS: deps.SetupDNS, secrets: deps.Secrets, firewall: deps.Firewall, router: router,
 		servers:                  deps.Servers,
+		users:                    deps.Users,
 		sshKeys:                  deps.SSHKeys,
 		issueCertificate:         deps.IssueCertificate,
 		issueSetupCertificate:    deps.IssueSetupCertificate,
@@ -139,6 +142,12 @@ func (s *Server) registerRoutes() {
 	s.router.POST("/api/v1/auth/logout", s.authLogout)
 	s.router.POST("/api/v1/password-reset/resolve", s.resolvePasswordResetAccount)
 	adminAPI := s.router.Group("/api/v1", s.requireAdmin)
+	userAPI := s.router.Group("/api/v1/users", s.requireSuperAdmin)
+	userAPI.GET("", s.listUsers)
+	userAPI.POST("", s.createUser)
+	userAPI.GET("/:id", s.getUser)
+	userAPI.PUT("/:id", s.updateUser)
+	userAPI.DELETE("/:id", s.deleteUser)
 	adminAPI.GET("/domains", s.listDomains)
 	adminAPI.POST("/domains", s.createDomain)
 	adminAPI.PUT("/domains/:id", s.updateDomain)

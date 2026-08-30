@@ -173,6 +173,75 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	}
 }
 
+func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.DNS.VerificationState = "verified"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	oldHash, err := bcrypt.GenerateFromPassword([]byte("OldPassword123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("生成旧密码摘要失败：%v", err)
+	}
+	cfg.Admin.PasswordHash = string(oldHash)
+	cfg.Database.DSN = filepath.Join(dir, "data", "reset-users.db")
+	configPath := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	db, err := database.Open(t.Context(), cfg.Database)
+	if err != nil {
+		t.Fatalf("打开测试用户数据库失败：%v", err)
+	}
+	defer db.Close()
+	if err := database.Migrate(t.Context(), db.DB, "sqlite"); err != nil {
+		t.Fatalf("迁移测试用户数据库失败：%v", err)
+	}
+	users := repository.NewSQLUserRepository(db.DB, "sqlite")
+	if err := users.EnsureSuperAdmin(t.Context(), repository.User{
+		ID: "primary-super-admin", Username: cfg.Admin.Username, Email: cfg.Admin.Email, PasswordHash: cfg.Admin.PasswordHash,
+	}); err != nil {
+		t.Fatalf("创建测试超级管理员失败：%v", err)
+	}
+	controller := admin.New(cfg)
+	session, err := controller.Start()
+	if err != nil {
+		t.Fatalf("启动测试重置会话失败：%v", err)
+	}
+	server := New(Dependencies{
+		Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, Users: users,
+		ResetStatePath: admin.StatePath(cfg.Paths.Data),
+	})
+	get := httptest.NewRecorder()
+	server.Handler().ServeHTTP(get, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
+	if get.Code != http.StatusOK {
+		t.Fatalf("获取密码重置页面失败：%d", get.Code)
+	}
+	cookies := get.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("密码重置页面 Cookie 数量错误：%d", len(cookies))
+	}
+	form := resetForm(session.Code, cookies[0].Value, "NewPass1234")
+	request := httptest.NewRequest(http.MethodPost, "https://scert.example.test/reset", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://scert.example.test")
+	request.AddCookie(cookies[0])
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("密码重置失败：%d %s", response.Code, response.Body.String())
+	}
+	item, err := users.GetUserByID(t.Context(), "primary-super-admin")
+	if err != nil {
+		t.Fatalf("读取同步后的超级管理员失败：%v", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(item.PasswordHash), []byte("NewPass1234")) != nil {
+		t.Fatal("用户表中的超级管理员摘要未同步新密码")
+	}
+}
+
 func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default(dir)

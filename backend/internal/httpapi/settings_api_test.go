@@ -209,3 +209,123 @@ func mustTestPasswordHash(t *testing.T, password string) string {
 	}
 	return string(hash)
 }
+
+func TestSettingsAPIRollsBackCredentialsWhenValidationFails(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("save test config: %v", err)
+	}
+	secrets := &fakeSetupSecretWriter{}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Secrets: secrets})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "notification": {
+            "http_auth_mode": "bearer",
+            "http_credentials": {"token": "new-token"},
+            "http_path": "email/send"
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid notification settings should fail: %d %s", response.Code, response.Body.String())
+	}
+	if len(secrets.values) != 0 || len(secrets.deleted) != 1 {
+		t.Fatalf("new credentials should be rolled back after validation failure: values=%v deleted=%v", secrets.values, secrets.deleted)
+	}
+}
+
+func TestSettingsAPICleansReplacedNotificationCredential(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	cfg.Notification.HTTPAuthMode = "bearer"
+	cfg.Notification.HTTPCredentialRef = "secret://notification/old"
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("save test config: %v", err)
+	}
+	secrets := &fakeSetupSecretWriter{values: map[string]map[string]string{
+		"secret://notification/old": {"token": "old-token"},
+	}}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Secrets: secrets})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "notification": {
+            "http_auth_mode": "bearer",
+            "http_credentials": {"token": "new-token"}
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("notification credential replacement should succeed: %d %s", response.Code, response.Body.String())
+	}
+	if _, ok := secrets.values["secret://notification/old"]; ok {
+		t.Fatal("replaced notification credential should be deleted")
+	}
+	if len(secrets.values) != 1 {
+		t.Fatalf("new notification credential should remain: %v", secrets.values)
+	}
+	if strings.Contains(response.Body.String(), "new-token") {
+		t.Fatal("notification credential must not be returned in the response")
+	}
+}
+
+func TestSettingsAPIRollsBackEarlierCredentialWhenLaterCredentialFails(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	cfg.Notification.SMTPUsername = "smtp-user"
+	configPath := dir + "\\config\\scert.json"
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("save test config: %v", err)
+	}
+	secrets := &fakeSetupSecretWriter{}
+	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Secrets: secrets})
+	cookie := loginForSettingsTest(t, server)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
+        "notification": {
+            "http_auth_mode": "bearer",
+            "http_credentials": {"token": "new-token"},
+            "smtp_enabled": true,
+            "smtp_username": "",
+            "smtp_password": "smtp-password"
+        }
+    }`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("later SMTP validation should fail: %d %s", response.Code, response.Body.String())
+	}
+	if len(secrets.values) != 0 || len(secrets.deleted) != 1 {
+		t.Fatalf("earlier HTTP credentials should be rolled back: values=%v deleted=%v", secrets.values, secrets.deleted)
+	}
+}

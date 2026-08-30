@@ -202,6 +202,17 @@ func (s *Server) applySetup(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	dnsCredentialRetained := false
+	defer func() {
+		if dnsCredentialRetained || s.secrets == nil {
+			return
+		}
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.secrets.Delete(cleanupContext, strings.TrimSpace(request.DNSCredentialRef)); err != nil && s.logger != nil {
+			s.logger.Warn("\u521d\u59cb\u5316\u5931\u8d25\u540e\u6e05\u7406 DNS \u51ed\u6362\u5931\u8d25", "error", err)
+		}
+	}()
 	webEnabled := true
 	if request.WebEnabled != nil {
 		webEnabled = *request.WebEnabled
@@ -430,6 +441,7 @@ func (s *Server) applySetup(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "保存初始化配置失败", err)
 		return
 	}
+	dnsCredentialRetained = true
 	if err := s.setupDNS.Consume(request.DNSVerificationToken, request.DNSProvider, request.DNSCredentialRef, testDomain); err != nil && s.logger != nil {
 		s.logger.Warn("初始化配置已保存，但清理 DNS 验证令牌失败", "error", err)
 	}
