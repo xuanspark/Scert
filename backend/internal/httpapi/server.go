@@ -333,7 +333,18 @@ func (s *Server) status(c *gin.Context) {
 	})
 }
 
+func (s *Server) requireDomainRepository(c *gin.Context) bool {
+	if s.repository != nil {
+		return true
+	}
+	s.writeError(c, http.StatusNotImplemented, "域名管理接口尚未配置", errors.New("域名仓储未配置"))
+	return false
+}
+
 func (s *Server) listDomains(c *gin.Context) {
+	if !s.requireDomainRepository(c) {
+		return
+	}
 	items, err := s.repository.List(c.Request.Context())
 	if err != nil {
 		s.writeError(c, http.StatusInternalServerError, "查询域名失败", err)
@@ -343,6 +354,9 @@ func (s *Server) listDomains(c *gin.Context) {
 }
 
 func (s *Server) createDomain(c *gin.Context) {
+	if !s.requireDomainRepository(c) {
+		return
+	}
 	var request domainRequest
 	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
@@ -365,6 +379,9 @@ func (s *Server) createDomain(c *gin.Context) {
 }
 
 func (s *Server) updateDomain(c *gin.Context) {
+	if !s.requireDomainRepository(c) {
+		return
+	}
 	var request domainRequest
 	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
@@ -416,6 +433,9 @@ func newDomainFromRequest(request domainRequest) (domain.Domain, error) {
 }
 
 func (s *Server) deleteDomain(c *gin.Context) {
+	if !s.requireDomainRepository(c) {
+		return
+	}
 	if err := s.repository.Delete(c.Request.Context(), c.Param("id")); err != nil {
 		if repository.IsNotFound(err) {
 			s.writeError(c, http.StatusNotFound, "域名不存在", err)
@@ -556,6 +576,9 @@ func (s *Server) deleteServer(c *gin.Context) {
 }
 
 func (s *Server) listDomainServers(c *gin.Context) {
+	if !s.requireDomainRepository(c) {
+		return
+	}
 	if s.servers == nil {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
 		return
@@ -577,6 +600,9 @@ func (s *Server) listDomainServers(c *gin.Context) {
 }
 
 func (s *Server) replaceDomainServers(c *gin.Context) {
+	if !s.requireDomainRepository(c) {
+		return
+	}
 	if s.servers == nil {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
 		return
