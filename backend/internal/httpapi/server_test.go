@@ -634,3 +634,19 @@ func TestProxyModeAcceptsHTTPSSameOrigin(t *testing.T) {
 		t.Fatal("高级 HTTPS 模式应接受反向代理后的同源 HTTPS 请求")
 	}
 }
+
+func TestDomainAPIReportsMissingRepository(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	server := New(Dependencies{Config: cfg})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, request)
+
+	if response.Code != http.StatusNotImplemented {
+		t.Fatalf("域名仓储未配置时应返回 501：%d %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "域名管理接口尚未配置") {
+		t.Fatalf("缺少域名仓储错误提示：%s", response.Body.String())
+	}
+}
