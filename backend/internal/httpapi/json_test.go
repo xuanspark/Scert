@@ -11,8 +11,6 @@ import (
 )
 
 func TestBindJSONRejectsUnknownFieldsAndTrailingValues(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name string
 		body string

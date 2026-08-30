@@ -93,13 +93,6 @@ func (s *Server) sameOriginForAPI(request *http.Request) bool {
 	return strings.EqualFold(parsed.Host, request.Host) && strings.EqualFold(parsed.Scheme, requestScheme)
 }
 
-func limitJSONBody(c *gin.Context) {
-	if c == nil || c.Request == nil || c.Request.Body == nil {
-		return
-	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, jsonRequestBodyLimit)
-}
-
 func requestIDFromContext(c *gin.Context) string {
 	value, exists := c.Get("request_id")
 	if !exists {
