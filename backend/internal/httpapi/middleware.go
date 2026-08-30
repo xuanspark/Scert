@@ -14,6 +14,7 @@ import (
 )
 
 const requestIDHeader = "X-Scert-Request-ID"
+const jsonRequestBodyLimit = 64 * 1024
 
 func (s *Server) requestMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -90,6 +91,13 @@ func (s *Server) sameOriginForAPI(request *http.Request) bool {
 		requestScheme = "https"
 	}
 	return strings.EqualFold(parsed.Host, request.Host) && strings.EqualFold(parsed.Scheme, requestScheme)
+}
+
+func limitJSONBody(c *gin.Context) {
+	if c == nil || c.Request == nil || c.Request.Body == nil {
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, jsonRequestBodyLimit)
 }
 
 func requestIDFromContext(c *gin.Context) string {

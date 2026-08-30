@@ -79,6 +79,7 @@ func (s *Server) getUser(c *gin.Context) {
 }
 
 func (s *Server) createUser(c *gin.Context) {
+	limitJSONBody(c)
 	if s.users == nil {
 		s.writeError(c, http.StatusNotImplemented, "用户管理接口尚未配置", errors.New("用户仓储未配置"))
 		return
@@ -102,6 +103,7 @@ func (s *Server) createUser(c *gin.Context) {
 }
 
 func (s *Server) updateUser(c *gin.Context) {
+	limitJSONBody(c)
 	if s.users == nil {
 		s.writeError(c, http.StatusNotImplemented, "用户管理接口尚未配置", errors.New("用户仓储未配置"))
 		return

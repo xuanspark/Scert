@@ -332,6 +332,7 @@ func (s *Server) listDomains(c *gin.Context) {
 }
 
 func (s *Server) createDomain(c *gin.Context) {
+	limitJSONBody(c)
 	var request domainRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
@@ -354,6 +355,7 @@ func (s *Server) createDomain(c *gin.Context) {
 }
 
 func (s *Server) updateDomain(c *gin.Context) {
+	limitJSONBody(c)
 	var request domainRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
@@ -464,6 +466,7 @@ func (s *Server) getServer(c *gin.Context) {
 }
 
 func (s *Server) createServer(c *gin.Context) {
+	limitJSONBody(c)
 	if s.servers == nil {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
 		return
@@ -487,6 +490,7 @@ func (s *Server) createServer(c *gin.Context) {
 }
 
 func (s *Server) updateServer(c *gin.Context) {
+	limitJSONBody(c)
 	if s.servers == nil {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
 		return
@@ -566,6 +570,7 @@ func (s *Server) listDomainServers(c *gin.Context) {
 }
 
 func (s *Server) replaceDomainServers(c *gin.Context) {
+	limitJSONBody(c)
 	if s.servers == nil {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
 		return
