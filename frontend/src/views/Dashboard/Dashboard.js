@@ -137,6 +137,7 @@ export function useDashboard() {
     renewal_run: "执行自动续期",
   };
   const taskStageLabels = {
+    service_restart: "服务重启恢复",
     queued: "排队中",
     certificate_issue: "申请证书",
     certificate_validate: "校验证书",

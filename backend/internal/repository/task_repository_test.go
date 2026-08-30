@@ -153,3 +153,52 @@ func TestSQLTaskRepositoryDoesNotOverwriteCancelledTask(t *testing.T) {
 		t.Fatalf("已取消任务状态被覆盖：%+v %v", task, err)
 	}
 }
+
+func TestSQLTaskRepositoryRecoversInterruptedTasksAndAttempts(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	created := time.Date(2026, 8, 30, 9, 0, 0, 0, time.UTC)
+	for _, item := range []Task{
+		{ID: "task-queued", DomainID: "domain-1", TaskType: "certificate_issue", Status: "queued", Stage: "queued", Message: "\u7b49\u5f85\u6267\u884c", CreatedAt: created, UpdatedAt: created},
+		{ID: "task-running", DomainID: "domain-2", TaskType: "certificate_issue", Status: "running", Stage: "certificate_issue", Message: "\u6b63\u5728\u6267\u884c", CreatedAt: created, UpdatedAt: created},
+		{ID: "task-success", DomainID: "domain-3", TaskType: "certificate_issue", Status: "success", Stage: "certificate_issue", Message: "\u5df2\u5b8c\u6210", CreatedAt: created, UpdatedAt: created},
+	} {
+		if err := repository.CreateTask(ctx, item); err != nil {
+			t.Fatalf("\u521b\u5efa\u6062\u590d\u6d4b\u8bd5\u4efb\u52a1\u5931\u8d25\uff1a%v", err)
+		}
+	}
+	if err := repository.CreateAttempt(ctx, TaskAttempt{
+		ID: "attempt-running", TaskID: "task-running", AttemptNumber: 1, Stage: "certificate_issue", Status: "running", Message: "\u6b63\u5728\u6267\u884c", CreatedAt: created,
+	}); err != nil {
+		t.Fatalf("\u521b\u5efa\u6062\u590d\u6d4b\u8bd5\u5c1d\u8bd5\u5931\u8d25\uff1a%v", err)
+	}
+	if err := repository.CreateAttempt(ctx, TaskAttempt{
+		ID: "attempt-success", TaskID: "task-success", AttemptNumber: 1, Stage: "certificate_issue", Status: "success", Message: "\u5df2\u5b8c\u6210", CreatedAt: created,
+	}); err != nil {
+		t.Fatalf("\u521b\u5efa\u5df2\u5b8c\u6210\u6d4b\u8bd5\u5c1d\u8bd5\u5931\u8d25\uff1a%v", err)
+	}
+	finished := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+	count, err := repository.RecoverInterruptedTasks(ctx, finished)
+	if err != nil || count != 2 {
+		t.Fatalf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u6570\u91cf\u9519\u8bef\uff1a%d %v", count, err)
+	}
+	for _, id := range []string{"task-queued", "task-running"} {
+		item, getErr := repository.GetTask(ctx, id)
+		if getErr != nil || item.Status != "failed" || item.Stage != "service_restart" || item.FinishedAt == nil || !item.FinishedAt.Equal(finished) {
+			t.Fatalf("\u4e2d\u65ad\u4efb\u52a1\u6062\u590d\u7ed3\u679c\u9519\u8bef\uff1a%+v %v", item, getErr)
+		}
+	}
+	completed, err := repository.GetTask(ctx, "task-success")
+	if err != nil || completed.Status != "success" {
+		t.Fatalf("\u5df2\u5b8c\u6210\u4efb\u52a1\u4e0d\u5e94\u88ab\u6062\u590d\u903b\u8f91\u4fee\u6539\uff1a%+v %v", completed, err)
+	}
+	attempts, err := repository.ListAttempts(ctx, "task-running")
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "failed" || attempts[0].FinishedAt == nil || !attempts[0].FinishedAt.Equal(finished) {
+		t.Fatalf("\u8fd0\u884c\u4e2d\u4efb\u52a1\u5c1d\u8bd5\u6062\u590d\u7ed3\u679c\u9519\u8bef\uff1a%+v %v", attempts, err)
+	}
+	completedAttempts, err := repository.ListAttempts(ctx, "task-success")
+	if err != nil || len(completedAttempts) != 1 || completedAttempts[0].Status != "success" {
+		t.Fatalf("\u5df2\u5b8c\u6210\u4efb\u52a1\u5c1d\u8bd5\u4e0d\u5e94\u88ab\u6062\u590d\u903b\u8f91\u4fee\u6539\uff1a%+v %v", completedAttempts, err)
+	}
+}

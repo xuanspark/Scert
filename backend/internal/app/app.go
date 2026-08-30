@@ -87,6 +87,13 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		}
 	}
 	taskRepo := repository.NewSQLTaskRepository(db.DB)
+	if recovered, err := taskRepo.RecoverInterruptedTasks(ctx, time.Now().UTC()); err != nil {
+		_ = db.Close()
+		_ = logger.Close()
+		return nil, fmt.Errorf("\u6062\u590d\u670d\u52a1\u91cd\u542f\u524d\u672a\u5b8c\u6210\u4efb\u52a1\u5931\u8d25\uff1a%w", err)
+	} else if recovered > 0 {
+		logger.Warn("\u670d\u52a1\u91cd\u542f\u524d\u672a\u5b8c\u6210\u4efb\u52a1\u5df2\u6807\u8bb0\u4e3a\u5931\u8d25", "count", recovered)
+	}
 	auditRepo := repository.NewSQLAuditRepository(db.DB)
 	sshKeys := sshkey.NewService(secretStore)
 	accounts := certificate.NewAccountRepository(secretStore)

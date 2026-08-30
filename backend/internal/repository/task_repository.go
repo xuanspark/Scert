@@ -45,6 +45,7 @@ type TaskRepository interface {
 	ListTasks(context.Context, string, int) ([]Task, error)
 	UpdateTask(context.Context, string, string, string, string, *time.Time, *time.Time) error
 	CancelTask(context.Context, string, string, *time.Time) error
+	RecoverInterruptedTasks(context.Context, time.Time) (int, error)
 	FindActiveTaskByDomain(context.Context, string, string) (Task, error)
 	FindTaskByIdempotencyKey(context.Context, string, string) (Task, error)
 	CreateAttempt(context.Context, TaskAttempt) error
@@ -208,6 +209,48 @@ func (r *SQLTaskRepository) CancelTask(ctx context.Context, id, message string, 
 	}
 	return nil
 }
+
+// RecoverInterruptedTasks 将服务重启前未完成的任务标记为失败，避免任务永久停留在执行状态。
+func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishedAt time.Time) (int, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("\u6570\u636e\u5e93\u8fde\u63a5\u4e0d\u80fd\u4e3a\u7a7a")
+	}
+	if finishedAt.IsZero() {
+		finishedAt = time.Now().UTC()
+	} else {
+		finishedAt = finishedAt.UTC()
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("\u5f00\u59cb\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u4e8b\u52a1\u5931\u8d25\uff1a%w", err)
+	}
+	rollback := func() {
+		_ = tx.Rollback()
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE tasks
+		SET status = 'failed', stage = 'service_restart', message = ?, finished_at = ?, updated_at = ?
+		WHERE status IN ('queued', 'running')`, "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt, finishedAt)
+	if err != nil {
+		rollback()
+		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5931\u8d25\uff1a%w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		rollback()
+		return 0, fmt.Errorf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u6570\u91cf\u5931\u8d25\uff1a%w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE task_attempts
+		SET status = 'failed', message = ?, finished_at = ?
+		WHERE status IN ('queued', 'running')`, "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt); err != nil {
+		rollback()
+		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5c1d\u8bd5\u5931\u8d25\uff1a%w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("\u63d0\u4ea4\u4e2d\u65ad\u4efb\u52a1\u6062\u590d\u4e8b\u52a1\u5931\u8d25\uff1a%w", err)
+	}
+	return int(count), nil
+}
+
 func (r *SQLTaskRepository) FindActiveTaskByDomain(ctx context.Context, domainID, taskType string) (Task, error) {
 	if r == nil || r.db == nil {
 		return Task{}, errors.New("数据库连接不能为空")
