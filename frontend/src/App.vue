@@ -1,5 +1,6 @@
 <script setup>
 import { useAppShell } from "./App.js";
+import AccessDenied from "./views/AccessDenied/AccessDenied.vue";
 import Dashboard from "./views/Dashboard/Dashboard.vue";
 import Login from "./views/Login/Login.vue";
 import PasswordReset from "./views/PasswordReset/PasswordReset.vue";
@@ -9,6 +10,7 @@ import SuperAdminReset from "./views/SuperAdminReset/SuperAdminReset.vue";
 const {
   setupState,
   authenticated,
+  isAdmin,
   bootstrapping,
   error,
   routePath,
@@ -43,6 +45,10 @@ const {
   />
 
   <Login v-else-if="setupState && authenticated === false" />
+
+  <AccessDenied
+    v-else-if="setupState && authenticated === true && isAdmin === false"
+  />
 
   <Dashboard v-else-if="setupState && authenticated === true" />
 </template>
