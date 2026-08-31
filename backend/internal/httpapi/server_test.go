@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
