@@ -106,6 +106,13 @@ func ResolveServerPaths(server Server, domainName, certificateType string) (Serv
 	if err != nil {
 		return Server{}, err
 	}
+	if err := validateDeploymentPaths([]remoteFile{
+		{path: server.CertificatePath},
+		{path: server.CertificateChainPath},
+		{path: server.PrivateKeyPath},
+	}); err != nil {
+		return Server{}, err
+	}
 	return server, nil
 }
 
@@ -130,7 +137,7 @@ func resolveServerPathTemplate(label, value string, replacer *strings.Replacer) 
 	if !strings.HasPrefix(cleaned, "/") {
 		return "", fmt.Errorf("%s必须是绝对路径", label)
 	}
-	return resolved, nil
+	return cleaned, nil
 }
 
 func (s Server) Validate() error {

@@ -75,6 +75,28 @@ func TestResolveServerPathsRejectsRelativePath(t *testing.T) {
 	}
 }
 
+func TestResolveServerPathsCanonicalizesPathAndRejectsDuplicate(t *testing.T) {
+	server := testServer("one")
+	server.CertificatePath = "/ssl/example/../example/cert.pem"
+	resolved, err := ResolveServerPaths(server, "example.com", "single")
+	if err != nil {
+		t.Fatalf("path normalization failed: %v", err)
+	}
+	if resolved.CertificatePath != "/ssl/example/cert.pem" {
+		t.Fatalf("unexpected normalized path: %s", resolved.CertificatePath)
+	}
+
+	server = testServer("one")
+	server.CertificatePath = "/ssl/example/../example/cert.pem"
+	server.PrivateKeyPath = "/ssl/example/../example/cert.pem"
+	if _, err := ResolveServerPaths(server, "example.com", "single"); err == nil {
+		FatalUnexpectedPath(t)
+	}
+}
+func FatalUnexpectedPath(t *testing.T) {
+	t.Helper()
+	t.Fatal("duplicate path accepted")
+}
 func TestServerRejectsPasswordStyleOrUnsafeConfiguration(t *testing.T) {
 	server := testServer("one")
 	server.PrivateKeyRef = ""
