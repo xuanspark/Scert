@@ -6,6 +6,7 @@ import (
 	"context"
 	"os/exec"
 	"strconv"
+	"strings"
 )
 
 func Install(ctx context.Context, options Options) error {
@@ -24,8 +25,8 @@ func Install(ctx context.Context, options Options) error {
 }
 
 func Uninstall(ctx context.Context, name string) error {
-	if name == "" {
-		return commandError("卸载", ErrInvalidName)
+	if err := validateName(name); err != nil {
+		return err
 	}
 	if err := runSC(ctx, "stop", name); err != nil {
 		// 服务未运行时允许继续删除。
@@ -83,7 +84,7 @@ func (e *commandFailure) Error() string {
 func (e *commandFailure) Unwrap() error { return e.err }
 
 func validateName(name string) error {
-	if name == "" || name == "." || name == ".." {
+	if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
 		return ErrInvalidName
 	}
 	return nil

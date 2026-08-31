@@ -45,3 +45,11 @@ func TestOptionsNormalizedDefaultsDisplayText(t *testing.T) {
 		t.Fatal("规范化后程序路径不能为空")
 	}
 }
+
+func TestValidateNameRejectsPathLikeValues(t *testing.T) {
+	for _, name := range []string{"", " ", ".", "..", "../Scert", "a/b", `a\b`} {
+		if err := validateName(name); err == nil {
+			t.Errorf("服务名称 %q 未被拒绝", name)
+		}
+	}
+}

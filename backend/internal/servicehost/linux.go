@@ -194,7 +194,7 @@ func (e *commandFailure) Error() string {
 func (e *commandFailure) Unwrap() error { return e.err }
 
 func validateName(name string) error {
-	if name == "" || name == "." || name == ".." {
+	if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
 		return ErrInvalidName
 	}
 	return nil
