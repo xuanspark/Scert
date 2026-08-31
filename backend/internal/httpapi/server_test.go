@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -648,5 +649,82 @@ func TestDomainAPIReportsMissingRepository(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "域名管理接口尚未配置") {
 		t.Fatalf("缺少域名仓储错误提示：%s", response.Body.String())
+	}
+}
+
+func TestDeleteDomainRejectsActiveCertificateTask(t *testing.T) {
+	dir := t.TempDir()
+	cfg := readyTestConfig(dir)
+	cfg.Database.DSN = filepath.Join(dir, "data", "delete-domain.db")
+	db, err := database.Open(context.Background(), cfg.Database)
+	if err != nil {
+		t.Fatalf("打开数据库失败：%v", err)
+	}
+	defer db.Close()
+	if err := database.Migrate(context.Background(), db.DB, "sqlite"); err != nil {
+		t.Fatalf("数据库迁移失败：%v", err)
+	}
+
+	domainRepo := repository.NewSQLDomainRepository(db.DB)
+	taskRepo := repository.NewSQLTaskRepository(db.DB)
+	server := New(Dependencies{
+		Config:     cfg,
+		Repository: domainRepo,
+		Tasks:      taskRepo,
+	})
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"active-task.example.com","certificate_type":"single"}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("创建测试域名失败：%d %s", createResponse.Code, createResponse.Body.String())
+	}
+
+	var createdDomain domain.Domain
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &createdDomain); err != nil {
+		t.Fatalf("解析创建域名响应失败：%v", err)
+	}
+	if createdDomain.ID == "" {
+		t.Fatal("创建域名响应缺少域名 ID")
+	}
+
+	now := time.Now().UTC()
+	if err := taskRepo.CreateTask(context.Background(), repository.Task{
+		ID:        "active-certificate-task",
+		DomainID:  createdDomain.ID,
+		TaskType:  "certificate_issue",
+		Status:    "running",
+		Stage:     "certificate_issue",
+		Message:   "正在执行",
+		StartedAt: &now,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("创建活动证书任务失败：%v", err)
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/domains/"+createdDomain.ID, nil)
+	blockedResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, blockedResponse, deleteRequest)
+	if blockedResponse.Code != http.StatusConflict {
+		t.Fatalf("活动证书任务期间删除域名应返回 409：%d %s", blockedResponse.Code, blockedResponse.Body.String())
+	}
+	if !strings.Contains(blockedResponse.Body.String(), "正在执行的证书任务") {
+		t.Fatalf("活动证书任务期间的错误信息不正确：%s", blockedResponse.Body.String())
+	}
+
+	finishedAt := now.Add(time.Second)
+	if err := taskRepo.CancelTask(context.Background(), "active-certificate-task", "测试取消", &finishedAt); err != nil {
+		t.Fatalf("取消活动证书任务失败：%v", err)
+	}
+
+	allowedResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, allowedResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/domains/"+createdDomain.ID, nil))
+	if allowedResponse.Code != http.StatusNoContent {
+		t.Fatalf("取消证书任务后删除域名应返回 204：%d %s", allowedResponse.Code, allowedResponse.Body.String())
+	}
+	if _, err := domainRepo.GetByID(context.Background(), createdDomain.ID); !repository.IsNotFound(err) {
+		t.Fatalf("删除成功后仍能读取域名：%v", err)
 	}
 }
