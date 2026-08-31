@@ -4,35 +4,26 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 )
 
 type Logger struct {
 	*slog.Logger
-	file *os.File
+	closer io.Closer
 }
 
 func New(logDir string, level slog.Level) (*Logger, error) {
-	if err := os.MkdirAll(logDir, 0o750); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(logDir, "scert.log")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	fileWriter, err := newDailyFileWriter(logDir)
 	if err != nil {
 		return nil, err
 	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	writer := io.MultiWriter(os.Stdout, file)
+	writer := io.MultiWriter(os.Stdout, fileWriter)
 	handler := slog.NewJSONHandler(writer, &slog.HandlerOptions{Level: level})
-	return &Logger{Logger: slog.New(handler), file: file}, nil
+	return &Logger{Logger: slog.New(handler), closer: fileWriter}, nil
 }
 
 func (l *Logger) Close() error {
-	if l == nil || l.file == nil {
+	if l == nil || l.closer == nil {
 		return nil
 	}
-	return l.file.Close()
+	return l.closer.Close()
 }

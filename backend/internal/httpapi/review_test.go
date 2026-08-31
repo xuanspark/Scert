@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -80,6 +81,37 @@ func TestStatusReturnsApplicationAndConfigVersions(t *testing.T) {
 	}
 	if payload.Version != buildinfo.Version || payload.ConfigVersion != config.CurrentVersion {
 		t.Fatalf("状态版本字段不正确：%+v", payload)
+	}
+}
+
+func TestPublicStatusDoesNotExposeInternalConfiguration(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	cfg.Database.Driver = "mysql"
+	cfg.Server.HTTPSMode = "proxy"
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("公开状态接口响应错误：%d", response.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("解析公开状态响应失败：%v", err)
+	}
+	for _, key := range []string{"database_driver", "https_mode", "reset_url"} {
+		if _, exists := payload[key]; exists {
+			t.Fatalf("公开状态接口不应返回内部字段 %s：%s", key, response.Body.String())
+		}
+	}
+}
+
+func TestHTTPServerUsesProductionTimeoutsAndTLSMinimum(t *testing.T) {
+	server := newHTTPServer("127.0.0.1:0", http.NewServeMux())
+	if server.ReadHeaderTimeout != 10*time.Second || server.ReadTimeout != 30*time.Second || server.WriteTimeout != 30*time.Second || server.IdleTimeout != 60*time.Second {
+		t.Fatalf("HTTP 服务超时配置不正确：%+v", server)
+	}
+	if server.TLSConfig == nil || server.TLSConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("TLS 最低版本应为 TLS 1.2：%+v", server.TLSConfig)
 	}
 }
 

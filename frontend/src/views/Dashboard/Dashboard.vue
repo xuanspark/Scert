@@ -944,12 +944,24 @@ const {
           </p>
           <label class="field"
             ><span
-              >自定义重载命令
+              >配置校验命令
+              <small
+                >每行一个参数；Nginx、Caddy、Apache 留空使用默认命令，自定义服务必须填写</small
+              ></span
+            ><textarea
+              v-model="serverForm.validation_command"
+              rows="3"
+              placeholder="nginx&#10;-t"
+            ></textarea>
+          </label>
+          <label class="field"
+            ><span
+              >重载命令
               <small>每行一个参数；留空使用网站服务默认命令</small></span
             ><textarea
               v-model="serverForm.reload_command"
               rows="3"
-              placeholder="nginx -s reload"
+              placeholder="nginx&#10;-s&#10;reload"
             ></textarea>
           </label>
           <p v-if="serverFormError" class="form-error">{{ serverFormError }}</p>

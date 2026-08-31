@@ -17,6 +17,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/processlock"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 )
 
@@ -330,28 +331,17 @@ func newBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			lock, err := acquireProcessLock(cfg, "服务正在运行或另一个备份恢复任务正在执行；请先停止 Scert 服务")
+			if err != nil {
+				return err
+			}
+			defer lock.Close()
 			if strings.TrimSpace(output) == "" {
 				output = filepath.Join(cfg.Paths.Backup, "scert-"+time.Now().UTC().Format("20060102-150405.000000000"))
 			}
 			output = filepath.Clean(output)
-			if err := ensureBackupDestination(output); err != nil {
+			if err := createBackup(cmd.Context(), cfg, resolveConfigPath(), output); err != nil {
 				return err
-			}
-			if err := os.MkdirAll(output, 0o700); err != nil {
-				return fmt.Errorf("创建备份目录失败：%w", err)
-			}
-			if err := copyFileExclusive(resolveConfigPath(), filepath.Join(output, "scert.json"), 0o600); err != nil {
-				return err
-			}
-			if cfg.Database.Driver == "sqlite" && cfg.Database.DSN != ":memory:" {
-				if err := copyFileExclusive(cfg.Database.DSN, filepath.Join(output, "scert.db"), 0o600); err != nil {
-					return err
-				}
-			}
-			if cfg.Database.Driver == "mysql" {
-				if err := backupMySQL(cmd.Context(), cfg, filepath.Join(output, "scert.sql")); err != nil {
-					return err
-				}
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "备份已创建：%s\n", output)
 			return err
@@ -371,21 +361,42 @@ func newRestoreCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := validateBackupManifest(input); err != nil {
+				return err
+			}
 			configFile := filepath.Join(input, "scert.json")
 			cfg, err := config.Load(configFile)
 			if err != nil {
 				return fmt.Errorf("读取备份配置失败：%w", err)
 			}
+			if err := validateBackupSecretStore(cmd.Context(), input, cfg); err != nil {
+				return err
+			}
 
 			currentPath := filepath.Clean(resolveConfigPath())
+			expectedConfigPath := filepath.Join(cfg.Paths.Config, "scert.json")
+			if !samePath(currentPath, expectedConfigPath) {
+				return fmt.Errorf("恢复目标配置路径必须与备份配置目录一致：%s", expectedConfigPath)
+			}
 			currentConfig, currentConfigErr := config.Load(currentPath)
 			if currentConfigErr != nil && !errors.Is(currentConfigErr, os.ErrNotExist) {
 				return fmt.Errorf("读取当前配置失败：%w", currentConfigErr)
 			}
-			if currentConfigErr == nil && currentConfig.Database.Driver != cfg.Database.Driver {
-				return fmt.Errorf("备份数据库类型（%s）与当前配置数据库类型（%s）不一致，拒绝恢复", cfg.Database.Driver, currentConfig.Database.Driver)
+			if currentConfigErr == nil {
+				if err := validateRestoreCompatibility(currentConfig, cfg); err != nil {
+					return err
+				}
 			}
-			if info, statErr := os.Stat(currentPath); statErr == nil && !info.Mode().IsRegular() {
+			lockConfig := cfg
+			if currentConfigErr == nil {
+				lockConfig = currentConfig
+			}
+			lock, err := acquireProcessLock(lockConfig, "服务正在运行或另一个备份恢复任务正在执行；请先停止 Scert 服务")
+			if err != nil {
+				return err
+			}
+			defer lock.Close()
+			if info, statErr := os.Lstat(currentPath); statErr == nil && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
 				return errors.New("当前配置路径不是普通文件")
 			} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 				return fmt.Errorf("检查当前配置失败：%w", statErr)
@@ -397,25 +408,36 @@ func newRestoreCommand() *cobra.Command {
 			}
 
 			databaseSource := filepath.Join(input, "scert.db")
-			databaseSourceInfo, databaseSourceErr := os.Stat(databaseSource)
-			databaseSourceExists := databaseSourceErr == nil
+			databaseSourceInfo, databaseSourceErr := os.Lstat(databaseSource)
+			databaseSourceExists := databaseSourceErr == nil && databaseSourceInfo.Mode().IsRegular()
 			if databaseSourceErr != nil && !errors.Is(databaseSourceErr, os.ErrNotExist) {
 				return fmt.Errorf("检查备份数据库失败：%w", databaseSourceErr)
 			}
-			if databaseSourceExists && !databaseSourceInfo.Mode().IsRegular() {
+			if databaseSourceErr == nil && !databaseSourceInfo.Mode().IsRegular() {
 				return errors.New("备份数据库不是普通文件")
 			}
-			if cfg.Database.Driver == "sqlite" && cfg.Database.DSN != ":memory:" && !databaseSourceExists {
+			databaseTarget := ""
+			sqliteMemory := false
+			if cfg.Database.Driver == "sqlite" {
+				databaseTarget, sqliteMemory, err = sqliteDatabasePath(cfg.Database.DSN)
+				if err != nil {
+					return err
+				}
+			}
+			if cfg.Database.Driver == "sqlite" && !sqliteMemory && !databaseSourceExists {
 				return errors.New("SQLite 备份目录缺少有效的 scert.db 文件")
 			}
-			if cfg.Database.Driver == "sqlite" && cfg.Database.DSN != ":memory:" && databaseSourceExists {
-				if samePath(databaseSource, cfg.Database.DSN) {
+			if cfg.Database.Driver == "sqlite" && !sqliteMemory && databaseSourceExists {
+				if err := validateSQLiteDatabase(cmd.Context(), databaseSource); err != nil {
+					return err
+				}
+				if samePath(databaseSource, databaseTarget) {
 					return errors.New("备份数据库与当前数据库路径相同")
 				}
-				if err := ensureParentDirectory(cfg.Database.DSN); err != nil {
+				if err := ensureParentDirectory(databaseTarget); err != nil {
 					return fmt.Errorf("创建当前数据库父目录失败：%w", err)
 				}
-				if databaseTargetInfo, statErr := os.Stat(cfg.Database.DSN); statErr == nil && !databaseTargetInfo.Mode().IsRegular() {
+				if databaseTargetInfo, statErr := os.Lstat(databaseTarget); statErr == nil && (databaseTargetInfo.Mode()&os.ModeSymlink != 0 || !databaseTargetInfo.Mode().IsRegular()) {
 					return errors.New("当前数据库不是普通文件")
 				} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 					return fmt.Errorf("检查当前数据库失败：%w", statErr)
@@ -431,9 +453,9 @@ func newRestoreCommand() *cobra.Command {
 			}
 
 			databaseBackupPath := ""
-			if cfg.Database.Driver == "sqlite" && cfg.Database.DSN != ":memory:" && databaseSourceExists && isRegularFile(cfg.Database.DSN) {
-				databaseBackupPath = cfg.Database.DSN + ".before-restore-" + time.Now().UTC().Format("20060102-150405.000000000")
-				if err := copyFileExclusive(cfg.Database.DSN, databaseBackupPath, 0o600); err != nil {
+			if cfg.Database.Driver == "sqlite" && !sqliteMemory && databaseSourceExists && isRegularFile(databaseTarget) {
+				databaseBackupPath = databaseTarget + ".before-restore-" + time.Now().UTC().Format("20060102-150405.000000000")
+				if err := copyFileExclusive(databaseTarget, databaseBackupPath, 0o600); err != nil {
 					return err
 				}
 			}
@@ -446,33 +468,49 @@ func newRestoreCommand() *cobra.Command {
 				}
 			}
 
-			if err := cfg.Save(currentPath); err != nil {
-				return err
-			}
-			if cfg.Database.Driver == "sqlite" && cfg.Database.DSN != ":memory:" && databaseSourceExists {
-				if err := copyFile(databaseSource, cfg.Database.DSN, 0o600); err != nil {
-					if configBackupPath != "" {
-						_ = copyFile(configBackupPath, currentPath, 0o600)
-					}
+			configRestoreAttempted := false
+			sqliteRestoreAttempted := false
+			mysqlRestoreAttempted := false
+			rollbackCore := func() error {
+				var rollbackErr error
+				if mysqlRestoreAttempted && mysqlBackupPath != "" {
+					rollbackErr = errors.Join(rollbackErr, restoreMySQL(cmd.Context(), cfg, mysqlBackupPath))
+				}
+				if sqliteRestoreAttempted {
 					if databaseBackupPath != "" {
-						_ = copyFile(databaseBackupPath, cfg.Database.DSN, 0o600)
+						rollbackErr = errors.Join(rollbackErr, copyFileAtomic(databaseBackupPath, databaseTarget, 0o600))
+					} else {
+						rollbackErr = errors.Join(rollbackErr, removeIfExists(databaseTarget))
 					}
-					return fmt.Errorf("恢复 SQLite 数据库失败：%w", err)
+				}
+				if configRestoreAttempted {
+					if configBackupPath != "" {
+						rollbackErr = errors.Join(rollbackErr, copyFileAtomic(configBackupPath, currentPath, 0o600))
+					} else {
+						rollbackErr = errors.Join(rollbackErr, removeIfExists(currentPath))
+					}
+				}
+				return rollbackErr
+			}
+
+			configRestoreAttempted = true
+			if err := copyFileAtomic(configFile, currentPath, 0o600); err != nil {
+				return errors.Join(err, rollbackCore())
+			}
+			if cfg.Database.Driver == "sqlite" && !sqliteMemory && databaseSourceExists {
+				sqliteRestoreAttempted = true
+				if err := copyFileAtomic(databaseSource, databaseTarget, 0o600); err != nil {
+					return errors.Join(fmt.Errorf("恢复 SQLite 数据库失败：%w", err), rollbackCore())
 				}
 			}
 			if cfg.Database.Driver == "mysql" {
+				mysqlRestoreAttempted = true
 				if err := restoreMySQL(cmd.Context(), cfg, mysqlSource); err != nil {
-					restoreFailure := fmt.Errorf("恢复 MySQL 数据库失败：%w", err)
-					if mysqlBackupPath != "" {
-						if rollbackErr := restoreMySQL(cmd.Context(), cfg, mysqlBackupPath); rollbackErr != nil {
-							restoreFailure = fmt.Errorf("%w；MySQL 数据库回滚失败：%v", restoreFailure, rollbackErr)
-						}
-					}
-					if configBackupPath != "" {
-						_ = copyFile(configBackupPath, currentPath, 0o600)
-					}
-					return restoreFailure
+					return errors.Join(fmt.Errorf("恢复 MySQL 数据库失败：%w", err), rollbackCore())
 				}
+			}
+			if err := restoreAdditionalAssets(cfg, input); err != nil {
+				return errors.Join(fmt.Errorf("恢复敏感配置或证书失败：%w", err), rollbackCore())
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "恢复已完成：%s\n", input)
 			return err
@@ -489,6 +527,17 @@ func openApp(ctx context.Context) (*app.App, error) {
 		return nil, err
 	}
 	return app.NewWithConfigPath(ctx, cfg, resolveConfigPath())
+}
+
+func acquireProcessLock(cfg config.Config, busyMessage string) (*processlock.Lock, error) {
+	lock, err := processlock.Acquire(filepath.Join(cfg.Paths.Data, "scert.lock"))
+	if errors.Is(err, processlock.ErrLocked) {
+		return nil, errors.New(busyMessage)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return lock, nil
 }
 
 func tailLines(reader io.Reader, count int) ([]string, error) {
@@ -687,10 +736,57 @@ func copyFile(source, target string, mode os.FileMode) error {
 		_ = output.Close()
 		return fmt.Errorf("复制文件失败：%w", err)
 	}
+	if err := output.Sync(); err != nil {
+		_ = output.Close()
+		return fmt.Errorf("同步目标文件失败：%w", err)
+	}
 	if err := output.Close(); err != nil {
 		return fmt.Errorf("关闭目标文件失败：%w", err)
 	}
 	return os.Chmod(target, mode)
+}
+
+func copyFileAtomic(source, target string, mode os.FileMode) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("打开文件失败：%w", err)
+	}
+	defer input.Close()
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return fmt.Errorf("创建目标目录失败：%w", err)
+	}
+	output, err := os.CreateTemp(filepath.Dir(target), ".scert-restore-")
+	if err != nil {
+		return fmt.Errorf("创建恢复暂存文件失败：%w", err)
+	}
+	temporaryPath := output.Name()
+	completed := false
+	defer func() {
+		if !completed {
+			_ = output.Close()
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := output.Chmod(mode); err != nil {
+		return fmt.Errorf("设置恢复暂存文件权限失败：%w", err)
+	}
+	if _, err := io.Copy(output, input); err != nil {
+		return fmt.Errorf("复制文件失败：%w", err)
+	}
+	if err := output.Sync(); err != nil {
+		return fmt.Errorf("同步恢复暂存文件失败：%w", err)
+	}
+	if err := output.Close(); err != nil {
+		return fmt.Errorf("关闭恢复暂存文件失败：%w", err)
+	}
+	if err := os.Rename(temporaryPath, target); err != nil {
+		return fmt.Errorf("原子替换恢复文件失败：%w", err)
+	}
+	if err := syncDirectory(filepath.Dir(target)); err != nil {
+		return fmt.Errorf("同步恢复目标目录失败：%w", err)
+	}
+	completed = true
+	return nil
 }
 
 func copyFileExclusive(source, target string, mode os.FileMode) error {
@@ -706,14 +802,27 @@ func copyFileExclusive(source, target string, mode os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("创建目标文件失败：%w", err)
 	}
+	completed := false
+	defer func() {
+		if !completed {
+			_ = output.Close()
+			_ = os.Remove(target)
+		}
+	}()
 	if _, err := io.Copy(output, input); err != nil {
-		_ = output.Close()
 		return fmt.Errorf("复制文件失败：%w", err)
+	}
+	if err := output.Sync(); err != nil {
+		return fmt.Errorf("同步目标文件失败：%w", err)
 	}
 	if err := output.Close(); err != nil {
 		return fmt.Errorf("关闭目标文件失败：%w", err)
 	}
-	return os.Chmod(target, mode)
+	if err := os.Chmod(target, mode); err != nil {
+		return err
+	}
+	completed = true
+	return nil
 }
 
 func ensureBackupDestination(path string) error {
@@ -733,12 +842,12 @@ func validateRestoreInput(path string) (string, error) {
 	if path == "." || path == "" {
 		return "", errors.New("备份目录不能为空")
 	}
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return "", fmt.Errorf("检查备份目录失败：%w", err)
 	}
-	if !info.IsDir() {
-		return "", errors.New("备份路径必须是目录")
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", errors.New("备份路径必须是普通目录，不能使用符号链接")
 	}
 	configFile := filepath.Join(path, "scert.json")
 	if !isRegularFile(configFile) {

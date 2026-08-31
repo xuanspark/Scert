@@ -10,6 +10,23 @@ func TestServerUsesDefaultReloadCommand(t *testing.T) {
 	if len(server.ReloadCommand) != 3 || server.ReloadCommand[0] != "nginx" {
 		t.Fatalf("Nginx 默认 reload 命令错误：%v", server.ReloadCommand)
 	}
+	if len(server.ValidationCommand) != 2 || server.ValidationCommand[0] != "nginx" || server.ValidationCommand[1] != "-t" {
+		t.Fatalf("Nginx 默认配置校验命令错误：%v", server.ValidationCommand)
+	}
+}
+
+func TestServerRequiresCustomValidationCommand(t *testing.T) {
+	server := testServer("one")
+	server.WebServer = WebServerCustom
+	server.ValidationCommand = nil
+	server.ReloadCommand = []string{"service-control", "reload"}
+	if err := server.Validate(); err == nil {
+		t.Fatal("自定义网站服务未配置校验命令时应被拒绝")
+	}
+	server.ValidationCommand = []string{"service-control", "validate"}
+	if err := server.Validate(); err != nil {
+		t.Fatalf("自定义网站服务配置有效命令后应通过校验：%v", err)
+	}
 }
 
 func TestServerUsesDefaultCertificatePathTemplates(t *testing.T) {
@@ -107,5 +124,10 @@ func TestServerRejectsPasswordStyleOrUnsafeConfiguration(t *testing.T) {
 	server.ReloadCommand = []string{"nginx\nrm", "-s", "reload"}
 	if err := server.Validate(); err == nil {
 		t.Fatal("reload 参数包含换行时应拒绝服务器配置")
+	}
+	server = testServer("one")
+	server.ValidationCommand = []string{"nginx", "-t\nrm"}
+	if err := server.Validate(); err == nil {
+		t.Fatal("配置校验参数包含换行时应拒绝服务器配置")
 	}
 }

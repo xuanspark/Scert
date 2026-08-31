@@ -196,6 +196,13 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		temporary = temporary[:len(temporary)-1]
 		installed = append(installed, file.path)
 	}
+	validationResult, err := client.Run(ctx, server.ValidationCommand)
+	if err != nil || validationResult.ExitCode != 0 {
+		if err == nil {
+			err = fmt.Errorf("退出码 %d", validationResult.ExitCode)
+		}
+		return failed(fmt.Sprintf("配置校验失败：%v", err))
+	}
 	commandResult, err := client.Run(ctx, server.ReloadCommand)
 	if err != nil || commandResult.ExitCode != 0 {
 		if err == nil {
@@ -204,7 +211,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		return failed(fmt.Sprintf("reload 失败：%v", err))
 	}
 	result.Status = "success"
-	result.Message = "证书部署并 reload 成功"
+	result.Message = "证书部署、配置校验并 reload 成功"
 	result.BackupID = backupID
 	return result
 }

@@ -5,5 +5,7 @@ frontend/node_modules/
 frontend/dist/
 *.log
 .runtime/
-build/
+build/*
+!build/build-release.ps1
+!build/README.md
 codex-*.patch

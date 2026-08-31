@@ -15,9 +15,10 @@ type memoryFile struct {
 
 type memoryClient struct {
 	files        map[string]memoryFile
-	command      []string
-	runResult    CommandResult
-	runErr       error
+	commands     [][]string
+	runResults   []CommandResult
+	runErrors    []error
+	runIndex     int
 	uploadError  string
 	removeError  string
 	renameError  string
@@ -25,7 +26,7 @@ type memoryClient struct {
 }
 
 func newMemoryClient() *memoryClient {
-	return &memoryClient{files: map[string]memoryFile{}, runResult: CommandResult{ExitCode: 0}}
+	return &memoryClient{files: map[string]memoryFile{}}
 }
 
 func (c *memoryClient) MkdirAll(context.Context, string) error { return nil }
@@ -68,8 +69,18 @@ func (c *memoryClient) Remove(_ context.Context, path string) error {
 }
 
 func (c *memoryClient) Run(_ context.Context, command []string) (CommandResult, error) {
-	c.command = append([]string(nil), command...)
-	return c.runResult, c.runErr
+	c.commands = append(c.commands, append([]string(nil), command...))
+	index := c.runIndex
+	c.runIndex++
+	var result CommandResult
+	var err error
+	if index < len(c.runResults) {
+		result = c.runResults[index]
+	}
+	if index < len(c.runErrors) {
+		err = c.runErrors[index]
+	}
+	return result, err
 }
 
 func (c *memoryClient) Close() error { return nil }
@@ -101,8 +112,8 @@ func TestDeployReplacesFilesAndKeepsBackup(t *testing.T) {
 	if string(client.files[server.CertificatePath].data) != "new-cert" || client.files[server.PrivateKeyPath].mode != 0o600 {
 		t.Fatalf("远程证书内容或权限错误：%+v", client.files)
 	}
-	if len(client.command) != 3 || client.command[0] != "nginx" {
-		t.Fatalf("reload 命令错误：%v", client.command)
+	if len(client.commands) != 2 || len(client.commands[0]) != 2 || client.commands[0][1] != "-t" || len(client.commands[1]) != 3 || client.commands[1][0] != "nginx" {
+		t.Fatalf("配置校验或 reload 命令错误：%v", client.commands)
 	}
 	backupCount := 0
 	for path := range client.files {
@@ -117,7 +128,7 @@ func TestDeployReplacesFilesAndKeepsBackup(t *testing.T) {
 
 func TestDeployRollsBackWhenReloadFails(t *testing.T) {
 	client := newMemoryClient()
-	client.runResult.ExitCode = 1
+	client.runResults = []CommandResult{{ExitCode: 0}, {ExitCode: 1}}
 	server := testServer("server-1")
 	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
@@ -138,9 +149,34 @@ func TestDeployRollsBackWhenReloadFails(t *testing.T) {
 	}
 }
 
+func TestDeployRollsBackWhenValidationFailsWithoutReload(t *testing.T) {
+	client := newMemoryClient()
+	client.runResults = []CommandResult{{ExitCode: 1}}
+	server := testServer("server-1")
+	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
+	client.files[server.CertificateChainPath] = memoryFile{data: []byte("old-chain"), mode: 0o644}
+	client.files[server.PrivateKeyPath] = memoryFile{data: []byte("old-key"), mode: 0o600}
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	if report.Status != "failed" || report.Failed != 1 || !strings.Contains(report.Results[0].Message, "配置校验失败") {
+		t.Fatalf("配置校验失败结果错误：%+v", report)
+	}
+	if len(client.commands) != 1 || client.commands[0][1] != "-t" {
+		t.Fatalf("配置校验失败后不应执行 reload：%v", client.commands)
+	}
+	if string(client.files[server.CertificatePath].data) != "old-cert" || string(client.files[server.CertificateChainPath].data) != "old-chain" || string(client.files[server.PrivateKeyPath].data) != "old-key" {
+		t.Fatalf("配置校验失败后旧证书未完整恢复：%+v", client.files)
+	}
+	for path := range client.files {
+		if strings.Contains(path, ".scert-tmp-") || strings.Contains(path, ".scert-backup-") {
+			t.Fatalf("配置校验回滚后不应残留临时文件或备份文件：%s", path)
+		}
+	}
+}
+
 func TestDeployReportsRollbackFailure(t *testing.T) {
 	client := newMemoryClient()
-	client.runResult.ExitCode = 1
+	client.runResults = []CommandResult{{ExitCode: 0}, {ExitCode: 1}}
 	client.restoreError = true
 	server := testServer("server-1")
 	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}

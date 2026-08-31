@@ -36,7 +36,7 @@ func TestServerRepositoryCRUDAndDomainAssociations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取服务器失败：%v", err)
 	}
-	if loaded.Name != server.Name || loaded.ReloadCommand[0] != "nginx" || loaded.CreatedAt.IsZero() {
+	if loaded.Name != server.Name || loaded.ValidationCommand[0] != "nginx" || loaded.ValidationCommand[1] != "-t" || loaded.ReloadCommand[0] != "nginx" || loaded.CreatedAt.IsZero() {
 		t.Fatalf("服务器内容错误：%+v", loaded)
 	}
 	server.Name = "生产服务器-更新"
@@ -44,6 +44,13 @@ func TestServerRepositoryCRUDAndDomainAssociations(t *testing.T) {
 	server.ReloadCommand = nil
 	if err := repo.UpdateServer(context.Background(), server); err != nil {
 		t.Fatalf("更新服务器失败：%v", err)
+	}
+	updated, err := repo.GetServerByID(context.Background(), server.ID)
+	if err != nil {
+		t.Fatalf("load updated server: %v", err)
+	}
+	if updated.CreatedAt.IsZero() || updated.UpdatedAt.IsZero() || updated.UpdatedAt.Before(updated.CreatedAt) {
+		t.Fatalf("updated server timestamps are invalid: %+v", updated)
 	}
 	if err := repo.ReplaceDomainServers(context.Background(), "domain-1", []string{server.ID, server.ID}); err != nil {
 		t.Fatalf("保存域名服务器关联失败：%v", err)

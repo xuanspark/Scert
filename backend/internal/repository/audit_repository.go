@@ -52,3 +52,21 @@ func (r *SQLAuditRepository) CreateAuditLog(ctx context.Context, item AuditLog) 
 	}
 	return nil
 }
+
+func (r *SQLAuditRepository) PruneExpiredAuditLogs(ctx context.Context, before time.Time) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("数据库连接不能为空")
+	}
+	if before.IsZero() {
+		return 0, errors.New("审计日志清理时间不能为空")
+	}
+	result, err := r.db.ExecContext(ctx, `DELETE FROM audit_logs WHERE created_at < ?`, before.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("清理过期审计日志失败：%w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("读取审计日志清理数量失败：%w", err)
+	}
+	return count, nil
+}

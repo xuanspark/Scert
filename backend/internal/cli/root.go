@@ -653,6 +653,11 @@ func newServeCommand() *cobra.Command {
 		if cfg.SetupReady && !cfg.Web.Enabled {
 			return fmt.Errorf("管理页面已关闭")
 		}
+		lock, err := acquireProcessLock(cfg, "Scert 服务已在运行或备份恢复任务正在执行")
+		if err != nil {
+			return err
+		}
+		defer lock.Close()
 		service, err := app.NewWithConfigPath(cmd.Context(), cfg, resolveConfigPath())
 		if err != nil {
 			return err

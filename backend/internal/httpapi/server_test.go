@@ -332,11 +332,29 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 		t.Fatalf("创建测试服务器失败：%d %s", serverResponse.Code, serverResponse.Body.String())
 	}
 	var created deployment.Server
-	if err := json.Unmarshal(serverResponse.Body.Bytes(), &created); err != nil || created.ID == "" || len(created.ReloadCommand) != 3 {
+	if err := json.Unmarshal(serverResponse.Body.Bytes(), &created); err != nil || created.ID == "" || len(created.ValidationCommand) != 2 || created.ValidationCommand[1] != "-t" || len(created.ReloadCommand) != 3 {
 		t.Fatalf("测试服务器响应无效：%v %+v", err, created)
+	}
+	if created.CreatedAt.IsZero() || created.UpdatedAt.IsZero() {
+		t.Fatalf("created server response has zero timestamps: %+v", created)
 	}
 	if created.CertificatePath != deployment.DefaultCertificatePath || created.CertificateChainPath != deployment.DefaultCertificateChainPath || created.PrivateKeyPath != deployment.DefaultPrivateKeyPath {
 		t.Fatalf("服务器 API 未使用默认远程证书路径模板：%+v", created)
+	}
+
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/servers/"+created.ID, strings.NewReader(`{"name":"updated-server","address":"192.0.2.50","port":22,"username":"deploy","private_key_ref":"`+key.Reference+`","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, updateResponse, updateRequest)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("update server failed: %d %s", updateResponse.Code, updateResponse.Body.String())
+	}
+	var updated deployment.Server
+	if err := json.Unmarshal(updateResponse.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode updated server response: %v", err)
+	}
+	if updated.Name != "updated-server" || updated.CreatedAt.IsZero() || updated.UpdatedAt.IsZero() {
+		t.Fatalf("updated server response is incomplete: %+v", updated)
 	}
 
 	associationRequest := httptest.NewRequest(http.MethodPut, "/api/v1/domains/"+item.ID+"/servers", strings.NewReader(`{"server_ids":["`+created.ID+`"]}`))

@@ -76,6 +76,7 @@ func isCoreRequestPath(path string) bool {
 	return path == "/api" ||
 		strings.HasPrefix(path, "/api/") ||
 		path == "/healthz" ||
+		path == "/readyz" ||
 		path == "/reset" ||
 		strings.HasPrefix(path, "/reset/")
 }

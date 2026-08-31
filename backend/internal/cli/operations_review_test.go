@@ -56,6 +56,17 @@ func TestCopyFileExclusiveRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestCopyFileExclusiveRemovesPartialTargetOnCopyFailure(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := copyFileExclusive(dir, target, 0o600); err == nil {
+		t.Fatal("复制目录时没有返回错误")
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("复制失败后残留了不完整目标文件：%v", err)
+	}
+}
+
 func TestSamePathNormalizesAbsolutePaths(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "file")

@@ -102,6 +102,15 @@ func (s *Server) setupStatus(c *gin.Context) {
 			blockers = append(blockers, "DNS API 尚未验证")
 		}
 	}
+	if cfg.SetupReady {
+		c.JSON(http.StatusOK, gin.H{
+			"initialized": cfg.SetupReady,
+			"phase":       phase,
+			"blockers":    blockers,
+			"web_enabled": cfg.Web.Enabled,
+		})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"initialized":                       cfg.SetupReady,
 		"phase":                             phase,

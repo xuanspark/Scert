@@ -43,6 +43,69 @@ function Resolve-RequiredDirectory {
     return $resolved.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
 }
 
+function Assert-NoReparsePoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($resolved)
+    $current = $root
+    $relative = $resolved.Substring($root.Length)
+    foreach ($segment in $relative.Split([System.IO.Path]::DirectorySeparatorChar, [System.StringSplitOptions]::RemoveEmptyEntries)) {
+        $current = Join-Path $current $segment
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "$Label 不能包含重解析点或符号链接：$current"
+            }
+        }
+    }
+}
+
+function Assert-ServiceStopped {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($null -ne $service -and $service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+        throw "升级或安装前必须停止 Windows 服务：$Name"
+    }
+}
+
+function Assert-WindowsAmd64Executable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $reader = [System.IO.BinaryReader]::new($stream)
+    try {
+        if ($stream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
+            throw "安装产物不是有效的 Windows PE 文件：$Path"
+        }
+        $stream.Position = 0x3C
+        $peOffset = $reader.ReadInt32()
+        if ($peOffset -lt 0 -or ($peOffset + 6) -gt $stream.Length) {
+            throw "安装产物的 PE 头无效：$Path"
+        }
+        $stream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550 -or $reader.ReadUInt16() -ne 0x8664) {
+            throw "安装产物不是 Windows amd64 可执行文件：$Path"
+        }
+    }
+    finally {
+        $reader.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Invoke-Sc {
     param(
         [Parameter(Mandatory = $true)]
@@ -115,6 +178,13 @@ $install = Resolve-RequiredDirectory -Path $InstallDirectory -Label "程序安�
 $data = Resolve-RequiredDirectory -Path $DataDirectory -Label "数据目录"
 $certificate = Resolve-RequiredDirectory -Path $CertificateDirectory -Label "证书目录"
 
+Assert-NoReparsePoint -Path $source -Label "安装产物目录"
+Assert-NoReparsePoint -Path $install -Label "程序安装目录"
+Assert-NoReparsePoint -Path $data -Label "数据目录"
+Assert-NoReparsePoint -Path $certificate -Label "证书目录"
+Assert-ServiceStopped -Name $ServiceName
+Assert-ServiceStopped -Name $AdminServiceName
+
 $sourceScert = Join-Path $source "scert.exe"
 $sourceAdmin = Join-Path $source "scert-admin.exe"
 if (-not (Test-Path -LiteralPath $sourceScert -PathType Leaf)) {
@@ -123,6 +193,10 @@ if (-not (Test-Path -LiteralPath $sourceScert -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $sourceAdmin -PathType Leaf)) {
     throw "安装产物目录缺少 scert-admin.exe：$sourceAdmin"
 }
+Assert-NoReparsePoint -Path $sourceScert -Label "Scert 安装产物"
+Assert-NoReparsePoint -Path $sourceAdmin -Label "Scert-admin 安装产物"
+Assert-WindowsAmd64Executable -Path $sourceScert
+Assert-WindowsAmd64Executable -Path $sourceAdmin
 
 $configDirectory = Join-Path $data "config"
 $databaseDirectory = Join-Path $data "data"

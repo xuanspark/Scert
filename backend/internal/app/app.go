@@ -39,7 +39,14 @@ type App struct {
 	Workflow        *CertificateWorkflow
 	Renewal         *certificate.RenewalScheduler
 	HTTP            *httpapi.Server
+	maintenanceStop context.CancelFunc
+	maintenanceDone chan struct{}
 }
+
+const (
+	auditLogRetentionDays = 30
+	auditCleanupInterval  = 24 * time.Hour
+)
 
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	return NewWithConfigPath(ctx, cfg, filepath.Join(cfg.Paths.Config, "scert.json"))
@@ -99,6 +106,11 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		logger.Warn("\u670d\u52a1\u91cd\u542f\u524d\u672a\u5b8c\u6210\u4efb\u52a1\u5df2\u6807\u8bb0\u4e3a\u5931\u8d25", "count", recovered)
 	}
 	auditRepo := repository.NewSQLAuditRepository(db.DB)
+	if deleted, err := auditRepo.PruneExpiredAuditLogs(ctx, time.Now().UTC().AddDate(0, 0, -auditLogRetentionDays)); err != nil {
+		logger.Warn("启动时清理过期审计日志失败", "error", err)
+	} else if deleted > 0 {
+		logger.Info("启动时已清理过期审计日志", "count", deleted)
+	}
 	sshKeys := sshkey.NewService(secretStore)
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
@@ -154,8 +166,9 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		ResetStatePath:      admin.StatePath(cfg.Paths.Data),
 		Audit:               auditRepo,
 		Tasks:               taskRepo,
+		ReadinessCheck:      db.DB.PingContext,
 	})
-	return &App{
+	application := &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,
 		Servers:     serverRepo,
 		Users:       userRepo,
@@ -165,7 +178,36 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		Certificates: certificates,
 		Workflow:     workflow,
 		Renewal:      renewal,
-	}, nil
+	}
+	application.startAuditCleanup(auditRepo)
+	return application, nil
+}
+
+func (a *App) startAuditCleanup(repo *repository.SQLAuditRepository) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.maintenanceStop = cancel
+	a.maintenanceDone = done
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(auditCleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				deleted, err := repo.PruneExpiredAuditLogs(ctx, time.Now().UTC().AddDate(0, 0, -auditLogRetentionDays))
+				if err != nil {
+					a.Logger.Warn("定时清理过期审计日志失败", "error", err)
+					continue
+				}
+				if deleted > 0 {
+					a.Logger.Info("已定时清理过期审计日志", "count", deleted)
+				}
+			}
+		}
+	}()
 }
 
 func (a *App) Close() error {
@@ -175,6 +217,12 @@ func (a *App) Close() error {
 	var first error
 	if a.Renewal != nil {
 		a.Renewal.Stop()
+	}
+	if a.maintenanceStop != nil {
+		a.maintenanceStop()
+	}
+	if a.maintenanceDone != nil {
+		<-a.maintenanceDone
 	}
 	if a.HTTP != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

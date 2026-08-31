@@ -39,6 +39,7 @@ type Server struct {
 	PrivateKeyPath       string    `json:"private_key_path"`
 	CertificateChainPath string    `json:"certificate_chain_path"`
 	WebServer            WebServer `json:"web_server"`
+	ValidationCommand    []string  `json:"validation_command,omitempty"`
 	ReloadCommand        []string  `json:"reload_command,omitempty"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
@@ -69,6 +70,12 @@ func (s Server) Normalize() Server {
 	}
 	if len(s.ReloadCommand) == 0 {
 		s.ReloadCommand = DefaultReloadCommand(s.WebServer)
+	}
+	if len(s.ValidationCommand) == 0 {
+		s.ValidationCommand = DefaultValidationCommand(s.WebServer)
+	}
+	for index := range s.ValidationCommand {
+		s.ValidationCommand[index] = strings.TrimSpace(s.ValidationCommand[index])
 	}
 	for index := range s.ReloadCommand {
 		s.ReloadCommand[index] = strings.TrimSpace(s.ReloadCommand[index])
@@ -172,15 +179,26 @@ func (s Server) Validate() error {
 	if s.WebServer != WebServerNginx && s.WebServer != WebServerCaddy && s.WebServer != WebServerApache && s.WebServer != WebServerCustom {
 		return fmt.Errorf("网站服务类型无效：%s", s.WebServer)
 	}
-	if len(s.ReloadCommand) == 0 || s.ReloadCommand[0] == "" {
-		return errors.New("reload 命令不能为空")
+	if err := validateServerCommand("配置校验", s.ValidationCommand); err != nil {
+		return err
 	}
-	for _, argument := range s.ReloadCommand {
-		if argument == "" || strings.ContainsAny(argument, "\x00\r\n") {
-			return errors.New("reload 命令参数无效")
-		}
+	if err := validateServerCommand("reload", s.ReloadCommand); err != nil {
+		return err
 	}
 	return nil
+}
+
+func DefaultValidationCommand(webServer WebServer) []string {
+	switch WebServer(strings.ToLower(strings.TrimSpace(string(webServer)))) {
+	case WebServerNginx:
+		return []string{"nginx", "-t"}
+	case WebServerCaddy:
+		return []string{"caddy", "validate", "--config", "/etc/caddy/Caddyfile"}
+	case WebServerApache:
+		return []string{"apachectl", "configtest"}
+	default:
+		return nil
+	}
 }
 
 func DefaultReloadCommand(webServer WebServer) []string {
@@ -194,6 +212,18 @@ func DefaultReloadCommand(webServer WebServer) []string {
 	default:
 		return nil
 	}
+}
+
+func validateServerCommand(label string, command []string) error {
+	if len(command) == 0 || command[0] == "" {
+		return fmt.Errorf("%s命令不能为空", label)
+	}
+	for _, argument := range command {
+		if argument == "" || strings.ContainsAny(argument, "\x00\r\n") {
+			return fmt.Errorf("%s命令参数无效", label)
+		}
+	}
+	return nil
 }
 
 func RemotePath(value string) string {

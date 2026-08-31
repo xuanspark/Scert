@@ -19,8 +19,9 @@ type SecretReader interface {
 }
 
 type SSHFactory struct {
-	Secrets SecretReader
-	Timeout time.Duration
+	Secrets           SecretReader
+	Timeout           time.Duration
+	HostKeyAlgorithms []string
 }
 
 func (f SSHFactory) Connect(ctx context.Context, server Server) (Client, error) {
@@ -53,35 +54,123 @@ func (f SSHFactory) Connect(ctx context.Context, server Server) (Client, error) 
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
-	address := net.JoinHostPort(server.Address, fmt.Sprintf("%d", server.Port))
-	dialer := net.Dialer{Timeout: timeout}
-	connection, err := dialer.DialContext(ctx, "tcp", address)
+	algorithms, err := f.secureHostKeyAlgorithms()
 	if err != nil {
-		return nil, fmt.Errorf("连接 SSH 服务器失败：%w", err)
+		return nil, err
 	}
-	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		fingerprint := ssh.FingerprintSHA256(key)
-		if fingerprint != server.HostKeyFingerprint {
-			return fmt.Errorf("SSH 主机指纹不匹配：服务器 %s 返回 %s", server.Name, fingerprint)
-		}
-		return nil
-	}
-	config := &ssh.ClientConfig{
-		User: server.Username, Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: hostKeyCallback, Timeout: timeout,
-	}
-	clientConn, channels, requests, err := ssh.NewClientConn(connection, address, config)
+	timeoutContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	sshClient, err := connectSSHClient(timeoutContext, server, signer, algorithms)
 	if err != nil {
-		_ = connection.Close()
-		return nil, fmt.Errorf("SSH 握手失败：%w", err)
+		return nil, err
 	}
-	sshClient := ssh.NewClient(clientConn, channels, requests)
 	sftpClient, err := sftp.NewClient(sshClient)
 	if err != nil {
 		_ = sshClient.Close()
 		return nil, fmt.Errorf("创建 SFTP 客户端失败：%w", err)
 	}
 	return &sshClientAdapter{ssh: sshClient, sftp: sftpClient}, nil
+}
+
+func (f SSHFactory) secureHostKeyAlgorithms() ([]string, error) {
+	supported := ssh.SupportedAlgorithms().HostKeys
+	if len(f.HostKeyAlgorithms) == 0 {
+		return append([]string(nil), supported...), nil
+	}
+	supportedSet := make(map[string]struct{}, len(supported))
+	for _, algorithm := range supported {
+		supportedSet[algorithm] = struct{}{}
+	}
+	algorithms := make([]string, 0, len(f.HostKeyAlgorithms))
+	seen := make(map[string]struct{}, len(f.HostKeyAlgorithms))
+	for _, algorithm := range f.HostKeyAlgorithms {
+		algorithm = strings.TrimSpace(algorithm)
+		if _, ok := supportedSet[algorithm]; !ok {
+			continue
+		}
+		if _, ok := seen[algorithm]; ok {
+			continue
+		}
+		seen[algorithm] = struct{}{}
+		algorithms = append(algorithms, algorithm)
+	}
+	if len(algorithms) == 0 {
+		return nil, errors.New("SSH 主机密钥算法列表不包含受支持的安全算法")
+	}
+	return algorithms, nil
+}
+
+func connectSSHClient(
+	ctx context.Context,
+	server Server,
+	signer ssh.Signer,
+	algorithms []string,
+) (*ssh.Client, error) {
+	address := net.JoinHostPort(server.Address, fmt.Sprintf("%d", server.Port))
+	var mismatchErrors []string
+	for _, algorithm := range algorithms {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("连接 SSH 服务器超时：%w", err)
+		}
+		connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+		if err != nil {
+			return nil, fmt.Errorf("连接 SSH 服务器失败：%w", err)
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			if err := connection.SetDeadline(deadline); err != nil {
+				_ = connection.Close()
+				return nil, fmt.Errorf("设置 SSH 连接超时失败：%w", err)
+			}
+		}
+		hostKeyMatched := false
+		hostKeyMismatch := ""
+		config := &ssh.ClientConfig{
+			User:              server.Username,
+			Auth:              []ssh.AuthMethod{ssh.PublicKeys(signer)},
+			HostKeyAlgorithms: []string{algorithm},
+			HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+				fingerprint := ssh.FingerprintSHA256(key)
+				if fingerprint != server.HostKeyFingerprint {
+					hostKeyMismatch = fmt.Sprintf("%s 返回 %s", algorithm, fingerprint)
+					return fmt.Errorf("SSH 主机指纹不匹配：服务器 %s %s", server.Name, hostKeyMismatch)
+				}
+				hostKeyMatched = true
+				return nil
+			},
+		}
+		clientConn, channels, requests, handshakeErr := ssh.NewClientConn(connection, address, config)
+		if handshakeErr == nil {
+			if err := connection.SetDeadline(time.Time{}); err != nil {
+				_ = clientConn.Close()
+				return nil, fmt.Errorf("清除 SSH 连接超时失败：%w", err)
+			}
+			return ssh.NewClient(clientConn, channels, requests), nil
+		}
+		_ = connection.Close()
+		if hostKeyMatched {
+			return nil, fmt.Errorf("SSH 握手失败：%w", handshakeErr)
+		}
+		if hostKeyMismatch != "" {
+			mismatchErrors = append(mismatchErrors, hostKeyMismatch)
+			continue
+		}
+		var negotiationError *ssh.AlgorithmNegotiationError
+		if errors.As(handshakeErr, &negotiationError) && negotiationError.What == "host key" {
+			continue
+		}
+		return nil, fmt.Errorf("SSH 握手失败：%w", handshakeErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("连接 SSH 服务器超时：%w", err)
+	}
+	if len(mismatchErrors) == 0 {
+		return nil, fmt.Errorf("SSH 主机指纹不匹配：服务器 %s 未提供已登记的主机密钥", server.Name)
+	}
+	return nil, fmt.Errorf(
+		"SSH 主机指纹不匹配：服务器 %s 未提供已登记的主机密钥；已校验 %s",
+		server.Name,
+		strings.Join(mismatchErrors, "；"),
+	)
 }
 
 type sshClientAdapter struct {

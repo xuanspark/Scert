@@ -12,6 +12,7 @@ readonly INSTALL_METADATA_FILE="$INSTALL_DIR/conf/installation.json"
 
 source_dir="$SCRIPT_DIR"
 certificate_dir="$DEFAULT_CERTIFICATE_DIR"
+certificate_dir_explicit=false
 nologin_shell=""
 
 print_usage() {
@@ -48,6 +49,7 @@ parse_args() {
             --certificate-dir)
                 (($# >= 2)) || fail "--certificate-dir 缺少参数"
                 certificate_dir="$2"
+                certificate_dir_explicit=true
                 shift 2
                 ;;
             -h|--help)
@@ -59,6 +61,25 @@ parse_args() {
                 ;;
         esac
     done
+}
+
+load_existing_certificate_dir() {
+    if [[ "$certificate_dir_explicit" == "true" || ! -e "$INSTALL_METADATA_FILE" ]]; then
+        return
+    fi
+    reject_symlink_path "$INSTALL_METADATA_FILE" "安装路径记录"
+    [[ -f "$INSTALL_METADATA_FILE" ]] || fail "安装路径记录必须是普通文件：$INSTALL_METADATA_FILE"
+
+    local line
+    local existing_certificate_dir=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ \"certificate_root\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+            existing_certificate_dir="${BASH_REMATCH[1]}"
+            break
+        fi
+    done < "$INSTALL_METADATA_FILE"
+    [[ -n "$existing_certificate_dir" ]] || fail "无法从既有安装记录读取证书目录，请显式使用 --certificate-dir"
+    certificate_dir="$existing_certificate_dir"
 }
 
 validate_certificate_dir() {
@@ -131,28 +152,44 @@ validate_environment() {
     [[ "$(uname -s)" == "Linux" ]] || fail "此安装器只支持 Linux"
     [[ "$(id -u)" -eq 0 ]] || fail "请使用 root 或 sudo 运行安装器"
     local command_name
-    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink find; do
+    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink find file mv cp rm; do
         command -v "$command_name" >/dev/null 2>&1 || fail "找不到系统命令：$command_name"
     done
     nologin_shell="$(command -v nologin || true)"
     [[ -n "$nologin_shell" ]] || fail "找不到 nologin，无法创建禁止登录的服务用户"
+    load_existing_certificate_dir
     validate_certificate_dir
     validate_managed_paths
 }
 
 validate_artifacts() {
     [[ -d "$source_dir" ]] || fail "安装产物目录不存在：$source_dir"
-    source_dir="$(cd -- "$source_dir" && pwd)"
+    source_dir="$(cd -- "$source_dir" && pwd -P)"
     local artifact
     for artifact in scert scert-admin; do
-        [[ -f "$source_dir/$artifact" ]] || fail "安装产物不存在：$source_dir/$artifact"
-        [[ -r "$source_dir/$artifact" ]] || fail "安装产物不可执行：$source_dir/$artifact"
+        [[ -f "$source_dir/$artifact" && ! -L "$source_dir/$artifact" ]] || fail "安装产物必须是普通文件：$source_dir/$artifact"
+        [[ -r "$source_dir/$artifact" && -x "$source_dir/$artifact" ]] || fail "安装产物不可读取或执行：$source_dir/$artifact"
+        local artifact_description
+        artifact_description="$(LC_ALL=C file -b -- "$source_dir/$artifact")"
+        [[ "$artifact_description" == *"ELF 64-bit LSB"* && "$artifact_description" == *"x86-64"* ]] || \
+            fail "安装产物不是 Linux amd64 ELF：$source_dir/$artifact"
     done
-    [[ -f "$source_dir/web/index.html" ]] || fail "缺少前端入口文件：$source_dir/web/index.html"
-    [[ -f "$SCRIPT_DIR/systemd/Scert.service" ]] || fail "缺少 Scert systemd unit"
-    [[ -f "$SCRIPT_DIR/systemd/Scert-admin.service" ]] || fail "缺少 Scert-admin systemd unit"
-    [[ -f "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" ]] || fail "缺少 Scert-admin 服务管理说明"
-    [[ -f "$SCRIPT_DIR/systemd/Scert服务管理说明.md" ]] || fail "缺少 Scert 服务管理说明"
+    [[ -f "$source_dir/web/index.html" && ! -L "$source_dir/web/index.html" ]] || fail "缺少普通前端入口文件：$source_dir/web/index.html"
+    [[ -z "$(find "$source_dir/web" -type l -print -quit)" ]] || fail "Web 安装产物不能包含符号链接"
+    [[ -z "$(find "$source_dir/web" ! -type f ! -type d -print -quit)" ]] || fail "Web 安装产物包含不支持的特殊文件"
+    [[ -f "$SCRIPT_DIR/systemd/Scert.service" && ! -L "$SCRIPT_DIR/systemd/Scert.service" ]] || fail "缺少普通 Scert systemd unit"
+    [[ -f "$SCRIPT_DIR/systemd/Scert-admin.service" && ! -L "$SCRIPT_DIR/systemd/Scert-admin.service" ]] || fail "缺少普通 Scert-admin systemd unit"
+    [[ -f "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" && ! -L "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" ]] || fail "缺少普通 Scert-admin 服务管理说明"
+    [[ -f "$SCRIPT_DIR/systemd/Scert服务管理说明.md" && ! -L "$SCRIPT_DIR/systemd/Scert服务管理说明.md" ]] || fail "缺少普通 Scert 服务管理说明"
+}
+
+ensure_services_stopped() {
+    if systemctl is-active --quiet Scert.service; then
+        fail "升级或安装前必须停止 Scert.service"
+    fi
+    if systemctl is-active --quiet Scert-admin.service; then
+        fail "升级或安装前必须停止 Scert-admin.service"
+    fi
 }
 
 ensure_service_account() {
@@ -210,19 +247,27 @@ create_directories() {
 }
 
 write_install_metadata() {
-    printf '{\n  "certificate_root": "%s"\n}\n' "$certificate_dir" > "$INSTALL_METADATA_FILE"
-    chown root:"$SERVICE_GROUP" "$INSTALL_METADATA_FILE"
-    chmod 0640 "$INSTALL_METADATA_FILE"
+    local temporary_file="$INSTALL_METADATA_FILE.new.$$"
+    printf '{\n  "certificate_root": "%s"\n}\n' "$certificate_dir" > "$temporary_file"
+    chown root:"$SERVICE_GROUP" "$temporary_file"
+    chmod 0640 "$temporary_file"
+    mv -f -- "$temporary_file" "$INSTALL_METADATA_FILE"
 }
 
 install_binaries() {
-    install -o root -g root -m 0755 "$source_dir/scert" "$INSTALL_DIR/scert"
-    install -o root -g root -m 0755 "$source_dir/scert-admin" "$INSTALL_DIR/scert-admin"
+    local main_temporary="$INSTALL_DIR/.scert.new.$$"
+    local admin_temporary="$INSTALL_DIR/.scert-admin.new.$$"
+    install -o root -g root -m 0755 "$source_dir/scert" "$main_temporary"
+    install -o root -g root -m 0755 "$source_dir/scert-admin" "$admin_temporary"
+    mv -f -- "$main_temporary" "$INSTALL_DIR/scert"
+    mv -f -- "$admin_temporary" "$INSTALL_DIR/scert-admin"
 }
 
 install_web() {
+    [[ -z "$(find "$INSTALL_DIR/web" -type l -print -quit)" ]] || fail "既有 Web 目录包含符号链接，拒绝覆盖"
+    [[ -z "$(find "$INSTALL_DIR/web" ! -type f ! -type d -print -quit)" ]] || fail "既有 Web 目录包含不支持的特殊文件"
     cp -a "$source_dir/web/." "$INSTALL_DIR/web/"
-    find "$INSTALL_DIR/web" -type d -exec chmod 0755 {} +
+    find "$INSTALL_DIR/web" -type d -exec chown root:root {} + -exec chmod 0755 {} +
     find "$INSTALL_DIR/web" -type f -exec chown root:root {} + -exec chmod 0644 {} +
 }
 
@@ -274,6 +319,7 @@ main() {
     parse_args "$@"
     validate_environment
     validate_artifacts
+    ensure_services_stopped
     ensure_service_account
     create_directories
     write_install_metadata

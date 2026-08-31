@@ -112,7 +112,13 @@ func TestCertificateWorkflowDeploysIssuedCertificateToAssociatedServers(t *testi
 }
 
 func TestCertificateWorkflowReturnsPartialDeploymentError(t *testing.T) {
-	deployer := &workflowDeployer{report: deployment.Report{Total: 2, Success: 1, Failed: 1, Status: "partial"}}
+	deployer := &workflowDeployer{report: deployment.Report{
+		Total: 2, Success: 1, Failed: 1, Status: "partial",
+		Results: []deployment.Result{
+			{ServerID: "server-1", Server: "primary", Status: "success", Message: "deployed"},
+			{ServerID: "server-2", Server: "secondary", Status: "failed", Message: "validation failed"},
+		},
+	}}
 	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "*.example.com", CertificateType: domain.CertificateWildcard}}
 	workflow := &CertificateWorkflow{
 		Certificates: &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1"}},
@@ -123,6 +129,9 @@ func TestCertificateWorkflowReturnsPartialDeploymentError(t *testing.T) {
 	result, err := workflow.IssueWithReport(context.Background(), "domain-1")
 	if err == nil || result.Deployment.Status != "partial" {
 		t.Fatalf("部分部署应返回错误和报告：%+v %v", result, err)
+	}
+	if !strings.Contains(err.Error(), "secondary: validation failed") || strings.Contains(err.Error(), "primary: deployed") {
+		t.Fatalf("deployment error details are incomplete: %v", err)
 	}
 	if result.Certificate.DomainID != "domain-1" {
 		t.Fatalf("证书结果未保留：%+v", result.Certificate)

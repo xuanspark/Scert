@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -33,6 +34,10 @@ type setupSecretWriter interface {
 	Delete(context.Context, string) error
 }
 
+type readinessSecretReader interface {
+	Get(context.Context, string) (map[string]string, error)
+}
+
 type Dependencies struct {
 	Config                    config.Config
 	ConfigPath                string
@@ -58,6 +63,7 @@ type Dependencies struct {
 	ResetStatePath      string
 	Audit               repository.AuditRepository
 	Tasks               repository.TaskRepository
+	ReadinessCheck      func(context.Context) error
 }
 
 type Server struct {
@@ -86,6 +92,7 @@ type Server struct {
 	resetStatePath      string
 	audit               repository.AuditRepository
 	tasks               repository.TaskRepository
+	readinessCheck      func(context.Context) error
 	taskMu              sync.Mutex
 	taskCancels         map[string]context.CancelFunc
 	issueTaskMu         sync.Mutex
@@ -127,6 +134,7 @@ func New(deps Dependencies) *Server {
 		resetStatePath:           deps.ResetStatePath,
 		audit:                    deps.Audit,
 		tasks:                    deps.Tasks,
+		readinessCheck:           deps.ReadinessCheck,
 		taskCancels:              make(map[string]context.CancelFunc),
 		resetLimiter:             newResetRateLimiter(),
 		authSessions:             make(map[string]authSession),
@@ -142,6 +150,7 @@ func New(deps Dependencies) *Server {
 func (s *Server) registerRoutes() {
 	// 主路由保持独立，初始化路由由专用模块注册。
 	s.router.GET("/healthz", s.health)
+	s.router.GET("/readyz", s.ready)
 	s.router.GET(admin.ResetPath, s.resetPage)
 	s.router.POST(admin.ResetPath, s.resetSubmit)
 	s.router.GET("/api/v1/status", s.status)
@@ -204,14 +213,7 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-	s.httpServer = &http.Server{
-		Addr:              address,
-		Handler:           s.router,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	s.httpServer = newHTTPServer(address, s.router)
 	if !cfg.SetupReady {
 		if s.logger != nil {
 			s.logger.Info("HTTP 服务启动", "address", s.httpServer.Addr, "https_mode", "初始化明文 HTTP")
@@ -233,6 +235,20 @@ func (s *Server) ListenAndServe() error {
 		s.logger.Info("HTTPS 服务启动", "address", s.httpServer.Addr, "https_mode", cfg.Server.HTTPSMode)
 	}
 	return s.httpServer.ListenAndServeTLS(certPath, keyPath)
+}
+
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+	}
 }
 
 // listenAddress 返回当前 HTTPS 模式实际使用的监听地址。
@@ -291,6 +307,7 @@ type serverRequest struct {
 	PrivateKeyPath       string   `json:"private_key_path"`
 	CertificateChainPath string   `json:"certificate_chain_path"`
 	WebServer            string   `json:"web_server" binding:"required"`
+	ValidationCommand    []string `json:"validation_command"`
 	ReloadCommand        []string `json:"reload_command"`
 }
 
@@ -300,6 +317,71 @@ type domainServersRequest struct {
 
 func (s *Server) health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "scert"})
+}
+
+func (s *Server) ready(c *gin.Context) {
+	s.configMu.RLock()
+	cfg := s.config
+	s.configMu.RUnlock()
+	if !cfg.SetupReady {
+		s.writeReadinessFailure(c, "setup_incomplete")
+		return
+	}
+
+	dnsReference := strings.TrimSpace(cfg.DNS.CredentialRef)
+	if dnsReference == "" {
+		s.writeReadinessFailure(c, "dns_credential_missing")
+		return
+	}
+	references := []string{
+		dnsReference,
+		strings.TrimSpace(cfg.Notification.HTTPCredentialRef),
+		strings.TrimSpace(cfg.Notification.SMTPCredentialRef),
+	}
+	reader, ok := s.secrets.(readinessSecretReader)
+	if !ok {
+		s.writeReadinessFailure(c, "secret_store_unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	defer cancel()
+	checked := make(map[string]struct{}, len(references))
+	for _, reference := range references {
+		if reference == "" {
+			continue
+		}
+		if _, exists := checked[reference]; exists {
+			continue
+		}
+		checked[reference] = struct{}{}
+		if _, err := reader.Get(ctx, reference); err != nil {
+			s.writeReadinessFailure(c, "credential_unavailable")
+			return
+		}
+	}
+
+	for _, path := range []string{cfg.Server.TLSCert, cfg.Server.TLSKey} {
+		info, err := os.Lstat(filepath.Clean(strings.TrimSpace(path)))
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			s.writeReadinessFailure(c, "tls_material_unavailable")
+			return
+		}
+	}
+	if s.readinessCheck != nil {
+		if err := s.readinessCheck(ctx); err != nil {
+			s.writeReadinessFailure(c, "database_unavailable")
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ready", "service": "scert"})
+}
+
+func (s *Server) writeReadinessFailure(c *gin.Context, reason string) {
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"status":  "not_ready",
+		"service": "scert",
+		"reason":  reason,
+	})
 }
 
 func (s *Server) resetPage(c *gin.Context) {
@@ -323,15 +405,18 @@ func (s *Server) status(c *gin.Context) {
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
-	c.JSON(http.StatusOK, gin.H{
-		"service":         "scert",
-		"version":         buildinfo.Version,
-		"config_version":  cfg.Version,
-		"setup_ready":     cfg.SetupReady,
-		"https_mode":      cfg.Server.HTTPSMode,
-		"database_driver": cfg.Database.Driver,
-		"reset_url":       cfg.ResetURL(),
-	})
+	payload := gin.H{
+		"service":        "scert",
+		"version":        buildinfo.Version,
+		"config_version": cfg.Version,
+		"setup_ready":    cfg.SetupReady,
+	}
+	if _, authenticated := s.currentAuthSession(c); authenticated {
+		payload["https_mode"] = cfg.Server.HTTPSMode
+		payload["database_driver"] = cfg.Database.Driver
+		payload["reset_url"] = cfg.ResetURL()
+	}
+	c.JSON(http.StatusOK, payload)
 }
 
 func (s *Server) requireDomainRepository(c *gin.Context) bool {
@@ -521,6 +606,9 @@ func (s *Server) createServer(c *gin.Context) {
 	}
 	item := serverFromRequest(request)
 	item = item.Normalize()
+	now := time.Now().UTC()
+	item.CreatedAt = now
+	item.UpdatedAt = now
 	if err := s.validateSSHKeyReference(c.Request.Context(), item.PrivateKeyRef); err != nil {
 		s.writeError(c, http.StatusBadRequest, "SSH 私钥引用无效", err)
 		return
@@ -555,6 +643,7 @@ func (s *Server) updateServer(c *gin.Context) {
 		return
 	}
 	item.CreatedAt = existing.CreatedAt
+	item.UpdatedAt = time.Now().UTC()
 	if err := s.validateSSHKeyReference(c.Request.Context(), item.PrivateKeyRef); err != nil {
 		s.writeError(c, http.StatusBadRequest, "SSH 私钥引用无效", err)
 		return
@@ -653,7 +742,7 @@ func serverFromRequest(request serverRequest) deployment.Server {
 		Username: request.Username, PrivateKeyRef: request.PrivateKeyRef, HostKeyFingerprint: request.HostKeyFingerprint,
 		CertificatePath: request.CertificatePath, PrivateKeyPath: request.PrivateKeyPath,
 		CertificateChainPath: request.CertificateChainPath, WebServer: deployment.WebServer(request.WebServer),
-		ReloadCommand: request.ReloadCommand,
+		ValidationCommand: request.ValidationCommand, ReloadCommand: request.ReloadCommand,
 	}
 }
 

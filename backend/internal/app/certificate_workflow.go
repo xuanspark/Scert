@@ -71,6 +71,7 @@ func (w *CertificateWorkflow) IssueWithReport(ctx context.Context, domainID stri
 		return CertificateWorkflowResult{}, err
 	}
 	report, err := w.deploy(ctx, certificateResult)
+	err = appendDeploymentResultError(err, report)
 	if err != nil {
 		w.markDeploymentError(certificateResult)
 	}
@@ -101,6 +102,7 @@ func (w *CertificateWorkflow) DeployCurrent(ctx context.Context, domainID string
 		return CertificateWorkflowResult{}, err
 	}
 	report, err := w.deploy(ctx, result)
+	err = appendDeploymentResultError(err, report)
 	if err != nil {
 		w.markDeploymentError(result)
 	} else if updateErr := w.Domains.UpdateCertificateState(ctx, result.DomainID, "valid", &result.Saved.NotAfter); updateErr != nil {
@@ -127,6 +129,7 @@ func (w *CertificateWorkflow) Import(ctx context.Context, request certificate.Im
 		return CertificateWorkflowResult{}, err
 	}
 	report, err := w.deploy(ctx, certificateResult)
+	err = appendDeploymentResultError(err, report)
 	if err != nil {
 		w.markDeploymentError(certificateResult)
 	}
@@ -156,6 +159,31 @@ func errorText(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func appendDeploymentResultError(err error, report deployment.Report) error {
+	if err == nil {
+		return nil
+	}
+	messages := make([]string, 0, len(report.Results))
+	for _, result := range report.Results {
+		message := strings.TrimSpace(result.Message)
+		if result.Status == "success" || message == "" {
+			continue
+		}
+		server := strings.TrimSpace(result.Server)
+		if server == "" {
+			server = strings.TrimSpace(result.ServerID)
+		}
+		if server != "" {
+			message = server + ": " + message
+		}
+		messages = append(messages, message)
+	}
+	if len(messages) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w; %s", err, strings.Join(messages, "; "))
 }
 
 func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.IssueResult) (deployment.Report, error) {

@@ -177,6 +177,38 @@ func TestSetupStatusOnlyAllowsLocalAccessBeforeInitialization(t *testing.T) {
 	}
 }
 
+func TestSetupStatusHidesConfigurationAfterInitialization(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	cfg.Server.Port = 9004
+	cfg.Server.HTTPSMode = "proxy"
+	cfg.Web.Hostname = "internal.example.test"
+	cfg.Web.PublicIP = "192.0.2.20"
+	cfg.Paths.Certificate = filepath.Join(t.TempDir(), "private-certificates")
+	cfg.DNS.Provider = "cloudflare"
+	cfg.DNS.VerificationState = "verified"
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	request.RemoteAddr = "203.0.113.8:53000"
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("初始化完成后的状态接口响应错误：%d %s", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("解析初始化状态失败：%v", err)
+	}
+	if payload["initialized"] != true {
+		t.Fatalf("初始化状态不正确：%s", response.Body.String())
+	}
+	for _, key := range []string{"server_port", "reset_url", "https_mode", "web_hostname", "web_public_ip", "certificate_root", "dns_provider", "dns_verification_state"} {
+		if _, exists := payload[key]; exists {
+			t.Fatalf("初始化完成后不应公开内部字段 %s：%s", key, response.Body.String())
+		}
+	}
+}
+
 func TestSetupDNSProviderCatalogAndOnlineTest(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	verifier := &fakeSetupDNSVerifier{}

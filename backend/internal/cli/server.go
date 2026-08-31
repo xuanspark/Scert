@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -60,6 +61,9 @@ func newServerAddCommand() *cobra.Command {
 		}
 		defer service.Close()
 		item := value.server()
+		now := time.Now().UTC()
+		item.CreatedAt = now
+		item.UpdatedAt = now
 		item.ID = domain.NewID()
 		if _, err := service.SSHKeys.ValidateReference(cmd.Context(), item.PrivateKeyRef); err != nil {
 			return fmt.Errorf("SSH 私钥引用无效：%w", err)
@@ -89,6 +93,7 @@ func newServerEditCommand() *cobra.Command {
 		item := value.server()
 		item.ID = existing.ID
 		item.CreatedAt = existing.CreatedAt
+		item.UpdatedAt = time.Now().UTC()
 		if _, err := service.SSHKeys.ValidateReference(cmd.Context(), item.PrivateKeyRef); err != nil {
 			return fmt.Errorf("SSH 私钥引用无效：%w", err)
 		}
@@ -180,7 +185,7 @@ func newDomainServersSetCommand() *cobra.Command {
 type serverFlags struct {
 	name, address, username, privateKeyRef, fingerprint   string
 	certificatePath, privateKeyPath, chainPath, webServer string
-	reloadCommand                                         []string
+	validationCommand, reloadCommand                      []string
 	port                                                  int
 }
 
@@ -195,6 +200,7 @@ func (f *serverFlags) bind(command *cobra.Command) {
 	command.Flags().StringVar(&f.privateKeyPath, "private-key-path", deployment.DefaultPrivateKeyPath, "远程私钥文件路径模板")
 	command.Flags().StringVar(&f.chainPath, "chain-path", deployment.DefaultCertificateChainPath, "远程完整证书链路径模板")
 	command.Flags().StringVar(&f.webServer, "web-server", string(deployment.WebServerNginx), "Web 服务类型：nginx、caddy、apache、custom")
+	command.Flags().StringSliceVar(&f.validationCommand, "validation-command", nil, "自定义配置校验命令及参数")
 	command.Flags().StringSliceVar(&f.reloadCommand, "reload-command", nil, "自定义 reload 命令及参数")
 	for _, name := range []string{"name", "address", "username", "private-key-ref", "host-key-fingerprint"} {
 		_ = command.MarkFlagRequired(name)
@@ -202,20 +208,24 @@ func (f *serverFlags) bind(command *cobra.Command) {
 }
 
 func (f serverFlags) server() deployment.Server {
-	command := make([]string, 0, len(f.reloadCommand))
-	for _, value := range f.reloadCommand {
-		if value = strings.TrimSpace(value); value != "" {
-			command = append(command, value)
-		}
-	}
 	return deployment.Server{
 		Name: f.name, Address: f.address, Port: f.port, Username: f.username,
 		PrivateKeyRef: f.privateKeyRef, HostKeyFingerprint: f.fingerprint,
 		CertificatePath: f.certificatePath, PrivateKeyPath: f.privateKeyPath,
-		CertificateChainPath: f.chainPath, WebServer: deployment.WebServer(f.webServer), ReloadCommand: command,
+		CertificateChainPath: f.chainPath, WebServer: deployment.WebServer(f.webServer),
+		ValidationCommand: normalizeCommand(f.validationCommand), ReloadCommand: normalizeCommand(f.reloadCommand),
 	}
 }
 
+func normalizeCommand(values []string) []string {
+	command := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			command = append(command, value)
+		}
+	}
+	return command
+}
 func openApplication(cmd *cobra.Command) (*app.App, error) {
 	cfg, err := loadConfig()
 	if err != nil {

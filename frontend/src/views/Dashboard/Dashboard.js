@@ -273,6 +273,7 @@ export function useDashboard() {
       private_key_path: defaultPrivateKeyPath,
       certificate_chain_path: defaultCertificateChainPath,
       web_server: "nginx",
+      validation_command: "",
       reload_command: "",
       server_ids: [],
     };
@@ -457,6 +458,7 @@ export function useDashboard() {
     serverEditingId.value = item.id;
     serverForm.value = {
       ...item,
+      validation_command: (item.validation_command || []).join("\n"),
       reload_command: (item.reload_command || []).join("\n"),
       server_ids: [],
     };
@@ -576,6 +578,7 @@ export function useDashboard() {
         private_key_path: serverForm.value.private_key_path,
         certificate_chain_path: serverForm.value.certificate_chain_path,
         web_server: serverForm.value.web_server,
+        validation_command: parseCommand(serverForm.value.validation_command),
         reload_command: parseCommand(serverForm.value.reload_command),
       };
       const path = serverEditingId.value
