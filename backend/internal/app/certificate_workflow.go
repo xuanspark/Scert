@@ -14,15 +14,23 @@ import (
 )
 
 type CertificateWorkflow struct {
-	Certificates       certificateService
-	Domains            domainDeploymentRepository
-	Servers            serverLister
-	Deployment         savedDeployer
-	Notifier           notification.Notifier
-	NotifyError        func(error)
-	RemoteVerifier     func(context.Context, string, []string) (certificate.ValidationResult, error)
-	CurrentCertificate func(context.Context, string) (certificate.IssueResult, error)
+	Certificates               certificateService
+	Domains                    domainDeploymentRepository
+	Servers                    serverLister
+	Deployment                 savedDeployer
+	Notifier                   notification.Notifier
+	NotifyError                func(error)
+	RemoteVerifier             func(context.Context, string, []string) (certificate.ValidationResult, error)
+	RemoteVerificationAttempts int
+	RemoteVerificationInterval time.Duration
+	RemoteVerificationWait     func(context.Context, time.Duration) error
+	CurrentCertificate         func(context.Context, string) (certificate.IssueResult, error)
 }
+
+const (
+	defaultRemoteVerificationAttempts = 6
+	defaultRemoteVerificationInterval = 500 * time.Millisecond
+)
 
 type certificateService interface {
 	Issue(context.Context, string) (certificate.IssueResult, error)
@@ -95,6 +103,8 @@ func (w *CertificateWorkflow) DeployCurrent(ctx context.Context, domainID string
 	report, err := w.deploy(ctx, result)
 	if err != nil {
 		w.markDeploymentError(result)
+	} else if updateErr := w.Domains.UpdateCertificateState(ctx, result.DomainID, "valid", &result.Saved.NotAfter); updateErr != nil {
+		err = fmt.Errorf("证书部署成功，但更新域名证书状态失败：%w", updateErr)
 	}
 	status := "success"
 	if err != nil {
@@ -181,11 +191,56 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 		if verificationDomain == "" {
 			return report, errors.New("无法确定部署后的 HTTPS 校验域名")
 		}
-		if _, err := w.RemoteVerifier(ctx, "https://"+verificationDomain, result.Domains); err != nil {
+		if err := w.verifyRemoteDeployment(ctx, "https://"+verificationDomain, result.Domains); err != nil {
 			return report, fmt.Errorf("部署后 HTTPS 校验失败：%w", err)
 		}
 	}
 	return report, nil
+}
+
+func (w *CertificateWorkflow) verifyRemoteDeployment(ctx context.Context, endpoint string, expectedDomains []string) error {
+	attempts := w.RemoteVerificationAttempts
+	if attempts <= 0 {
+		attempts = defaultRemoteVerificationAttempts
+	}
+	interval := w.RemoteVerificationInterval
+	if interval <= 0 {
+		interval = defaultRemoteVerificationInterval
+	}
+	wait := w.RemoteVerificationWait
+	if wait == nil {
+		wait = waitForRemoteVerification
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := w.RemoteVerifier(ctx, endpoint, expectedDomains); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if attempt == attempts {
+			break
+		}
+		if err := wait(ctx, interval); err != nil {
+			return fmt.Errorf("等待 HTTPS 校验重试时被中断：%w", err)
+		}
+	}
+	return fmt.Errorf("重试 %d 次后仍未通过：%w", attempts, lastErr)
+}
+
+func waitForRemoteVerification(ctx context.Context, interval time.Duration) error {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func verificationName(item domain.Domain, issuedDomains []string) string {

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,9 +42,12 @@ type workflowDeployer struct {
 }
 
 type workflowDomainState struct {
-	id     string
-	status string
-	item   domain.Domain
+	id           string
+	status       string
+	expiresAt    *time.Time
+	updateErr    error
+	updateCalled int
+	item         domain.Domain
 }
 
 func (s *workflowDomainState) GetByID(_ context.Context, id string) (domain.Domain, error) {
@@ -59,8 +64,16 @@ func (s *workflowDomainState) GetByID(_ context.Context, id string) (domain.Doma
 	return item, nil
 }
 
-func (s *workflowDomainState) UpdateCertificateState(_ context.Context, id, status string, _ *time.Time) error {
+func (s *workflowDomainState) UpdateCertificateState(_ context.Context, id, status string, expiresAt *time.Time) error {
+	s.updateCalled++
+	if s.updateErr != nil {
+		return s.updateErr
+	}
 	s.id, s.status = id, status
+	if expiresAt != nil {
+		value := *expiresAt
+		s.expiresAt = &value
+	}
 	return nil
 }
 
@@ -141,5 +154,160 @@ func TestCertificateWorkflowResolvesSameServerForDifferentDomains(t *testing.T) 
 	secondPath := deployer.targets[0].Server.CertificatePath
 	if firstPath != "/ssl/example.com/san/cert.pem" || secondPath != "/ssl/api.example.net/single/cert.pem" || firstPath == secondPath {
 		t.Fatalf("共享服务器的域名部署路径发生覆盖：%s %s", firstPath, secondPath)
+	}
+}
+
+func TestCertificateWorkflowRetriesRemoteVerificationUntilSuccess(t *testing.T) {
+	deployer := &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}}
+	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle}}
+	verificationCalls := 0
+	waitCalls := 0
+	workflow := &CertificateWorkflow{
+		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}}},
+		Domains:                    state,
+		Servers:                    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
+		Deployment:                 deployer,
+		RemoteVerificationAttempts: 4,
+		RemoteVerificationInterval: 10 * time.Millisecond,
+		RemoteVerificationWait: func(ctx context.Context, interval time.Duration) error {
+			waitCalls++
+			if interval != 10*time.Millisecond {
+				t.Fatalf("HTTPS 校验重试间隔错误：%s", interval)
+			}
+			return ctx.Err()
+		},
+		RemoteVerifier: func(_ context.Context, endpoint string, expectedDomains []string) (certificate.ValidationResult, error) {
+			verificationCalls++
+			if endpoint != "https://example.com" || len(expectedDomains) != 1 || expectedDomains[0] != "example.com" {
+				t.Fatalf("HTTPS 校验参数错误：%s %+v", endpoint, expectedDomains)
+			}
+			if verificationCalls < 3 {
+				return certificate.ValidationResult{}, errors.New("仍返回旧证书")
+			}
+			return certificate.ValidationResult{}, nil
+		},
+	}
+
+	if _, err := workflow.IssueWithReport(context.Background(), "domain-1"); err != nil {
+		t.Fatalf("HTTPS 校验重试后应成功：%v", err)
+	}
+	if verificationCalls != 3 || waitCalls != 2 {
+		t.Fatalf("HTTPS 校验重试次数错误：校验 %d 次，等待 %d 次", verificationCalls, waitCalls)
+	}
+}
+
+func TestCertificateWorkflowRemoteVerificationStopsAfterConfiguredAttempts(t *testing.T) {
+	deployer := &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}}
+	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle}}
+	verificationCalls := 0
+	waitCalls := 0
+	workflow := &CertificateWorkflow{
+		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}}},
+		Domains:                    state,
+		Servers:                    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
+		Deployment:                 deployer,
+		RemoteVerificationAttempts: 3,
+		RemoteVerificationWait: func(context.Context, time.Duration) error {
+			waitCalls++
+			return nil
+		},
+		RemoteVerifier: func(context.Context, string, []string) (certificate.ValidationResult, error) {
+			verificationCalls++
+			return certificate.ValidationResult{}, errors.New("证书永久不匹配")
+		},
+	}
+
+	_, err := workflow.IssueWithReport(context.Background(), "domain-1")
+	if err == nil || !strings.Contains(err.Error(), "重试 3 次后仍未通过") {
+		t.Fatalf("永久校验错误应在有限重试后返回：%v", err)
+	}
+	if verificationCalls != 3 || waitCalls != 2 {
+		t.Fatalf("永久错误的重试次数错误：校验 %d 次，等待 %d 次", verificationCalls, waitCalls)
+	}
+}
+
+func TestCertificateWorkflowRemoteVerificationWaitHonorsContextCancellation(t *testing.T) {
+	deployer := &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}}
+	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle}}
+	ctx, cancel := context.WithCancel(context.Background())
+	verificationCalls := 0
+	workflow := &CertificateWorkflow{
+		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}}},
+		Domains:                    state,
+		Servers:                    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
+		Deployment:                 deployer,
+		RemoteVerificationAttempts: 6,
+		RemoteVerificationInterval: time.Minute,
+		RemoteVerifier: func(context.Context, string, []string) (certificate.ValidationResult, error) {
+			verificationCalls++
+			cancel()
+			return certificate.ValidationResult{}, errors.New("等待新证书")
+		},
+	}
+
+	_, err := workflow.IssueWithReport(ctx, "domain-1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消上下文后应立即终止 HTTPS 校验重试：%v", err)
+	}
+	if verificationCalls != 1 {
+		t.Fatalf("取消后不应继续校验，实际调用 %d 次", verificationCalls)
+	}
+}
+
+func TestCertificateWorkflowDeployCurrentRestoresValidState(t *testing.T) {
+	notAfter := time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	state := &workflowDomainState{
+		status: "error",
+		item:   domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle},
+	}
+	workflow := &CertificateWorkflow{
+		CurrentCertificate: func(context.Context, string) (certificate.IssueResult, error) {
+			return certificate.IssueResult{
+				DomainID: "domain-1",
+				Domains:  []string{"example.com"},
+				Saved:    certificate.SavedResource{NotAfter: notAfter},
+			}, nil
+		},
+		Domains:    state,
+		Servers:    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
+		Deployment: &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}},
+		RemoteVerifier: func(context.Context, string, []string) (certificate.ValidationResult, error) {
+			return certificate.ValidationResult{}, nil
+		},
+	}
+
+	result, err := workflow.DeployCurrent(context.Background(), "domain-1")
+	if err != nil {
+		t.Fatalf("当前证书重新部署应成功：%v", err)
+	}
+	if result.Deployment.Status != "success" || state.id != "domain-1" || state.status != "valid" || state.updateCalled != 1 {
+		t.Fatalf("成功部署后域名状态未恢复：%+v %+v", result.Deployment, state)
+	}
+	if state.expiresAt == nil || !state.expiresAt.Equal(notAfter) {
+		t.Fatalf("成功部署后证书到期时间未更新：%v", state.expiresAt)
+	}
+}
+
+func TestCertificateWorkflowDeployCurrentReturnsStateUpdateError(t *testing.T) {
+	state := &workflowDomainState{
+		status:    "error",
+		updateErr: errors.New("数据库不可写"),
+		item:      domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle},
+	}
+	workflow := &CertificateWorkflow{
+		CurrentCertificate: func(context.Context, string) (certificate.IssueResult, error) {
+			return certificate.IssueResult{DomainID: "domain-1"}, nil
+		},
+		Domains:    state,
+		Servers:    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
+		Deployment: &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}},
+	}
+
+	result, err := workflow.DeployCurrent(context.Background(), "domain-1")
+	if err == nil || !strings.Contains(err.Error(), "更新域名证书状态失败") {
+		t.Fatalf("域名状态更新失败时应返回明确错误：%v", err)
+	}
+	if result.Deployment.Status != "success" || state.updateCalled != 1 || state.status != "error" {
+		t.Fatalf("状态更新失败时应保留部署报告和原状态，且不能静默忽略：%+v %+v", result.Deployment, state)
 	}
 }
