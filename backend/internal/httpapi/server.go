@@ -436,7 +436,21 @@ func (s *Server) deleteDomain(c *gin.Context) {
 	if !s.requireDomainRepository(c) {
 		return
 	}
-	if err := s.repository.Delete(c.Request.Context(), c.Param("id")); err != nil {
+	domainID := strings.TrimSpace(c.Param("id"))
+	if s.tasks != nil {
+		for _, taskType := range []string{"certificate_issue", "certificate_validate", "certificate_deploy", "certificate_import", "certificate_restore"} {
+			_, err := s.tasks.FindActiveTaskByDomain(c.Request.Context(), domainID, taskType)
+			if err == nil {
+				s.writeError(c, http.StatusConflict, "域名存在正在执行的证书任务，请等待任务完成或取消后再删除", nil)
+				return
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				s.writeError(c, http.StatusInternalServerError, "检查域名任务状态失败", err)
+				return
+			}
+		}
+	}
+	if err := s.repository.Delete(c.Request.Context(), domainID); err != nil {
 		if repository.IsNotFound(err) {
 			s.writeError(c, http.StatusNotFound, "域名不存在", err)
 			return
