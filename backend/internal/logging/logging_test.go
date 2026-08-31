@@ -113,7 +113,8 @@ func TestDailyFileWriterRejectsSymlink(t *testing.T) {
 
 func TestDailyFileWriterKeepsDailyCapAfterRestart(t *testing.T) {
 	directory := t.TempDir()
-	now := time.Date(2026, 8, 31, 8, 0, 0, 0, time.Local)
+	now := time.Now()
+	activePath := filepath.Join(directory, "scert.log")
 	writer, err := newDailyFileWriterWithOptions(directory, 16, 30, func() time.Time { return now })
 	if err != nil {
 		t.Fatalf("初始化日志轮转器失败：%v", err)
@@ -136,14 +137,14 @@ func TestDailyFileWriterKeepsDailyCapAfterRestart(t *testing.T) {
 		t.Fatalf("再次关闭日志轮转器失败：%v", err)
 	}
 
-	info, err := os.Stat(filepath.Join(directory, "scert.log"))
+	info, err := os.Stat(activePath)
 	if err != nil {
 		t.Fatalf("读取活动日志状态失败：%v", err)
 	}
 	if info.Size() != 16 {
 		t.Fatalf("服务重启后每日日志容量被绕过：%d", info.Size())
 	}
-	if _, err := os.Stat(filepath.Join(directory, "scert-20260831.log")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(directory, "scert-"+logDay(now)+".log")); !os.IsNotExist(err) {
 		t.Fatalf("同日重启不应轮转活动日志：%v", err)
 	}
 }
