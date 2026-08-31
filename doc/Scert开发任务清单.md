@@ -3165,3 +3165,31 @@ Linux Ubuntu 22.04 上的 `Scert-admin` 手动启停、无开机自启动、无�
 - `[!]` Let’s Encrypt Production、真实 SSH 主机、公钥安装、证书部署、Nginx 反向代理和生产 HTTPS 仍需在用户授权的目标环境执行实机验收。
 - `[!]` Windows Service、Linux systemd、Wails 桌面打包、Windows ACL、MySQL 实例和真实防火墙链路仍需目标环境验收。
 - `[!]` 工作区中已有的 `desktop/frontend/dist/index.html`、`dist/` 和 `backend/.patch*` 未删除、未纳入本轮提交，等待用户单独授权清理。
+
+## 八十三、Linux systemd 服务注册补全与全量代码复审（2026-08-31）
+
+### 83.1 本轮需求清单
+
+- `[✓]` Linux 执行 `scert service install` 时自动生成对应的 systemd unit 文件。
+- `[✓]` unit 文件使用绝对程序路径、配置路径和工作目录，避免服务启动时依赖当前终端目录。
+- `[✓]` 服务注册前执行 `systemctl daemon-reload`，再执行 `systemctl enable`。
+- `[✓]` 服务卸载时先取消开机启动，再移除对应 unit 文件并重新加载 systemd。
+- `[✓]` 服务名称经过路径穿越校验，禁止将 unit 文件写入 `/etc/systemd/system` 之外的位置。
+- `[✓]` 增加 Linux unit 渲染和服务名称安全校验回归测试。
+
+### 83.2 代码与验证状态
+
+- `[✓]` 更新 `backend/internal/servicehost/linux.go`，补全 unit 文件生成、安装、卸载和 systemd 重载流程。
+- `[✓]` 新增 `backend/internal/servicehost/linux_test.go`，覆盖 unit 内容、配置路径、工作目录和路径穿越防护。
+- `[✓]` 后端 `go test ./...` 通过。
+- `[✓]` 桌面端 Go `go test ./...` 通过。
+- `[✓]` 网页端 `npm.cmd run build` 通过。
+- `[✓]` 桌面端前端 `npm.cmd run build` 通过。
+- `[ ]` 后端 race、vet、依赖校验、构建和最终差异检查待本轮最后阶段执行。
+- `[ ]` 本轮源码和文档修改待最终提交并推送。
+
+### 83.3 验收边界
+
+- `[!]` Linux systemd unit 的实际安装、启停、开机启动和权限效果仍需在授权 Ubuntu 主机上验收。
+- `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 部署、Nginx 反向代理、生产 HTTPS、Windows Service、Wails 打包、Windows ACL、MySQL 和真实防火墙链路仍需目标环境验收。
+- `[!]` 工作区已有的 `desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和构建产生的 `.exe` 未删除、未纳入本轮源码提交。
