@@ -61,6 +61,7 @@ func (missingTXTResolver) LookupTXT(context.Context, string) ([]string, error) {
 }
 
 func TestTesterCreatesAndCleansChallengeRecord(t *testing.T) {
+	t.Setenv("LEGO_DISABLE_CNAME_SUPPORT", "true")
 	provider := &fakeProvider{}
 	tester := NewTesterWithResolver(fakeFactory{provider: provider}, fakeTXTResolver{provider: provider})
 	report, err := tester.Verify(t.Context(), Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
@@ -81,6 +82,7 @@ func TestTesterCreatesAndCleansChallengeRecord(t *testing.T) {
 }
 
 func TestTesterUsesConfiguredPropagationSettings(t *testing.T) {
+	t.Setenv("LEGO_DISABLE_CNAME_SUPPORT", "true")
 	provider := &fakeProvider{}
 	tester := NewTesterWithResolverAndSettings(fakeFactory{provider: provider}, missingTXTResolver{}, 20*time.Millisecond, 5*time.Millisecond)
 	started := time.Now()
@@ -97,6 +99,7 @@ func TestTesterUsesConfiguredPropagationSettings(t *testing.T) {
 }
 
 func TestTesterDoesNotCleanupWhenPresentFails(t *testing.T) {
+	t.Setenv("LEGO_DISABLE_CNAME_SUPPORT", "true")
 	provider := &fakeProvider{presentErr: errors.New("拒绝访问")}
 	tester := NewTester(fakeFactory{provider: provider})
 	_, err := tester.Verify(t.Context(), Cloudflare, "example.com", map[string]string{"api_token": "secret-token"})
@@ -109,6 +112,7 @@ func TestTesterDoesNotCleanupWhenPresentFails(t *testing.T) {
 }
 
 func TestTesterCleansUpWithIndependentContextAfterQueryCancellation(t *testing.T) {
+	t.Setenv("LEGO_DISABLE_CNAME_SUPPORT", "true")
 	provider := &fakeProvider{}
 	tester := NewTesterWithResolver(fakeFactory{provider: provider}, missingTXTResolver{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -127,6 +131,7 @@ func TestTesterCleansUpWithIndependentContextAfterQueryCancellation(t *testing.T
 }
 
 func TestTesterReportsCleanupFailureAfterQueryFailure(t *testing.T) {
+	t.Setenv("LEGO_DISABLE_CNAME_SUPPORT", "true")
 	provider := &fakeProvider{cleanupErr: errors.New("权限不足")}
 	tester := NewTesterWithResolver(fakeFactory{provider: provider}, missingTXTResolver{})
 	ctx, cancel := context.WithCancel(context.Background())

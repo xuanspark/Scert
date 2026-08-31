@@ -3243,4 +3243,32 @@ Linux Ubuntu 22.04 上的 `Scert-admin` 手动启停、无开机自启动、无�
 - `[!]` Linux systemd 实际安装、启停、开机启动和权限效果仍需在授权 Ubuntu 主机实机验收。
 - `[!]` Windows Service 实际安装、ACL、开机启动和升级仍需在授权 Windows 主机实机验收。
 - `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 部署、Nginx 反向代理、生产 HTTPS、MySQL 和真实防火墙链路仍需目标环境验收。
+
+## 八十六、动态 systemd 加固与 DNS 测试环境隔离复核（2026-08-31）
+
+### 86.1 本轮需求清单
+
+- `[✓]` 动态 Linux systemd unit 与固定部署 unit 使用一致的最小权限和系统目录保护策略。
+- `[✓]` 动态 unit 增加能力集、设备、内核、命名空间、实时性、SUID 和系统调用架构限制。
+- `[✓]` DNS Provider 单元测试显式关闭 CNAME 跟随，避免测试环境 DNS 不可用时进入外部网络等待。
+- `[✓]` 保留生产环境默认 CNAME 委派行为，不通过测试配置改变运行时默认策略。
+
+### 86.2 验证状态
+
+- `[✓]` `go test -p 1 -count=1 -timeout=3m ./...`
+- `[✓]` `go test -race -p 1 -count=1 -timeout=5m ./...`
+- `[✓]` `go vet -p=1 ./...`
+- `[✓]` `go mod verify`
+- `[✓]` Linux amd64 `servicehost` 测试二进制交叉编译。
+- `[✓]` 网页端 `npm.cmd run build`。
+- `[✓]` 桌面端 Go `go test -p 1 -count=1 ./...`。
+- `[✓]` `git diff --check`。
+- `[~]` 本轮源码提交和远程推送待完成。
+
+### 86.3 复审边界
+
+- `[!]` Linux systemd unit 的实际安装、启停、开机启动和沙箱权限效果仍需授权 Ubuntu 主机实机验收。
+- `[!]` 当前未运行会覆盖用户保留桌面构建产物的桌面前端生产构建。
+- `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 部署、Nginx 反向代理、生产 HTTPS、Windows Service、Windows ACL、MySQL 和真实防火墙链路仍需目标环境验收。
+- `[!]` 工作区已有的 `desktop/desktop.exe`、`desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和 `backend/*.exe` 未删除、未纳入本轮源码提交。
 - `[!]` 工作区已有的 `desktop/desktop.exe`、`desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和 `backend/*.exe` 未删除、未纳入源码提交。
