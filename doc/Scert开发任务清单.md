@@ -3104,6 +3104,33 @@ Linux Ubuntu 22.04 上的 `Scert-admin` 手动启停、无开机自启动、无�
 
 - `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 证书部署、Nginx 反向代理、生产 HTTPS、Windows Service、Linux systemd、Wails 打包、Windows ACL 和 MySQL 实例仍需在授权目标环境执行实机验收。
 - `[!]` 工作区中已有的 `desktop/frontend/dist/index.html`、`dist/` 和 `backend/.patch*` 未删除、未纳入本轮提交，等待用户单独授权清理。
+
+## 八十二、证书部署路径与任务启动状态一致性（2026-08-31）
+
+### 82.1 本轮需求清单
+
+- `[✓]` 服务器证书、完整证书链和私钥路径必须使用绝对路径，避免相对路径写入未知远程目录。
+- `[✓]` 拒绝证书、完整证书链和私钥配置为同一路径，避免部署时发生静默覆盖。
+- `[✓]` 服务器配置解析层和实际部署层均执行路径校验，避免绕过单层校验。
+- `[✓]` 证书任务在创建尝试成功但切换到“执行中”状态失败时，自动收敛为失败状态。
+- `[✓]` 任务启动失败时同步结束任务尝试并记录错误审计，避免数据库残留执行中任务。
+
+### 82.2 代码与验证状态
+
+- `[✓]` 更新 `backend/internal/deployment/model.go` 和 `service.go`，增加绝对路径与重复路径校验。
+- `[✓]` 更新 `backend/internal/httpapi/task_api.go`，补充任务启动状态写入失败的清理和审计逻辑。
+- `[✓]` 增加部署路径和任务启动失败回归测试。
+- `[✓]` 后端 `go test ./...` 通过。
+- `[✓]` 后端 `go test -race ./...` 通过。
+- `[✓]` 后端 `go vet ./...` 通过。
+- `[✓]` 后端 `go mod verify` 通过。
+- `[~]` 网页端、桌面端前端和桌面端 Go 全量验证待本轮后续命令完成。
+- `[~]` 本轮源码提交和远程推送待完成。
+
+### 82.3 验收边界
+
+- `[!]` 真实 DNS 服务商、Let’s Encrypt、SSH 主机、Nginx/Caddy/Apache、生产 HTTPS、Windows Service、Linux systemd、Wails 打包、Windows ACL、MySQL 和真实防火墙链路仍需在授权目标环境验收。
+- `[!]` 工作区已有的 `desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和构建产生的 `.exe` 未删除、未纳入本轮源码提交。
 ## 八十一、DNS 在线测试传播参数接入与全量复核（2026-08-30）
 
 ### 81.1 本轮需求清单

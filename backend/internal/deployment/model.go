@@ -127,6 +127,9 @@ func resolveServerPathTemplate(label, value string, replacer *strings.Replacer) 
 	if cleaned == "" || cleaned == "." {
 		return "", fmt.Errorf("%s无效", label)
 	}
+	if !strings.HasPrefix(cleaned, "/") {
+		return "", fmt.Errorf("%s必须是绝对路径", label)
+	}
 	return resolved, nil
 }
 

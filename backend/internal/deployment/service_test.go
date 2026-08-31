@@ -167,6 +167,36 @@ func TestDeployReportsPartialSuccess(t *testing.T) {
 	}
 }
 
+func TestDeployRejectsDuplicateCertificatePaths(t *testing.T) {
+	client := newMemoryClient()
+	server := testServer("server-1")
+	server.PrivateKeyPath = server.CertificatePath
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	if report.Status != "failed" || report.Failed != 1 {
+		t.Fatalf("重复远程路径应直接失败：%+v", report)
+	}
+	if !strings.Contains(report.Results[0].Message, "不能使用相同路径") {
+		t.Fatalf("重复远程路径错误提示不正确：%s", report.Results[0].Message)
+	}
+	if len(client.files) != 0 {
+		t.Fatalf("路径校验失败前不应连接并写入远程文件：%+v", client.files)
+	}
+}
+
+func TestDeployRejectsRelativeCertificatePaths(t *testing.T) {
+	client := newMemoryClient()
+	server := testServer("server-1")
+	server.CertificatePath = "cert.pem"
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	if report.Status != "failed" || !strings.Contains(report.Results[0].Message, "必须是绝对路径") {
+		t.Fatalf("相对远程路径应被拒绝：%+v", report)
+	}
+}
+
 func testServer(id string) Server {
 	return Server{
 		ID: id, Name: id, Address: "192.0.2.10", Port: 22, Username: "deploy",

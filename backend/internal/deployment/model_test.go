@@ -67,6 +67,14 @@ func TestResolveServerPathsKeepsCustomPathAndRejectsUnknownPlaceholder(t *testin
 	}
 }
 
+func TestResolveServerPathsRejectsRelativePath(t *testing.T) {
+	server := testServer("one")
+	server.CertificatePath = "cert.pem"
+	if _, err := ResolveServerPaths(server, "example.com", "single"); err == nil {
+		t.Fatal("相对远程证书路径应被拒绝")
+	}
+}
+
 func TestServerRejectsPasswordStyleOrUnsafeConfiguration(t *testing.T) {
 	server := testServer("one")
 	server.PrivateKeyRef = ""

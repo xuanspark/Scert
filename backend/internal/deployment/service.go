@@ -132,6 +132,10 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return result
 		}
 	}
+	if err := validateDeploymentPaths(paths); err != nil {
+		result.Message = err.Error()
+		return result
+	}
 	backupID := s.backupID()
 	type backup struct{ original, saved string }
 	backups := make([]backup, 0, len(paths))
@@ -209,6 +213,21 @@ type remoteFile struct {
 	path string
 	data []byte
 	mode uint32
+}
+
+func validateDeploymentPaths(files []remoteFile) error {
+	seen := make(map[string]struct{}, len(files))
+	for _, file := range files {
+		cleaned := RemotePath(file.path)
+		if cleaned == "" || cleaned == "." || !strings.HasPrefix(cleaned, "/") {
+			return errors.New("远程证书路径必须是绝对路径")
+		}
+		if _, exists := seen[cleaned]; exists {
+			return errors.New("远程证书、完整证书链和私钥不能使用相同路径")
+		}
+		seen[cleaned] = struct{}{}
+	}
+	return nil
 }
 
 func validateArtifact(artifact Artifact) error {

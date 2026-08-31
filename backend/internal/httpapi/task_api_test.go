@@ -100,6 +100,44 @@ func TestTaskAPIRecordsSuccessfulIssueAndAudit(t *testing.T) {
 	}
 }
 
+type failingTaskStartRepository struct {
+	repository.TaskRepository
+}
+
+func (r *failingTaskStartRepository) UpdateTask(ctx context.Context, id, status, stage, message string, startedAt, finishedAt *time.Time) error {
+	if status == "running" {
+		return errors.New("模拟任务启动状态写入失败")
+	}
+	return r.TaskRepository.UpdateTask(ctx, id, status, stage, message, startedAt, finishedAt)
+}
+
+func TestTaskAPIClosesTaskWhenStartStateUpdateFails(t *testing.T) {
+	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		t.Fatal("任务启动失败时不应执行证书申请")
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer closeDB()
+	server.tasks = &failingTaskStartRepository{TaskRepository: taskRepo}
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "更新任务状态失败") {
+		t.Fatalf("任务启动状态写入失败响应错误：%d %s", response.Code, response.Body.String())
+	}
+	items, err := taskRepo.ListTasks(context.Background(), "", 10)
+	if err != nil || len(items) != 1 || items[0].Status != "failed" || items[0].Message != "任务启动失败" {
+		t.Fatalf("任务启动失败后未正确收敛任务状态：%+v %v", items, err)
+	}
+	attempts, err := taskRepo.ListAttempts(context.Background(), items[0].ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "failed" || attempts[0].Message != "任务启动失败" {
+		t.Fatalf("任务启动失败后未正确收敛尝试状态：%+v %v", attempts, err)
+	}
+	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "error" || logs[0].Message != "任务启动失败" {
+		t.Fatalf("任务启动失败后审计记录错误：%+v %v", logs, err)
+	}
+}
+
 func TestTaskAPIReturnsFailureAndKeepsTaskTrace(t *testing.T) {
 	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
 		return certificate.IssueResult{}, deployment.Report{

@@ -85,6 +85,16 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		return
 	}
 	if err := s.tasks.UpdateTask(c.Request.Context(), task.ID, "running", "certificate_issue", "正在申请证书并部署", &now, nil); err != nil {
+		finished := time.Now().UTC()
+		failureMessage := "任务启动失败"
+		_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", "certificate_issue", failureMessage, &now, &finished)
+		_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
+		if s.audit != nil {
+			_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
+				Action: "certificate_issue", ResourceType: "domain", ResourceID: domainID,
+				Status: "error", Message: failureMessage,
+			})
+		}
 		s.writeError(c, http.StatusInternalServerError, "更新任务状态失败", err)
 		return
 	}
