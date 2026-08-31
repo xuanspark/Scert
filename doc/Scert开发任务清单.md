@@ -3185,11 +3185,35 @@ Linux Ubuntu 22.04 上的 `Scert-admin` 手动启停、无开机自启动、无�
 - `[✓]` 桌面端 Go `go test ./...` 通过。
 - `[✓]` 网页端 `npm.cmd run build` 通过。
 - `[✓]` 桌面端前端 `npm.cmd run build` 通过。
-- `[ ]` 后端 race、vet、依赖校验、构建和最终差异检查待本轮最后阶段执行。
-- `[ ]` 本轮源码和文档修改待最终提交并推送。
+- `[✓]` 后端 race、vet、依赖校验、构建和最终差异检查通过。
+- `[✓]` 本轮 Linux systemd 源码和测试已提交并推送。
 
 ### 83.3 验收边界
 
 - `[!]` Linux systemd unit 的实际安装、启停、开机启动和权限效果仍需在授权 Ubuntu 主机上验收。
 - `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 部署、Nginx 反向代理、生产 HTTPS、Windows Service、Wails 打包、Windows ACL、MySQL 和真实防火墙链路仍需目标环境验收。
 - `[!]` 工作区已有的 `desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和构建产生的 `.exe` 未删除、未纳入本轮源码提交。
+
+## 八十四、系统服务名称路径安全复审与全量验证（2026-08-31）
+
+### 84.1 本轮需求清单
+
+- `[✓]` Linux、Windows 的服务名称校验统一拒绝空白名称、`.`、`..` 以及正反斜杠路径分隔符。
+- `[✓]` Linux unit 文件路径生成不会接受 `../`、`a/b` 或 `a\\b` 等路径穿越输入。
+- `[✓]` Windows 卸载入口与安装、启动、停止入口使用同一套服务名称校验。
+- `[✓]` 新增跨平台服务名称安全回归测试，并保留 Linux unit 渲染测试。
+
+### 84.2 验证状态
+
+- `[✓]` 后端 `go test -count=1 ./...` 通过。
+- `[✓]` 后端 `go test -race -count=1 ./...` 通过。
+- `[✓]` 后端 `go vet ./...`、`go mod verify`、`go build ./cmd/scert` 和 `go build ./cmd/scert-admin` 通过。
+- `[✓]` Linux amd64 与 Windows amd64 servicehost 测试二进制编译通过。
+- `[✓]` 桌面端 Go 测试、网页端生产构建和桌面端前端生产构建通过。
+- `[✓]` 本轮服务名称校验源码和测试已提交并推送。
+
+### 84.3 验收边界
+
+- `[!]` 当前验证在 Windows 开发机完成；Linux servicehost 测试仅完成 amd64 交叉编译，systemd 实际安装、启停、开机启动和权限效果仍需授权 Ubuntu 主机实机验收。
+- `[!]` 真实 DNS、ACME Production、SSH/SFTP 证书部署、Nginx 反向代理、生产 HTTPS、Windows Service、Wails 安装包、Windows ACL、MySQL 实例和真实防火墙链路仍不属于本地自动化测试结论。
+- `[!]` 工作区中既有的 `desktop/desktop.exe`、`desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和 `backend/*.exe` 未删除、未纳入本轮提交。
