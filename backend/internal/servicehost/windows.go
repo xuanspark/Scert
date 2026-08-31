@@ -6,7 +6,6 @@ import (
 	"context"
 	"os/exec"
 	"strconv"
-	"strings"
 )
 
 func Install(ctx context.Context, options Options) error {
@@ -25,7 +24,8 @@ func Install(ctx context.Context, options Options) error {
 }
 
 func Uninstall(ctx context.Context, name string) error {
-	if err := validateName(name); err != nil {
+	name, err := normalizeName(name)
+	if err != nil {
 		return err
 	}
 	if err := runSC(ctx, "stop", name); err != nil {
@@ -39,7 +39,8 @@ func Uninstall(ctx context.Context, name string) error {
 }
 
 func Start(ctx context.Context, name string) error {
-	if err := validateName(name); err != nil {
+	name, err := normalizeName(name)
+	if err != nil {
 		return err
 	}
 	if err := runSC(ctx, "start", name); err != nil {
@@ -49,7 +50,8 @@ func Start(ctx context.Context, name string) error {
 }
 
 func Stop(ctx context.Context, name string) error {
-	if err := validateName(name); err != nil {
+	name, err := normalizeName(name)
+	if err != nil {
 		return err
 	}
 	if err := runSC(ctx, "stop", name); err != nil {
@@ -67,8 +69,6 @@ func runSC(ctx context.Context, args ...string) error {
 	return nil
 }
 
-var ErrInvalidName = &commandFailure{output: "服务名称无效"}
-
 type commandFailure struct {
 	output string
 	err    error
@@ -82,10 +82,3 @@ func (e *commandFailure) Error() string {
 }
 
 func (e *commandFailure) Unwrap() error { return e.err }
-
-func validateName(name string) error {
-	if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
-		return ErrInvalidName
-	}
-	return nil
-}

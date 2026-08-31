@@ -18,6 +18,9 @@ func newServiceCommand() *cobra.Command {
 	var executable string
 	var serviceConfig string
 	var workDir string
+	var user string
+	var group string
+	var readWritePaths []string
 
 	command := &cobra.Command{
 		Use:   "service",
@@ -34,6 +37,7 @@ func newServiceCommand() *cobra.Command {
 			return servicehost.Install(cmd.Context(), servicehost.Options{
 				Name: name, DisplayName: displayName, Description: description,
 				Executable: executablePath, ConfigPath: configPath, WorkDir: directory,
+				User: user, Group: group, ReadWritePaths: readWritePaths,
 			})
 		},
 	}
@@ -67,6 +71,9 @@ func newServiceCommand() *cobra.Command {
 	install.Flags().StringVar(&executable, "executable", "", "服务程序路径，默认使用当前 scert 程序")
 	install.Flags().StringVar(&serviceConfig, "service-config", "", "服务配置文件路径，默认使用当前配置")
 	install.Flags().StringVar(&workDir, "work-dir", "", "服务工作目录，默认使用程序目录")
+	install.Flags().StringVar(&user, "user", "", "保护运行用户，需与 --group 一起配置")
+	install.Flags().StringVar(&group, "group", "", "保护运行用户组，需与 --user 一起配置")
+	install.Flags().StringSliceVar(&readWritePaths, "read-write-path", nil, "允许服务写入的绝对路径，可重复传入")
 	return command
 }
 

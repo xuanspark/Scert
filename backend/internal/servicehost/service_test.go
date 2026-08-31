@@ -53,3 +53,39 @@ func TestValidateNameRejectsPathLikeValues(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionsValidateRejectsUnsafeUnitValues(t *testing.T) {
+	base := Options{
+		Name: "Scert", Executable: "scert", ConfigPath: "scert.json", WorkDir: "scert",
+	}
+	cases := []Options{
+		{Name: "Scert\nInjected", Executable: base.Executable, ConfigPath: base.ConfigPath, WorkDir: base.WorkDir},
+		{Name: base.Name, DisplayName: "Scert\nInjected", Executable: base.Executable, ConfigPath: base.ConfigPath, WorkDir: base.WorkDir},
+		{Name: base.Name, Description: "Scert\rInjected", Executable: base.Executable, ConfigPath: base.ConfigPath, WorkDir: base.WorkDir},
+		{Name: base.Name, User: "Scert", Executable: base.Executable, ConfigPath: base.ConfigPath, WorkDir: base.WorkDir},
+		{Name: base.Name, User: "Scert", Group: "Scert Group", Executable: base.Executable, ConfigPath: base.ConfigPath, WorkDir: base.WorkDir},
+	}
+	for index, item := range cases {
+		if err := item.Validate(); err == nil {
+			t.Errorf("不安全的服务配置 %d 未被拒绝", index)
+		}
+	}
+}
+
+func TestOptionsNormalizedCopiesServiceSecuritySettings(t *testing.T) {
+	firstPath := filepath.Clean(filepath.Join("C:", "var", "lib", "scert"))
+	secondPath := filepath.Clean(filepath.Join("C:", "var", "log", "scert"))
+	item, err := (Options{
+		Name: " Scert ", Executable: "scert", ConfigPath: "scert.json", WorkDir: "scert",
+		User: " Scert ", Group: " Scert ", ReadWritePaths: []string{" " + firstPath + " ", " " + secondPath + " "},
+	}).normalized()
+	if err != nil {
+		t.Fatalf("规范化服务安全配置失败：%v", err)
+	}
+	if item.User != "Scert" || item.Group != "Scert" {
+		t.Fatalf("服务用户配置未规范化：%+v", item)
+	}
+	if len(item.ReadWritePaths) != 2 || item.ReadWritePaths[0] != firstPath || item.ReadWritePaths[1] != secondPath {
+		t.Fatalf("服务可写路径未规范化：%+v", item.ReadWritePaths)
+	}
+}

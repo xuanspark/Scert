@@ -31,7 +31,8 @@ func Install(ctx context.Context, options Options) error {
 }
 
 func Uninstall(ctx context.Context, name string) error {
-	if err := validateName(name); err != nil {
+	name, err := normalizeName(name)
+	if err != nil {
 		return err
 	}
 	if err := runSystemctl(ctx, "disable", name); err != nil {
@@ -47,7 +48,8 @@ func Uninstall(ctx context.Context, name string) error {
 }
 
 func Start(ctx context.Context, name string) error {
-	if err := validateName(name); err != nil {
+	name, err := normalizeName(name)
+	if err != nil {
 		return err
 	}
 	if err := runSystemctl(ctx, "start", name); err != nil {
@@ -57,7 +59,8 @@ func Start(ctx context.Context, name string) error {
 }
 
 func Stop(ctx context.Context, name string) error {
-	if err := validateName(name); err != nil {
+	name, err := normalizeName(name)
+	if err != nil {
 		return err
 	}
 	if err := runSystemctl(ctx, "stop", name); err != nil {
@@ -78,7 +81,8 @@ func runSystemctl(ctx context.Context, args ...string) error {
 const systemUnitDirectory = "/etc/systemd/system"
 
 func unitFilePath(name string) (string, error) {
-	if err := validateName(name); err != nil {
+	name, err := normalizeName(name)
+	if err != nil {
 		return "", err
 	}
 	return filepath.Join(systemUnitDirectory, name+".service"), nil
@@ -151,16 +155,27 @@ func renderUnitFile(options Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.Join([]string{
+	for _, path := range normalized.ReadWritePaths {
+		if !filepath.IsAbs(path) {
+			return "", fmt.Errorf("服务可写路径必须是绝对路径：%s", path)
+		}
+	}
+	lines := []string{
 		"[Unit]",
 		"Description=" + normalized.Description,
 		"After=network-online.target",
 		"Wants=network-online.target",
+		"ConditionPathExists=" + quoteUnitValue(normalized.ConfigPath),
 		"",
 		"[Service]",
 		"Type=simple",
-		"WorkingDirectory=" + quoteUnitValue(normalized.WorkDir),
-		"ExecStart=" + quoteUnitValue(normalized.Executable) + " --config " + quoteUnitValue(normalized.ConfigPath) + " serve",
+	}
+	if normalized.User != "" {
+		lines = append(lines, "User="+normalized.User, "Group="+normalized.Group)
+	}
+	lines = append(lines,
+		"WorkingDirectory="+quoteUnitValue(normalized.WorkDir),
+		"ExecStart="+quoteUnitValue(normalized.Executable)+" --config "+quoteUnitValue(normalized.ConfigPath)+" serve",
 		"KillSignal=SIGTERM",
 		"TimeoutStopSec=30",
 		"Restart=on-failure",
@@ -168,11 +183,18 @@ func renderUnitFile(options Options) (string, error) {
 		"NoNewPrivileges=yes",
 		"PrivateTmp=yes",
 		"ProtectHome=yes",
-		"",
-		"[Install]",
-		"WantedBy=multi-user.target",
-		"",
-	}, "\n"), nil
+		"ProtectSystem=full",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+	)
+	if len(normalized.ReadWritePaths) > 0 {
+		quotedPaths := make([]string, 0, len(normalized.ReadWritePaths))
+		for _, path := range normalized.ReadWritePaths {
+			quotedPaths = append(quotedPaths, quoteUnitValue(path))
+		}
+		lines = append(lines, "ReadWritePaths="+strings.Join(quotedPaths, " "))
+	}
+	lines = append(lines, "", "[Install]", "WantedBy=multi-user.target", "")
+	return strings.Join(lines, "\n"), nil
 }
 
 func quoteUnitValue(value string) string {
@@ -192,12 +214,3 @@ func (e *commandFailure) Error() string {
 }
 
 func (e *commandFailure) Unwrap() error { return e.err }
-
-func validateName(name string) error {
-	if strings.TrimSpace(name) == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
-		return ErrInvalidName
-	}
-	return nil
-}
-
-var ErrInvalidName = &commandFailure{output: "服务名称无效"}

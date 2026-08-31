@@ -3217,3 +3217,30 @@ Linux Ubuntu 22.04 上的 `Scert-admin` 手动启停、无开机自启动、无�
 - `[!]` 当前验证在 Windows 开发机完成；Linux servicehost 测试仅完成 amd64 交叉编译，systemd 实际安装、启停、开机启动和权限效果仍需授权 Ubuntu 主机实机验收。
 - `[!]` 真实 DNS、ACME Production、SSH/SFTP 证书部署、Nginx 反向代理、生产 HTTPS、Windows Service、Wails 安装包、Windows ACL、MySQL 实例和真实防火墙链路仍不属于本地自动化测试结论。
 - `[!]` 工作区中既有的 `desktop/desktop.exe`、`desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和 `backend/*.exe` 未删除、未纳入本轮提交。
+
+## 八十五、动态系统服务安装安全增强与全量复审（2026-08-31）
+
+### 85.1 本轮需求清单
+
+- `[✓]` 动态 Linux systemd unit 增加配置文件存在条件、系统目录只读保护和网络地址族限制。
+- `[✓]` CLI 支持可选运行用户、用户组和服务可写绝对路径配置。
+- `[✓]` 服务名称、服务文本、路径和账户标识增加控制字符及危险格式校验。
+- `[✓]` Linux、Windows 服务启停和卸载入口统一规范化服务名称，避免首尾空格造成操作对象不一致。
+- `[✓]` 增加动态 unit 安全策略、相对可写路径和配置注入防护回归测试。
+
+### 85.2 验证状态
+
+- `[✓]` 后端 `go test -count=1 ./...` 通过。
+- `[✓]` 后端 `go test -race -count=1 ./...` 通过。
+- `[✓]` 后端 `go vet ./...`、`go mod verify`、CLI 构建通过。
+- `[✓]` Linux amd64 和 Windows amd64 servicehost 测试编译通过。
+- `[✓]` 桌面端 Go 测试、网页端生产构建、桌面端前端生产构建通过。
+- `[✓]` Wails `v2.11.0` Windows amd64 生产构建通过。
+- `[✓]` Windows 安装脚本 PowerShell 语法解析通过；当前开发机未安装 Bash，因此 Linux shell 语法检查未执行。
+
+### 85.3 交付边界
+
+- `[!]` Linux systemd 实际安装、启停、开机启动和权限效果仍需在授权 Ubuntu 主机实机验收。
+- `[!]` Windows Service 实际安装、ACL、开机启动和升级仍需在授权 Windows 主机实机验收。
+- `[!]` 真实 DNS 服务商、Let’s Encrypt Production、远程 SSH 部署、Nginx 反向代理、生产 HTTPS、MySQL 和真实防火墙链路仍需目标环境验收。
+- `[!]` 工作区已有的 `desktop/desktop.exe`、`desktop/frontend/dist/index.html`、`dist/`、`backend/.patch*` 和 `backend/*.exe` 未删除、未纳入源码提交。
