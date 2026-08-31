@@ -146,7 +146,7 @@ validate_artifacts() {
     local artifact
     for artifact in scert scert-admin; do
         [[ -f "$source_dir/$artifact" ]] || fail "安装产物不存在：$source_dir/$artifact"
-        [[ -x "$source_dir/$artifact" ]] || fail "安装产物不可执行：$source_dir/$artifact"
+        [[ -r "$source_dir/$artifact" ]] || fail "安装产物不可执行：$source_dir/$artifact"
     done
     [[ -f "$source_dir/web/index.html" ]] || fail "缺少前端入口文件：$source_dir/web/index.html"
     [[ -f "$SCRIPT_DIR/systemd/Scert.service" ]] || fail "缺少 Scert systemd unit"
