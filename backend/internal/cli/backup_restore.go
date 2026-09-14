@@ -404,48 +404,113 @@ func removeDirectoryWithRollback(target, timestamp string) (func() error, error)
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, errors.New("证书恢复目标必须是普通目录")
 	}
-	backupPath := target + ".before-restore-" + timestamp
-	if err := os.Rename(target, backupPath); err != nil {
-		return nil, fmt.Errorf("保留现有证书目录失败：%w", err)
-	}
-	return func() error { return os.Rename(backupPath, target) }, nil
+	return restoreDirectoryContentsWithRollback("", target, timestamp)
 }
 
 func restoreDirectoryWithRollback(source, target, timestamp string) (func() error, error) {
 	if pathsOverlap(source, target) {
 		return nil, errors.New("证书恢复源目录和目标目录不能互相包含")
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-		return nil, fmt.Errorf("创建证书恢复父目录失败：%w", err)
-	}
-	backupPath := ""
+	return restoreDirectoryContentsWithRollback(source, target, timestamp)
+}
+
+func restoreDirectoryContentsWithRollback(source, target, timestamp string) (func() error, error) {
+	createdTarget := false
 	if info, err := os.Lstat(target); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return nil, errors.New("证书恢复目标必须是普通目录")
 		}
-		backupPath = target + ".before-restore-" + timestamp
-		if err := os.Rename(target, backupPath); err != nil {
-			return nil, fmt.Errorf("保留现有证书目录失败：%w", err)
+	} else if errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+			return nil, fmt.Errorf("创建证书恢复父目录失败：%w", err)
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+		if err := os.Mkdir(target, 0o750); err != nil {
+			return nil, fmt.Errorf("创建证书恢复父目录失败：%w", err)
+		}
+		createdTarget = true
+	} else {
 		return nil, fmt.Errorf("检查证书恢复目标失败：%w", err)
 	}
-	if err := copyDirectoryExclusive(source, target); err != nil {
-		_ = os.RemoveAll(target)
-		if backupPath != "" {
-			_ = os.Rename(backupPath, target)
-		}
-		return nil, fmt.Errorf("恢复证书目录失败：%w", err)
+
+	transaction, err := os.MkdirTemp(target, ".scert-restore-")
+	if err != nil {
+		return nil, fmt.Errorf("保留现有证书目录失败：%w", err)
 	}
-	return func() error {
-		if err := os.RemoveAll(target); err != nil {
+	oldDirectory := filepath.Join(transaction, "old")
+	if err := os.Mkdir(oldDirectory, 0o700); err != nil {
+		_ = os.RemoveAll(transaction)
+		return nil, fmt.Errorf("保留现有证书目录失败：%w", err)
+	}
+
+	rollback := func() error {
+		var rollbackErr error
+		rollbackErr = errors.Join(rollbackErr, clearDirectoryChildren(target, filepath.Base(transaction)))
+		rollbackErr = errors.Join(rollbackErr, moveDirectoryChildren(oldDirectory, target))
+		if createdTarget {
+			if removeErr := os.Remove(target); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				rollbackErr = errors.Join(rollbackErr, removeErr)
+			}
+		}
+		rollbackErr = errors.Join(rollbackErr, os.RemoveAll(transaction))
+		return rollbackErr
+	}
+
+	if err := moveDirectoryChildren(target, oldDirectory, filepath.Base(transaction)); err != nil {
+		return nil, errors.Join(fmt.Errorf("保留现有证书目录失败：%w", err), rollback())
+	}
+
+	if source != "" {
+		newDirectory := filepath.Join(transaction, "new")
+		if err := copyDirectoryExclusive(source, newDirectory); err != nil {
+			return nil, errors.Join(fmt.Errorf("恢复证书目录失败：%w", err), rollback())
+		}
+		if err := moveDirectoryChildren(newDirectory, target); err != nil {
+			return nil, errors.Join(fmt.Errorf("恢复证书目录失败：%w", err), rollback())
+		}
+	}
+
+	if err := os.RemoveAll(transaction); err != nil {
+		return nil, errors.Join(fmt.Errorf("恢复证书目录失败：%w", err), rollback())
+	}
+	return func() error { return nil }, nil
+}
+
+func moveDirectoryChildren(source, target string, excluded ...string) error {
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return err
+	}
+	excludedNames := make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		excludedNames[name] = struct{}{}
+	}
+	for _, entry := range entries {
+		if _, skip := excludedNames[entry.Name()]; skip {
+			continue
+		}
+		if err := os.Rename(filepath.Join(source, entry.Name()), filepath.Join(target, entry.Name())); err != nil {
 			return err
 		}
-		if backupPath != "" {
-			return os.Rename(backupPath, target)
+	}
+	return nil
+}
+
+func clearDirectoryChildren(directory, excluded string) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
-		return nil
-	}, nil
+		return err
+	}
+	var clearErr error
+	for _, entry := range entries {
+		if entry.Name() == excluded {
+			continue
+		}
+		clearErr = errors.Join(clearErr, os.RemoveAll(filepath.Join(directory, entry.Name())))
+	}
+	return clearErr
 }
 
 func copyDirectoryExclusive(source, target string) error {

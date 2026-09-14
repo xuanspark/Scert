@@ -180,7 +180,7 @@ func TestCreateBackupRequiresSecretsWhenInitialized(t *testing.T) {
 	}
 }
 
-func TestRestoreAdditionalAssetsKeepsRollbackCopies(t *testing.T) {
+func TestRestoreAdditionalAssetsPreservesCertificateRoot(t *testing.T) {
 	base := t.TempDir()
 	cfg := config.Default(filepath.Join(base, "target"))
 	input := filepath.Join(base, "backup")
@@ -209,6 +209,9 @@ func TestRestoreAdditionalAssetsKeepsRollbackCopies(t *testing.T) {
 	if err := restoreAdditionalAssets(cfg, input); err != nil {
 		t.Fatalf("恢复敏感配置和证书失败：%v", err)
 	}
+	if info, err := os.Stat(cfg.Paths.Certificate); err != nil || !info.IsDir() {
+		t.Fatalf("恢复缺失状态失败：%v", err)
+	}
 	for path, expected := range map[string]string{
 		filepath.Join(cfg.Paths.Config, "master.key"):                      "new-master",
 		filepath.Join(cfg.Paths.Config, "secrets.json"):                    "new-secrets",
@@ -219,15 +222,20 @@ func TestRestoreAdditionalAssetsKeepsRollbackCopies(t *testing.T) {
 			t.Fatalf("恢复结果不正确 %s：data=%q err=%v", path, data, err)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(cfg.Paths.Certificate, "old.example.com")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("备份中不存在的资产仍保留在当前路径：%s err=%v", filepath.Join(cfg.Paths.Certificate, "old.example.com"), err)
+	}
 	for _, pattern := range []string{
 		filepath.Join(cfg.Paths.Config, "master.key.before-restore-*"),
 		filepath.Join(cfg.Paths.Config, "secrets.json.before-restore-*"),
-		cfg.Paths.Certificate + ".before-restore-*",
 	} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil || len(matches) != 1 {
 			t.Fatalf("恢复前副本不正确 %s：matches=%v err=%v", pattern, matches, err)
 		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(cfg.Paths.Certificate, ".scert-restore-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("恢复前副本不正确 %s：matches=%v err=%v", filepath.Join(cfg.Paths.Certificate, ".scert-restore-*"), matches, err)
 	}
 }
 
@@ -259,21 +267,65 @@ func TestRestoreAdditionalAssetsRestoresAbsentState(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join(cfg.Paths.Config, "master.key"),
 		filepath.Join(cfg.Paths.Config, "secrets.json"),
-		cfg.Paths.Certificate,
+		filepath.Join(cfg.Paths.Certificate, "current.pem"),
 	} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("备份中不存在的资产仍保留在当前路径：%s err=%v", path, err)
 		}
 	}
+	if info, err := os.Stat(cfg.Paths.Certificate); err != nil || !info.IsDir() {
+		t.Fatalf("恢复缺失状态失败：%v", err)
+	}
 	for _, pattern := range []string{
 		filepath.Join(cfg.Paths.Config, "master.key.before-restore-*"),
 		filepath.Join(cfg.Paths.Config, "secrets.json.before-restore-*"),
-		cfg.Paths.Certificate + ".before-restore-*",
 	} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil || len(matches) != 1 {
 			t.Fatalf("缺失状态恢复未保留恢复前副本 %s：matches=%v err=%v", pattern, matches, err)
 		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(cfg.Paths.Certificate, ".scert-restore-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("恢复前副本不正确 %s：matches=%v err=%v", filepath.Join(cfg.Paths.Certificate, ".scert-restore-*"), matches, err)
+	}
+}
+
+func TestRestoreDirectoryWorksWhenCertificateParentIsNotWritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 不提供 POSIX 目录权限语义")
+	}
+	base := t.TempDir()
+	parent := filepath.Join(base, "certificate-parent")
+	target := filepath.Join(parent, "ssl")
+	source := filepath.Join(base, "restore-source")
+	if err := os.MkdirAll(target, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "old.pem"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "new.pem"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(parent, 0o755)
+
+	if _, err := restoreDirectoryWithRollback(source, target, "permission"); err != nil {
+		t.Fatalf("恢复敏感配置和证书失败：%v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "new.pem")); err != nil || string(data) != "new" {
+		t.Fatalf("恢复结果不正确 %s：data=%q err=%v", filepath.Join(target, "new.pem"), data, err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "old.pem")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("恢复缺失状态失败：%v", err)
+	}
+	if matches, err := filepath.Glob(filepath.Join(target, ".scert-restore-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("恢复缺失状态失败：%v", err)
 	}
 }
 
