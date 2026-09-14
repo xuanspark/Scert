@@ -114,6 +114,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	sshKeys := sshkey.NewService(secretStore)
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
+	certificates.SetDNSAuthorizationChecker(dnsprovider.NewAliyunAuthorizationChecker())
 	deploymentService := deployment.NewService(deployment.SSHFactory{Secrets: secretStore})
 	notifier := notification.New(cfg.Notification, secretStore)
 	remoteValidator := certificate.RemoteValidator{}

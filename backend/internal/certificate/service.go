@@ -28,6 +28,11 @@ type ProviderFactory interface {
 	Create(providerID string, credentials map[string]string) (challenge.Provider, error)
 }
 
+// DNSAuthorizationChecker 在证书申请前确认当前凭据仍能操作目标域名。
+type DNSAuthorizationChecker interface {
+	VerifyDomain(ctx context.Context, providerID, requestedDomain string, credentials map[string]string) error
+}
+
 type AccountManager interface {
 	LoadOrCreate(ctx context.Context, environment, email string) (*AccountUser, error)
 	Save(ctx context.Context, environment string, user *AccountUser) error
@@ -40,10 +45,17 @@ type Service struct {
 	repository     DomainStateRepository
 	credentials    CredentialReader
 	providers      ProviderFactory
+	authorization  DNSAuthorizationChecker
 	accounts       AccountManager
 	store          FileStore
 	newIssuer      IssuerFactory
 	preferredChain string
+}
+
+func (s *Service) SetDNSAuthorizationChecker(checker DNSAuthorizationChecker) {
+	if s != nil {
+		s.authorization = checker
+	}
 }
 
 type IssueResult struct {
@@ -129,6 +141,9 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return fail(fmt.Errorf("读取 DNS 凭据失败：%w", err))
 	}
+	if err := s.verifyDNSAuthorization(ctx, providerID, domains, credentials); err != nil {
+		return fail(err)
+	}
 	provider, err := s.providers.Create(providerID, credentials)
 	if err != nil {
 		return fail(fmt.Errorf("创建 DNS Provider 失败：%w", err))
@@ -200,6 +215,9 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 	if err != nil {
 		return SavedResource{}, fmt.Errorf("读取初始化证书 DNS 凭据失败：%w", err)
 	}
+	if err := s.verifyDNSAuthorization(ctx, providerID, domains, credentials); err != nil {
+		return SavedResource{}, err
+	}
 	provider, err := s.providers.Create(providerID, credentials)
 	if err != nil {
 		return SavedResource{}, fmt.Errorf("创建初始化证书 DNS Provider 失败：%w", err)
@@ -238,6 +256,18 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 		return SavedResource{}, fmt.Errorf("保存初始化证书失败：%w", err)
 	}
 	return saved, nil
+}
+
+func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string, domains []string, credentials map[string]string) error {
+	if s == nil || s.authorization == nil {
+		return nil
+	}
+	for _, requestedDomain := range domains {
+		if err := s.authorization.VerifyDomain(ctx, providerID, requestedDomain, credentials); err != nil {
+			return fmt.Errorf("DNS 凭据无权操作域名 %s：%w", requestedDomain, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) Import(ctx context.Context, request ImportRequest) (IssueResult, error) {
