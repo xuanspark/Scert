@@ -58,6 +58,20 @@ func (serviceProviderFactory) Create(string, map[string]string) (challenge.Provi
 	return serviceProvider{}, nil
 }
 
+type serviceAuthorizationChecker struct {
+	verifyCalls     int
+	invalidateCalls int
+}
+
+func (c *serviceAuthorizationChecker) VerifyDomain(context.Context, string, string, map[string]string) error {
+	c.verifyCalls++
+	return nil
+}
+
+func (c *serviceAuthorizationChecker) InvalidateDomain(string, string, map[string]string) {
+	c.invalidateCalls++
+}
+
 type recordingProviderFactory struct {
 	providerID  string
 	credentials map[string]string
@@ -154,6 +168,50 @@ func TestServiceFailureKeepsExistingCertificate(t *testing.T) {
 	}
 	if repository.item.ExpiresAt == nil || !repository.item.ExpiresAt.Equal(oldExpiry) {
 		t.Fatal("申请失败时应保留原证书到期时间")
+	}
+}
+
+func TestServiceInvalidatesDNSAuthorizationAfterACMEFailure(t *testing.T) {
+	root := t.TempDir()
+	cfg := certificateTestConfig(root)
+	item, err := domain.NewDomainWithOptions("example.com", domain.CertificateSingle, nil, true, domain.ACMEEnvironmentStaging, "cloudflare")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &serviceRepository{item: item}
+	issuer := &serviceIssuer{err: errors.New("模拟 DNS 权限已被收回")}
+	authorization := &serviceAuthorizationChecker{}
+	service := NewService(cfg, repository, serviceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service.SetDNSAuthorizationChecker(authorization)
+	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer { return issuer }
+
+	if _, err := service.Issue(context.Background(), item.ID); err == nil {
+		t.Fatal("ACME 申请失败时应返回错误")
+	}
+	if authorization.verifyCalls != 1 || authorization.invalidateCalls != 1 {
+		t.Fatalf("ACME 失败后的授权缓存处理错误：verify=%d invalidate=%d", authorization.verifyCalls, authorization.invalidateCalls)
+	}
+}
+
+func TestServiceDoesNotInvalidateDNSAuthorizationForUnrelatedACMEFailure(t *testing.T) {
+	root := t.TempDir()
+	cfg := certificateTestConfig(root)
+	item, err := domain.NewDomainWithOptions("example.com", domain.CertificateSingle, nil, true, domain.ACMEEnvironmentStaging, "cloudflare")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &serviceRepository{item: item}
+	issuer := &serviceIssuer{err: errors.New("ACME 服务暂时不可用")}
+	authorization := &serviceAuthorizationChecker{}
+	service := NewService(cfg, repository, serviceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service.SetDNSAuthorizationChecker(authorization)
+	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer { return issuer }
+
+	if _, err := service.Issue(context.Background(), item.ID); err == nil {
+		t.Fatal("ACME 申请失败时应返回错误")
+	}
+	if authorization.invalidateCalls != 0 {
+		t.Fatalf("无关的 ACME 错误不应清除授权缓存：invalidate=%d", authorization.invalidateCalls)
 	}
 }
 

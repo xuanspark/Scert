@@ -33,6 +33,10 @@ type DNSAuthorizationChecker interface {
 	VerifyDomain(ctx context.Context, providerID, requestedDomain string, credentials map[string]string) error
 }
 
+type DNSAuthorizationCacheInvalidator interface {
+	InvalidateDomain(providerID, requestedDomain string, credentials map[string]string)
+}
+
 type AccountManager interface {
 	LoadOrCreate(ctx context.Context, environment, email string) (*AccountUser, error)
 	Save(ctx context.Context, environment string, user *AccountUser) error
@@ -160,6 +164,9 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	resource, issueErr := issuer.Obtain(ctx, ObtainRequest{
 		Domains: domains, AccountEmail: email, Environment: item.ACMEEnvironment, PreferredChain: s.preferredChain,
 	})
+	if issueErr != nil {
+		s.invalidateDNSAuthorizationOnFailure(providerID, domains, credentials, issueErr)
+	}
 	if saveErr := s.accounts.Save(ctx, item.ACMEEnvironment, user); saveErr != nil {
 		if issueErr != nil {
 			return fail(fmt.Errorf("%v；保存 ACME 账户状态失败：%w", issueErr, saveErr))
@@ -234,6 +241,9 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 	resource, issueErr := issuer.Obtain(ctx, ObtainRequest{
 		Domains: domains, AccountEmail: accountEmail, Environment: environment, PreferredChain: s.preferredChain,
 	})
+	if issueErr != nil {
+		s.invalidateDNSAuthorizationOnFailure(providerID, domains, credentials, issueErr)
+	}
 	if saveErr := s.accounts.Save(ctx, environment, user); saveErr != nil {
 		if issueErr != nil {
 			return SavedResource{}, fmt.Errorf("%v；保存 ACME 账户状态失败：%w", issueErr, saveErr)
@@ -268,6 +278,39 @@ func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string,
 		}
 	}
 	return nil
+}
+
+func (s *Service) invalidateDNSAuthorization(providerID string, domains []string, credentials map[string]string) {
+	invalidator, ok := s.authorization.(DNSAuthorizationCacheInvalidator)
+	if !ok {
+		return
+	}
+	for _, requestedDomain := range domains {
+		invalidator.InvalidateDomain(providerID, requestedDomain, credentials)
+	}
+}
+
+func (s *Service) invalidateDNSAuthorizationOnFailure(providerID string, domains []string, credentials map[string]string, issueErr error) {
+	if !looksLikeDNSAuthorizationFailure(issueErr) {
+		return
+	}
+	s.invalidateDNSAuthorization(providerID, domains, credentials)
+}
+
+func looksLikeDNSAuthorizationFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"dns-01", "dns challenge", "txt record", "present", "cleanup", "clean up",
+		"unauthorized", "forbidden", "permission", "accessdenied", "权限", "无权", "授权",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) Import(ctx context.Context, request ImportRequest) (IssueResult, error) {
