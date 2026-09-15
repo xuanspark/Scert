@@ -366,5 +366,11 @@ func DiagnoseAliyunError(err error, domainName string) string {
 	if strings.Contains(lowered, "invalidaccesskeyid.notfound") || strings.Contains(lowered, "signaturedoesnotmatch") {
 		return "阿里云 AccessKey ID 或 AccessKey Secret 无效，请检查系统 DNS 凭据配置"
 	}
-	return fmt.Sprintf("阿里云 RAM 权限验证未通过：%s", msg)
+	if errors.Is(err, context.Canceled) {
+		return "阿里云 RAM 权限验证已取消，当前权限尚未确认"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "阿里云 RAM 权限验证超时，请检查网络后重新验证"
+	}
+	return "阿里云 RAM 权限验证未通过，请检查网络、凭据和目标域名权限；不要将未确认状态视为已授权"
 }

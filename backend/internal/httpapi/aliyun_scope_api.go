@@ -137,13 +137,17 @@ func (s *Server) checkAliyunDNSDomain(c *gin.Context) {
 	}
 
 	report, verifyErr := s.aliyunChecker.Verify(c.Request.Context(), targetDomain, credentials)
+	report = sanitizeAliyunReport(report, targetDomain)
 	if verifyErr != nil {
+		diagnosis := dnsprovider.DiagnoseAliyunError(verifyErr, targetDomain)
+		report.Verified = false
+		report.Diagnosis = diagnosis
 		c.JSON(http.StatusOK, gin.H{
 			"verified":       false,
 			"domain":         targetDomain,
 			"matched_domain": report.MatchedDomain,
 			"diagnosis":      report.Diagnosis,
-			"error":          verifyErr.Error(),
+			"error":          diagnosis,
 			"report":         report,
 		})
 		return
@@ -180,7 +184,7 @@ func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainNa
 
 	credentials, err := s.readDNSCredentials(ctx, credentialRef)
 	if err != nil {
-		return fmt.Errorf("读取阿里云 DNS 凭据失败，不能确认域名授权：%w", err)
+		return errors.New("读取阿里云 DNS 凭据失败，不能确认域名授权，请检查受保护的凭据存储")
 	}
 	if _, err := dnsprovider.ValidateCredentials(dnsprovider.Aliyun, credentials); err != nil {
 		return fmt.Errorf("阿里云 DNS 凭据无效，不能确认域名授权：%w", err)
@@ -191,6 +195,25 @@ func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainNa
 		return fmt.Errorf("阿里云 RAM 账号无法操作域名 %s：%s", domainName, diagnosis)
 	}
 	return nil
+}
+
+func sanitizeAliyunReport(report dnsprovider.AuthorizationReport, requestedDomain string) dnsprovider.AuthorizationReport {
+	if report.Diagnosis != "" {
+		report.Diagnosis = dnsprovider.DiagnoseAliyunError(errors.New(report.Diagnosis), requestedDomain)
+	}
+	report.Domains = append([]dnsprovider.AuthorizationDomain(nil), report.Domains...)
+	for index := range report.Domains {
+		item := &report.Domains[index]
+		if item.Error == "" {
+			continue
+		}
+		if item.Writable && !item.Cleanup {
+			item.Error = "测试记录写入成功但清理失败，请检查删除权限并核对残留测试记录"
+		} else {
+			item.Error = dnsprovider.DiagnoseAliyunError(errors.New(item.Error), item.Domain)
+		}
+	}
+	return report
 }
 
 func (s *Server) readDNSCredentials(ctx context.Context, credentialRef string) (map[string]string, error) {

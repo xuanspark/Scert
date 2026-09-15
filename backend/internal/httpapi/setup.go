@@ -81,8 +81,8 @@ type dnsTestRequest struct {
 func (s *Server) registerSetupRoutes() {
 	s.router.GET("/api/v1/setup/status", s.setupStatus)
 	s.router.GET("/api/v1/setup/dns/providers", s.setupDNSProviders)
-	s.router.POST("/api/v1/setup/dns/test", s.testSetupDNS)
-	s.router.POST("/api/v1/setup", s.applySetup)
+	s.router.POST("/api/v1/setup/dns/test", s.requireSameOrigin, s.requireSetupAccess, s.dnsOperation, s.testSetupDNS)
+	s.router.POST("/api/v1/setup", s.requireSameOrigin, s.requireSetupAccess, s.longOperation(12*time.Minute), s.applySetup)
 }
 
 func (s *Server) setupStatus(c *gin.Context) {
@@ -212,13 +212,19 @@ const defaultDNSRequestTimeout = 45 * time.Second
 const dnsCleanupRequestBuffer = 30 * time.Second
 
 func (s *Server) applySetup(c *gin.Context) {
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
+	if !s.setupMu.TryLock() {
+		s.writeError(c, http.StatusConflict, "初始化正在执行，请等待当前操作完成", nil)
+		return
+	}
+	defer s.setupMu.Unlock()
+	s.configMu.RLock()
+	cfg := s.config
+	s.configMu.RUnlock()
 	if !isLoopbackRequest(c.Request) {
 		s.writeError(c, http.StatusForbidden, "首次初始化接口仅允许从本机访问", nil)
 		return
 	}
-	if s.config.SetupReady {
+	if cfg.SetupReady {
 		s.writeError(c, http.StatusConflict, "初始化已经完成，不能重复提交", nil)
 		return
 	}
@@ -266,7 +272,7 @@ func (s *Server) applySetup(c *gin.Context) {
 	emailCredentialRef := strings.TrimSpace(request.EmailHTTPCredentialRef)
 	smtpCredentialRef := ""
 	if emailSMTPEnabled {
-		smtpCredentialRef = strings.TrimSpace(s.config.Notification.SMTPCredentialRef)
+		smtpCredentialRef = strings.TrimSpace(cfg.Notification.SMTPCredentialRef)
 		if strings.TrimSpace(request.EmailSMTPPassword) != "" {
 			if strings.TrimSpace(request.EmailSMTPUsername) == "" {
 				s.writeError(c, http.StatusBadRequest, "填写 SMTP 密码前必须配置 SMTP 用户名", nil)
@@ -313,7 +319,7 @@ func (s *Server) applySetup(c *gin.Context) {
 			return
 		}
 	}
-	updated := s.config
+	updated := cfg
 	err := setup.Apply(&updated, setup.Input{
 		AdminUsername:                  request.AdminUsername,
 		AdminEmail:                     request.AdminEmail,
@@ -483,7 +489,9 @@ func (s *Server) applySetup(c *gin.Context) {
 	if err := s.setupDNS.Consume(request.DNSVerificationToken, request.DNSProvider, request.DNSCredentialRef, testDomain); err != nil && s.logger != nil {
 		s.logger.Warn("初始化配置已保存，但清理 DNS 验证令牌失败", "error", err)
 	}
+	s.configMu.Lock()
 	s.config = updated
+	s.configMu.Unlock()
 	c.JSON(http.StatusOK, gin.H{
 		"initialized": true,
 		"message": fmt.Sprintf(

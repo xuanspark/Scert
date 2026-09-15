@@ -37,6 +37,9 @@ export function useDashboard() {
   const settingsError = ref("");
   const dnsTesting = ref(false);
   const dnsTestError = ref("");
+  const verificationClock = ref(Date.now());
+  let verificationTimer;
+  let dnsRequestVersion = 0;
   const settingsForm = ref(createEmptySettingsForm());
   const showCertificateImport = ref(false);
   const importDomain = ref(null);
@@ -194,14 +197,25 @@ export function useDashboard() {
     return (
       current.provider !== saved?.provider ||
       !saved?.credential_configured ||
+      Boolean(current.test_domain.trim()) ||
+      Object.values(current.credentials || {}).some((value) => String(value || "").trim()) ||
+      Boolean(current.verification_token) ||
       current.verification_state === "pending"
     );
   });
-  const dnsReadyToSave = computed(
-    () =>
-      !dnsVerificationRequired.value ||
-      (Boolean(settingsForm.value.dns.credential_ref) &&
-        Boolean(settingsForm.value.dns.verification_token)),
+  const dnsReadyToSave = computed(() => {
+    verificationClock.value;
+    if (dnsTesting.value) return false;
+    if (!dnsVerificationRequired.value) return true;
+    const dns = settingsForm.value.dns;
+    return Boolean(dns.credential_ref && dns.verification_token) &&
+      new Date(dns.expires_at).getTime() > Date.now();
+  });
+
+  watch(
+    () => [settingsForm.value.dns.provider, settingsForm.value.dns.test_domain, settingsForm.value.dns.credentials],
+    handleDNSProviderChange,
+    { deep: true, flush: "sync" },
   );
 
   const defaultCertificatePath = "/ssl/{域名}/{证书类型}/cert.pem";
@@ -332,6 +346,7 @@ export function useDashboard() {
         credentials: {},
         credential_ref: "",
         verification_token: "",
+        expires_at: "",
         test_report: null,
       },
       notification: {
@@ -379,6 +394,7 @@ export function useDashboard() {
         credentials: {},
         credential_ref: "",
         verification_token: "",
+        expires_at: "",
         test_domain: "",
         test_report: null,
       },
@@ -696,13 +712,18 @@ export function useDashboard() {
   }
 
   function handleDNSProviderChange() {
+    dnsRequestVersion += 1;
+    dnsTesting.value = false;
     const dns = settingsForm.value.dns;
     const saved = settings.value?.dns;
     dnsTestError.value = "";
     dns.credential_ref = "";
     dns.verification_token = "";
+    dns.expires_at = "";
     dns.test_report = null;
-    if (dns.provider && dns.provider === saved?.provider && saved.credential_configured) {
+    const hasNewInput = Boolean(dns.test_domain.trim()) ||
+      Object.values(dns.credentials || {}).some((value) => String(value || "").trim());
+    if (!hasNewInput && dns.provider && dns.provider === saved?.provider && saved.credential_configured) {
       dns.verification_state = saved.verification_state || "verified";
       return;
     }
@@ -715,6 +736,7 @@ export function useDashboard() {
   }
 
   async function testDNS() {
+    handleDNSProviderChange();
     const dns = settingsForm.value.dns;
     const provider = selectedDNSProvider.value;
     dnsTestError.value = "";
@@ -740,6 +762,8 @@ export function useDashboard() {
       return;
     }
     dnsTesting.value = true;
+    dns.verification_state = "pending";
+    const requestVersion = dnsRequestVersion;
     try {
       const response = await fetchAdmin("/api/v1/dns/test", {
         method: "POST",
@@ -751,22 +775,25 @@ export function useDashboard() {
         }),
       });
       const result = await response.json().catch(() => ({}));
+      if (requestVersion !== dnsRequestVersion) return;
       dns.test_report = result.test_report || null;
       if (!response.ok) {
         throw new Error(result.error || "DNS API 在线测试失败");
       }
       dns.credential_ref = result.credential_ref || "";
       dns.verification_token = result.verification_token || "";
+      dns.expires_at = result.expires_at || "";
       dns.verification_state = "verified";
       dns.credential_configured = true;
       notice.value = "DNS API 在线测试通过，可以保存系统设置";
     } catch (err) {
+      if (requestVersion !== dnsRequestVersion) return;
       dns.credential_ref = "";
       dns.verification_token = "";
       dns.verification_state = "pending";
       dnsTestError.value = err.message || "DNS API 在线测试失败";
     } finally {
-      dnsTesting.value = false;
+      if (requestVersion === dnsRequestVersion) dnsTesting.value = false;
     }
   }
 
@@ -778,11 +805,15 @@ export function useDashboard() {
   }
 
   function closeSettings() {
-    if (!settingsSaving.value) showSettings.value = false;
+    if (!settingsSaving.value) {
+      handleDNSProviderChange();
+      showSettings.value = false;
+    }
   }
 
   async function saveSettings() {
     settingsError.value = "";
+    verificationClock.value = Date.now();
     if (!dnsReadyToSave.value) {
       settingsError.value = "DNS 服务商配置尚未通过在线测试，请先完成测试";
       return;
@@ -1061,8 +1092,15 @@ export function useDashboard() {
     }
   }
 
-  onMounted(loadData);
+  onMounted(() => {
+    loadData();
+    verificationTimer = window.setInterval(() => {
+      verificationClock.value = Date.now();
+    }, 1000);
+  });
   onBeforeUnmount(() => {
+    dnsRequestVersion += 1;
+    if (verificationTimer) window.clearInterval(verificationTimer);
     document.body.style.overflow = previousBodyOverflow;
   });
 

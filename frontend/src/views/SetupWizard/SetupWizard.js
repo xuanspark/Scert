@@ -41,6 +41,7 @@ export function useSetupWizard(props, emit) {
   const emailAutofillElement = ref(null);
   let emailVisibleEdited = false;
   let verificationTimer;
+  let dnsRequestVersion = 0;
   let emailAutofillTimer;
   const targetType = ref(props.status.web_public_ip ? "ip" : "hostname");
   const form = ref({
@@ -141,6 +142,8 @@ export function useSetupWizard(props, emit) {
   });
 
   function invalidateDNSVerification() {
+    dnsRequestVersion += 1;
+    dnsTesting.value = false;
     dnsVerification.value = null;
     dnsTestError.value = "";
   }
@@ -415,6 +418,7 @@ export function useSetupWizard(props, emit) {
     }
 
     dnsTesting.value = true;
+    const requestVersion = dnsRequestVersion;
     try {
       const response = await fetch("/api/v1/setup/dns/test", {
         method: "POST",
@@ -426,15 +430,17 @@ export function useSetupWizard(props, emit) {
         }),
       });
       const result = await response.json().catch(() => ({}));
+      if (requestVersion !== dnsRequestVersion) return;
       if (result.test_report) {
         dnsVerification.value = { test_report: result.test_report };
       }
       if (!response.ok) throw new Error(result.error || "DNS API 在线验证失败");
       dnsVerification.value = result;
     } catch (err) {
+      if (requestVersion !== dnsRequestVersion) return;
       dnsTestError.value = err.message || "DNS API 在线验证失败";
     } finally {
-      dnsTesting.value = false;
+      if (requestVersion === dnsRequestVersion) dnsTesting.value = false;
     }
   }
 
@@ -773,10 +779,11 @@ export function useSetupWizard(props, emit) {
       dnsCredentials.value = {};
       invalidateDNSVerification();
     },
+    { flush: "sync" },
   );
 
-  watch(dnsCredentials, invalidateDNSVerification, { deep: true });
-  watch(dnsTestDomain, invalidateDNSVerification);
+  watch(dnsCredentials, invalidateDNSVerification, { deep: true, flush: "sync" });
+  watch(dnsTestDomain, invalidateDNSVerification, { flush: "sync" });
 
   onMounted(() => {
     loadDNSProviders();
@@ -789,6 +796,7 @@ export function useSetupWizard(props, emit) {
   });
 
   onUnmounted(() => {
+    invalidateDNSVerification();
     if (verificationTimer) window.clearInterval(verificationTimer);
     if (emailAutofillTimer) window.clearInterval(emailAutofillTimer);
   });

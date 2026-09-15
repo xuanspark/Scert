@@ -98,6 +98,7 @@ type Server struct {
 	taskMu              sync.Mutex
 	taskCancels         map[string]context.CancelFunc
 	issueTaskMu         sync.Mutex
+	setupMu             sync.Mutex
 	resetMu             sync.Mutex
 	resetClosedHash     string
 	resetLimiter        *resetRateLimiter
@@ -158,8 +159,8 @@ func (s *Server) registerRoutes() {
 	s.router.POST(admin.ResetPath, s.resetSubmit)
 	s.router.GET("/api/v1/status", s.status)
 	s.router.GET("/api/v1/auth/session", s.authSession)
-	s.router.POST("/api/v1/auth/login", s.authLogin)
-	s.router.POST("/api/v1/auth/logout", s.authLogout)
+	s.router.POST("/api/v1/auth/login", s.requireSameOrigin, s.authLogin)
+	s.router.POST("/api/v1/auth/logout", s.requireSameOrigin, s.authLogout)
 	s.router.POST("/api/v1/auth/password", s.requireAuthenticated, s.changePassword)
 	s.router.POST("/api/v1/password-reset/resolve", s.resolvePasswordResetAccount)
 	adminAPI := s.router.Group("/api/v1", s.requireAdmin)
@@ -170,10 +171,10 @@ func (s *Server) registerRoutes() {
 	userAPI.PUT("/:id", s.updateUser)
 	userAPI.DELETE("/:id", s.deleteUser)
 	adminAPI.GET("/domains", s.listDomains)
-	adminAPI.POST("/domains", s.createDomain)
-	adminAPI.PUT("/domains/:id", s.updateDomain)
+	adminAPI.POST("/domains", s.dnsOperation, s.createDomain)
+	adminAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)
 	adminAPI.DELETE("/domains/:id", s.deleteDomain)
-	adminAPI.POST("/domains/:id/issue", s.issueDomain)
+	adminAPI.POST("/domains/:id/issue", s.longOperation(certificateTaskTimeout), s.issueDomain)
 	adminAPI.GET("/tasks", s.listTasks)
 	adminAPI.GET("/tasks/:id", s.getTask)
 	adminAPI.DELETE("/tasks/:id", s.cancelTask)
@@ -182,17 +183,17 @@ func (s *Server) registerRoutes() {
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.updateSettings)
 	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
-	adminAPI.POST("/dns/test", s.testAdminDNS)
+	adminAPI.POST("/dns/test", s.dnsOperation, s.testAdminDNS)
 	adminAPI.GET("/dns/aliyun/scope", s.getAliyunDNSScope)
-	adminAPI.POST("/dns/aliyun/check", s.checkAliyunDNSDomain)
-	adminAPI.POST("/renewal/run", s.runRenewalNow)
+	adminAPI.POST("/dns/aliyun/check", s.dnsOperation, s.checkAliyunDNSDomain)
+	adminAPI.POST("/renewal/run", s.longOperation(certificateTaskTimeout), s.runRenewalNow)
 	adminAPI.GET("/certificates", s.listCertificates)
 	adminAPI.GET("/certificates/:id", s.getCertificate)
-	adminAPI.POST("/domains/:id/certificate/import", s.importCertificateFiles)
-	adminAPI.POST("/domains/:id/certificate/validate", s.validateCertificate)
-	adminAPI.POST("/domains/:id/deploy", s.deployCertificateCurrent)
+	adminAPI.POST("/domains/:id/certificate/import", s.longOperation(certificateTaskTimeout), s.importCertificateFiles)
+	adminAPI.POST("/domains/:id/certificate/validate", s.longOperation(certificateTaskTimeout), s.validateCertificate)
+	adminAPI.POST("/domains/:id/deploy", s.longOperation(certificateTaskTimeout), s.deployCertificateCurrent)
 	adminAPI.GET("/domains/:id/certificate/versions", s.listCertificateVersions)
-	adminAPI.POST("/domains/:id/certificate/versions/:version/restore", s.restoreCertificateVersion)
+	adminAPI.POST("/domains/:id/certificate/versions/:version/restore", s.longOperation(certificateTaskTimeout), s.restoreCertificateVersion)
 	adminAPI.GET("/domains/:id/servers", s.listDomainServers)
 	adminAPI.PUT("/domains/:id/servers", s.replaceDomainServers)
 	adminAPI.GET("/servers", s.listServers)
