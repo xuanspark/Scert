@@ -32,16 +32,22 @@ type Tester struct {
 	propagationInterval time.Duration
 }
 
-const dnsCleanupTimeout = 30 * time.Second
-const defaultDNSPropagationTimeout = 30 * time.Second
-const defaultDNSPropagationInterval = 2 * time.Second
+const (
+	// PermissionVerificationTimeout 是 DNS API 权限验证的整体请求上限。
+	// 它与 ACME DNS-01 的公网传播等待相互独立。
+	PermissionVerificationTimeout = 60 * time.Second
+
+	dnsCleanupTimeout                     = 30 * time.Second
+	defaultDNSPermissionTXTLookupTimeout  = 30 * time.Second
+	defaultDNSPermissionTXTLookupInterval = 2 * time.Second
+)
 
 func NewTester(factory Factory) *Tester {
-	return NewTesterWithResolverAndSettings(factory, legoTXTResolver{}, defaultDNSPropagationTimeout, defaultDNSPropagationInterval)
+	return NewTesterWithResolverAndSettings(factory, legoTXTResolver{}, defaultDNSPermissionTXTLookupTimeout, defaultDNSPermissionTXTLookupInterval)
 }
 
 func NewTesterWithResolver(factory Factory, resolver TXTResolver) *Tester {
-	return NewTesterWithResolverAndSettings(factory, resolver, defaultDNSPropagationTimeout, defaultDNSPropagationInterval)
+	return NewTesterWithResolverAndSettings(factory, resolver, defaultDNSPermissionTXTLookupTimeout, defaultDNSPermissionTXTLookupInterval)
 }
 
 func NewTesterWithSettings(factory Factory, timeout, interval time.Duration) *Tester {
@@ -50,10 +56,10 @@ func NewTesterWithSettings(factory Factory, timeout, interval time.Duration) *Te
 
 func NewTesterWithResolverAndSettings(factory Factory, resolver TXTResolver, timeout, interval time.Duration) *Tester {
 	if timeout <= 0 {
-		timeout = defaultDNSPropagationTimeout
+		timeout = defaultDNSPermissionTXTLookupTimeout
 	}
 	if interval <= 0 || interval > timeout {
-		interval = defaultDNSPropagationInterval
+		interval = defaultDNSPermissionTXTLookupInterval
 		if interval > timeout {
 			interval = timeout
 		}
@@ -192,10 +198,10 @@ func waitForTXT(ctx context.Context, resolver TXTResolver, fqdn, expected string
 		return errors.New("TXT 查询服务未初始化")
 	}
 	if timeout <= 0 {
-		timeout = defaultDNSPropagationTimeout
+		timeout = defaultDNSPermissionTXTLookupTimeout
 	}
 	if interval <= 0 || interval > timeout {
-		interval = defaultDNSPropagationInterval
+		interval = defaultDNSPermissionTXTLookupInterval
 		if interval > timeout {
 			interval = timeout
 		}

@@ -1,7 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-const defaultDNSVerificationTimeoutSeconds = 45;
-const dnsVerificationCleanupBufferSeconds = 30;
+const defaultDNSVerificationTimeoutSeconds = 60;
 
 export function useDashboard() {
   const scertLogo = "/Scert.png";
@@ -218,14 +217,6 @@ export function useDashboard() {
       new Date(dns.expires_at).getTime() > Date.now();
   });
 
-  function resolveDNSVerificationTimeoutSeconds(value) {
-    const propagationTimeout = Number(value);
-    if (!Number.isFinite(propagationTimeout) || propagationTimeout <= 0) {
-      return defaultDNSVerificationTimeoutSeconds;
-    }
-    return Math.floor(propagationTimeout) + dnsVerificationCleanupBufferSeconds;
-  }
-
   function updateDNSVerificationTimeoutSeconds(value) {
     const timeout = Number(value);
     if (Number.isFinite(timeout) && timeout > 0) {
@@ -244,9 +235,7 @@ export function useDashboard() {
 
   function startDNSVerificationTimer(requestVersion) {
     stopDNSVerificationTimer();
-    dnsVerificationTimeoutSeconds.value = resolveDNSVerificationTimeoutSeconds(
-      settingsForm.value.acme.propagation_timeout_secs,
-    );
+    dnsVerificationTimeoutSeconds.value = defaultDNSVerificationTimeoutSeconds;
     const startedAt = Date.now();
     const updateElapsedSeconds = () => {
       if (requestVersion !== dnsRequestVersion) return;

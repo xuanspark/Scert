@@ -81,11 +81,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		_ = logger.Close()
 		return nil, fmt.Errorf("初始化敏感信息存储失败：%w", err)
 	}
-	dnsTester := dnsprovider.NewTesterWithSettings(
-		dnsprovider.NewLegoFactory(),
-		time.Duration(cfg.ACME.PropagationTimeoutSecs)*time.Second,
-		time.Duration(cfg.ACME.PropagationPollingIntervalSecs)*time.Second,
-	)
+	dnsTester := dnsprovider.NewTester(dnsprovider.NewLegoFactory())
 	dnsVerification := setup.NewDNSVerificationManager(dnsTester, secretStore)
 	repo := repository.NewSQLDomainRepository(db.DB)
 	serverRepo := repository.NewSQLServerRepository(db.DB)

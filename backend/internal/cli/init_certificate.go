@@ -106,7 +106,7 @@ func verifyExistingDNSCredentials(ctx context.Context, cfg config.Config, input 
 	if err != nil {
 		return func() {}, fmt.Errorf("读取已有 DNS 凭据失败：%w", err)
 	}
-	verifyCtx, cancel := context.WithTimeout(ctx, dnsVerificationTimeout(cfg))
+	verifyCtx, cancel := context.WithTimeout(ctx, dnsprovider.PermissionVerificationTimeout)
 	defer cancel()
 	if err := checker.VerifyDomain(verifyCtx, input.DNSProvider, target, credentials); err != nil {
 		return func() {}, fmt.Errorf("已有 DNS 凭据在线权限校验失败：%w", err)

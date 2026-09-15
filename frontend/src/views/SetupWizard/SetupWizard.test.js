@@ -34,7 +34,7 @@ test("初始化 DNS 验证显示等待进度，并采用服务端返回的最长
 
   assert.equal(state.dnsTesting.value, true);
   assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
-  assert.equal(state.dnsVerificationTimeoutSeconds.value, 930);
+  assert.equal(state.dnsVerificationTimeoutSeconds.value, 60);
 
   advanceTime(2500);
   runIntervals();
@@ -45,12 +45,12 @@ test("初始化 DNS 验证显示等待进度，并采用服务端返回的最长
     credential_ref: "secret://test/only",
     verification_token: "test-token",
     expires_at: new Date(Date.now() + 60000).toISOString(),
-    verification_timeout_secs: 31,
+    verification_timeout_secs: 60,
   }));
   await task;
   assert.equal(state.dnsTesting.value, false);
   assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
-  assert.equal(state.dnsVerificationTimeoutSeconds.value, 31);
+  assert.equal(state.dnsVerificationTimeoutSeconds.value, 60);
 
   advanceTime(1000);
   runIntervals();

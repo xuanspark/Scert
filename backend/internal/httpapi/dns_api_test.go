@@ -80,7 +80,7 @@ func TestAdminDNSTestRejectsUnavailableService(t *testing.T) {
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("DNS 服务未初始化时应返回 503，实际为 %d：%s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":930`) {
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":60`) {
 		t.Fatalf("DNS 服务未初始化响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 }

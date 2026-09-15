@@ -30,7 +30,7 @@ func (s *Server) longOperation(timeout time.Duration) gin.HandlerFunc {
 }
 
 func (s *Server) dnsOperation(c *gin.Context) {
-	s.longOperation(s.dnsVerificationTimeout())(c)
+	s.longOperation(dnsAPIPermissionVerificationTimeout())(c)
 }
 
 func (s *Server) requireSameOrigin(c *gin.Context) {

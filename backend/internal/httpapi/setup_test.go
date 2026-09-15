@@ -239,16 +239,16 @@ func TestSetupDNSProviderCatalogAndOnlineTest(t *testing.T) {
 		!strings.Contains(testResponse.Body.String(), "清理记录") {
 		t.Fatalf("DNS 在线测试响应应包含阶段报告：%s", testResponse.Body.String())
 	}
-	if !strings.Contains(testResponse.Body.String(), `"verification_timeout_secs":930`) {
+	if !strings.Contains(testResponse.Body.String(), `"verification_timeout_secs":60`) {
 		t.Fatalf("DNS 在线测试响应应包含当前最大等待时间：%s", testResponse.Body.String())
 	}
 }
 
-func TestSetupDNSTestUsesConfiguredRequestTimeout(t *testing.T) {
+func TestSetupDNSTestUsesShortPermissionVerificationTimeout(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := config.Default(baseDir)
-	cfg.ACME.PropagationTimeoutSecs = 1
-	cfg.ACME.PropagationPollingIntervalSecs = 1
+	cfg.ACME.PropagationTimeoutSecs = 86400
+	cfg.ACME.PropagationPollingIntervalSecs = 60
 	verifier := &fakeSetupDNSVerifier{verifyErr: errors.New("测试 DNS 验证失败")}
 	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, SetupDNS: verifier})
 
@@ -265,15 +265,15 @@ func TestSetupDNSTestUsesConfiguredRequestTimeout(t *testing.T) {
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("模拟 DNS 验证失败应返回 422，实际为 %d：%s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":31`) {
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":60`) {
 		t.Fatalf("DNS 验证失败响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 	if !verifier.verifyHasDeadline {
 		t.Fatal("DNS 在线测试应收到带截止时间的上下文")
 	}
 	remaining := verifier.verifyDeadline.Sub(started)
-	if remaining < 30*time.Second || remaining > 32*time.Second {
-		t.Fatalf("DNS 在线测试请求超时未按配置计算：剩余时间=%s", remaining)
+	if remaining < 59*time.Second || remaining > 61*time.Second {
+		t.Fatalf("DNS 在线测试请求超时不应继承 ACME 传播配置：剩余时间=%s", remaining)
 	}
 }
 func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
@@ -527,7 +527,7 @@ func TestSetupDNSTestRejectsRemoteAndOversizedRequests(t *testing.T) {
 	if oversizedResponse.Code != http.StatusBadRequest {
 		t.Fatalf("超大 DNS 测试请求应被拒绝：%d %s", oversizedResponse.Code, oversizedResponse.Body.String())
 	}
-	if !strings.Contains(oversizedResponse.Body.String(), `"verification_timeout_secs":930`) {
+	if !strings.Contains(oversizedResponse.Body.String(), `"verification_timeout_secs":60`) {
 		t.Fatalf("DNS 参数错误响应应包含当前最大等待时间：%s", oversizedResponse.Body.String())
 	}
 }
@@ -547,7 +547,7 @@ func TestSetupDNSTestReturnsNotImplementedForUnavailableProvider(t *testing.T) {
 	if strings.Contains(response.Body.String(), "access_key_secret") || strings.Contains(response.Body.String(), "secret") {
 		t.Fatal("未开放 Provider 响应不应包含提交的凭据")
 	}
-	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":930`) {
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":60`) {
 		t.Fatalf("未开放 Provider 响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 }

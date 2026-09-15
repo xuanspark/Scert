@@ -1,7 +1,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
-const defaultDNSVerificationTimeoutSeconds = 45;
-const dnsVerificationCleanupBufferSeconds = 30;
+const defaultDNSVerificationTimeoutSeconds = 60;
 
 const commonEmailDomains = [
   { label: "常用邮箱", value: "" },
@@ -155,14 +154,6 @@ export function useSetupWizard(props, emit) {
     dnsTestError.value = "";
   }
 
-  function resolveDNSVerificationTimeoutSeconds(value) {
-    const propagationTimeout = Number(value);
-    if (!Number.isFinite(propagationTimeout) || propagationTimeout <= 0) {
-      return defaultDNSVerificationTimeoutSeconds;
-    }
-    return Math.floor(propagationTimeout) + dnsVerificationCleanupBufferSeconds;
-  }
-
   function updateDNSVerificationTimeoutSeconds(value) {
     const timeout = Number(value);
     if (Number.isFinite(timeout) && timeout > 0) {
@@ -181,9 +172,7 @@ export function useSetupWizard(props, emit) {
 
   function startDNSVerificationTimer(requestVersion) {
     stopDNSVerificationTimer();
-    dnsVerificationTimeoutSeconds.value = resolveDNSVerificationTimeoutSeconds(
-      form.value.propagation_timeout_secs,
-    );
+    dnsVerificationTimeoutSeconds.value = defaultDNSVerificationTimeoutSeconds;
     const startedAt = Date.now();
     const updateElapsedSeconds = () => {
       if (requestVersion !== dnsRequestVersion) return;

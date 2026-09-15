@@ -476,26 +476,14 @@ func prepareDNSCredentials(ctx context.Context, cfg config.Config, input *setup.
 		return func() {}, fmt.Errorf("初始化 DNS 凭据存储失败：%w", err)
 	}
 	manager := setup.NewDNSVerificationManager(
-		dnsprovider.NewTesterWithSettings(
-			dnsprovider.NewLegoFactory(),
-			time.Duration(cfg.ACME.PropagationTimeoutSecs)*time.Second,
-			time.Duration(cfg.ACME.PropagationPollingIntervalSecs)*time.Second,
-		),
+		dnsprovider.NewTester(dnsprovider.NewLegoFactory()),
 		store,
 	)
-	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, dnsVerificationTimeout(cfg))
-}
-
-func dnsVerificationTimeout(cfg config.Config) time.Duration {
-	timeout := time.Duration(cfg.ACME.PropagationTimeoutSecs)*time.Second + 30*time.Second
-	if timeout <= 30*time.Second {
-		return 45 * time.Second
-	}
-	return timeout
+	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, dnsprovider.PermissionVerificationTimeout)
 }
 
 func prepareDNSCredentialsWithManager(ctx context.Context, input *setup.Input, output io.Writer, manager *setup.DNSVerificationManager, store *secretstore.Store) (func(), error) {
-	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, 45*time.Second)
+	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, dnsprovider.PermissionVerificationTimeout)
 }
 
 func prepareDNSCredentialsWithManagerAndTimeout(ctx context.Context, input *setup.Input, output io.Writer, manager *setup.DNSVerificationManager, store *secretstore.Store, timeout time.Duration) (func(), error) {

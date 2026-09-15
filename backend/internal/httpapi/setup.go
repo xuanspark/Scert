@@ -157,7 +157,7 @@ func (s *Server) testAdminDNS(c *gin.Context) {
 }
 
 func (s *Server) testDNS(c *gin.Context) {
-	verificationTimeoutSecs := int(s.dnsVerificationTimeout().Seconds())
+	verificationTimeoutSecs := int(dnsAPIPermissionVerificationTimeout().Seconds())
 	if s.setupDNS == nil {
 		s.writeDNSTestError(c, http.StatusServiceUnavailable, "DNS 在线验证服务尚未初始化", nil, verificationTimeoutSecs)
 		return
@@ -167,7 +167,7 @@ func (s *Server) testDNS(c *gin.Context) {
 		s.writeDNSTestError(c, http.StatusBadRequest, "DNS 测试请求参数无效", err, verificationTimeoutSecs)
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), s.dnsVerificationTimeout())
+	ctx, cancel := context.WithTimeout(c.Request.Context(), dnsAPIPermissionVerificationTimeout())
 	defer cancel()
 	result, err := s.setupDNS.Verify(ctx, setup.DNSVerificationInput{
 		ProviderID: request.ProviderID, TestDomain: request.TestDomain, Credentials: request.Credentials,
@@ -216,19 +216,9 @@ func (s *Server) writeDNSTestError(c *gin.Context, status int, message string, e
 	})
 }
 
-func (s *Server) dnsVerificationTimeout() time.Duration {
-	s.configMu.RLock()
-	cfg := s.config
-	s.configMu.RUnlock()
-	timeout := time.Duration(cfg.ACME.PropagationTimeoutSecs)*time.Second + dnsCleanupRequestBuffer
-	if timeout <= dnsCleanupRequestBuffer {
-		return defaultDNSRequestTimeout
-	}
-	return timeout
+func dnsAPIPermissionVerificationTimeout() time.Duration {
+	return dnsprovider.PermissionVerificationTimeout
 }
-
-const defaultDNSRequestTimeout = 45 * time.Second
-const dnsCleanupRequestBuffer = 30 * time.Second
 
 func (s *Server) applySetup(c *gin.Context) {
 	if !s.setupMu.TryLock() {
