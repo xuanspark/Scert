@@ -14,7 +14,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 )
 
-const readinessDNSReference = "secret://dns/cloudflare/readiness-test"
+const readinessDNSReference = "secret://dns/aliyun/readiness-test"
 
 func TestReadinessRejectsIncompleteSetup(t *testing.T) {
 	cfg := config.Default(t.TempDir())
@@ -155,6 +155,7 @@ func readinessConfig(t *testing.T) config.Config {
 	directory := t.TempDir()
 	cfg := config.Default(directory)
 	cfg.SetupReady = true
+	cfg.DNS.Provider = "aliyun"
 	cfg.DNS.CredentialRef = readinessDNSReference
 	cfg.Server.TLSCert = filepath.Join(directory, "server.crt")
 	cfg.Server.TLSKey = filepath.Join(directory, "server.key")
@@ -173,7 +174,10 @@ func readinessStore(t *testing.T) *secretstore.Store {
 	if err != nil {
 		t.Fatalf("打开测试敏感信息存储失败：%v", err)
 	}
-	if err := store.Put(t.Context(), readinessDNSReference, map[string]string{"api_token": "readiness-test-token"}); err != nil {
+	if err := store.Put(t.Context(), readinessDNSReference, map[string]string{
+		"access_key_id":     "readiness-test-id",
+		"access_key_secret": "readiness-test-secret",
+	}); err != nil {
 		t.Fatalf("写入测试 DNS 凭据失败：%v", err)
 	}
 	return store

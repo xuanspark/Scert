@@ -48,7 +48,7 @@ func TestSessionCapacityDoesNotEvictActiveSessions(t *testing.T) {
 	server.now = func() time.Time { return now }
 	for index := 0; index < authStateCapacity; index++ {
 		server.authSessions[fmt.Sprint(index)] = authSession{
-			UserID: fmt.Sprint(index), Username: "operator", PasswordHash: "test-hash", Role: repository.UserRoleUser,
+			UserID: fmt.Sprint(index), Username: "operator", Email: "operator@example.test", PasswordHash: "test-hash", Role: repository.UserRoleUser,
 			ExpiresAt: now.Add(time.Minute), AbsoluteExpiresAt: now.Add(time.Hour),
 		}
 	}

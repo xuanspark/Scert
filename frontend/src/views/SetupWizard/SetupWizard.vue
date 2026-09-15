@@ -693,7 +693,7 @@ const {
                   max="86400"
                   required
                 />
-                <small>默认 900 秒，最长允许等待 86400 秒。</small>
+                <small>默认 300 秒，最长允许等待 86400 秒。</small>
               </label>
               <label>
                 <span>DNS 传播检测间隔（秒）</span>
@@ -706,9 +706,14 @@ const {
                   :max="form.propagation_timeout_secs"
                   required
                 />
-                <small>默认 6 秒，不能大于最大等待时间。</small>
+                <small>默认 5 秒，不能大于最大等待时间。</small>
               </label>
             </div>
+            <p class="field-hint">
+              阿里云 RAM 权限验证最多等待 6 秒：系统会创建、查询并清理临时 TXT
+              记录。以上 300 秒和 5 秒用于实际申请证书时的公网 DNS-01
+              传播等待与轮询。
+            </p>
             <p v-if="dnsCatalogError" class="inline-error">
               {{ dnsCatalogError }}
             </p>

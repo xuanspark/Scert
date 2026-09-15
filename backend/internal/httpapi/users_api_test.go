@@ -140,7 +140,14 @@ func httpUserSessionCookie(server *Server, userID, role string) *http.Cookie {
 	if err != nil {
 		panic(err)
 	}
-	user := repository.User{ID: userID, Username: userID, Role: role, Status: repository.UserStatusActive, PasswordHash: string(hash)}
+	user := repository.User{
+		ID:           userID,
+		Username:     userID,
+		Email:        userID + "@example.test",
+		Role:         role,
+		Status:       repository.UserStatusActive,
+		PasswordHash: string(hash),
+	}
 	if userID == "primary-super-admin" {
 		user.Username = server.config.Admin.Username
 		user.Email = server.config.Admin.Email

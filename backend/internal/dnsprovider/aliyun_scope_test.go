@@ -8,62 +8,61 @@ import (
 )
 
 func scopeCredentials() map[string]string {
-	return map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.com,sub.example.com", "allowed_domains": "www.sub.example.com,*.example.com"}
+	return map[string]string{
+		"access_key_id":     "test-id",
+		"access_key_secret": "test-secret",
+	}
 }
 
-func TestAliyunScopeBoundaries(t *testing.T) {
-	scope, err := ParseAliyunScope(scopeCredentials())
-	if err != nil {
-		t.Fatal(err)
+func TestResolveAliyunTargetDomainUsesOnlyRegistrableRoot(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "www.sub.example.com", want: "example.com"},
+		{name: "WWW.EXAMPLE.COM.", want: "example.com"},
+		{name: "*.example.com", want: "example.com"},
+		{name: "example.co.uk", want: "example.co.uk"},
 	}
-	for _, tc := range []struct{ name, zone string }{
-		{"www.sub.example.com", "sub.example.com"},
-		{"WWW.EXAMPLE.COM.", "example.com"},
-		{"*.example.com", "example.com"},
-		{"example.com", ""},
-		{"evil-example.com", ""},
-		{"example.com.evil.net", ""},
-		{"deep.www.example.com", ""},
-		{"*.sub.example.com", ""},
-		{"pcux.cn", ""},
-		{"com", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			zone, err := scope.Resolve(tc.name)
-			if zone != tc.zone || (err != nil) != (tc.zone == "") {
-				t.Fatalf("范围校验错误：zone=%s err=%v", zone, err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ResolveAliyunTargetDomain(test.name)
+			if err != nil || got != test.want {
+				t.Fatalf("ResolveAliyunTargetDomain(%q) = %q, %v; want %q", test.name, got, err, test.want)
 			}
 		})
 	}
-	for _, value := range []string{"", "com", "co.uk", "*.example.com", "example.com,", "example.com,co.uk"} {
-		credentials := scopeCredentials()
-		credentials["managed_zones"] = value
-		if _, err := ParseAliyunScope(credentials); err == nil {
-			t.Fatalf("不安全托管区未拒绝：%s", value)
-		}
-	}
-	credentials := scopeCredentials()
-	credentials["allowed_domains"] = "outside.net"
-	if _, err := ParseAliyunScope(credentials); err == nil {
-		t.Fatal("越界的允许范围必须整体拒绝")
+}
+
+func TestResolveAliyunTargetDomainRejectsProtectedAndInvalidDomains(t *testing.T) {
+	for _, name := range []string{"pcux.cn", "*.pcux.cn", "api.pcux.cn", "com", "*.com", ""} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ResolveAliyunTargetDomain(name); err == nil {
+				t.Fatalf("ResolveAliyunTargetDomain(%q) unexpectedly succeeded", name)
+			}
+		})
 	}
 }
 
 type fakeAliyunRecords struct {
-	zones, rrs, values, deleted    []string
-	addErr, describeErr, deleteErr error
-	describeInfo                   aliyunRecordInfo
-	canceledCleanup                bool
+	zones, rrs, values, described, deleted []string
+	addErr, describeErr, deleteErr         error
+	describeInfo                           aliyunRecordInfo
+	canceledCleanup                        bool
 }
 
 func (f *fakeAliyunRecords) Add(_ context.Context, zone, rr, value string) (string, error) {
 	f.zones = append(f.zones, zone)
 	f.rrs = append(f.rrs, rr)
 	f.values = append(f.values, value)
-	return "created-record-id", f.addErr
+	if f.addErr != nil {
+		return "", f.addErr
+	}
+	return "created-record-id", nil
 }
 
-func (f *fakeAliyunRecords) Describe(_ context.Context, _ string) (aliyunRecordInfo, error) {
+func (f *fakeAliyunRecords) Describe(_ context.Context, id string) (aliyunRecordInfo, error) {
+	f.described = append(f.described, id)
 	if f.describeErr != nil {
 		return aliyunRecordInfo{}, f.describeErr
 	}
@@ -71,10 +70,10 @@ func (f *fakeAliyunRecords) Describe(_ context.Context, _ string) (aliyunRecordI
 		return f.describeInfo, nil
 	}
 	if len(f.zones) == 0 || len(f.rrs) == 0 || len(f.values) == 0 {
-		return aliyunRecordInfo{}, errors.New("没有可供查询的临时记录")
+		return aliyunRecordInfo{}, errors.New("no temporary record exists")
 	}
 	return aliyunRecordInfo{
-		RecordID:   "created-record-id",
+		RecordID:   id,
 		DomainName: f.zones[len(f.zones)-1],
 		RR:         f.rrs[len(f.rrs)-1],
 		Type:       "TXT",
@@ -88,74 +87,108 @@ func (f *fakeAliyunRecords) Delete(ctx context.Context, id string) error {
 	return f.deleteErr
 }
 
-func TestAliyunProbeNeverFallsBackOrCallsCloudOutsideScope(t *testing.T) {
+func TestAliyunProbeUsesTheSingleRegistrableRootWithoutFallback(t *testing.T) {
 	api := &fakeAliyunRecords{addErr: errors.New("Forbidden.RAM")}
 	checker := NewAliyunAuthorizationChecker()
 	constructed := 0
-	checker.recordAPI = func(map[string]string) (aliyunRecordAPI, error) { constructed++; return api, nil }
-	credentials := scopeCredentials()
-	for _, name := range []string{"example.com", "outside.net", "pcux.cn", "*.sub.example.com"} {
-		if _, err := checker.Verify(t.Context(), name, credentials); err == nil {
-			t.Fatal("越界请求未拒绝")
-		}
+	checker.recordAPI = func(map[string]string) (aliyunRecordAPI, error) {
+		constructed++
+		return api, nil
 	}
-	if constructed != 0 {
-		t.Fatal("越界请求不能创建云客户端")
+
+	if _, err := checker.Verify(t.Context(), "www.sub.example.com", scopeCredentials()); err == nil {
+		t.Fatal("RAM denial unexpectedly succeeded")
 	}
-	if _, err := checker.Verify(t.Context(), "www.sub.example.com", credentials); err == nil {
-		t.Fatal("RAM 拒绝必须返回失败")
-	}
-	if len(api.zones) != 1 || api.zones[0] != "sub.example.com" || !strings.HasSuffix(api.rrs[0], ".www") {
-		t.Fatalf("必须仅写授权子域：%v %v", api.zones, api.rrs)
+	if constructed != 1 || len(api.zones) != 1 || api.zones[0] != "example.com" {
+		t.Fatalf("probe did not use only the registrable root: constructed=%d zones=%v", constructed, api.zones)
 	}
 	if len(api.deleted) != 0 {
-		t.Fatal("新增失败不能猜测记录 ID 删除")
-	}
-	api.addErr = nil
-	api.deleteErr = errors.New("Forbidden.RAM")
-	report, err := checker.Verify(t.Context(), "www.sub.example.com", credentials)
-	if err == nil || report.Verified || !report.Domains[0].Writable || report.Domains[0].Cleanup {
-		t.Fatal("清理失败不能证明权限通过")
-	}
-	api.deleteErr = nil
-	report, err = checker.Verify(t.Context(), "www.sub.example.com", credentials)
-	if err != nil || !report.Verified || api.deleted[len(api.deleted)-1] != "created-record-id" {
-		t.Fatal("必须删除本次新增记录")
+		t.Fatalf("failed Add must not guess a record ID to delete: %v", api.deleted)
 	}
 }
 
-func TestAliyunProviderPinsZoneAndCleanupIdentity(t *testing.T) {
-	scope, _ := ParseAliyunScope(scopeCredentials())
+func TestAliyunProtectedDomainDoesNotConstructClientOrCallCloud(t *testing.T) {
 	api := &fakeAliyunRecords{}
-	p := &scopedAliyunProvider{scope: scope, api: api, records: make(map[[32]byte]string), challengeInfo: func(_ context.Context, name, _ string) (string, string, string) {
-		fqdn := "_acme-challenge." + name + "."
-		return fqdn, fqdn, "txt-value"
-	}}
-	if err := p.Present(t.Context(), "outside.net", "token", "key"); err == nil || len(api.zones) != 0 {
-		t.Fatal("实际 Provider 必须零调用拒绝越界")
+	checker := NewAliyunAuthorizationChecker()
+	constructed := 0
+	checker.recordAPI = func(map[string]string) (aliyunRecordAPI, error) {
+		constructed++
+		return api, nil
 	}
-	if err := p.Present(t.Context(), "www.sub.example.com", "token", "key"); err != nil {
+
+	for _, name := range []string{"pcux.cn", "*.pcux.cn", "api.pcux.cn"} {
+		if _, err := checker.Verify(t.Context(), name, scopeCredentials()); err == nil {
+			t.Fatalf("protected domain %q unexpectedly succeeded", name)
+		}
+	}
+	if constructed != 0 || len(api.zones) != 0 || len(api.described) != 0 || len(api.deleted) != 0 {
+		t.Fatalf("protected domain touched cloud state: constructed=%d zones=%v described=%v deleted=%v", constructed, api.zones, api.described, api.deleted)
+	}
+}
+
+func TestAliyunProviderDefersClientCreationAndPinsCleanupIdentity(t *testing.T) {
+	provider, err := newScopedAliyunProvider(scopeCredentials())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(api.zones) != 1 || api.zones[0] != "sub.example.com" || api.rrs[0] != "_acme-challenge.www" {
-		t.Fatal("实际写入没有锁定指定托管区")
+	api := &fakeAliyunRecords{}
+	constructed := 0
+	provider.newAPI = func(map[string]string) (aliyunRecordAPI, error) {
+		constructed++
+		return api, nil
 	}
-	if err := p.Present(t.Context(), "www.sub.example.com", "token", "key"); err == nil {
-		t.Fatal("重复挑战不能覆盖待清理 ID")
+	provider.challengeInfo = func(_ context.Context, name, _ string) (string, string, string) {
+		fqdn := "_acme-challenge." + name + "."
+		return fqdn, fqdn, "txt-value"
 	}
-	_ = p.CleanUp(t.Context(), "www.sub.example.com", "other", "key")
+
+	if constructed != 0 {
+		t.Fatal("provider construction must not construct a cloud client")
+	}
+	if err := provider.Present(t.Context(), "www.sub.example.com", "token", "key"); err != nil {
+		t.Fatal(err)
+	}
+	if constructed != 1 || len(api.zones) != 1 || api.zones[0] != "example.com" || api.rrs[0] != "_acme-challenge.www.sub" {
+		t.Fatalf("provider wrote outside its single registrable root: constructed=%d zones=%v rrs=%v", constructed, api.zones, api.rrs)
+	}
+	if err := provider.Present(t.Context(), "www.sub.example.com", "token", "key"); err == nil {
+		t.Fatal("duplicate challenge unexpectedly overwrote a pending record")
+	}
+	if err := provider.CleanUp(t.Context(), "www.sub.example.com", "other-token", "key"); err != nil {
+		t.Fatal(err)
+	}
 	if len(api.deleted) != 0 {
-		t.Fatal("不能清理其他挑战")
+		t.Fatalf("cleanup for a different challenge deleted a record: %v", api.deleted)
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := p.CleanUp(ctx, "www.sub.example.com", "token", "key"); err != nil || api.canceledCleanup || len(api.deleted) != 1 {
-		t.Fatal("请求取消后仍需有界清理本次 ID")
+	if err := provider.CleanUp(ctx, "www.sub.example.com", "token", "key"); err != nil {
+		t.Fatal(err)
 	}
-	p.challengeInfo = func(context.Context, string, string) (string, string, string) {
-		return "_acme-challenge.www.sub.example.com.", "_acme-challenge.outside.net.", "value"
+	if len(api.deleted) != 1 || api.deleted[0] != "created-record-id" || api.canceledCleanup {
+		t.Fatalf("cleanup did not use the exact created record ID: deleted=%v canceled=%v", api.deleted, api.canceledCleanup)
 	}
-	if err := p.Present(t.Context(), "www.sub.example.com", "new", "key"); err == nil || len(api.zones) != 1 {
-		t.Fatal("CNAME 越界不能调用云 API")
+}
+
+func TestAliyunProviderRejectsCNAMEBeforeClientConstruction(t *testing.T) {
+	provider, err := newScopedAliyunProvider(scopeCredentials())
+	if err != nil {
+		t.Fatal(err)
+	}
+	constructed := 0
+	provider.newAPI = func(map[string]string) (aliyunRecordAPI, error) {
+		constructed++
+		return &fakeAliyunRecords{}, nil
+	}
+	provider.challengeInfo = func(context.Context, string, string) (string, string, string) {
+		return "_acme-challenge.www.sub.example.com.", "_acme-challenge.delegated.example.net.", "txt-value"
+	}
+
+	if err := provider.Present(t.Context(), "www.sub.example.com", "token", "key"); err == nil || !strings.Contains(err.Error(), "CNAME") {
+		t.Fatalf("CNAME redirection was not rejected: %v", err)
+	}
+	if constructed != 0 {
+		t.Fatalf("CNAME redirection constructed a cloud client: %d", constructed)
 	}
 }

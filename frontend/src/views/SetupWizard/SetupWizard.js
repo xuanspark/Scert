@@ -88,9 +88,9 @@ export function useSetupWizard(props, emit) {
     email_retry_intervals_secs: "30,120,600",
     recipients: "",
     dns_provider: props.status.dns_provider || "aliyun",
-    propagation_timeout_secs: props.status.propagation_timeout_secs || 900,
+    propagation_timeout_secs: props.status.propagation_timeout_secs || 300,
     propagation_polling_interval_secs:
-      props.status.propagation_polling_interval_secs || 10,
+      props.status.propagation_polling_interval_secs || 5,
     certificate_root: props.status.certificate_root || "",
     web_hostname: props.status.web_hostname || "",
     web_public_ip: props.status.web_public_ip || "",

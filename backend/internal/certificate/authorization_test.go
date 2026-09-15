@@ -20,7 +20,7 @@ type scopedAuthorizationChecker struct {
 type scopedServiceCredentials struct{}
 
 func (scopedServiceCredentials) Get(context.Context, string) (map[string]string, error) {
-	return map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.com,example.org", "allowed_domains": "example.com,other.example.org"}, nil
+	return map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret"}, nil
 }
 
 func (c *scopedAuthorizationChecker) VerifyDomain(_ context.Context, _ string, name string, _ map[string]string) error {
@@ -107,16 +107,72 @@ func TestAliyunMissingAuthorizationCheckerBlocksIssueAndSetup(t *testing.T) {
 	}
 }
 
-func TestAliyunWholeOrderScopeValidationBeforeAnyCloudProbe(t *testing.T) {
+type protectedDomainCredentials struct {
+	getCalls int
+}
+
+func (c *protectedDomainCredentials) Get(context.Context, string) (map[string]string, error) {
+	c.getCalls++
+	return map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret"}, nil
+}
+
+type protectedDomainProviderFactory struct {
+	createCalls int
+}
+
+func (f *protectedDomainProviderFactory) Create(string, map[string]string) (challenge.Provider, error) {
+	f.createCalls++
+	return serviceProvider{}, nil
+}
+
+type protectedDomainAccounts struct {
+	loadOrCreateCalls int
+	saveCalls         int
+}
+
+func (a *protectedDomainAccounts) LoadOrCreate(context.Context, string, string) (*AccountUser, error) {
+	a.loadOrCreateCalls++
+	return &AccountUser{}, nil
+}
+
+func (a *protectedDomainAccounts) Save(context.Context, string, *AccountUser) error {
+	a.saveCalls++
+	return nil
+}
+
+func TestAliyunProtectedSANRejectedBeforeAnyExternalSideEffect(t *testing.T) {
 	cfg := certificateTestConfig(t.TempDir())
+	credentials := &protectedDomainCredentials{}
+	providerFactory := &protectedDomainProviderFactory{}
+	accounts := &protectedDomainAccounts{}
 	checker := &scopedAuthorizationChecker{}
-	service := NewService(cfg, nil, scopedServiceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service := NewService(cfg, nil, credentials, providerFactory, accounts)
 	service.SetDNSAuthorizationChecker(checker)
+	issuerFactoryCalls := 0
+	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer {
+		issuerFactoryCalls++
+		return nil
+	}
 	_, err := service.IssueForSetup(t.Context(), SetupCertificateRequest{
-		Domains: []string{"example.com", "outside.net"}, CertificateType: "san",
+		Domains: []string{"example.com", "pcux.cn"}, CertificateType: "san",
 		ProviderID: "aliyun", CredentialRef: "secret://dns/test", Environment: "staging",
 	})
-	if err == nil || !strings.Contains(err.Error(), "outside.net") || len(checker.calls) != 0 {
-		t.Fatalf("部分越界必须零云调用拒绝整单：%v %v", err, checker.calls)
+	if err == nil || !strings.Contains(err.Error(), "pcux.cn") {
+		t.Fatalf("保护 SAN 必须被本地拒绝：%v", err)
+	}
+	if credentials.getCalls != 0 {
+		t.Fatalf("保护 SAN 被拒绝前不得读取 DNS 凭据，调用次数 = %d", credentials.getCalls)
+	}
+	if len(checker.calls) != 0 {
+		t.Fatalf("保护 SAN 被拒绝前不得执行 DNS 权限探测：%v", checker.calls)
+	}
+	if providerFactory.createCalls != 0 {
+		t.Fatalf("保护 SAN 被拒绝前不得创建 DNS Provider，调用次数 = %d", providerFactory.createCalls)
+	}
+	if accounts.loadOrCreateCalls != 0 || accounts.saveCalls != 0 {
+		t.Fatalf("保护 SAN 被拒绝前不得访问 ACME 账户：LoadOrCreate=%d Save=%d", accounts.loadOrCreateCalls, accounts.saveCalls)
+	}
+	if issuerFactoryCalls != 0 {
+		t.Fatalf("保护 SAN 被拒绝前不得创建 ACME 签发器，调用次数 = %d", issuerFactoryCalls)
 	}
 }

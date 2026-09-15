@@ -15,7 +15,7 @@ func TestIncompleteSessionsFailClosed(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	cfg.Admin.Username = "admin"
 	cfg.Admin.PasswordHash = httpUserPasswordHash(t, "AdminPass123")
-	for _, field := range []string{"user_id", "username", "hash", "role", "absolute", "inverted"} {
+	for _, field := range []string{"user_id", "username", "email", "hash", "role", "absolute", "inverted"} {
 		t.Run(field, func(t *testing.T) {
 			s := New(Dependencies{Config: cfg})
 			cookie := loginAuthTest(t, s, "admin", "AdminPass123", false).Result().Cookies()[0]
@@ -25,6 +25,8 @@ func TestIncompleteSessionsFailClosed(t *testing.T) {
 				session.UserID = ""
 			case "username":
 				session.Username = ""
+			case "email":
+				session.Email = ""
 			case "hash":
 				session.PasswordHash = ""
 			case "role":
@@ -35,11 +37,16 @@ func TestIncompleteSessionsFailClosed(t *testing.T) {
 				session.AbsoluteExpiresAt = session.ExpiresAt.Add(-time.Second)
 			}
 			s.authSessions[cookie.Value] = session
-			if response := authSessionRequest(s, cookie); response.Code != http.StatusUnauthorized {
+			response := authSessionRequest(s, cookie)
+			if response.Code != http.StatusUnauthorized {
 				t.Fatal("不完整会话必须拒绝")
 			}
 			if _, ok := s.authSessions[cookie.Value]; ok {
 				t.Fatal("失效会话必须移除")
+			}
+			cookies := response.Result().Cookies()
+			if len(cookies) != 1 || cookies[0].Name != authCookieName || cookies[0].MaxAge != -1 {
+				t.Fatalf("失效会话必须清理认证 Cookie：%+v", cookies)
 			}
 		})
 	}
@@ -146,6 +153,7 @@ func TestLoginAttemptTableSaturationRecoversAfterWindow(t *testing.T) {
 func TestLoginBlockExpiresAndUserSessionQuotaRecovers(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = httpUserPasswordHash(t, "AdminPass123")
 	s := New(Dependencies{Config: cfg})
 	now := time.Now()

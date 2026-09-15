@@ -156,7 +156,7 @@ func TestResetURLSupportsIPv6WithoutPort(t *testing.T) {
 
 func TestDefaultACMEPropagationSettings(t *testing.T) {
 	cfg := Default(t.TempDir())
-	if cfg.ACME.PropagationTimeoutSecs != 900 || cfg.ACME.PropagationPollingIntervalSecs != 10 {
+	if cfg.ACME.PropagationTimeoutSecs != 300 || cfg.ACME.PropagationPollingIntervalSecs != 5 {
 		t.Fatalf("默认 DNS 传播参数不正确：%+v", cfg.ACME)
 	}
 }
@@ -212,7 +212,7 @@ func TestNormalizeRestoresMissingACMEPropagationSettings(t *testing.T) {
 	cfg.ACME.PropagationTimeoutSecs = 0
 	cfg.ACME.PropagationPollingIntervalSecs = 0
 	cfg.Normalize()
-	if cfg.ACME.PropagationTimeoutSecs != 900 || cfg.ACME.PropagationPollingIntervalSecs != 10 {
+	if cfg.ACME.PropagationTimeoutSecs != 300 || cfg.ACME.PropagationPollingIntervalSecs != 5 {
 		t.Fatalf("旧配置的 DNS 传播参数未补齐：%+v", cfg.ACME)
 	}
 }

@@ -26,6 +26,8 @@ async function fill(state) {
 test("已保存凭据不变可保存，输入新凭据必须重新验证", async (t) => {
   const { state } = await setup(t, () => verifiedResponse());
   assert.equal(state.dnsReadyToSave.value, true);
+  assert.equal(state.settingsForm.value.acme.propagation_timeout_secs, 300);
+  assert.equal(state.settingsForm.value.acme.propagation_polling_interval_secs, 5);
   await fill(state);
   assert.equal(state.dnsReadyToSave.value, false);
   await state.testDNS();
@@ -54,14 +56,12 @@ test("管理设置拒绝过期验证令牌", async (t) => {
   assert.equal(state.dnsReadyToSave.value, false);
 });
 
-test("管理设置变更托管区不能复用验证令牌", async (t) => {
+test("管理设置变更阿里云凭据不能复用验证令牌", async (t) => {
   const { state } = await setup(t, () => verifiedResponse());
   await fill(state);
-  state.settingsForm.value.dns.credentials.managed_zones = "example.test";
-  state.settingsForm.value.dns.credentials.allowed_domains = "example.test";
   await state.testDNS();
   assert.equal(state.dnsReadyToSave.value, true);
-  state.settingsForm.value.dns.credentials.managed_zones = "other.test";
+  state.settingsForm.value.dns.credentials.access_key_id = "changed-key";
   assert.equal(state.dnsReadyToSave.value, false);
   assert.equal(state.settingsForm.value.dns.verification_token, "");
 });

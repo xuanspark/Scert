@@ -13,8 +13,8 @@ import (
 	"github.com/go-acme/lego/v5/challenge/dns01"
 	"github.com/go-acme/lego/v5/challenge/dnspersist01"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsverification"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
-	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
 type Factory interface {
@@ -86,7 +86,7 @@ func NewTesterWithResolverAndSettings(factory Factory, resolver TXTResolver, tim
 }
 
 type VerificationError struct {
-	Report setup.DNSVerificationReport
+	Report dnsverification.Report
 	Err    error
 }
 
@@ -104,12 +104,12 @@ func (e *VerificationError) Unwrap() error {
 	return e.Err
 }
 
-func (t *Tester) Verify(ctx context.Context, providerID, testDomain string, credentials map[string]string) (setup.DNSVerificationReport, error) {
+func (t *Tester) Verify(ctx context.Context, providerID, testDomain string, credentials map[string]string) (dnsverification.Report, error) {
 	return t.VerifyWithReport(ctx, providerID, testDomain, credentials)
 }
 
-func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain string, credentials map[string]string) (setup.DNSVerificationReport, error) {
-	report := setup.DNSVerificationReport{}
+func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain string, credentials map[string]string) (dnsverification.Report, error) {
+	report := dnsverification.Report{}
 	if t == nil {
 		return report, errors.New("DNS 验证服务未初始化")
 	}
@@ -145,76 +145,76 @@ func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain st
 	challengeInfo := dns01.GetChallengeInfo(ctx, testDomain, keyAuth)
 	report.RecordName = challengeInfo.EffectiveFQDN
 	if err := provider.Present(ctx, testDomain, token, keyAuth); err != nil {
-		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		report.Stages = append(report.Stages, dnsverification.Stage{
 			Name: "创建记录", Status: "failed", Message: "调用 DNS API 创建临时 TXT 记录失败。",
 		})
 		return report, &VerificationError{Report: report, Err: fmt.Errorf("创建 DNS 测试记录失败：%w", err)}
 	}
-	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+	report.Stages = append(report.Stages, dnsverification.Stage{
 		Name: "创建记录", Status: "completed", Message: "已调用 DNS API 创建临时 TXT 记录。",
 	})
 
 	if err := waitForTXT(ctx, t.resolver, report.RecordName, challengeInfo.Value, t.propagationTimeout, t.propagationInterval); err != nil {
-		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		report.Stages = append(report.Stages, dnsverification.Stage{
 			Name: "查询记录", Status: "failed", Message: "公网 DNS 查询未确认 TXT 记录已生效。",
 		})
 		cleanupErr := cleanupChallenge(ctx, provider, testDomain, token, keyAuth)
 		if cleanupErr != nil {
-			report.Stages = append(report.Stages, setup.DNSVerificationStage{
+			report.Stages = append(report.Stages, dnsverification.Stage{
 				Name: "清理记录", Status: "failed", Message: "测试记录清理失败，请检查 DNS API 权限。",
 			})
 			return report, &VerificationError{Report: report, Err: fmt.Errorf("DNS 测试记录未通过公网查询，且自动清理失败：%w", cleanupErr)}
 		}
-		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		report.Stages = append(report.Stages, dnsverification.Stage{
 			Name: "清理记录", Status: "completed", Message: "已清理未通过查询确认的临时 TXT 记录。",
 		})
 		return report, &VerificationError{Report: report, Err: fmt.Errorf("DNS 测试记录未通过公网查询：%w", err)}
 	}
-	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+	report.Stages = append(report.Stages, dnsverification.Stage{
 		Name: "查询记录", Status: "completed", Message: "公网 DNS 查询已确认 TXT 记录生效。",
 	})
 
 	if err := cleanupChallenge(ctx, provider, testDomain, token, keyAuth); err != nil {
-		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		report.Stages = append(report.Stages, dnsverification.Stage{
 			Name: "清理记录", Status: "failed", Message: "测试记录已创建并确认生效，但自动清理失败。",
 		})
 		return report, &VerificationError{Report: report, Err: fmt.Errorf("DNS 测试记录已创建并确认生效，但自动清理失败：%w", err)}
 	}
-	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+	report.Stages = append(report.Stages, dnsverification.Stage{
 		Name: "清理记录", Status: "completed", Message: "已调用 DNS API 清理临时 TXT 记录。",
 	})
 	if values, err := t.resolver.LookupTXT(ctx, report.RecordName); err == nil && containsTXT(values, challengeInfo.Value) {
-		report.Stages[len(report.Stages)-1] = setup.DNSVerificationStage{
+		report.Stages[len(report.Stages)-1] = dnsverification.Stage{
 			Name: "清理记录", Status: "warning", Message: "清理请求已成功，但公网 DNS 仍能查询到旧记录，可能正在等待缓存刷新。",
 		}
 	}
 	return report, nil
 }
 
-func (t *Tester) verifyAliyun(ctx context.Context, testDomain string, credentials map[string]string) (setup.DNSVerificationReport, error) {
-	report := setup.DNSVerificationReport{}
+func (t *Tester) verifyAliyun(ctx context.Context, testDomain string, credentials map[string]string) (dnsverification.Report, error) {
+	report := dnsverification.Report{}
 	if t.aliyunAuthorization == nil {
 		return report, errors.New("阿里云 DNS 权限验证服务未初始化")
 	}
 	authorization, err := t.aliyunAuthorization.Verify(ctx, testDomain, credentials)
 	report.RecordName = authorization.RecordName
 	if len(authorization.Domains) == 0 || !authorization.Domains[0].Writable {
-		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		report.Stages = append(report.Stages, dnsverification.Stage{
 			Name: "创建记录", Status: "failed", Message: "调用阿里云 DNS API 创建临时 TXT 记录失败。",
 		})
 		return report, &VerificationError{Report: report, Err: aliyunVerificationError(err)}
 	}
-	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+	report.Stages = append(report.Stages, dnsverification.Stage{
 		Name: "创建记录", Status: "completed", Message: "已通过阿里云 DNS API 创建临时 TXT 记录。",
 	})
 	if !authorization.Domains[0].Readable {
-		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		report.Stages = append(report.Stages, dnsverification.Stage{
 			Name: "查询记录", Status: "failed", Message: "阿里云 DNS API 未能精确查询并比对本次临时 TXT 记录。",
 		})
 		appendAliyunCleanupStage(&report, authorization.Domains[0].Cleanup)
 		return report, &VerificationError{Report: report, Err: aliyunVerificationError(err)}
 	}
-	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+	report.Stages = append(report.Stages, dnsverification.Stage{
 		Name: "查询记录", Status: "completed", Message: "已通过阿里云 DNS API 精确查询并比对临时 TXT 记录，未等待公网 DNS 传播。",
 	})
 	appendAliyunCleanupStage(&report, authorization.Domains[0].Cleanup)
@@ -224,14 +224,14 @@ func (t *Tester) verifyAliyun(ctx context.Context, testDomain string, credential
 	return report, nil
 }
 
-func appendAliyunCleanupStage(report *setup.DNSVerificationReport, cleaned bool) {
+func appendAliyunCleanupStage(report *dnsverification.Report, cleaned bool) {
 	if cleaned {
-		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		report.Stages = append(report.Stages, dnsverification.Stage{
 			Name: "清理记录", Status: "completed", Message: "已通过阿里云 DNS API 清理本次临时 TXT 记录。",
 		})
 		return
 	}
-	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+	report.Stages = append(report.Stages, dnsverification.Stage{
 		Name: "清理记录", Status: "failed", Message: "临时 TXT 记录清理失败，不能确认阿里云 DNS 权限验证通过。",
 	})
 }

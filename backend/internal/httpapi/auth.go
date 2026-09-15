@@ -198,6 +198,7 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 			delete(s.authSessions, token)
 			s.authMu.Unlock()
 		}
+		s.clearAuthCookie(c)
 		return authSession{}, false
 	}
 	if !s.authSessionAccountIsValid(c.Request.Context(), session) {

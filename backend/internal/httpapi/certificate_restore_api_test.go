@@ -42,6 +42,7 @@ func newRestoreAPITestServer(t *testing.T, restore func(context.Context, string,
 	cfg := config.Default(t.TempDir())
 	cfg.SetupReady = true
 	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = httpUserPasswordHash(t, "RestoreTest123")
 	server := New(Dependencies{
 		Config:                    cfg,

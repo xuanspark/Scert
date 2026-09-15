@@ -8,6 +8,8 @@ test("全新初始化默认选择阿里云", async (t) => {
   const { state } = await mountComposable(t, () => useSetupWizard({ status: {} }, () => {}),
     async () => Response.json({ items: [aliyunProvider] }));
   assert.equal(state.form.value.dns_provider, "aliyun");
+  assert.equal(state.form.value.propagation_timeout_secs, 300);
+  assert.equal(state.form.value.propagation_polling_interval_secs, 5);
 });
 
 test("已有初始化服务商选择保持兼容", async (t) => {
@@ -111,13 +113,11 @@ test("初始化修改 DNS 输入后会停止等待计时器", async (t) => {
   await task;
 });
 
-test("初始化修改显式授权范围立即作废旧验证", async (t) => {
+test("初始化修改阿里云凭据立即作废旧验证", async (t) => {
   const { state } = await setup(t, () => verifiedResponse());
-  state.dnsCredentials.value.managed_zones = "example.test";
-  state.dnsCredentials.value.allowed_domains = "example.test";
   await state.testDNS();
   assert.equal(state.dnsVerificationValid.value, true);
-  state.dnsCredentials.value.allowed_domains = "*.example.test";
+  state.dnsCredentials.value.access_key_id = "changed-key";
   assert.equal(state.dnsVerificationValid.value, false);
   assert.equal(state.dnsVerification.value, null);
 });

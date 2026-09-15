@@ -369,6 +369,7 @@ func TestRenewalAPIHidesWorkflowErrors(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	cfg.SetupReady = true
 	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
 	server := New(Dependencies{
 		Config: cfg,

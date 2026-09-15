@@ -83,13 +83,13 @@ func TestHTTPLoginBurstRejectsBeforeAccountLookup(t *testing.T) {
 func TestSessionCannotReviveAfterSlowAccountLookup(t *testing.T) {
 	users := &pausedSessionRepository{
 		started: make(chan struct{}), release: make(chan struct{}),
-		user: repository.User{ID: "operator", Username: "operator", PasswordHash: "test-hash", Role: repository.UserRoleUser, Status: repository.UserStatusActive},
+		user: repository.User{ID: "operator", Username: "operator", Email: "operator@example.test", PasswordHash: "test-hash", Role: repository.UserRoleUser, Status: repository.UserStatusActive},
 	}
 	s := New(Dependencies{Config: readyTestConfig(t.TempDir()), Users: users})
 	now := time.Now()
 	s.now = func() time.Time { return now }
 	s.authSessions["slow"] = authSession{
-		UserID: users.user.ID, Username: users.user.Username, PasswordHash: users.user.PasswordHash, Role: users.user.Role,
+		UserID: users.user.ID, Username: users.user.Username, Email: users.user.Email, PasswordHash: users.user.PasswordHash, Role: users.user.Role,
 		ExpiresAt: now.Add(time.Minute), AbsoluteExpiresAt: now.Add(time.Hour),
 	}
 	done := make(chan *httptest.ResponseRecorder, 1)

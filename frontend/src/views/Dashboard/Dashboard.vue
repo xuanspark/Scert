@@ -473,12 +473,31 @@ const {
             <div class="field-hint">剩余有效期低于自动续期阈值时触发续期；低于紧急阈值时按配置重试。</div>
           </div>
           <div class="form-grid">
-            <label class="field"><span>DNS 传播等待（秒）</span><input v-model.number="settingsForm.acme.propagation_timeout_secs" type="number" min="1" /></label>
-            <label class="field"><span>DNS 检测间隔（秒）</span><input v-model.number="settingsForm.acme.propagation_polling_interval_secs" type="number" min="1" /></label>
+            <label class="field">
+              <span>DNS 传播等待（秒）</span>
+              <input
+                v-model.number="settingsForm.acme.propagation_timeout_secs"
+                type="number"
+                min="1"
+              />
+            </label>
+            <label class="field">
+              <span>DNS 检测间隔（秒）</span>
+              <input
+                v-model.number="settingsForm.acme.propagation_polling_interval_secs"
+                type="number"
+                min="1"
+              />
+            </label>
           </div>
+          <p class="field-hint">
+            阿里云 RAM 权限验证最多等待 6 秒：系统会创建、查询并清理临时 TXT
+            记录。以上 300 秒和 5 秒用于实际申请证书时的公网 DNS-01
+            传播等待与轮询。
+          </p>
           <h3>DNS API 验证</h3>
           <div class="settings-section-note">
-            <span>证书申请前会使用 DNS API 创建临时验证记录。</span>
+            <span>输入域名后，系统将使用当前阿里云账号立即创建、查询并清理临时 TXT 记录，以验证该域名的实际 DNS 操作权限。</span>
             <span>凭据只会在本次在线测试请求中提交，系统仅保存加密引用。</span>
           </div>
           <div class="form-grid">
@@ -539,14 +558,6 @@ const {
                 autocomplete="off"
               />
             </label>
-          </div>
-          <p v-if="settingsForm.dns.scope_message" class="form-error">
-            {{ settingsForm.dns.scope_message }}
-          </p>
-          <div v-if="settingsForm.dns.user_scope" class="field-hint">
-            <p>已保存托管区：{{ settingsForm.dns.user_scope.managed_zones.join("，") }}</p>
-            <p>已保存允许域名：{{ settingsForm.dns.user_scope.allowed_domains.join("，") }}</p>
-            <p>修改范围需重新填写凭据并在线验证，不会自动扩大已有授权。</p>
           </div>
           <div v-if="selectedDNSProvider" class="dns-test-actions">
             <button

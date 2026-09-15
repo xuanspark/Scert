@@ -111,7 +111,7 @@ func TestAliyunAuthorizationVerifyClosesWriteReadCleanupLoop(t *testing.T) {
 	}
 }
 
-func TestAliyunAuthorizationVerifyDoesNotCallCloudOutsideExplicitScope(t *testing.T) {
+func TestAliyunAuthorizationVerifyDoesNotCallCloudForProtectedDomain(t *testing.T) {
 	api := &authorizationRecordAPI{}
 	checker := newAuthorizationCheckerForTest(api)
 	constructed := 0

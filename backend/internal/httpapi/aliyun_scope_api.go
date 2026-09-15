@@ -43,20 +43,25 @@ func (s *Server) checkAliyunDNSDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "当前系统 DNS 服务商不是阿里云，无法进行阿里云 RAM 权限考证", nil)
 		return
 	}
+	// 必须先在本地拒绝受保护域，不能为无效请求读取凭据或触发云端探测。
+	if err := dnsprovider.ValidateAliyunTargetDomains(provider, []string{targetDomain}); err != nil {
+		c.JSON(http.StatusOK, gin.H{"verified": false, "domain": targetDomain, "message": err.Error()})
+		return
+	}
 
 	credentials, err := s.readDNSCredentials(c.Request.Context(), credentialRef)
 	if err != nil {
 		s.writeError(c, http.StatusInternalServerError, "读取阿里云 DNS 凭据失败", err)
 		return
 	}
-
-	if s.aliyunChecker == nil {
-		s.writeError(c, http.StatusNotImplemented, "阿里云权限探测器未装载", nil)
+	credentials, err = dnsprovider.ValidateCredentials(dnsprovider.Aliyun, credentials)
+	if err != nil {
+		s.writeError(c, http.StatusBadRequest, "阿里云 DNS 凭据无效", err)
 		return
 	}
 
-	if err := dnsprovider.ValidateAliyunTargetDomains(provider, []string{targetDomain}); err != nil {
-		c.JSON(http.StatusOK, gin.H{"verified": false, "domain": targetDomain, "message": err.Error()})
+	if s.aliyunChecker == nil {
+		s.writeError(c, http.StatusNotImplemented, "阿里云权限探测器未装载", nil)
 		return
 	}
 	report, verifyErr := s.aliyunChecker.Verify(c.Request.Context(), targetDomain, credentials)
@@ -101,6 +106,10 @@ func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainNa
 	if !setupReady {
 		return errors.New("系统初始化尚未完成，不能验证域名授权")
 	}
+	// 在读取凭据、构造阿里云客户端或发起任何云 API 请求前检查整张订单。
+	if err := dnsprovider.ValidateAliyunTargetDomains(provider, domainNames); err != nil {
+		return err
+	}
 	if s.aliyunChecker == nil {
 		return errors.New("阿里云权限探测器未装载，不能确认域名授权")
 	}
@@ -111,9 +120,6 @@ func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainNa
 	}
 	if _, err := dnsprovider.ValidateCredentials(dnsprovider.Aliyun, credentials); err != nil {
 		return fmt.Errorf("阿里云 DNS 凭据无效，不能确认域名授权：%w", err)
-	}
-	if err := dnsprovider.ValidateAliyunTargetDomains(provider, domainNames); err != nil {
-		return err
 	}
 	for _, domainName := range domainNames {
 		if err := s.aliyunChecker.VerifyDomain(ctx, dnsprovider.Aliyun, domainName, credentials); err != nil {

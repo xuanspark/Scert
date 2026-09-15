@@ -12,15 +12,13 @@ import (
 )
 
 type fakeAliyunScopeChecker struct {
-	allowedZones []string
-}
-
-func (f *fakeAliyunScopeChecker) Discover(ctx context.Context, credentials map[string]string) (dnsprovider.AuthorizationReport, error) {
-	// 模拟 RAM 账号处于最小资源限制模式，无全局枚举权限
-	return dnsprovider.AuthorizationReport{}, errors.New("SDKError: Code: Forbidden.NoPermission")
+	allowedZones      []string
+	verifyCalls       int
+	verifyDomainCalls int
 }
 
 func (f *fakeAliyunScopeChecker) Verify(ctx context.Context, requestedDomain string, credentials map[string]string) (dnsprovider.AuthorizationReport, error) {
+	f.verifyCalls++
 	report := dnsprovider.AuthorizationReport{
 		Provider:        dnsprovider.Aliyun,
 		RequestedDomain: requestedDomain,
@@ -38,6 +36,7 @@ func (f *fakeAliyunScopeChecker) Verify(ctx context.Context, requestedDomain str
 }
 
 func (f *fakeAliyunScopeChecker) VerifyDomain(ctx context.Context, providerID, requestedDomain string, credentials map[string]string) error {
+	f.verifyDomainCalls++
 	for _, zone := range f.allowedZones {
 		if requestedDomain == zone || strings.HasSuffix(requestedDomain, "."+zone) {
 			return nil
@@ -47,7 +46,8 @@ func (f *fakeAliyunScopeChecker) VerifyDomain(ctx context.Context, providerID, r
 }
 
 type fakeSecretReaderStore struct {
-	data map[string]map[string]string
+	data     map[string]map[string]string
+	getCalls int
 }
 
 func (s *fakeSecretReaderStore) Put(ctx context.Context, ref string, val map[string]string) error {
@@ -64,13 +64,14 @@ func (s *fakeSecretReaderStore) Delete(ctx context.Context, ref string) error {
 }
 
 func (s *fakeSecretReaderStore) Get(ctx context.Context, ref string) (map[string]string, error) {
+	s.getCalls++
 	if val, ok := s.data[ref]; ok {
 		return val, nil
 	}
 	return nil, errors.New("secret not found")
 }
 
-func TestAliyunScopeAPIsAndDomainValidation(t *testing.T) {
+func TestAliyunDomainCheckUsesOnlyCurrentTargetAndProtectsPCUX(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	cfg.SetupReady = true
 	cfg.DNS.Provider = "aliyun"
@@ -81,8 +82,6 @@ func TestAliyunScopeAPIsAndDomainValidation(t *testing.T) {
 			"secret://dns/aliyun/ref1": {
 				"access_key_id":     "LTAI_test",
 				"access_key_secret": "test_secret",
-				"managed_zones":     "solit.cn,unauth.com,forbidden.cn",
-				"allowed_domains":   "solit.cn,*.solit.cn,unauth.com,forbidden.cn",
 			},
 		},
 	}
@@ -99,20 +98,17 @@ func TestAliyunScopeAPIsAndDomainValidation(t *testing.T) {
 		AliyunChecker: checker,
 	})
 
-	// 1. 测试 GET /api/v1/dns/aliyun/scope（受限模式报告）
+	// 旧的授权范围枚举接口已移除，不能重新引入账户域名发现能力。
 	{
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/dns/aliyun/scope", nil)
 		serveAdminHTTP(server, w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("GET /api/v1/dns/aliyun/scope status = %d; want 200, body=%s", w.Code, w.Body.String())
-		}
-		if !strings.Contains(w.Body.String(), "resource_scoped") {
-			t.Fatalf("expected resource_scoped policy mode, got: %s", w.Body.String())
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("已移除的授权范围接口状态码 = %d，期望 404，响应：%s", w.Code, w.Body.String())
 		}
 	}
 
-	// 2. 测试 POST /api/v1/dns/aliyun/check 验证授权域名（如 solit.cn）
+	// 对用户刚输入的域名使用当前 RAM 凭据执行验证，不依赖手工范围字段。
 	{
 		w := httptest.NewRecorder()
 		body := strings.NewReader(`{"domain":"solit.cn"}`)
@@ -122,50 +118,35 @@ func TestAliyunScopeAPIsAndDomainValidation(t *testing.T) {
 			t.Fatalf("POST check solit.cn status = %d; body=%s", w.Code, w.Body.String())
 		}
 		if !strings.Contains(w.Body.String(), `"verified":true`) {
-			t.Fatalf("solit.cn 应验证通过: %s", w.Body.String())
+			t.Fatalf("solit.cn 应验证通过：%s", w.Body.String())
+		}
+		if store.getCalls != 1 || checker.verifyCalls != 1 {
+			t.Fatalf("正常域名必须仅读取一次凭据并验证一次：读取=%d，验证=%d", store.getCalls, checker.verifyCalls)
 		}
 	}
 
-	// 3. 测试 POST /api/v1/dns/aliyun/check 验证未授权域名（如 unauth.com）
+	// pcux.cn 必须先本地拒绝，不能读取凭据或调用云端探测器。
 	{
 		w := httptest.NewRecorder()
-		body := strings.NewReader(`{"domain":"unauth.com"}`)
+		body := strings.NewReader(`{"domain":"pcux.cn"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/dns/aliyun/check", body)
 		serveAdminHTTP(server, w, req)
 		if w.Code != http.StatusOK {
-			t.Fatalf("POST check unauth.com status = %d; body=%s", w.Code, w.Body.String())
+			t.Fatalf("POST check pcux.cn 状态码 = %d，响应：%s", w.Code, w.Body.String())
 		}
 		if !strings.Contains(w.Body.String(), `"verified":false`) {
-			t.Fatalf("unauth.com 应验证失败: %s", w.Body.String())
+			t.Fatalf("pcux.cn 应被本地拒绝：%s", w.Body.String())
 		}
-		if !strings.Contains(w.Body.String(), "acs:alidns:*:*:domain/unauth.com") {
-			t.Fatalf("应包含明确的 RAM 策略建议: %s", w.Body.String())
-		}
-	}
-
-	// 4. 测试 POST /api/v1/domains 添加授权域名（例如 *.solit.cn）
-	{
-		w := httptest.NewRecorder()
-		body := strings.NewReader(`{"name":"test.solit.cn","certificate_type":"single"}`)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", body)
-		serveAdminHTTP(server, w, req)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("创建授权域名应成功，got status = %d; body=%s", w.Code, w.Body.String())
+		if store.getCalls != 1 || checker.verifyCalls != 1 || checker.verifyDomainCalls != 0 {
+			t.Fatalf("保护域不能触发凭据读取或云端探测：读取=%d，检查=%d，域名检查=%d", store.getCalls, checker.verifyCalls, checker.verifyDomainCalls)
 		}
 	}
 
-	// 5. 测试 POST /api/v1/domains 添加未授权域名（例如 forbidden.cn），应被前置阻断
-	{
-		w := httptest.NewRecorder()
-		body := strings.NewReader(`{"name":"forbidden.cn","certificate_type":"single"}`)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", body)
-		serveAdminHTTP(server, w, req)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("添加未授权域名应被 400 阻断，got status = %d; body=%s", w.Code, w.Body.String())
-		}
-		if !strings.Contains(w.Body.String(), "acs:alidns:*:*:domain/forbidden.cn") {
-			t.Fatalf("阻断提示应包含针对该域名的 RAM 授权指导，got: %s", w.Body.String())
-		}
+	if err := server.validateDomainAliyunAuthorization(t.Context(), "pcux.cn"); err == nil {
+		t.Fatal("直接校验 pcux.cn 必须被拒绝")
+	}
+	if store.getCalls != 1 || checker.verifyDomainCalls != 0 {
+		t.Fatalf("直接校验保护域不能读取凭据或调用探测：读取=%d，域名检查=%d", store.getCalls, checker.verifyDomainCalls)
 	}
 }
 
@@ -203,21 +184,25 @@ func TestAliyunDomainAuthorizationFailsClosed(t *testing.T) {
 	}
 }
 
-func TestAliyunDomainAPIRejectsPartiallyUnauthorizedSAN(t *testing.T) {
+func TestAliyunDomainAPIRejectsProtectedSANWithoutSideEffects(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	cfg.DNS.Provider = dnsprovider.Aliyun
 	cfg.DNS.CredentialRef = "secret://dns/test"
+	store := &fakeSecretReaderStore{data: map[string]map[string]string{
+		cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret"},
+	}}
+	checker := &fakeAliyunScopeChecker{allowedZones: []string{"example.com"}}
+	repo := &stubDomainRepository{}
 	server := New(Dependencies{
-		Config: cfg, Repository: &stubDomainRepository{},
-		Secrets: &fakeSecretReaderStore{data: map[string]map[string]string{
-			cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.com", "allowed_domains": "example.com"},
-		}},
-		AliyunChecker: &fakeAliyunScopeChecker{allowedZones: []string{"example.com"}},
+		Config: cfg, Repository: repo, Secrets: store, AliyunChecker: checker,
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["example.org"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["pcux.cn"]}`))
 	serveAdminHTTP(server, w, req)
-	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "example.org") {
-		t.Fatalf("部分 SAN 未授权应整单拒绝：%d %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "pcux.cn") {
+		t.Fatalf("包含保护 SAN 的整单应被拒绝：%d %s", w.Code, w.Body.String())
+	}
+	if repo.created.ID != "" || store.getCalls != 0 || checker.verifyDomainCalls != 0 {
+		t.Fatalf("保护 SAN 被拒绝时不得持久化、读取凭据或探测：已创建=%t，读取=%d，检查=%d", repo.created.ID != "", store.getCalls, checker.verifyDomainCalls)
 	}
 }

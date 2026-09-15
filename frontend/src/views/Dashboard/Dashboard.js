@@ -378,8 +378,8 @@ export function useDashboard() {
         renewal_urgent_threshold_days: 3,
         renewal_max_retries: 3,
         renewal_retry_interval_mins: 30,
-        propagation_timeout_secs: 900,
-        propagation_polling_interval_secs: 10,
+        propagation_timeout_secs: 300,
+        propagation_polling_interval_secs: 5,
       },
       dns: {
         provider: "",

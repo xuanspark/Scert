@@ -6,10 +6,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsverification"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
@@ -24,16 +27,9 @@ type DNSCredentialTester interface {
 	Verify(ctx context.Context, providerID, testDomain string, credentials map[string]string) (DNSVerificationReport, error)
 }
 
-type DNSVerificationStage struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
-}
+type DNSVerificationStage = dnsverification.Stage
 
-type DNSVerificationReport struct {
-	RecordName string                 `json:"record_name"`
-	Stages     []DNSVerificationStage `json:"stages"`
-}
+type DNSVerificationReport = dnsverification.Report
 
 type DNSVerificationError struct {
 	Report DNSVerificationReport
@@ -114,6 +110,10 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 		return DNSVerificationResult{}, fmt.Errorf("DNS 测试域名格式无效：%s", testDomain)
 	}
 	normalizedCredentials := normalizeCredentials(input.Credentials)
+	cleanedCredentials, err := dnsprovider.ValidateCredentials(providerID, normalizedCredentials)
+	if err != nil {
+		return DNSVerificationResult{}, err
+	}
 	if err := m.reserveVerificationSlot(); err != nil {
 		return DNSVerificationResult{}, err
 	}
@@ -123,7 +123,7 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 			m.releaseVerificationSlot()
 		}
 	}()
-	testReport, err := m.tester.Verify(ctx, providerID, testDomain, normalizedCredentials)
+	testReport, err := m.tester.Verify(ctx, providerID, testDomain, cleanedCredentials)
 	if err != nil {
 		return DNSVerificationResult{TestReport: testReport}, &DNSVerificationError{
 			Report: testReport,
@@ -139,10 +139,11 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 		return DNSVerificationResult{}, fmt.Errorf("生成 DNS 凭据引用失败：%w", err)
 	}
 	credentialRef := fmt.Sprintf("secret://dns/%s/%s", providerID, credentialID)
-	if err := m.store.Put(ctx, credentialRef, normalizedCredentials); err != nil {
+	if err := m.store.Put(ctx, credentialRef, cleanedCredentials); err != nil {
 		cleanupErr := m.deleteCredential(credentialRef)
 		if cleanupErr != nil {
-			return DNSVerificationResult{}, fmt.Errorf("加密保存 DNS 凭据失败，且无法确认临时凭据已回收：%w", errors.Join(err, cleanupErr))
+			m.logCleanupFailure()
+			return DNSVerificationResult{}, errors.New("加密保存 DNS 凭据失败，临时凭据回收未确认")
 		}
 		return DNSVerificationResult{}, fmt.Errorf("加密保存 DNS 凭据失败：%w", err)
 	}
@@ -250,8 +251,14 @@ func (m *DNSVerificationManager) clearExpiredLocked(now time.Time) []string {
 
 func (m *DNSVerificationManager) deleteCredentials(references []string) {
 	for _, reference := range references {
-		_ = m.deleteCredential(reference)
+		if err := m.deleteCredential(reference); err != nil {
+			m.logCleanupFailure()
+		}
 	}
+}
+
+func (m *DNSVerificationManager) logCleanupFailure() {
+	log.Print("DNS 临时凭据回收失败")
 }
 
 func (m *DNSVerificationManager) deleteCredential(reference string) error {
