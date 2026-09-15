@@ -20,7 +20,7 @@ import (
 
 const (
 	aliyunDefaultRegion         = "cn-hangzhou"
-	aliyunAuthorizationTTL      = 60
+	aliyunAuthorizationTTL      = 600
 	aliyunAuthorizationTimeout  = 30 * time.Second
 	aliyunAuthorizationCacheTTL = 10 * time.Minute
 )
