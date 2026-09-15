@@ -44,6 +44,10 @@ func newDNSPermissionCommand(verify dnsPermissionVerifier) *cobra.Command {
 			if !confirmWrite {
 				return errors.New("此检查会写入并删除专用临时 TXT 记录；确认已获目标域名测试授权后，请添加 --confirm-dns-write")
 			}
+			// 保护域必须在读取配置、凭据或构造云端客户端前拒绝，避免诊断入口产生任何外部副作用。
+			if err := dnsprovider.ValidateAliyunTargetDomains(dnsprovider.Aliyun, []string{requestedDomain}); err != nil {
+				return err
+			}
 			cfg, err := loadConfig()
 			if err != nil {
 				return err
@@ -65,9 +69,6 @@ func newDNSPermissionCommand(verify dnsPermissionVerifier) *cobra.Command {
 			credentials, err := store.Get(cmd.Context(), cfg.DNS.CredentialRef)
 			if err != nil {
 				return fmt.Errorf("读取阿里云 DNS 凭据失败：%w", err)
-			}
-			if err := dnsprovider.ValidateAliyunTargetDomains(dnsprovider.Aliyun, []string{requestedDomain}); err != nil {
-				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), dnsprovider.PermissionVerificationTimeoutFor(dnsprovider.Aliyun))
 			defer cancel()

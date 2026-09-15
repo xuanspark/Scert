@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
@@ -31,38 +33,38 @@ func TestDNSCheckRequiresExplicitWriteConfirmation(t *testing.T) {
 	}
 }
 
-func TestDNSCheckRejectsOutsideScopeBeforeVerifier(t *testing.T) {
-	prepareDNSCheckConfig(t)
+func TestDNSCheckRejectsProtectedDomainBeforeConfigurationOrVerifier(t *testing.T) {
+	oldPath := configPath
+	configPath = filepath.Join(t.TempDir(), "missing-scert.json")
+	t.Cleanup(func() { configPath = oldPath })
+
 	command := newDNSCheckCommand(func(context.Context, string, map[string]string) (dnsprovider.AuthorizationReport, error) {
-		t.Fatal("CLI 越界不得进入云端验证")
+		t.Fatal("保护域不得进入云端验证")
 		return dnsprovider.AuthorizationReport{}, nil
 	})
 	command.SilenceUsage, command.SilenceErrors = true, true
-	command.SetArgs([]string{"--domain", "outside.net", "--confirm-dns-write"})
-	if err := command.Execute(); err == nil {
-		t.Fatal("确认写入不等于允许扩大范围")
+	command.SetArgs([]string{"--domain", "pcux.cn", "--confirm-dns-write"})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "pcux.cn") {
+		t.Fatalf("保护域必须在读取配置前被拒绝：%v", err)
 	}
 }
 
-func TestDNSInspectDoesNotRequireWriteOrPromoteReadableToVerified(t *testing.T) {
-	prepareDNSCheckConfig(t)
-	command := newDNSInspectCommand(func(context.Context, string, map[string]string) (dnsprovider.AuthorizationReport, error) {
-		return dnsprovider.AuthorizationReport{
-			Provider: "aliyun", Domains: []dnsprovider.AuthorizationDomain{{Domain: "example.com", Listed: true}},
-		}, nil
-	})
-	var output bytes.Buffer
-	command.SetOut(&output)
-	command.SetArgs([]string{"--domain", "example.com"})
-	if err := command.Execute(); err != nil {
-		t.Fatal(err)
+func TestDNSCommandOnlyExposesConfirmedWriteCheck(t *testing.T) {
+	command := newDNSCommand()
+	var check *cobra.Command
+	for _, child := range command.Commands() {
+		if child.Name() == "inspect" {
+			t.Fatal("不得暴露会被误解为可签发授权的只读 inspect 命令")
+		}
+		if child.Name() == "check" {
+			check = child
+		}
 	}
-	var report dnsprovider.AuthorizationReport
-	if err := json.Unmarshal(output.Bytes(), &report); err != nil || report.Verified || report.Domains[0].Writable {
-		t.Fatalf("只读成功不能升级为写权限通过：%s", output.String())
+	if check == nil {
+		t.Fatal("必须提供 dns check 命令")
 	}
-	if command.Flag("confirm-dns-write") != nil {
-		t.Fatal("只读命令不得提供写入开关")
+	if check.Flag("domain") == nil || check.Flag("confirm-dns-write") == nil {
+		t.Fatal("dns check 必须同时要求明确域名和写入确认")
 	}
 }
 
