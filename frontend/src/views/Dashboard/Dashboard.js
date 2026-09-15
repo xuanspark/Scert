@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
-const aliyunDNSVerificationTimeoutSeconds = 15;
+const aliyunDNSVerificationTimeoutSeconds = 10;
 
 function dnsVerificationTimeoutFor(providerID) {
   return String(providerID || "").trim().toLowerCase() === "aliyun"

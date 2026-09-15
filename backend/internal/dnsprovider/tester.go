@@ -40,7 +40,7 @@ const (
 
 	// AliyunPermissionVerificationTimeout 限制阿里云账号内的创建、查询和清理闭环。
 	// 该流程不等待公网 DNS 传播。
-	AliyunPermissionVerificationTimeout = 15 * time.Second
+	AliyunPermissionVerificationTimeout = 10 * time.Second
 
 	dnsCleanupTimeout                     = 30 * time.Second
 	defaultDNSPermissionTXTLookupTimeout  = 30 * time.Second

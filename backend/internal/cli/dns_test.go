@@ -85,7 +85,7 @@ func TestDNSCheckReportsLiveResultWithoutPersistingConfiguration(t *testing.T) {
 					t.Fatal("权限请求必须设置超时")
 				}
 				remaining := time.Until(deadline)
-				if remaining < 14*time.Second || remaining > 16*time.Second {
+				if remaining < 9*time.Second || remaining > 11*time.Second {
 					t.Fatalf("阿里云 CLI 权限验证时限错误：%s", remaining)
 				}
 				report := dnsprovider.AuthorizationReport{Provider: "aliyun", RequestedDomain: name, Verified: outcome == "allowed"}

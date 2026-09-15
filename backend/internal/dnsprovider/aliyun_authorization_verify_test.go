@@ -207,7 +207,7 @@ func TestAliyunAuthorizationVerifyCleansUpAfterRequestCancellation(t *testing.T)
 }
 
 func TestPermissionVerificationTimeoutForAliyunIsIndependentFromPropagation(t *testing.T) {
-	if got := PermissionVerificationTimeoutFor(Aliyun); got != 15*time.Second {
+	if got := PermissionVerificationTimeoutFor(Aliyun); got != 10*time.Second {
 		t.Fatalf("阿里云权限验证时限错误：%s", got)
 	}
 	if got := PermissionVerificationTimeoutFor(Cloudflare); got != 60*time.Second {

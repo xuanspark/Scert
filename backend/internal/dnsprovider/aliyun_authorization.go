@@ -20,7 +20,7 @@ const (
 	aliyunDefaultRegion        = "cn-hangzhou"
 	aliyunAuthorizationTTL     = 600
 	aliyunAuthorizationTimeout = 30 * time.Second
-	aliyunAPICallTimeout       = 5 * time.Second
+	aliyunAPICallTimeout       = 3 * time.Second
 )
 
 // AuthorizationDomain 描述一个阿里云 DNS 根域名的授权探测结果。
