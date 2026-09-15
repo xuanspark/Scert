@@ -261,6 +261,28 @@ $releaseDirectory = Join-Path $output $releaseName
 if (Test-Path -LiteralPath $releaseDirectory) {
     throw "发布目录已存在，拒绝覆盖：$releaseDirectory"
 }
+if (@($Target | Select-Object -Unique).Count -ne $Target.Count) {
+    throw "目标平台不能重复。"
+}
+foreach ($item in $Target) {
+    $suffix = if ($item.StartsWith("linux-")) { "tar.gz" } else { "zip" }
+    $archivePath = Join-Path $output "$releaseName-$item.$suffix"
+    if (Test-Path -LiteralPath $archivePath) {
+        throw "发布归档已存在，拒绝覆盖：$archivePath"
+    }
+}
+$sourceCommit = (& git -C $backend rev-parse HEAD)
+if ($LASTEXITCODE -ne 0) {
+    throw "无法取得源码提交，不能生成可追溯发布包。"
+}
+$sourceChanges = @(& git -C $backend status --porcelain --untracked-files=no)
+if ($LASTEXITCODE -ne 0) {
+    throw "无法检查源码工作区状态。"
+}
+$sourceDirty = $sourceChanges.Count -gt 0
+if ($sourceDirty) {
+    Write-Warning "存在未提交的已跟踪文件改动，清单将标记 source_dirty=true，不能作为正式发布包。"
+}
 New-Item -ItemType Directory -Path $releaseDirectory | Out-Null
 $frontendDistribution = Join-Path $releaseDirectory "web-build"
 
@@ -287,6 +309,10 @@ $hostDesktopTarget = Get-HostDesktopTarget
 
 Push-Location $backend
 try {
+    $goVersion = (& go version)
+    if ($LASTEXITCODE -ne 0) {
+        throw "无法取得实际构建使用的 Go 工具链版本。"
+    }
     foreach ($item in $Target) {
         $parts = $item.Split("-", 2)
         $goos = $parts[0]
@@ -379,6 +405,11 @@ $manifest = [ordered]@{
     product = "Scert"
     release_date = $ReleaseDate
     version = $Version
+    source_commit = $sourceCommit.Trim()
+    source_dirty = $sourceDirty
+    go_toolchain = $goVersion.Trim()
+    targets = @($Target)
+    desktop_requested = -not [bool]$SkipDesktop
     generated_at = [DateTimeOffset]::UtcNow.ToString("o")
     artifacts = $manifestArtifacts
 }

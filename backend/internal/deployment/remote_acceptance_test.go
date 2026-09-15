@@ -122,6 +122,25 @@ func TestRemoteDeploymentIsolatedAcceptance(t *testing.T) {
 		}
 	}
 	verify()
+	// 真实连接竞争同一文件锁时必须拒绝部署，也不得释放另一事务的锁。
+	lockClient, err := factory.Connect(t.Context(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := server.PrivateKeyPath + ".scert-lock"
+	if err := lockClient.Lock(t.Context(), lockPath); err != nil {
+		_ = lockClient.Close()
+		t.Fatal(err)
+	}
+	lockedReport := service.Deploy(t.Context(), []Target{{Server: server}}, original)
+	lockExists, lockErr := lockClient.Exists(t.Context(), lockPath)
+	unlockErr := lockClient.Unlock(t.Context(), lockPath)
+	_ = lockClient.Close()
+	if lockedReport.Status != "failed" || !strings.Contains(lockedReport.Results[0].Message, "无法取得部署锁") || !lockExists || lockErr != nil || unlockErr != nil {
+		t.Fatalf("真实部署锁冲突未安全拒绝：%+v exists=%t check=%v unlock=%v", lockedReport, lockExists, lockErr, unlockErr)
+	}
+	t.Log("真实部署锁冲突已拒绝，其他事务的锁保持不变")
+	verify()
 	for _, scenario := range []string{"validation_failure", "reload_failure", "validation_timeout"} {
 		candidate := server
 		ctx := t.Context()
