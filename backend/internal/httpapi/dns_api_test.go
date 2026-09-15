@@ -81,8 +81,8 @@ func TestAdminAliyunDNSTestReportsFastVerificationTimeout(t *testing.T) {
 	}`))
 	request.Header.Set("Content-Type", "application/json")
 	serveAdminHTTP(server, response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"verification_timeout_secs":10`) {
-		t.Fatalf("管理端阿里云 DNS 在线测试未返回 10 秒等待上限：%d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"verification_timeout_secs":6`) {
+		t.Fatalf("管理端阿里云 DNS 在线测试未返回 6 秒等待上限：%d %s", response.Code, response.Body.String())
 	}
 }
 

@@ -7,6 +7,34 @@ import (
 	"time"
 )
 
+func TestAliyunAuthorizationRecordAPIUsesSingleAttemptWithoutRetry(t *testing.T) {
+	api, err := newAliyunAuthorizationRecordAPI(scopeCredentials())
+	if err != nil {
+		t.Fatalf("创建阿里云权限探测客户端失败：%v", err)
+	}
+	records, ok := api.(aliyunRecords)
+	if !ok || records.client == nil || records.client.RetryOptions == nil {
+		t.Fatalf("权限探测必须使用带显式重试策略的专用客户端：%T", api)
+	}
+	if records.client.RetryOptions.Retryable || records.client.RetryOptions.MaxAttempts != 1 {
+		t.Fatalf("权限探测客户端不得自动重试：%+v", records.client.RetryOptions)
+	}
+}
+
+func TestAliyunACMERecordAPIDoesNotUseAuthorizationRetryPolicy(t *testing.T) {
+	api, err := newAliyunRecordAPI(scopeCredentials())
+	if err != nil {
+		t.Fatalf("创建阿里云 ACME 客户端失败：%v", err)
+	}
+	records, ok := api.(aliyunRecords)
+	if !ok || records.client == nil {
+		t.Fatalf("ACME 客户端类型错误：%T", api)
+	}
+	if records.client.RetryOptions != nil {
+		t.Fatalf("ACME 客户端不应复用权限探测专用重试策略：%+v", records.client.RetryOptions)
+	}
+}
+
 func TestAliyunAuthorizationCheckerRechecksEveryRequestAndDetectsRevocation(t *testing.T) {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	calls := 0

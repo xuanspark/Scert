@@ -20,7 +20,7 @@ const (
 	aliyunDefaultRegion        = "cn-hangzhou"
 	aliyunAuthorizationTTL     = 600
 	aliyunAuthorizationTimeout = 30 * time.Second
-	aliyunAPICallTimeout       = 3 * time.Second
+	aliyunAPICallTimeout       = 2 * time.Second
 )
 
 // AuthorizationDomain 描述一个阿里云 DNS 根域名的授权探测结果。
@@ -54,7 +54,7 @@ type AliyunAuthorizationChecker struct {
 }
 
 func NewAliyunAuthorizationChecker() *AliyunAuthorizationChecker {
-	return &AliyunAuthorizationChecker{now: time.Now, recordAPI: newAliyunRecordAPI}
+	return &AliyunAuthorizationChecker{now: time.Now, recordAPI: newAliyunAuthorizationRecordAPI}
 }
 
 func (c *AliyunAuthorizationChecker) Supports(providerID string) bool {
@@ -270,6 +270,19 @@ func (c *AliyunAuthorizationChecker) currentTime() time.Time {
 }
 
 func newAliyunClient(credentials map[string]string) (*client.Client, error) {
+	return newAliyunClientWithRetryOptions(credentials, nil)
+}
+
+// newAliyunAuthorizationClient 为权限探测建立独立的单次调用客户端。
+// 探测流程有严格的阶段时限，不能因 SDK 重试或退避拉长用户等待；证书签发仍使用普通客户端策略。
+func newAliyunAuthorizationClient(credentials map[string]string) (*client.Client, error) {
+	return newAliyunClientWithRetryOptions(credentials, &dara.RetryOptions{
+		Retryable:   false,
+		MaxAttempts: 1,
+	})
+}
+
+func newAliyunClientWithRetryOptions(credentials map[string]string, retryOptions *dara.RetryOptions) (*client.Client, error) {
 	cleaned, err := ValidateCredentials(Aliyun, credentials)
 	if err != nil {
 		return nil, err
@@ -279,6 +292,9 @@ func newAliyunClient(credentials map[string]string) (*client.Client, error) {
 		SetAccessKeySecret(cleaned["access_key_secret"])
 	if token := cleaned["security_token"]; token != "" {
 		config.SetSecurityToken(token)
+	}
+	if retryOptions != nil {
+		config.SetRetryOptions(retryOptions)
 	}
 	result, err := client.NewClient(config)
 	if err != nil {

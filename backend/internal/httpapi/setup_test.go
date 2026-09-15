@@ -298,14 +298,14 @@ func TestSetupAliyunDNSTestUsesFastAccountAPITimeout(t *testing.T) {
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("模拟阿里云 DNS 验证失败应返回 422，实际为 %d：%s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":10`) {
-		t.Fatalf("阿里云 DNS 验证失败响应应包含 10 秒等待上限：%s", response.Body.String())
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":6`) {
+		t.Fatalf("阿里云 DNS 验证失败响应应包含 6 秒等待上限：%s", response.Body.String())
 	}
 	if !verifier.verifyHasDeadline {
 		t.Fatal("阿里云 DNS 在线测试应收到带截止时间的上下文")
 	}
 	remaining := verifier.verifyDeadline.Sub(started)
-	if remaining < 9*time.Second || remaining > 11*time.Second {
+	if remaining < 5*time.Second || remaining > 7*time.Second {
 		t.Fatalf("阿里云权限验证不应继承 ACME 传播配置：剩余时间=%s", remaining)
 	}
 }
@@ -580,7 +580,7 @@ func TestSetupDNSTestReturnsNotImplementedForUnavailableProvider(t *testing.T) {
 	if strings.Contains(response.Body.String(), "access_key_secret") || strings.Contains(response.Body.String(), "secret") {
 		t.Fatal("未开放 Provider 响应不应包含提交的凭据")
 	}
-	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":10`) {
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":6`) {
 		t.Fatalf("未开放 Provider 响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 }

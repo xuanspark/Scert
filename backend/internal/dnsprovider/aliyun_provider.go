@@ -78,6 +78,15 @@ func newAliyunRecordAPI(credentials map[string]string) (aliyunRecordAPI, error) 
 	return aliyunRecords{client: dnsClient}, nil
 }
 
+// newAliyunAuthorizationRecordAPI 仅供短时权限探测使用，不改变 ACME DNS-01 的客户端策略。
+func newAliyunAuthorizationRecordAPI(credentials map[string]string) (aliyunRecordAPI, error) {
+	dnsClient, err := newAliyunAuthorizationClient(credentials)
+	if err != nil {
+		return nil, err
+	}
+	return aliyunRecords{client: dnsClient}, nil
+}
+
 // 不使用自动发现托管区的上游适配器，也不沿 CNAME 自动扩大写入范围。
 type scopedAliyunProvider struct {
 	scope         AliyunScope

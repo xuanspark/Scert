@@ -706,7 +706,7 @@ const {
                   :max="form.propagation_timeout_secs"
                   required
                 />
-                <small>默认 10 秒，不能大于最大等待时间。</small>
+                <small>默认 6 秒，不能大于最大等待时间。</small>
               </label>
             </div>
             <p v-if="dnsCatalogError" class="inline-error">
