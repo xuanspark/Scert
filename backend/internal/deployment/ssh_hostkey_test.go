@@ -182,16 +182,26 @@ func TestSSHFactoryFiltersUnsupportedAndDuplicateHostKeyAlgorithms(t *testing.T)
 }
 
 type testSSHServer struct {
-	listener net.Listener
-	accepted atomic.Int32
-	host     string
-	port     int
-	config   *ssh.ServerConfig
+	listener       net.Listener
+	accepted       atomic.Int32
+	host           string
+	port           int
+	config         *ssh.ServerConfig
+	channelHandler func(ssh.Channel, <-chan *ssh.Request)
 }
 
 func startTestSSHServer(
 	t *testing.T,
 	authorize func(ssh.PublicKey) error,
+	hostSigners ...ssh.Signer,
+) *testSSHServer {
+	return startTestSSHServerWithHandler(t, authorize, serveTestSFTP, hostSigners...)
+}
+
+func startTestSSHServerWithHandler(
+	t *testing.T,
+	authorize func(ssh.PublicKey) error,
+	handler func(ssh.Channel, <-chan *ssh.Request),
 	hostSigners ...ssh.Signer,
 ) *testSSHServer {
 	t.Helper()
@@ -218,10 +228,11 @@ func startTestSSHServer(
 		t.Fatalf("解析测试 SSH 端口失败：%v", err)
 	}
 	server := &testSSHServer{
-		listener: listener,
-		host:     host,
-		port:     port,
-		config:   config,
+		listener:       listener,
+		host:           host,
+		port:           port,
+		config:         config,
+		channelHandler: handler,
 	}
 	t.Cleanup(func() {
 		listener.Close()
@@ -257,7 +268,7 @@ func (s *testSSHServer) serveConnection(connection net.Conn) {
 		if err != nil {
 			continue
 		}
-		go serveTestSFTP(channel, requests)
+		go s.channelHandler(channel, requests)
 	}
 }
 

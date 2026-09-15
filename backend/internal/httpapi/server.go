@@ -463,6 +463,9 @@ func (s *Server) createDomain(c *gin.Context) {
 		return
 	}
 	for _, san := range item.SANs {
+		if san == item.Name {
+			continue
+		}
 		if err := s.validateDomainAliyunAuthorization(c.Request.Context(), san); err != nil {
 			s.writeError(c, http.StatusBadRequest, err.Error(), err)
 			return
@@ -507,6 +510,9 @@ func (s *Server) updateDomain(c *gin.Context) {
 		return
 	}
 	for _, san := range item.SANs {
+		if san == item.Name {
+			continue
+		}
 		if err := s.validateDomainAliyunAuthorization(c.Request.Context(), san); err != nil {
 			s.writeError(c, http.StatusBadRequest, err.Error(), err)
 			return

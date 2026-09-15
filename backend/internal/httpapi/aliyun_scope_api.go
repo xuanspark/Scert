@@ -159,8 +159,8 @@ func (s *Server) checkAliyunDNSDomain(c *gin.Context) {
 }
 
 func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainName string) error {
-	if s == nil || s.aliyunChecker == nil {
-		return nil
+	if s == nil {
+		return errors.New("域名授权检查服务未初始化")
 	}
 	s.configMu.RLock()
 	setupReady := s.config.SetupReady
@@ -168,13 +168,22 @@ func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainNa
 	credentialRef := strings.TrimSpace(s.config.DNS.CredentialRef)
 	s.configMu.RUnlock()
 
-	if !setupReady || provider != dnsprovider.Aliyun || credentialRef == "" {
+	if provider != dnsprovider.Aliyun {
 		return nil
+	}
+	if !setupReady {
+		return errors.New("系统初始化尚未完成，不能验证域名授权")
+	}
+	if s.aliyunChecker == nil {
+		return errors.New("阿里云权限探测器未装载，不能确认域名授权")
 	}
 
 	credentials, err := s.readDNSCredentials(ctx, credentialRef)
-	if err != nil || len(credentials) == 0 {
-		return nil
+	if err != nil {
+		return fmt.Errorf("读取阿里云 DNS 凭据失败，不能确认域名授权：%w", err)
+	}
+	if _, err := dnsprovider.ValidateCredentials(dnsprovider.Aliyun, credentials); err != nil {
+		return fmt.Errorf("阿里云 DNS 凭据无效，不能确认域名授权：%w", err)
 	}
 
 	if err := s.aliyunChecker.VerifyDomain(ctx, dnsprovider.Aliyun, domainName, credentials); err != nil {

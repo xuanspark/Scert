@@ -20,13 +20,17 @@ func TestAuthorizationZoneCandidatesPreferSpecificZones(t *testing.T) {
 	}
 }
 
-func TestAliyunAuthorizationCheckerCachesSuccessfulAuthorization(t *testing.T) {
+func TestAliyunAuthorizationCheckerRechecksEveryRequestAndDetectsRevocation(t *testing.T) {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	calls := 0
+	revoked := false
 	checker := NewAliyunAuthorizationChecker()
 	checker.now = func() time.Time { return now }
 	checker.verifyDomainFunc = func(context.Context, string, map[string]string) error {
 		calls++
+		if revoked {
+			return errors.New("Forbidden.RAM")
+		}
 		return nil
 	}
 	credentials := map[string]string{
@@ -40,16 +44,16 @@ func TestAliyunAuthorizationCheckerCachesSuccessfulAuthorization(t *testing.T) {
 	if err := checker.VerifyDomain(context.Background(), Aliyun, "www.example.com", credentials); err != nil {
 		t.Fatalf("缓存授权检查失败：%v", err)
 	}
-	if calls != 1 {
-		t.Fatalf("短时授权缓存未生效：calls=%d", calls)
+	if calls != 2 {
+		t.Fatalf("每次操作必须重新验证权限：calls=%d", calls)
 	}
 
-	now = now.Add(aliyunAuthorizationCacheTTL + time.Second)
-	if err := checker.VerifyDomain(context.Background(), Aliyun, "www.example.com", credentials); err != nil {
-		t.Fatalf("缓存过期后的授权检查失败：%v", err)
+	revoked = true
+	if err := checker.VerifyDomain(context.Background(), Aliyun, "www.example.com", credentials); err == nil {
+		t.Fatal("撤权后不得复用之前的成功结果")
 	}
-	if calls != 2 {
-		t.Fatalf("授权缓存过期后未重新探测：calls=%d", calls)
+	if calls != 3 {
+		t.Fatalf("撤权后未重新探测：calls=%d", calls)
 	}
 }
 

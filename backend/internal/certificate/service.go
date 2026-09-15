@@ -12,6 +12,7 @@ import (
 	"github.com/go-acme/lego/v5/challenge"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
@@ -270,6 +271,9 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 
 func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string, domains []string, credentials map[string]string) error {
 	if s == nil || s.authorization == nil {
+		if strings.EqualFold(strings.TrimSpace(providerID), dnsprovider.Aliyun) {
+			return errors.New("阿里云权限探测器未初始化，已阻止证书申请")
+		}
 		return nil
 	}
 	for _, requestedDomain := range domains {

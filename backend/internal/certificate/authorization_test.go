@@ -77,3 +77,26 @@ func TestSetupRejectsUnauthorizedDomainBeforeIssuer(t *testing.T) {
 		t.Fatalf("初始化证书申请未拒绝未授权域名：%v", err)
 	}
 }
+
+func TestAliyunMissingAuthorizationCheckerBlocksIssueAndSetup(t *testing.T) {
+	cfg := certificateTestConfig(t.TempDir())
+	cfg.DNS.Provider = "aliyun"
+	item, err := domain.NewDomainWithOptions("example.com", domain.CertificateSingle, nil, false, "staging", "aliyun")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &recordingProviderFactory{}
+	service := NewService(cfg, &serviceRepository{item: item}, serviceCredentials{}, provider, serviceAccounts{})
+	if _, err := service.Issue(t.Context(), item.ID); err == nil || !strings.Contains(err.Error(), "探测器未初始化") {
+		t.Fatalf("缺失检查器必须阻止签发：%v", err)
+	}
+	if _, err := service.IssueForSetup(t.Context(), SetupCertificateRequest{
+		Domains: []string{"example.com"}, CertificateType: "single", ProviderID: "aliyun",
+		CredentialRef: cfg.DNS.CredentialRef, Environment: "staging",
+	}); err == nil || !strings.Contains(err.Error(), "探测器未初始化") {
+		t.Fatalf("缺失检查器必须阻止初始化证书签发：%v", err)
+	}
+	if provider.providerID != "" {
+		t.Fatal("缺失检查器时不得创建 DNS 挑战 Provider")
+	}
+}

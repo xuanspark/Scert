@@ -1,8 +1,15 @@
 package deployment
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +45,7 @@ func (c *memoryClient) Exists(_ context.Context, path string) (bool, error) {
 
 func (c *memoryClient) Upload(_ context.Context, path string, data []byte, mode uint32) error {
 	if c.uploadError != "" && strings.Contains(path, c.uploadError) {
+		c.files[path] = memoryFile{data: append([]byte(nil), data[:len(data)/2]...), mode: mode}
 		return errors.New("模拟上传失败")
 	}
 	c.files[path] = memoryFile{data: append([]byte(nil), data...), mode: mode}
@@ -105,11 +113,12 @@ func TestDeployReplacesFilesAndKeepsBackup(t *testing.T) {
 	client.files[server.PrivateKeyPath] = memoryFile{data: []byte("old-key"), mode: 0o600}
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
 	service.now = func() time.Time { return time.Date(2026, 8, 27, 1, 2, 3, 4, time.UTC) }
-	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	artifact := testArtifact(t)
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, artifact)
 	if report.Status != "success" || report.Success != 1 {
 		t.Fatalf("部署结果错误：%+v", report)
 	}
-	if string(client.files[server.CertificatePath].data) != "new-cert" || client.files[server.PrivateKeyPath].mode != 0o600 {
+	if !bytes.Equal(client.files[server.CertificatePath].data, artifact.Certificate) || client.files[server.PrivateKeyPath].mode != 0o600 {
 		t.Fatalf("远程证书内容或权限错误：%+v", client.files)
 	}
 	if len(client.commands) != 2 || len(client.commands[0]) != 2 || client.commands[0][1] != "-t" || len(client.commands[1]) != 3 || client.commands[1][0] != "nginx" {
@@ -132,7 +141,7 @@ func TestDeployRollsBackWhenReloadFails(t *testing.T) {
 	server := testServer("server-1")
 	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
-	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact(t))
 	if report.Status != "failed" || report.Failed != 1 {
 		t.Fatalf("reload 失败结果错误：%+v", report)
 	}
@@ -157,7 +166,7 @@ func TestDeployRollsBackWhenValidationFailsWithoutReload(t *testing.T) {
 	client.files[server.CertificateChainPath] = memoryFile{data: []byte("old-chain"), mode: 0o644}
 	client.files[server.PrivateKeyPath] = memoryFile{data: []byte("old-key"), mode: 0o600}
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
-	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact(t))
 	if report.Status != "failed" || report.Failed != 1 || !strings.Contains(report.Results[0].Message, "配置校验失败") {
 		t.Fatalf("配置校验失败结果错误：%+v", report)
 	}
@@ -181,7 +190,7 @@ func TestDeployReportsRollbackFailure(t *testing.T) {
 	server := testServer("server-1")
 	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
-	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact(t))
 	if report.Status != "failed" || report.Failed != 1 {
 		t.Fatalf("回滚失败结果错误：%+v", report)
 	}
@@ -197,9 +206,31 @@ func TestDeployReportsPartialSuccess(t *testing.T) {
 	firstServer := testServer("first")
 	secondServer := testServer("second")
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{"first": first, "second": second}})
-	report := service.Deploy(context.Background(), []Target{{Server: firstServer}, {Server: secondServer}}, testArtifact())
+	report := service.Deploy(context.Background(), []Target{{Server: firstServer}, {Server: secondServer}}, testArtifact(t))
 	if report.Status != "partial" || report.Success != 1 || report.Failed != 1 {
 		t.Fatalf("部分成功汇总错误：%+v", report)
+	}
+}
+
+func TestDeployCleansPartialPrivateKeyUploadWithoutReplacingCurrentFiles(t *testing.T) {
+	client := newMemoryClient()
+	client.uploadError = "key.pem"
+	server := testServer("partial-key")
+	for _, path := range []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath} {
+		client.files[path] = memoryFile{data: []byte("original"), mode: 0o600}
+	}
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+	report := service.Deploy(t.Context(), []Target{{Server: server}}, testArtifact(t))
+	if report.Status != "failed" || report.Results[0].BackupID == "" {
+		t.Fatalf("失败报告必须包含事务标识：%+v", report)
+	}
+	if len(client.files) != 3 || len(client.commands) != 0 {
+		t.Fatalf("部分上传失败不得残留临时文件或执行命令：files=%v commands=%v", client.files, client.commands)
+	}
+	for path, file := range client.files {
+		if string(file.data) != "original" || file.mode != 0o600 {
+			t.Fatalf("上传阶段不得替换原文件：%s", path)
+		}
 	}
 }
 
@@ -209,7 +240,7 @@ func TestDeployRejectsDuplicateCertificatePaths(t *testing.T) {
 	server.PrivateKeyPath = server.CertificatePath
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
 
-	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact(t))
 	if report.Status != "failed" || report.Failed != 1 {
 		t.Fatalf("重复远程路径应直接失败：%+v", report)
 	}
@@ -227,7 +258,7 @@ func TestDeployRejectsRelativeCertificatePaths(t *testing.T) {
 	server.CertificatePath = "cert.pem"
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
 
-	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact())
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact(t))
 	if report.Status != "failed" || !strings.Contains(report.Results[0].Message, "必须是绝对路径") {
 		t.Fatalf("相对远程路径应被拒绝：%+v", report)
 	}
@@ -242,6 +273,48 @@ func testServer(id string) Server {
 	}
 }
 
-func testArtifact() Artifact {
-	return Artifact{Certificate: []byte("new-cert"), FullChain: []byte("new-chain"), PrivateKey: []byte("new-key")}
+func testArtifact(t *testing.T) Artifact {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()), DNSNames: []string{"example.com"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	return Artifact{Certificate: cert, FullChain: append([]byte(nil), cert...), PrivateKey: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKey})}
+}
+
+func TestDeployRejectsCorruptArtifactsBeforeConnecting(t *testing.T) {
+	for _, scenario := range []string{"invalid_pem", "wrong_key", "wrong_leaf", "garbage_chain"} {
+		t.Run(scenario, func(t *testing.T) {
+			artifact := testArtifact(t)
+			switch scenario {
+			case "invalid_pem":
+				artifact.Certificate = []byte("invalid")
+			case "wrong_key":
+				artifact.PrivateKey = testArtifact(t).PrivateKey
+			case "wrong_leaf":
+				artifact.FullChain = testArtifact(t).FullChain
+			case "garbage_chain":
+				artifact.FullChain = append(artifact.FullChain, []byte("invalid")...)
+			}
+			service := NewService(memoryFactory{})
+			report := service.Deploy(t.Context(), []Target{{Server: testServer("invalid")}}, artifact)
+			if report.Status != "failed" {
+				t.Fatalf("无效产物未被拒绝：%+v", report)
+			}
+		})
+	}
 }

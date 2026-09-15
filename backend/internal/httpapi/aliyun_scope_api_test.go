@@ -166,3 +166,56 @@ func TestAliyunScopeAPIsAndDomainValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestAliyunDomainAuthorizationFailsClosed(t *testing.T) {
+	for _, scenario := range []string{"checker_missing", "reference_missing", "store_missing", "secret_missing", "secret_empty", "secret_incomplete", "setup_incomplete"} {
+		t.Run(scenario, func(t *testing.T) {
+			cfg := readyTestConfig(t.TempDir())
+			cfg.DNS.Provider = dnsprovider.Aliyun
+			cfg.DNS.CredentialRef = "secret://dns/test"
+			store := &fakeSecretReaderStore{data: map[string]map[string]string{
+				cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret"},
+			}}
+			deps := Dependencies{Config: cfg, Secrets: store, AliyunChecker: &fakeAliyunScopeChecker{allowedZones: []string{"example.com"}}}
+			switch scenario {
+			case "checker_missing":
+				deps.AliyunChecker = nil
+			case "reference_missing":
+				deps.Config.DNS.CredentialRef = ""
+			case "store_missing":
+				deps.Secrets = nil
+			case "secret_missing":
+				store.data = nil
+			case "secret_empty":
+				store.data[cfg.DNS.CredentialRef] = nil
+			case "secret_incomplete":
+				store.data[cfg.DNS.CredentialRef] = map[string]string{"access_key_id": "test-id"}
+			case "setup_incomplete":
+				deps.Config.SetupReady = false
+			}
+			server := New(deps)
+			if err := server.validateDomainAliyunAuthorization(t.Context(), "example.com"); err == nil {
+				t.Fatal("授权检查依赖异常必须拒绝，不能当作成功")
+			}
+		})
+	}
+}
+
+func TestAliyunDomainAPIRejectsPartiallyUnauthorizedSAN(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	cfg.DNS.Provider = dnsprovider.Aliyun
+	cfg.DNS.CredentialRef = "secret://dns/test"
+	server := New(Dependencies{
+		Config: cfg, Repository: &stubDomainRepository{},
+		Secrets: &fakeSecretReaderStore{data: map[string]map[string]string{
+			cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret"},
+		}},
+		AliyunChecker: &fakeAliyunScopeChecker{allowedZones: []string{"example.com"}},
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["example.org"]}`))
+	serveAdminHTTP(server, w, req)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "example.org") {
+		t.Fatalf("部分 SAN 未授权应整单拒绝：%d %s", w.Code, w.Body.String())
+	}
+}

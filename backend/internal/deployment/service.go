@@ -109,6 +109,8 @@ func (s *Service) DeploySaved(ctx context.Context, targets []Target, saved Saved
 }
 
 func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifact) Result {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 	server = server.Normalize()
 	result := Result{ServerID: server.ID, Server: server.Name, Status: "failed"}
 	if err := server.Validate(); err != nil {
@@ -120,7 +122,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		result.Message = fmt.Sprintf("连接服务器失败：%v", err)
 		return result
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	paths := []remoteFile{
 		{path: RemotePath(server.CertificatePath), data: artifact.Certificate, mode: 0o644},
 		{path: RemotePath(server.CertificateChainPath), data: artifact.FullChain, mode: 0o644},
@@ -137,6 +139,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		return result
 	}
 	backupID := s.backupID()
+	result.BackupID = backupID
 	type backup struct{ original, saved string }
 	backups := make([]backup, 0, len(paths))
 	temporary := make([]string, 0, len(paths))
@@ -144,6 +147,14 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	rollback := func() error {
 		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), deploymentRollbackTimeout)
 		defer cancel()
+		if state, ok := client.(interface{ Disconnected() bool }); ok && state.Disconnected() {
+			_ = client.Close()
+			reconnected, err := s.factory.Connect(rollbackContext, server)
+			if err != nil {
+				return fmt.Errorf("重新连接服务器以回滚失败：%w", err)
+			}
+			client = reconnected
+		}
 		var rollbackErrors []error
 		for _, path := range temporary {
 			if err := client.Remove(rollbackContext, path); err != nil {
@@ -157,15 +168,31 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		}
 		for index := len(backups) - 1; index >= 0; index-- {
 			item := backups[index]
+			// 备份请求超时可能丢失响应，重连后以目标文件是否存在核实实际结果。
+			exists, err := client.Exists(rollbackContext, item.saved)
+			if err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("检查备份文件 %s 失败：%w", item.saved, err))
+				continue
+			}
+			if !exists {
+				continue
+			}
 			if err := client.Rename(rollbackContext, item.saved, item.original); err != nil {
 				rollbackErrors = append(rollbackErrors, fmt.Errorf("恢复备份文件 %s 失败：%w", item.original, err))
 			}
 		}
 		return errors.Join(rollbackErrors...)
 	}
+	reloadAttempted := false
 	failed := func(message string) Result {
 		if rollbackErr := rollback(); rollbackErr != nil {
 			message += fmt.Sprintf("；自动回滚失败：%v", rollbackErr)
+		} else {
+			message += "；文件已回滚"
+		}
+		if reloadAttempted {
+			// 命令可能已部分执行；文件回滚并不证明运行中的服务已经恢复。
+			message += "；服务运行状态未确认，请检查服务并在确认旧配置后重新加载"
 		}
 		result.Message = message
 		return result
@@ -174,27 +201,31 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		if err := client.MkdirAll(ctx, parentPath(file.path)); err != nil {
 			return failed(fmt.Sprintf("创建远程目录失败：%v", err))
 		}
+		temporaryPath := file.path + ".scert-tmp-" + backupID
+		// 上传失败也可能留下半份私钥，必须在开始上传前登记清理路径。
+		temporary = append(temporary, temporaryPath)
+		if err := client.Upload(ctx, temporaryPath, file.data, file.mode); err != nil {
+			return failed(fmt.Sprintf("上传远程证书失败：%v", err))
+		}
+	}
+	// 所有文件上传完成后才触碰当前版本，避免上传失败造成不必要的证书替换。
+	for _, file := range paths {
 		exists, err := client.Exists(ctx, file.path)
 		if err != nil {
 			return failed(fmt.Sprintf("检查远程文件失败：%v", err))
 		}
 		if exists {
 			backupPath := file.path + ".scert-backup-" + backupID
+			backups = append(backups, backup{original: file.path, saved: backupPath})
 			if err := client.Rename(ctx, file.path, backupPath); err != nil {
 				return failed(fmt.Sprintf("备份远程证书失败：%v", err))
 			}
-			backups = append(backups, backup{original: file.path, saved: backupPath})
 		}
 		temporaryPath := file.path + ".scert-tmp-" + backupID
-		if err := client.Upload(ctx, temporaryPath, file.data, file.mode); err != nil {
-			return failed(fmt.Sprintf("上传远程证书失败：%v", err))
-		}
-		temporary = append(temporary, temporaryPath)
+		installed = append(installed, file.path)
 		if err := client.Rename(ctx, temporaryPath, file.path); err != nil {
 			return failed(fmt.Sprintf("替换远程证书失败：%v", err))
 		}
-		temporary = temporary[:len(temporary)-1]
-		installed = append(installed, file.path)
 	}
 	validationResult, err := client.Run(ctx, server.ValidationCommand)
 	if err != nil || validationResult.ExitCode != 0 {
@@ -203,6 +234,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		}
 		return failed(fmt.Sprintf("配置校验失败：%v", err))
 	}
+	reloadAttempted = true
 	commandResult, err := client.Run(ctx, server.ReloadCommand)
 	if err != nil || commandResult.ExitCode != 0 {
 		if err == nil {
@@ -233,13 +265,6 @@ func validateDeploymentPaths(files []remoteFile) error {
 			return errors.New("远程证书、完整证书链和私钥不能使用相同路径")
 		}
 		seen[cleaned] = struct{}{}
-	}
-	return nil
-}
-
-func validateArtifact(artifact Artifact) error {
-	if len(artifact.Certificate) == 0 || len(artifact.FullChain) == 0 || len(artifact.PrivateKey) == 0 {
-		return errors.New("证书部署文件不完整")
 	}
 	return nil
 }
