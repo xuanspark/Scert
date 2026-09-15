@@ -159,12 +159,12 @@ func (s *Server) testAdminDNS(c *gin.Context) {
 func (s *Server) testDNS(c *gin.Context) {
 	verificationTimeoutSecs := int(s.dnsVerificationTimeout().Seconds())
 	if s.setupDNS == nil {
-		s.writeError(c, http.StatusServiceUnavailable, "DNS 在线验证服务尚未初始化", nil)
+		s.writeDNSTestError(c, http.StatusServiceUnavailable, "DNS 在线验证服务尚未初始化", nil, verificationTimeoutSecs)
 		return
 	}
 	var request dnsTestRequest
 	if err := bindJSON(c, &request, setupRequestLimit); err != nil {
-		s.writeError(c, http.StatusBadRequest, "DNS 测试请求参数无效", err)
+		s.writeDNSTestError(c, http.StatusBadRequest, "DNS 测试请求参数无效", err, verificationTimeoutSecs)
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), s.dnsVerificationTimeout())
@@ -203,6 +203,16 @@ func (s *Server) testDNS(c *gin.Context) {
 		"test_report":               result.TestReport,
 		"verification_timeout_secs": verificationTimeoutSecs,
 		"message":                   "DNS API 在线验证通过，凭据已加密保存。",
+	})
+}
+
+func (s *Server) writeDNSTestError(c *gin.Context, status int, message string, err error, verificationTimeoutSecs int) {
+	if s.logger != nil {
+		s.logger.Error(message, "error", err)
+	}
+	c.JSON(status, gin.H{
+		"error":                     message,
+		"verification_timeout_secs": verificationTimeoutSecs,
 	})
 }
 

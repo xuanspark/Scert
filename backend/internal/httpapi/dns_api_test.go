@@ -55,10 +55,10 @@ func TestAdminDNSTestReturnsVerificationResult(t *testing.T) {
 		t.Fatalf("DNS 在线测试失败：%d %s", response.Code, response.Body.String())
 	}
 	var payload struct {
-		Verified                 bool                        `json:"verified"`
-		CredentialRef            string                      `json:"credential_ref"`
-		VerificationToken        string                      `json:"verification_token"`
-		TestReport               setup.DNSVerificationReport `json:"test_report"`
+		Verified                bool                        `json:"verified"`
+		CredentialRef           string                      `json:"credential_ref"`
+		VerificationToken       string                      `json:"verification_token"`
+		TestReport              setup.DNSVerificationReport `json:"test_report"`
 		VerificationTimeoutSecs int                         `json:"verification_timeout_secs"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
@@ -79,5 +79,8 @@ func TestAdminDNSTestRejectsUnavailableService(t *testing.T) {
 	serveAdminHTTP(server, response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("DNS 服务未初始化时应返回 503，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":930`) {
+		t.Fatalf("DNS 服务未初始化响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 }

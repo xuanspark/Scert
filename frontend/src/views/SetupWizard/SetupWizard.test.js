@@ -18,13 +18,44 @@ test("已有初始化服务商选择保持兼容", async (t) => {
 });
 
 async function setup(t, request) {
-  const { state, unmount } = await mountComposable(t, () => useSetupWizard({ status: { dns_provider: "aliyun" } }, () => {}),
+  const mounted = await mountComposable(t, () => useSetupWizard({ status: { dns_provider: "aliyun" } }, () => {}),
     async (path) => path.endsWith("/providers") ? Response.json({ items: [aliyunProvider] }) : request());
+  const { state } = mounted;
   state.dnsCredentials.value = { access_key_id: "fake-key" };
   state.dnsTestDomain.value = "example.test";
   await nextTick();
-  return { state, unmount };
+  return mounted;
 }
+
+test("初始化 DNS 验证显示等待进度，并采用服务端返回的最长等待时间", async (t) => {
+  const pending = deferred();
+  const { state, runIntervals, advanceTime } = await setup(t, () => pending.promise);
+  const task = state.testDNS();
+
+  assert.equal(state.dnsTesting.value, true);
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
+  assert.equal(state.dnsVerificationTimeoutSeconds.value, 930);
+
+  advanceTime(2500);
+  runIntervals();
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 2);
+
+  pending.resolve(Response.json({
+    verified: true,
+    credential_ref: "secret://test/only",
+    verification_token: "test-token",
+    expires_at: new Date(Date.now() + 60000).toISOString(),
+    verification_timeout_secs: 31,
+  }));
+  await task;
+  assert.equal(state.dnsTesting.value, false);
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
+  assert.equal(state.dnsVerificationTimeoutSeconds.value, 31);
+
+  advanceTime(1000);
+  runIntervals();
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
+});
 
 test("初始化不接受输入修改前的在途 DNS 响应", async (t) => {
   const pending = deferred();
@@ -61,6 +92,25 @@ test("初始化当前 DNS 成功有效，修改域名立即失效", async (t) =>
   assert.equal(state.dnsVerificationValid.value, false);
 });
 
+test("初始化修改 DNS 输入后会停止等待计时器", async (t) => {
+  const pending = deferred();
+  const { state, runIntervals, advanceTime } = await setup(t, () => pending.promise);
+  const task = state.testDNS();
+  advanceTime(1000);
+  runIntervals();
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 1);
+
+  state.dnsTestDomain.value = "other.test";
+  assert.equal(state.dnsTesting.value, false);
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
+  advanceTime(1000);
+  runIntervals();
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
+
+  pending.resolve(verifiedResponse());
+  await task;
+});
+
 test("初始化修改显式授权范围立即作废旧验证", async (t) => {
   const { state } = await setup(t, () => verifiedResponse());
   state.dnsCredentials.value.managed_zones = "example.test";
@@ -72,11 +122,18 @@ test("初始化修改显式授权范围立即作废旧验证", async (t) => {
   assert.equal(state.dnsVerification.value, null);
 });
 
-test("初始化卸载后不恢复旧 DNS 验证结果", async (t) => {
+test("初始化卸载后不恢复旧 DNS 验证结果或继续等待计时", async (t) => {
   const pending = deferred();
-  const { state, unmount } = await setup(t, () => pending.promise);
+  const { state, unmount, runIntervals, advanceTime } = await setup(t, () => pending.promise);
   const task = state.testDNS();
+  advanceTime(1000);
+  runIntervals();
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 1);
   unmount();
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
+  advanceTime(1000);
+  runIntervals();
+  assert.equal(state.dnsVerificationElapsedSeconds.value, 0);
   pending.resolve(verifiedResponse());
   await task;
   assert.equal(state.dnsVerification.value, null);

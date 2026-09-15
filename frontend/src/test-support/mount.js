@@ -30,6 +30,7 @@ export function verifiedResponse(token = "test-token") {
 export async function mountComposable(t, factory, fetcher) {
   const intervals = new Map();
   let nextIntervalID = 1;
+  let currentTime = Date.now();
   const originals = new Map();
   for (const [key, value] of Object.entries({
     window: {
@@ -49,6 +50,7 @@ export async function mountComposable(t, factory, fetcher) {
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
+  t.mock.method(Date, "now", () => currentTime);
   t.mock.method(globalThis, "fetch", fetcher);
   const renderer = createRenderer({
     createComment: () => ({}),
@@ -84,6 +86,9 @@ export async function mountComposable(t, factory, fetcher) {
     unmount,
     runIntervals() {
       for (const callback of [...intervals.values()]) callback();
+    },
+    advanceTime(milliseconds) {
+      currentTime += milliseconds;
     },
   };
 }

@@ -527,6 +527,9 @@ func TestSetupDNSTestRejectsRemoteAndOversizedRequests(t *testing.T) {
 	if oversizedResponse.Code != http.StatusBadRequest {
 		t.Fatalf("超大 DNS 测试请求应被拒绝：%d %s", oversizedResponse.Code, oversizedResponse.Body.String())
 	}
+	if !strings.Contains(oversizedResponse.Body.String(), `"verification_timeout_secs":930`) {
+		t.Fatalf("DNS 参数错误响应应包含当前最大等待时间：%s", oversizedResponse.Body.String())
+	}
 }
 
 func TestSetupDNSTestReturnsNotImplementedForUnavailableProvider(t *testing.T) {
@@ -543,6 +546,9 @@ func TestSetupDNSTestReturnsNotImplementedForUnavailableProvider(t *testing.T) {
 	}
 	if strings.Contains(response.Body.String(), "access_key_secret") || strings.Contains(response.Body.String(), "secret") {
 		t.Fatal("未开放 Provider 响应不应包含提交的凭据")
+	}
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":930`) {
+		t.Fatalf("未开放 Provider 响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 }
 
