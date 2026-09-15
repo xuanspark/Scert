@@ -129,6 +129,11 @@ func TestDiagnoseAliyunError(t *testing.T) {
 		expected string
 	}{
 		{
+			err:      errors.New("SDKError: Code: Forbidden.RAM, Message: User not authorized to operate on the specified resource."),
+			domain:   "example.com",
+			expected: "当前阿里云 RAM 账号未获得域名 example.com 的 DNS 解析权限。请在阿里云 RAM 控制台授予该账号针对 acs:alidns:*:*:domain/example.com 的操作权限（Action: alidns:*）",
+		},
+		{
 			err:      errors.New("SDKError: Code: Forbidden.NoPermission, Message: Specified access key is not authorized."),
 			domain:   "solit.cn",
 			expected: "当前阿里云 RAM 账号未获得域名 solit.cn 的 DNS 解析权限。请在阿里云 RAM 控制台授予该账号针对 acs:alidns:*:*:domain/solit.cn 的操作权限（Action: alidns:*）",

@@ -21,12 +21,20 @@ type dnsPermissionVerifier func(context.Context, string, map[string]string) (dns
 func newDNSCommand() *cobra.Command {
 	command := &cobra.Command{Use: "dns", Short: "检查指定域名的阿里云 RAM 权限"}
 	checker := dnsprovider.NewAliyunAuthorizationChecker()
-	command.AddCommand(newDNSCheckCommand(checker.Verify))
+	command.AddCommand(newDNSCheckCommand(checker.Verify), newDNSInspectCommand(checker.Inspect))
 	return command
+}
+
+func newDNSInspectCommand(inspect dnsPermissionVerifier) *cobra.Command {
+	return newDNSPermissionCommand(inspect, true)
 }
 
 // 权限检查不启动应用、续期调度或数据库，也不调用全局域名发现。
 func newDNSCheckCommand(verify dnsPermissionVerifier) *cobra.Command {
+	return newDNSPermissionCommand(verify, false)
+}
+
+func newDNSPermissionCommand(verify dnsPermissionVerifier, readOnly bool) *cobra.Command {
 	var requestedDomain string
 	var confirmWrite bool
 	command := &cobra.Command{
@@ -38,7 +46,7 @@ func newDNSCheckCommand(verify dnsPermissionVerifier) *cobra.Command {
 			if !domain.IsValidName(requestedDomain) {
 				return errors.New("必须提供有效的待检查域名")
 			}
-			if !confirmWrite {
+			if !readOnly && !confirmWrite {
 				return errors.New("此检查会写入并删除专用临时 TXT 记录；确认已获目标域名测试授权后，请添加 --confirm-dns-write")
 			}
 			cfg, err := loadConfig()
@@ -72,14 +80,19 @@ func newDNSCheckCommand(verify dnsPermissionVerifier) *cobra.Command {
 			if verifyErr != nil {
 				return fmt.Errorf("域名权限检查未通过：%w", verifyErr)
 			}
-			if !report.Verified {
+			if !readOnly && !report.Verified {
 				return errors.New("域名权限检查未通过：未获得写入及清理均成功的证据")
 			}
 			return nil
 		},
 	}
 	command.Flags().StringVar(&requestedDomain, "domain", "", "明确授权检查的单个域名，不枚举全账号域名")
-	command.Flags().BoolVar(&confirmWrite, "confirm-dns-write", false, "确认允许专用临时 TXT 记录写入和精确清理")
+	if readOnly {
+		command.Use = "inspect"
+		command.Short = "只读检查指定托管区，不写入 DNS、不证明可写"
+	} else {
+		command.Flags().BoolVar(&confirmWrite, "confirm-dns-write", false, "确认允许专用临时 TXT 记录写入和精确清理")
+	}
 	_ = command.MarkFlagRequired("domain")
 	return command
 }

@@ -30,6 +30,28 @@ func TestDNSCheckRequiresExplicitWriteConfirmation(t *testing.T) {
 	}
 }
 
+func TestDNSInspectDoesNotRequireWriteOrPromoteReadableToVerified(t *testing.T) {
+	prepareDNSCheckConfig(t)
+	command := newDNSInspectCommand(func(context.Context, string, map[string]string) (dnsprovider.AuthorizationReport, error) {
+		return dnsprovider.AuthorizationReport{
+			Provider: "aliyun", Domains: []dnsprovider.AuthorizationDomain{{Domain: "example.com", Listed: true}},
+		}, nil
+	})
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"--domain", "example.com"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var report dnsprovider.AuthorizationReport
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil || report.Verified || report.Domains[0].Writable {
+		t.Fatalf("只读成功不能升级为写权限通过：%s", output.String())
+	}
+	if command.Flag("confirm-dns-write") != nil {
+		t.Fatal("只读命令不得提供写入开关")
+	}
+}
+
 func TestDNSCheckReportsLiveResultWithoutPersistingConfiguration(t *testing.T) {
 	for _, outcome := range []string{"allowed", "denied", "unknown", "unverified"} {
 		t.Run(outcome, func(t *testing.T) {

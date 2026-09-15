@@ -81,6 +81,35 @@ func (c *AliyunAuthorizationChecker) Discover(ctx context.Context, credentials m
 	return report, nil
 }
 
+// Inspect 只查询显式指定托管区的读取权限，不逐级探测父域、不写入 DNS，也不证明可写。
+func (c *AliyunAuthorizationChecker) Inspect(ctx context.Context, requestedDomain string, credentials map[string]string) (AuthorizationReport, error) {
+	requestedDomain = strings.TrimPrefix(normalizeAuthorizationDomain(requestedDomain), "*.")
+	report := AuthorizationReport{Provider: Aliyun, RequestedDomain: requestedDomain, CheckedAt: c.currentTime().UTC()}
+	if !domain.IsValidName(requestedDomain) {
+		return report, fmt.Errorf("待检查托管区格式无效：%s", requestedDomain)
+	}
+	report.Domains = []AuthorizationDomain{{Domain: requestedDomain, Status: "等待读取权限检查"}}
+	dnsClient, err := newAliyunClient(credentials)
+	if err != nil {
+		return report, err
+	}
+	request := new(client.DescribeDomainRecordsRequest).SetDomainName(requestedDomain).SetPageNumber(1).SetPageSize(1)
+	response, err := client.DescribeDomainRecordsWithContext(ctx, dnsClient, request, &dara.RuntimeOptions{})
+	if err != nil {
+		report.Domains[0].Status = "读取未通过，可写性未验证"
+		report.Domains[0].Error = err.Error()
+		report.Diagnosis = DiagnoseAliyunError(err, requestedDomain)
+		return report, fmt.Errorf("阿里云域名读取检查失败：%w", err)
+	}
+	if response == nil || response.Body == nil {
+		return report, errors.New("阿里云未返回有效的域名读取结果")
+	}
+	report.Domains[0].Listed = true
+	report.Domains[0].Status = "可读取，未验证写入和清理权限"
+	// 读取成功必须保持 Verified=false，也不能写入授权缓存。
+	return report, nil
+}
+
 // Verify 从目标域名到父级托管区逐级执行最小写入和精确清理。
 func (c *AliyunAuthorizationChecker) Verify(ctx context.Context, requestedDomain string, credentials map[string]string) (AuthorizationReport, error) {
 	requestedDomain = normalizeAuthorizationDomain(requestedDomain)
@@ -383,7 +412,7 @@ func DiagnoseAliyunError(err error, domainName string) string {
 	}
 	msg := err.Error()
 	lowered := strings.ToLower(msg)
-	if strings.Contains(lowered, "forbidden.nopermission") || strings.Contains(lowered, "accessdenied") || strings.Contains(lowered, "not authorized") {
+	if strings.Contains(lowered, "forbidden.nopermission") || strings.Contains(lowered, "forbidden.ram") || strings.Contains(lowered, "accessdenied") || strings.Contains(lowered, "not authorized") {
 		return fmt.Sprintf("当前阿里云 RAM 账号未获得域名 %s 的 DNS 解析权限。请在阿里云 RAM 控制台授予该账号针对 acs:alidns:*:*:domain/%s 的操作权限（Action: alidns:*）", domainName, domainName)
 	}
 	if strings.Contains(lowered, "nosuchdomain") || strings.Contains(lowered, "invaliddomainname.noexist") {
