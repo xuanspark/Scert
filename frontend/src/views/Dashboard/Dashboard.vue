@@ -538,6 +538,14 @@ const {
               />
             </label>
           </div>
+          <p v-if="settingsForm.dns.scope_message" class="form-error">
+            {{ settingsForm.dns.scope_message }}
+          </p>
+          <div v-if="settingsForm.dns.user_scope" class="field-hint">
+            <p>已保存托管区：{{ settingsForm.dns.user_scope.managed_zones.join("，") }}</p>
+            <p>已保存允许域名：{{ settingsForm.dns.user_scope.allowed_domains.join("，") }}</p>
+            <p>修改范围需重新填写凭据并在线验证，不会自动扩大已有授权。</p>
+          </div>
           <div v-if="selectedDNSProvider" class="dns-test-actions">
             <button
               class="secondary-button"

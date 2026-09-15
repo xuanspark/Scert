@@ -61,6 +61,17 @@ test("初始化当前 DNS 成功有效，修改域名立即失效", async (t) =>
   assert.equal(state.dnsVerificationValid.value, false);
 });
 
+test("初始化修改显式授权范围立即作废旧验证", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  state.dnsCredentials.value.managed_zones = "example.test";
+  state.dnsCredentials.value.allowed_domains = "example.test";
+  await state.testDNS();
+  assert.equal(state.dnsVerificationValid.value, true);
+  state.dnsCredentials.value.allowed_domains = "*.example.test";
+  assert.equal(state.dnsVerificationValid.value, false);
+  assert.equal(state.dnsVerification.value, null);
+});
+
 test("初始化卸载后不恢复旧 DNS 验证结果", async (t) => {
   const pending = deferred();
   const { state, unmount } = await setup(t, () => pending.promise);

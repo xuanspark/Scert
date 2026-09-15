@@ -11,6 +11,27 @@ type fakeDNSTester struct {
 	err error
 }
 
+func TestDNSVerificationBindsScopeToNewCredentialReference(t *testing.T) {
+	store := &memorySecretWriter{}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	input := DNSVerificationInput{ProviderID: "aliyun", TestDomain: "www.example.com", Credentials: map[string]string{"managed_zones": "example.com", "allowed_domains": "www.example.com"}}
+	first, err := manager.Verify(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Credentials["allowed_domains"] = "*.example.com"
+	second, err := manager.Verify(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.CredentialRef == second.CredentialRef || store.values[first.CredentialRef]["allowed_domains"] != "www.example.com" {
+		t.Fatal("范围变更不能覆盖已验证引用")
+	}
+	if err := manager.Check(first.VerificationToken, "aliyun", second.CredentialRef, input.TestDomain); err == nil {
+		t.Fatal("旧令牌不能授权新范围")
+	}
+}
+
 func (f fakeDNSTester) Verify(context.Context, string, string, map[string]string) (DNSVerificationReport, error) {
 	return DNSVerificationReport{}, f.err
 }

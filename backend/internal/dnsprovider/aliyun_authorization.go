@@ -47,10 +47,11 @@ type AuthorizationReport struct {
 type AliyunAuthorizationChecker struct {
 	now              func() time.Time
 	verifyDomainFunc func(context.Context, string, map[string]string) error
+	recordAPI        func(map[string]string) (aliyunRecordAPI, error)
 }
 
 func NewAliyunAuthorizationChecker() *AliyunAuthorizationChecker {
-	return &AliyunAuthorizationChecker{now: time.Now}
+	return &AliyunAuthorizationChecker{now: time.Now, recordAPI: newAliyunRecordAPI}
 }
 
 func (c *AliyunAuthorizationChecker) Supports(providerID string) bool {
@@ -83,6 +84,19 @@ func (c *AliyunAuthorizationChecker) Inspect(ctx context.Context, requestedDomai
 	if !domain.IsValidName(requestedDomain) {
 		return report, fmt.Errorf("待检查托管区格式无效：%s", requestedDomain)
 	}
+	scope, err := ParseAliyunScope(credentials)
+	if err != nil {
+		return report, err
+	}
+	explicit := false
+	for _, zone := range scope.ManagedZones {
+		if zone == requestedDomain {
+			explicit = true
+		}
+	}
+	if !explicit {
+		return report, errors.New("只允许读取显式配置的托管区，未调用阿里云 API")
+	}
 	report.Domains = []AuthorizationDomain{{Domain: requestedDomain, Status: "等待读取权限检查"}}
 	dnsClient, err := newAliyunClient(credentials)
 	if err != nil {
@@ -105,52 +119,63 @@ func (c *AliyunAuthorizationChecker) Inspect(ctx context.Context, requestedDomai
 	return report, nil
 }
 
-// Verify 从目标域名到父级托管区逐级执行最小写入和精确清理。
+// Verify 只在用户显式允许的域名及托管区中执行一次写入和精确清理。
 func (c *AliyunAuthorizationChecker) Verify(ctx context.Context, requestedDomain string, credentials map[string]string) (AuthorizationReport, error) {
 	requestedDomain = normalizeAuthorizationDomain(requestedDomain)
 	report := AuthorizationReport{Provider: Aliyun, RequestedDomain: requestedDomain, CheckedAt: c.currentTime().UTC()}
 	if !domain.IsValidName(requestedDomain) {
 		return report, fmt.Errorf("待验证域名格式无效：%s", requestedDomain)
 	}
-	for _, candidate := range authorizationZoneCandidates(requestedDomain) {
-		report.Domains = append(report.Domains, AuthorizationDomain{
-			Domain: candidate, Status: "待验证",
-		})
-	}
-	client, err := newAliyunClient(credentials)
+	scope, err := ParseAliyunScope(credentials)
 	if err != nil {
 		return report, err
 	}
-
-	var lastErr error
-	for index, candidate := range authorizationZoneCandidates(requestedDomain) {
-		report.Domains[index].Status = "正在证明写入权限"
-		recordID, probeErr := addAuthorizationRecord(ctx, client, candidate)
-		if probeErr != nil {
-			lastErr = probeErr
-			report.Domains[index].Status = "不可操作"
-			report.Domains[index].Error = probeErr.Error()
-			continue
-		}
-		report.Domains[index].Writable = true
-		report.MatchedDomain = candidate
-		cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), aliyunAuthorizationTimeout)
-		cleanupErr := deleteAuthorizationRecord(cleanupContext, client, recordID)
-		cancel()
-		if cleanupErr != nil {
-			markAuthorizationFailure(&report, candidate, fmt.Errorf("清理授权探测 TXT 记录失败：%w", cleanupErr))
-			return report, cleanupErr
-		}
-		report.Domains[index].Cleanup = true
-		report.Domains[index].Status = "可操作"
-		report.Verified = true
-		return report, nil
+	zone, err := scope.Resolve(requestedDomain)
+	if err != nil {
+		return report, err
 	}
-	if lastErr == nil {
-		lastErr = errors.New("未找到可验证的阿里云 DNS 托管根域名")
+	if err := ctx.Err(); err != nil {
+		return report, err
 	}
-	report.Diagnosis = DiagnoseAliyunError(lastErr, requestedDomain)
-	return report, fmt.Errorf("阿里云 RAM 账号无法写入域名 %s：%w（建议：%s）", requestedDomain, lastErr, report.Diagnosis)
+	report.Domains = []AuthorizationDomain{{Domain: zone, Status: "待验证"}}
+	if c == nil || c.recordAPI == nil {
+		return report, errors.New("阿里云权限探测器未初始化")
+	}
+	api, err := c.recordAPI(credentials)
+	if err != nil {
+		return report, err
+	}
+	suffix, err := randomAuthorizationValue(18)
+	if err != nil {
+		return report, err
+	}
+	value, err := randomAuthorizationValue(32)
+	if err != nil {
+		return report, err
+	}
+	rr := "_scert-authorization-" + suffix
+	base := strings.TrimPrefix(requestedDomain, "*.")
+	if base != zone {
+		rr += "." + strings.TrimSuffix(base, "."+zone)
+	}
+	recordID, err := api.Add(ctx, zone, rr, value)
+	if err != nil {
+		markAuthorizationFailure(&report, zone, err)
+		report.Diagnosis = DiagnoseAliyunError(err, zone)
+		return report, err
+	}
+	report.Domains[0].Writable = true
+	report.MatchedDomain = zone
+	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), aliyunAuthorizationTimeout)
+	defer cancel()
+	if err := api.Delete(cleanupContext, recordID); err != nil {
+		markAuthorizationFailure(&report, zone, fmt.Errorf("清理授权探测 TXT 记录失败：%w", err))
+		return report, err
+	}
+	report.Domains[0].Cleanup = true
+	report.Domains[0].Status = "可操作"
+	report.Verified = true
+	return report, nil
 }
 
 // VerifyDomain 每次重新证明写入和清理能力，不使用跨请求缓存掩盖撤权。
@@ -169,6 +194,9 @@ func (c *AliyunAuthorizationChecker) VerifyDomain(ctx context.Context, providerI
 		return fmt.Errorf("待验证域名格式无效：%s", requestedDomain)
 	}
 	if _, err := ValidateCredentials(Aliyun, credentials); err != nil {
+		return err
+	}
+	if err := ValidateAliyunDomainScope(Aliyun, []string{requestedDomain}, credentials); err != nil {
 		return err
 	}
 	if c.verifyDomainFunc != nil {
@@ -248,31 +276,6 @@ func listAliyunDomains(ctx context.Context, dnsClient *client.Client) ([]string,
 	return uniqueStrings(result), nil
 }
 
-func addAuthorizationRecord(ctx context.Context, dnsClient *client.Client, zone string) (string, error) {
-	suffix, err := randomAuthorizationValue(18)
-	if err != nil {
-		return "", fmt.Errorf("生成授权探测标识失败：%w", err)
-	}
-	value, err := randomAuthorizationValue(32)
-	if err != nil {
-		return "", fmt.Errorf("生成授权探测值失败：%w", err)
-	}
-	request := new(client.AddDomainRecordRequest).
-		SetDomainName(zone).
-		SetRR("_scert-authorization-" + suffix).
-		SetType("TXT").
-		SetValue(value).
-		SetTTL(aliyunAuthorizationTTL)
-	response, err := client.AddDomainRecordWithContext(ctx, dnsClient, request, &dara.RuntimeOptions{})
-	if err != nil {
-		return "", err
-	}
-	if response == nil || response.Body == nil || response.Body.RecordId == nil || strings.TrimSpace(*response.Body.RecordId) == "" {
-		return "", errors.New("阿里云未返回授权探测记录 ID")
-	}
-	return strings.TrimSpace(*response.Body.RecordId), nil
-}
-
 func deleteAuthorizationRecord(ctx context.Context, dnsClient *client.Client, recordID string) error {
 	if strings.TrimSpace(recordID) == "" {
 		return errors.New("授权探测记录 ID 为空")
@@ -294,19 +297,6 @@ func matchManagedDomain(requested string, domains []AuthorizationDomain) string 
 		}
 	}
 	return best
-}
-
-func authorizationZoneCandidates(requested string) []string {
-	requested = strings.TrimPrefix(normalizeAuthorizationDomain(requested), "*.")
-	labels := strings.Split(requested, ".")
-	result := make([]string, 0, len(labels)-1)
-	for index := 0; index < len(labels)-1; index++ {
-		candidate := strings.Join(labels[index:], ".")
-		if domain.IsValidName(candidate) {
-			result = append(result, candidate)
-		}
-	}
-	return result
 }
 
 func markAuthorizationFailure(report *AuthorizationReport, domainName string, err error) {

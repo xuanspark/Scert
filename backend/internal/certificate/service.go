@@ -272,6 +272,10 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 }
 
 func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string, domains []string, credentials map[string]string) error {
+	// 必须先校验全部 SAN；后续域名越界时也不能先写入前面的域名。
+	if err := dnsprovider.ValidateAliyunDomainScope(providerID, domains, credentials); err != nil {
+		return err
+	}
 	if s == nil || s.authorization == nil {
 		if strings.EqualFold(strings.TrimSpace(providerID), dnsprovider.Aliyun) {
 			return errors.New("阿里云权限探测器未初始化，已阻止证书申请")

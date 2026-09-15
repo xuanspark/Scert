@@ -12,6 +12,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 )
 
 type settingsView struct {
@@ -54,9 +55,11 @@ type settingsACMEView struct {
 }
 
 type settingsDNSView struct {
-	Provider             string `json:"provider"`
-	VerificationState    string `json:"verification_state"`
-	CredentialConfigured bool   `json:"credential_configured"`
+	Provider             string                   `json:"provider"`
+	VerificationState    string                   `json:"verification_state"`
+	CredentialConfigured bool                     `json:"credential_configured"`
+	UserScope            *dnsprovider.AliyunScope `json:"user_scope,omitempty"`
+	ScopeMessage         string                   `json:"scope_message,omitempty"`
 }
 
 type settingsNotificationView struct {
@@ -163,7 +166,24 @@ func (s *Server) getSettings(c *gin.Context) {
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
-	c.JSON(http.StatusOK, settingsViewFromConfig(cfg))
+	view := settingsViewFromConfig(cfg)
+	if cfg.DNS.Provider == dnsprovider.Aliyun {
+		credentials, err := s.readDNSCredentials(c.Request.Context(), cfg.DNS.CredentialRef)
+		if err == nil {
+			scope, scopeErr := dnsprovider.ParseAliyunScope(credentials)
+			if scopeErr == nil {
+				view.DNS.UserScope = &scope
+			} else {
+				view.DNS.ScopeMessage = scopeErr.Error()
+			}
+		} else {
+			view.DNS.ScopeMessage = "无法读取已保存授权范围，请检查凭据存储或重新验证"
+		}
+		if view.DNS.UserScope == nil {
+			view.DNS.VerificationState = "scope_required"
+		}
+	}
+	c.JSON(http.StatusOK, view)
 }
 
 func (s *Server) updateSettings(c *gin.Context) {

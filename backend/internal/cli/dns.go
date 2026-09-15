@@ -71,6 +71,11 @@ func newDNSPermissionCommand(verify dnsPermissionVerifier, readOnly bool) *cobra
 			if err != nil {
 				return fmt.Errorf("读取阿里云 DNS 凭据失败：%w", err)
 			}
+			if !readOnly {
+				if err := dnsprovider.ValidateAliyunDomainScope(dnsprovider.Aliyun, []string{requestedDomain}, credentials); err != nil {
+					return err
+				}
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 45*time.Second)
 			defer cancel()
 			report, verifyErr := verify(ctx, requestedDomain, credentials)

@@ -7,19 +7,6 @@ import (
 	"time"
 )
 
-func TestAuthorizationZoneCandidatesPreferSpecificZones(t *testing.T) {
-	got := authorizationZoneCandidates("*.www.example.com.")
-	want := []string{"www.example.com", "example.com"}
-	if len(got) != len(want) {
-		t.Fatalf("候选托管区数量错误：got=%v want=%v", got, want)
-	}
-	for index := range want {
-		if got[index] != want[index] {
-			t.Fatalf("候选托管区顺序错误：got=%v want=%v", got, want)
-		}
-	}
-}
-
 func TestAliyunAuthorizationCheckerRechecksEveryRequestAndDetectsRevocation(t *testing.T) {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	calls := 0
@@ -36,6 +23,8 @@ func TestAliyunAuthorizationCheckerRechecksEveryRequestAndDetectsRevocation(t *t
 	credentials := map[string]string{
 		"access_key_id":     "test-id",
 		"access_key_secret": "test-secret",
+		"managed_zones":     "example.com",
+		"allowed_domains":   "example.com,www.example.com",
 	}
 
 	if err := checker.VerifyDomain(context.Background(), Aliyun, "www.example.com", credentials); err != nil {
@@ -67,6 +56,8 @@ func TestAliyunAuthorizationCheckerInvalidatesAfterPermissionFailure(t *testing.
 	credentials := map[string]string{
 		"access_key_id":     "test-id",
 		"access_key_secret": "test-secret",
+		"managed_zones":     "example.com",
+		"allowed_domains":   "example.com",
 	}
 
 	if err := checker.VerifyDomain(context.Background(), Aliyun, "example.com", credentials); err != nil {
@@ -91,6 +82,8 @@ func TestAliyunAuthorizationCheckerDoesNotCacheFailedAuthorization(t *testing.T)
 	credentials := map[string]string{
 		"access_key_id":     "test-id",
 		"access_key_secret": "test-secret",
+		"managed_zones":     "example.com",
+		"allowed_domains":   "example.com",
 	}
 
 	if err := checker.VerifyDomain(context.Background(), Aliyun, "example.com", credentials); err == nil {
@@ -112,6 +105,8 @@ func TestAliyunAuthorizationCheckerCacheIsSafeForConcurrentUse(t *testing.T) {
 	credentials := map[string]string{
 		"access_key_id":     "test-id",
 		"access_key_secret": "test-secret",
+		"managed_zones":     "example.com",
+		"allowed_domains":   "example.com",
 	}
 	done := make(chan struct{})
 	for index := 0; index < 20; index++ {

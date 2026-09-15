@@ -3,6 +3,7 @@ package httpapi
 import "time"
 
 const authStateCapacity = 4096
+const authUserSessionCapacity = 16
 
 // 调用方持有认证锁；会话表有容量上限，不淘汰仍然有效的用户会话。
 func (s *Server) pruneAuthSessionsLocked(now time.Time) {

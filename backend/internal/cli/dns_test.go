@@ -30,6 +30,19 @@ func TestDNSCheckRequiresExplicitWriteConfirmation(t *testing.T) {
 	}
 }
 
+func TestDNSCheckRejectsOutsideScopeBeforeVerifier(t *testing.T) {
+	prepareDNSCheckConfig(t)
+	command := newDNSCheckCommand(func(context.Context, string, map[string]string) (dnsprovider.AuthorizationReport, error) {
+		t.Fatal("CLI 越界不得进入云端验证")
+		return dnsprovider.AuthorizationReport{}, nil
+	})
+	command.SilenceUsage, command.SilenceErrors = true, true
+	command.SetArgs([]string{"--domain", "outside.net", "--confirm-dns-write"})
+	if err := command.Execute(); err == nil {
+		t.Fatal("确认写入不等于允许扩大范围")
+	}
+}
+
 func TestDNSInspectDoesNotRequireWriteOrPromoteReadableToVerified(t *testing.T) {
 	prepareDNSCheckConfig(t)
 	command := newDNSInspectCommand(func(context.Context, string, map[string]string) (dnsprovider.AuthorizationReport, error) {
@@ -138,7 +151,7 @@ func prepareDNSCheckConfig(t *testing.T) config.Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Put(t.Context(), cfg.DNS.CredentialRef, map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret"}); err != nil {
+	if err := store.Put(t.Context(), cfg.DNS.CredentialRef, map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.com", "allowed_domains": "example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	return cfg

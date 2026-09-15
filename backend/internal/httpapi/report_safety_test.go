@@ -47,7 +47,7 @@ func TestAliyunReportHidesSDKErrorAndPreservesCleanupFailure(t *testing.T) {
 	cfg.DNS.CredentialRef = "secret://test/only"
 	server := New(Dependencies{
 		Config: cfg, AliyunChecker: &unsafeReportChecker{},
-		Secrets: &fakeSecretReaderStore{data: map[string]map[string]string{cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret"}}},
+		Secrets: &fakeSecretReaderStore{data: map[string]map[string]string{cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.test", "allowed_domains": "example.test"}}},
 	})
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/dns/aliyun/check", strings.NewReader(`{"domain":"example.test"}`)))

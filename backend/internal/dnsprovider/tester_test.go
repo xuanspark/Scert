@@ -175,6 +175,8 @@ func TestLegoFactoryCreatesConfiguredProviders(t *testing.T) {
 			credentials: map[string]string{
 				"access_key_id":     "id",
 				"access_key_secret": "secret",
+				"managed_zones":     "example.com",
+				"allowed_domains":   "example.com",
 			},
 		},
 		{

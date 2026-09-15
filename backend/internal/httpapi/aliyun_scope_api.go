@@ -33,6 +33,7 @@ type aliyunScopeResponse struct {
 	DiscoveredDomains        []dnsprovider.AuthorizationDomain `json:"discovered_domains,omitempty"`
 	ManagedDomains           []string                          `json:"managed_domains"`
 	CheckedAt                string                            `json:"checked_at"`
+	UserScope                *dnsprovider.AliyunScope          `json:"user_scope,omitempty"`
 }
 
 func (s *Server) getAliyunDNSScope(c *gin.Context) {
@@ -63,6 +64,14 @@ func (s *Server) getAliyunDNSScope(c *gin.Context) {
 		CredentialRef: credentialRef,
 		CheckedAt:     s.now().UTC().Format("2006-01-02T15:04:05Z"),
 	}
+	scope, scopeErr := dnsprovider.ParseAliyunScope(credentials)
+	if scopeErr != nil {
+		response.PolicyMode = "scope_required"
+		response.Message = scopeErr.Error()
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	response.UserScope = &scope
 
 	// 读取当前系统内已经纳管的域名列表
 	if s.repository != nil {
@@ -136,6 +145,10 @@ func (s *Server) checkAliyunDNSDomain(c *gin.Context) {
 		return
 	}
 
+	if err := dnsprovider.ValidateAliyunDomainScope(provider, []string{targetDomain}, credentials); err != nil {
+		c.JSON(http.StatusOK, gin.H{"verified": false, "domain": targetDomain, "message": err.Error()})
+		return
+	}
 	report, verifyErr := s.aliyunChecker.Verify(c.Request.Context(), targetDomain, credentials)
 	report = sanitizeAliyunReport(report, targetDomain)
 	if verifyErr != nil {
@@ -162,7 +175,7 @@ func (s *Server) checkAliyunDNSDomain(c *gin.Context) {
 	})
 }
 
-func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainName string) error {
+func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainNames ...string) error {
 	if s == nil {
 		return errors.New("域名授权检查服务未初始化")
 	}
@@ -189,10 +202,14 @@ func (s *Server) validateDomainAliyunAuthorization(ctx context.Context, domainNa
 	if _, err := dnsprovider.ValidateCredentials(dnsprovider.Aliyun, credentials); err != nil {
 		return fmt.Errorf("阿里云 DNS 凭据无效，不能确认域名授权：%w", err)
 	}
-
-	if err := s.aliyunChecker.VerifyDomain(ctx, dnsprovider.Aliyun, domainName, credentials); err != nil {
-		diagnosis := dnsprovider.DiagnoseAliyunError(err, domainName)
-		return fmt.Errorf("阿里云 RAM 账号无法操作域名 %s：%s", domainName, diagnosis)
+	if err := dnsprovider.ValidateAliyunDomainScope(provider, domainNames, credentials); err != nil {
+		return err
+	}
+	for _, domainName := range domainNames {
+		if err := s.aliyunChecker.VerifyDomain(ctx, dnsprovider.Aliyun, domainName, credentials); err != nil {
+			diagnosis := dnsprovider.DiagnoseAliyunError(err, domainName)
+			return fmt.Errorf("阿里云 RAM 账号无法操作域名 %s：%s", domainName, diagnosis)
+		}
 	}
 	return nil
 }

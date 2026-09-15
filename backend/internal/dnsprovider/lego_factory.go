@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/go-acme/lego/v5/challenge"
-	"github.com/go-acme/lego/v5/providers/dns/alidns"
 	"github.com/go-acme/lego/v5/providers/dns/cloudflare"
 	"github.com/go-acme/lego/v5/providers/dns/gcloud"
 	"github.com/go-acme/lego/v5/providers/dns/huaweicloud"
@@ -73,15 +72,7 @@ func (LegoFactory) Create(providerID string, credentials map[string]string) (cha
 		}
 		return provider, nil
 	case Aliyun:
-		cfg := alidns.NewDefaultConfig()
-		cfg.APIKey = cleaned["access_key_id"]
-		cfg.SecretKey = cleaned["access_key_secret"]
-		cfg.SecurityToken = cleaned["security_token"]
-		provider, err := alidns.NewDNSProviderConfig(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("创建阿里云 DNS Provider 失败：%w", err)
-		}
-		return provider, nil
+		return newScopedAliyunProvider(cleaned)
 	case DNSPod, TencentCloud:
 		cfg := tencentcloud.NewDefaultConfig()
 		cfg.SecretID = cleaned["secret_id"]

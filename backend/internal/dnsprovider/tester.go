@@ -102,6 +102,9 @@ func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain st
 	if err != nil {
 		return report, err
 	}
+	if err := ValidateAliyunDomainScope(providerID, []string{testDomain}, cleaned); err != nil {
+		return report, err
+	}
 	provider, err := t.factory.Create(providerID, cleaned)
 	if err != nil {
 		return report, err

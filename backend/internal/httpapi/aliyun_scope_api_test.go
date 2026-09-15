@@ -81,6 +81,8 @@ func TestAliyunScopeAPIsAndDomainValidation(t *testing.T) {
 			"secret://dns/aliyun/ref1": {
 				"access_key_id":     "LTAI_test",
 				"access_key_secret": "test_secret",
+				"managed_zones":     "solit.cn,unauth.com,forbidden.cn",
+				"allowed_domains":   "solit.cn,*.solit.cn,unauth.com,forbidden.cn",
 			},
 		},
 	}
@@ -208,7 +210,7 @@ func TestAliyunDomainAPIRejectsPartiallyUnauthorizedSAN(t *testing.T) {
 	server := New(Dependencies{
 		Config: cfg, Repository: &stubDomainRepository{},
 		Secrets: &fakeSecretReaderStore{data: map[string]map[string]string{
-			cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret"},
+			cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.com", "allowed_domains": "example.com"},
 		}},
 		AliyunChecker: &fakeAliyunScopeChecker{allowedZones: []string{"example.com"}},
 	})

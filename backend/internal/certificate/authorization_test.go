@@ -17,6 +17,12 @@ type scopedAuthorizationChecker struct {
 	calls  []string
 }
 
+type scopedServiceCredentials struct{}
+
+func (scopedServiceCredentials) Get(context.Context, string) (map[string]string, error) {
+	return map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.com,example.org", "allowed_domains": "example.com,other.example.org"}, nil
+}
+
 func (c *scopedAuthorizationChecker) VerifyDomain(_ context.Context, _ string, name string, _ map[string]string) error {
 	c.calls = append(c.calls, name)
 	if name == c.denied {
@@ -37,7 +43,7 @@ func TestServiceRejectsUnauthorizedSANBeforeIssuerOrFileWrites(t *testing.T) {
 			provider := &recordingProviderFactory{}
 			repo := &serviceRepository{item: item}
 			checker := &scopedAuthorizationChecker{denied: denied}
-			service := NewService(cfg, repo, serviceCredentials{}, provider, serviceAccounts{})
+			service := NewService(cfg, repo, scopedServiceCredentials{}, provider, serviceAccounts{})
 			service.SetDNSAuthorizationChecker(checker)
 			service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer {
 				t.Fatal("任意 SAN 权限拒绝后不得创建 ACME 签发器")
@@ -62,7 +68,7 @@ func TestServiceRejectsUnauthorizedSANBeforeIssuerOrFileWrites(t *testing.T) {
 
 func TestSetupRejectsUnauthorizedDomainBeforeIssuer(t *testing.T) {
 	cfg := certificateTestConfig(t.TempDir())
-	service := NewService(cfg, nil, serviceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service := NewService(cfg, nil, scopedServiceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
 	service.SetDNSAuthorizationChecker(&scopedAuthorizationChecker{denied: "other.example.org"})
 	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer {
 		t.Fatal("初始化证书中的未授权域名必须在 ACME 请求前拒绝")
@@ -86,7 +92,7 @@ func TestAliyunMissingAuthorizationCheckerBlocksIssueAndSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := &recordingProviderFactory{}
-	service := NewService(cfg, &serviceRepository{item: item}, serviceCredentials{}, provider, serviceAccounts{})
+	service := NewService(cfg, &serviceRepository{item: item}, scopedServiceCredentials{}, provider, serviceAccounts{})
 	if _, err := service.Issue(t.Context(), item.ID); err == nil || !strings.Contains(err.Error(), "探测器未初始化") {
 		t.Fatalf("缺失检查器必须阻止签发：%v", err)
 	}
@@ -98,5 +104,19 @@ func TestAliyunMissingAuthorizationCheckerBlocksIssueAndSetup(t *testing.T) {
 	}
 	if provider.providerID != "" {
 		t.Fatal("缺失检查器时不得创建 DNS 挑战 Provider")
+	}
+}
+
+func TestAliyunWholeOrderScopeValidationBeforeAnyCloudProbe(t *testing.T) {
+	cfg := certificateTestConfig(t.TempDir())
+	checker := &scopedAuthorizationChecker{}
+	service := NewService(cfg, nil, scopedServiceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service.SetDNSAuthorizationChecker(checker)
+	_, err := service.IssueForSetup(t.Context(), SetupCertificateRequest{
+		Domains: []string{"example.com", "outside.net"}, CertificateType: "san",
+		ProviderID: "aliyun", CredentialRef: "secret://dns/test", Environment: "staging",
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside.net") || len(checker.calls) != 0 {
+		t.Fatalf("部分越界必须零云调用拒绝整单：%v %v", err, checker.calls)
 	}
 }

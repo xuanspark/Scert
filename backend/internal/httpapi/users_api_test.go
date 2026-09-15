@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -134,14 +135,57 @@ func serveUserRequest(server *Server, cookie *http.Cookie, method, path, body st
 
 func httpUserSessionCookie(server *Server, userID, role string) *http.Cookie {
 	token := userID + "-session"
-	now := time.Now()
+	now := server.now()
+	hash, err := bcrypt.GenerateFromPassword([]byte("FixturePass123"), bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+	user := repository.User{ID: userID, Username: userID, Role: role, Status: repository.UserStatusActive, PasswordHash: string(hash)}
+	if userID == "primary-super-admin" {
+		user.Username = server.config.Admin.Username
+		user.Email = server.config.Admin.Email
+		user.PasswordHash = server.config.Admin.PasswordHash
+	} else {
+		if server.users == nil {
+			server.users = &sessionFixtureUsers{items: make(map[string]repository.User)}
+		}
+		if stored, err := server.users.GetUserByID(context.Background(), userID); err == nil {
+			user = stored
+		} else if err := server.users.CreateUser(context.Background(), user); err != nil {
+			panic(err)
+		}
+	}
 	server.authMu.Lock()
 	server.authSessions[token] = authSession{
-		UserID: userID, Username: userID, Role: role,
+		UserID: user.ID, Username: user.Username, Email: user.Email, Role: user.Role, PasswordHash: user.PasswordHash,
 		ExpiresAt: now.Add(time.Hour), AbsoluteExpiresAt: now.Add(2 * time.Hour),
 	}
 	server.authMu.Unlock()
 	return &http.Cookie{Name: authCookieName, Value: token, Path: "/"}
+}
+
+type sessionFixtureUsers struct {
+	repository.UserRepository
+	items map[string]repository.User
+}
+
+func (r *sessionFixtureUsers) GetUserByID(_ context.Context, id string) (repository.User, error) {
+	if user, ok := r.items[id]; ok {
+		return user, nil
+	}
+	return repository.User{}, sql.ErrNoRows
+}
+
+func (r *sessionFixtureUsers) CreateUser(_ context.Context, user repository.User) error {
+	r.items[user.ID] = user
+	return nil
+}
+
+func (r *sessionFixtureUsers) EnsureSuperAdmin(_ context.Context, user repository.User) error {
+	user.Role = repository.UserRoleSuperAdmin
+	user.Status = repository.UserStatusActive
+	r.items[user.ID] = user
+	return nil
 }
 
 func httpUserPasswordHash(t *testing.T, password string) string {

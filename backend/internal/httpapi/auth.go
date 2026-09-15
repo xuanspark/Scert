@@ -69,6 +69,12 @@ func (s *Server) authLogin(c *gin.Context) {
 		s.writeError(c, http.StatusTooManyRequests, "登录失败次数过多，请稍后再试", nil)
 		return
 	}
+	if !s.reserveLogin(c.Request, key) {
+		c.Header("Retry-After", "60")
+		s.writeError(c, http.StatusTooManyRequests, "登录请求过于频繁或服务繁忙，请稍后再试", nil)
+		return
+	}
+	defer s.releaseLogin(c.Request, key)
 
 	account, userID, passwordHash, err := s.authenticateAccount(c.Request.Context(), request, cfg)
 	if err != nil {
@@ -92,9 +98,15 @@ func (s *Server) authLogin(c *gin.Context) {
 	expiresAt := minTime(now.Add(authSessionLifetime), absoluteExpiresAt)
 	s.authMu.Lock()
 	s.pruneAuthSessionsLocked(now)
-	if len(s.authSessions) >= authStateCapacity {
+	userSessions := 0
+	for _, session := range s.authSessions {
+		if session.UserID == userID {
+			userSessions++
+		}
+	}
+	if len(s.authSessions) >= authStateCapacity || userSessions >= authUserSessionCapacity {
 		s.authMu.Unlock()
-		s.writeError(c, http.StatusServiceUnavailable, "登录会话数量已达上限，请稍后重试", nil)
+		s.writeError(c, http.StatusServiceUnavailable, "登录会话数量已达上限，请退出其他设备或稍后重试", nil)
 		return
 	}
 	s.authSessions[token] = authSession{
@@ -180,7 +192,7 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 	s.authMu.RLock()
 	session, ok := s.authSessions[token]
 	s.authMu.RUnlock()
-	if !ok || !session.ExpiresAt.After(now) || (!session.AbsoluteExpiresAt.IsZero() && !session.AbsoluteExpiresAt.After(now)) {
+	if !ok || !session.ExpiresAt.After(now) || session.AbsoluteExpiresAt.IsZero() || !session.AbsoluteExpiresAt.After(now) || session.ExpiresAt.After(session.AbsoluteExpiresAt) {
 		if ok {
 			s.authMu.Lock()
 			delete(s.authSessions, token)
@@ -198,7 +210,7 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 	newExpiresAt := minTime(now.Add(authSessionLifetime), session.AbsoluteExpiresAt)
 	s.authMu.Lock()
 	current, exists := s.authSessions[token]
-	if !exists {
+	if !exists || current.UserID != session.UserID || current.PasswordHash != session.PasswordHash || current.Role != session.Role || current.Username != session.Username || current.Email != session.Email || !current.AbsoluteExpiresAt.Equal(session.AbsoluteExpiresAt) {
 		s.authMu.Unlock()
 		return authSession{}, false
 	}
@@ -216,11 +228,11 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 }
 
 func (s *Server) authSessionAccountIsValid(ctx context.Context, session authSession) bool {
-	if session.UserID == "" {
-		return true
+	if strings.TrimSpace(session.UserID) == "" || strings.TrimSpace(session.PasswordHash) == "" || strings.TrimSpace(session.Username) == "" {
+		return false
 	}
-	if session.PasswordHash == "" {
-		return true
+	if session.Role != repository.UserRoleUser && session.Role != repository.UserRoleAdmin && session.Role != repository.UserRoleSuperAdmin {
+		return false
 	}
 	if session.UserID == "primary-super-admin" {
 		s.configMu.RLock()
@@ -290,7 +302,7 @@ func (s *Server) allowLogin(key string) bool {
 	if !attempt.BlockedTill.IsZero() && attempt.BlockedTill.After(now) {
 		return false
 	}
-	if attempt.WindowStart.IsZero() || now.Sub(attempt.WindowStart) >= loginWindow {
+	if attempt.WindowStart.IsZero() || now.Sub(attempt.WindowStart) >= loginWindow || (!attempt.BlockedTill.IsZero() && !attempt.BlockedTill.After(now)) {
 		delete(s.loginAttempts, key)
 	}
 	return true

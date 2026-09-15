@@ -53,6 +53,18 @@ test("管理设置拒绝过期验证令牌", async (t) => {
   assert.equal(state.dnsReadyToSave.value, false);
 });
 
+test("管理设置变更托管区不能复用验证令牌", async (t) => {
+  const state = await setup(t, () => verifiedResponse());
+  await fill(state);
+  state.settingsForm.value.dns.credentials.managed_zones = "example.test";
+  state.settingsForm.value.dns.credentials.allowed_domains = "example.test";
+  await state.testDNS();
+  assert.equal(state.dnsReadyToSave.value, true);
+  state.settingsForm.value.dns.credentials.managed_zones = "other.test";
+  assert.equal(state.dnsReadyToSave.value, false);
+  assert.equal(state.settingsForm.value.dns.verification_token, "");
+});
+
 test("关闭设置后不显示旧 DNS 请求的成功提示", async (t) => {
   const pending = deferred();
   const state = await setup(t, () => pending.promise);

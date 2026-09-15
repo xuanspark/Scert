@@ -41,6 +41,8 @@ func newRestoreAPITestServer(t *testing.T, restore func(context.Context, string,
 	audit := &restoreAuditRepository{}
 	cfg := config.Default(t.TempDir())
 	cfg.SetupReady = true
+	cfg.Admin.Username = "admin"
+	cfg.Admin.PasswordHash = httpUserPasswordHash(t, "RestoreTest123")
 	server := New(Dependencies{
 		Config:                    cfg,
 		Repository:                &stubDomainRepository{},
@@ -49,9 +51,13 @@ func newRestoreAPITestServer(t *testing.T, restore func(context.Context, string,
 		Audit:                     audit,
 	})
 	server.authSessions["test-session"] = authSession{
-		Username:  "admin",
-		Role:      "super_admin",
-		ExpiresAt: time.Now().Add(time.Hour),
+		UserID:            "primary-super-admin",
+		PasswordHash:      cfg.Admin.PasswordHash,
+		Email:             cfg.Admin.Email,
+		Username:          "admin",
+		Role:              "super_admin",
+		ExpiresAt:         time.Now().Add(time.Hour),
+		AbsoluteExpiresAt: time.Now().Add(2 * time.Hour),
 	}
 	return server, audit
 }

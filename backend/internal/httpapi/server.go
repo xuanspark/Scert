@@ -106,6 +106,9 @@ type Server struct {
 	authMu              sync.RWMutex
 	loginAttempts       map[string]loginAttempt
 	loginMu             sync.Mutex
+	loginSources        map[string]loginSource
+	loginPending        map[string]int
+	loginInFlight       int
 	loginPrunedAt       time.Time
 	now                 func() time.Time
 	httpServer          *http.Server
@@ -144,6 +147,8 @@ func New(deps Dependencies) *Server {
 		resetLimiter:             newResetRateLimiter(),
 		authSessions:             make(map[string]authSession),
 		loginAttempts:            make(map[string]loginAttempt),
+		loginSources:             make(map[string]loginSource),
+		loginPending:             make(map[string]int),
 		now:                      time.Now,
 	}
 	router.Use(server.requestMiddleware())
@@ -361,9 +366,16 @@ func (s *Server) ready(c *gin.Context) {
 			continue
 		}
 		checked[reference] = struct{}{}
-		if _, err := reader.Get(ctx, reference); err != nil {
+		credentials, err := reader.Get(ctx, reference)
+		if err != nil {
 			s.writeReadinessFailure(c, "credential_unavailable")
 			return
+		}
+		if reference == dnsReference && cfg.DNS.Provider == dnsprovider.Aliyun {
+			if _, err := dnsprovider.ParseAliyunScope(credentials); err != nil {
+				s.writeReadinessFailure(c, "dns_scope_required")
+				return
+			}
 		}
 	}
 
@@ -460,18 +472,9 @@ func (s *Server) createDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "域名配置无效", err)
 		return
 	}
-	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), item.Name); err != nil {
+	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), append([]string{item.Name}, item.SANs...)...); err != nil {
 		s.writeError(c, http.StatusBadRequest, err.Error(), err)
 		return
-	}
-	for _, san := range item.SANs {
-		if san == item.Name {
-			continue
-		}
-		if err := s.validateDomainAliyunAuthorization(c.Request.Context(), san); err != nil {
-			s.writeError(c, http.StatusBadRequest, err.Error(), err)
-			return
-		}
 	}
 	if err := s.repository.Create(c.Request.Context(), item); err != nil {
 		if repository.IsConflict(err) {
@@ -507,18 +510,9 @@ func (s *Server) updateDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "域名配置无效", err)
 		return
 	}
-	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), item.Name); err != nil {
+	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), append([]string{item.Name}, item.SANs...)...); err != nil {
 		s.writeError(c, http.StatusBadRequest, err.Error(), err)
 		return
-	}
-	for _, san := range item.SANs {
-		if san == item.Name {
-			continue
-		}
-		if err := s.validateDomainAliyunAuthorization(c.Request.Context(), san); err != nil {
-			s.writeError(c, http.StatusBadRequest, err.Error(), err)
-			return
-		}
 	}
 	item.ID = existing.ID
 	item.CreatedAt = existing.CreatedAt
