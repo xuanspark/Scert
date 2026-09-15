@@ -431,6 +431,7 @@ label > small {
 
 .provider-description,
 .dns-verification-success,
+.dns-verification-progress,
 .dns-verification-report {
   min-width: 0;
   display: grid;
@@ -450,6 +451,21 @@ label > small {
 .provider-description.unavailable {
   color: #805f20;
   background: #fff8e8;
+}
+
+.dns-verification-progress {
+  border: 1px solid #cbdcf2;
+  color: #2d5b99;
+  background: #f0f6ff;
+}
+
+.dns-verification-progress strong {
+  font-size: 11px;
+}
+
+.dns-verification-progress small {
+  color: #53647b;
+  font-size: 9px;
 }
 
 .provider-description strong,
@@ -831,6 +847,7 @@ button:disabled {
 
   .provider-description,
   .dns-verification-success,
+  .dns-verification-progress,
   .dns-test-actions {
     margin-top: 6px;
   }
@@ -984,13 +1001,15 @@ button:disabled {
   }
 
   .provider-description,
-  .dns-verification-success {
+  .dns-verification-success,
+  .dns-verification-progress {
     padding: 6px 8px;
     font-size: 9px;
   }
 
   .provider-description span,
   .dns-verification-success span,
+  .dns-verification-progress small,
   .dns-test-actions > span {
     display: none;
   }

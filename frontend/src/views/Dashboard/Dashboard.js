@@ -1,5 +1,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
+const defaultDNSVerificationTimeoutSeconds = 45;
+const dnsVerificationCleanupBufferSeconds = 30;
+
 export function useDashboard() {
   const scertLogo = "/Scert.png";
 
@@ -37,8 +40,11 @@ export function useDashboard() {
   const settingsError = ref("");
   const dnsTesting = ref(false);
   const dnsTestError = ref("");
+  const dnsVerificationElapsedSeconds = ref(0);
+  const dnsVerificationTimeoutSeconds = ref(defaultDNSVerificationTimeoutSeconds);
   const verificationClock = ref(Date.now());
   let verificationTimer;
+  let dnsVerificationTimer;
   let dnsRequestVersion = 0;
   const settingsForm = ref(createEmptySettingsForm());
   const showCertificateImport = ref(false);
@@ -211,6 +217,47 @@ export function useDashboard() {
     return Boolean(dns.credential_ref && dns.verification_token) &&
       new Date(dns.expires_at).getTime() > Date.now();
   });
+
+  function resolveDNSVerificationTimeoutSeconds(value) {
+    const propagationTimeout = Number(value);
+    if (!Number.isFinite(propagationTimeout) || propagationTimeout <= 0) {
+      return defaultDNSVerificationTimeoutSeconds;
+    }
+    return Math.floor(propagationTimeout) + dnsVerificationCleanupBufferSeconds;
+  }
+
+  function updateDNSVerificationTimeoutSeconds(value) {
+    const timeout = Number(value);
+    if (Number.isFinite(timeout) && timeout > 0) {
+      dnsVerificationTimeoutSeconds.value = Math.floor(timeout);
+    }
+  }
+
+  function stopDNSVerificationTimer(requestVersion) {
+    if (requestVersion !== undefined && requestVersion !== dnsRequestVersion) return;
+    if (dnsVerificationTimer) {
+      window.clearInterval(dnsVerificationTimer);
+      dnsVerificationTimer = undefined;
+    }
+    dnsVerificationElapsedSeconds.value = 0;
+  }
+
+  function startDNSVerificationTimer(requestVersion) {
+    stopDNSVerificationTimer();
+    dnsVerificationTimeoutSeconds.value = resolveDNSVerificationTimeoutSeconds(
+      settingsForm.value.acme.propagation_timeout_secs,
+    );
+    const startedAt = Date.now();
+    const updateElapsedSeconds = () => {
+      if (requestVersion !== dnsRequestVersion) return;
+      dnsVerificationElapsedSeconds.value = Math.max(
+        0,
+        Math.floor((Date.now() - startedAt) / 1000),
+      );
+    };
+    updateElapsedSeconds();
+    dnsVerificationTimer = window.setInterval(updateElapsedSeconds, 1000);
+  }
 
   watch(
     () => [settingsForm.value.dns.provider, settingsForm.value.dns.test_domain, settingsForm.value.dns.credentials],
@@ -713,6 +760,7 @@ export function useDashboard() {
 
   function handleDNSProviderChange() {
     dnsRequestVersion += 1;
+    stopDNSVerificationTimer();
     dnsTesting.value = false;
     const dns = settingsForm.value.dns;
     const saved = settings.value?.dns;
@@ -761,9 +809,10 @@ export function useDashboard() {
       dnsTestError.value = `请填写${missingField.label}`;
       return;
     }
+    const requestVersion = dnsRequestVersion;
     dnsTesting.value = true;
     dns.verification_state = "pending";
-    const requestVersion = dnsRequestVersion;
+    startDNSVerificationTimer(requestVersion);
     try {
       const response = await fetchAdmin("/api/v1/dns/test", {
         method: "POST",
@@ -776,6 +825,7 @@ export function useDashboard() {
       });
       const result = await response.json().catch(() => ({}));
       if (requestVersion !== dnsRequestVersion) return;
+      updateDNSVerificationTimeoutSeconds(result.verification_timeout_secs);
       dns.test_report = result.test_report || null;
       if (!response.ok) {
         throw new Error(result.error || "DNS API 在线测试失败");
@@ -793,7 +843,10 @@ export function useDashboard() {
       dns.verification_state = "pending";
       dnsTestError.value = err.message || "DNS API 在线测试失败";
     } finally {
-      if (requestVersion === dnsRequestVersion) dnsTesting.value = false;
+      if (requestVersion === dnsRequestVersion) {
+        stopDNSVerificationTimer(requestVersion);
+        dnsTesting.value = false;
+      }
     }
   }
 
@@ -1100,6 +1153,7 @@ export function useDashboard() {
   });
   onBeforeUnmount(() => {
     dnsRequestVersion += 1;
+    stopDNSVerificationTimer();
     if (verificationTimer) window.clearInterval(verificationTimer);
     document.body.style.overflow = previousBodyOverflow;
   });
@@ -1119,6 +1173,8 @@ export function useDashboard() {
     selectedDNSProvider,
     dnsTesting,
     dnsTestError,
+    dnsVerificationElapsedSeconds,
+    dnsVerificationTimeoutSeconds,
     dnsReadyToSave,
     handleDNSProviderChange,
     clearDNSCredentials,

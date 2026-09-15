@@ -1,5 +1,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
+const defaultDNSVerificationTimeoutSeconds = 45;
+const dnsVerificationCleanupBufferSeconds = 30;
+
 const commonEmailDomains = [
   { label: "常用邮箱", value: "" },
   { label: "@163.com", value: "163.com" },
@@ -25,6 +28,8 @@ export function useSetupWizard(props, emit) {
   const dnsCatalogError = ref("");
   const dnsTesting = ref(false);
   const dnsTestError = ref("");
+  const dnsVerificationElapsedSeconds = ref(0);
+  const dnsVerificationTimeoutSeconds = ref(defaultDNSVerificationTimeoutSeconds);
   const dnsProviders = ref([]);
   const dnsCredentials = ref({});
   const dnsCredentialsVisible = ref(true);
@@ -41,6 +46,7 @@ export function useSetupWizard(props, emit) {
   const emailAutofillElement = ref(null);
   let emailVisibleEdited = false;
   let verificationTimer;
+  let dnsVerificationTimer;
   let dnsRequestVersion = 0;
   let emailAutofillTimer;
   const targetType = ref(props.status.web_public_ip ? "ip" : "hostname");
@@ -143,9 +149,51 @@ export function useSetupWizard(props, emit) {
 
   function invalidateDNSVerification() {
     dnsRequestVersion += 1;
+    stopDNSVerificationTimer();
     dnsTesting.value = false;
     dnsVerification.value = null;
     dnsTestError.value = "";
+  }
+
+  function resolveDNSVerificationTimeoutSeconds(value) {
+    const propagationTimeout = Number(value);
+    if (!Number.isFinite(propagationTimeout) || propagationTimeout <= 0) {
+      return defaultDNSVerificationTimeoutSeconds;
+    }
+    return Math.floor(propagationTimeout) + dnsVerificationCleanupBufferSeconds;
+  }
+
+  function updateDNSVerificationTimeoutSeconds(value) {
+    const timeout = Number(value);
+    if (Number.isFinite(timeout) && timeout > 0) {
+      dnsVerificationTimeoutSeconds.value = Math.floor(timeout);
+    }
+  }
+
+  function stopDNSVerificationTimer(requestVersion) {
+    if (requestVersion !== undefined && requestVersion !== dnsRequestVersion) return;
+    if (dnsVerificationTimer) {
+      window.clearInterval(dnsVerificationTimer);
+      dnsVerificationTimer = undefined;
+    }
+    dnsVerificationElapsedSeconds.value = 0;
+  }
+
+  function startDNSVerificationTimer(requestVersion) {
+    stopDNSVerificationTimer();
+    dnsVerificationTimeoutSeconds.value = resolveDNSVerificationTimeoutSeconds(
+      form.value.propagation_timeout_secs,
+    );
+    const startedAt = Date.now();
+    const updateElapsedSeconds = () => {
+      if (requestVersion !== dnsRequestVersion) return;
+      dnsVerificationElapsedSeconds.value = Math.max(
+        0,
+        Math.floor((Date.now() - startedAt) / 1000),
+      );
+    };
+    updateElapsedSeconds();
+    dnsVerificationTimer = window.setInterval(updateElapsedSeconds, 1000);
   }
 
   function formatVerificationExpiry(value) {
@@ -417,8 +465,9 @@ export function useSetupWizard(props, emit) {
       }
     }
 
-    dnsTesting.value = true;
     const requestVersion = dnsRequestVersion;
+    dnsTesting.value = true;
+    startDNSVerificationTimer(requestVersion);
     try {
       const response = await fetch("/api/v1/setup/dns/test", {
         method: "POST",
@@ -431,6 +480,7 @@ export function useSetupWizard(props, emit) {
       });
       const result = await response.json().catch(() => ({}));
       if (requestVersion !== dnsRequestVersion) return;
+      updateDNSVerificationTimeoutSeconds(result.verification_timeout_secs);
       if (result.test_report) {
         dnsVerification.value = { test_report: result.test_report };
       }
@@ -440,7 +490,10 @@ export function useSetupWizard(props, emit) {
       if (requestVersion !== dnsRequestVersion) return;
       dnsTestError.value = err.message || "DNS API 在线验证失败";
     } finally {
-      if (requestVersion === dnsRequestVersion) dnsTesting.value = false;
+      if (requestVersion === dnsRequestVersion) {
+        stopDNSVerificationTimer(requestVersion);
+        dnsTesting.value = false;
+      }
     }
   }
 
@@ -810,6 +863,8 @@ export function useSetupWizard(props, emit) {
     dnsCatalogError,
     dnsTesting,
     dnsTestError,
+    dnsVerificationElapsedSeconds,
+    dnsVerificationTimeoutSeconds,
     dnsProviders,
     dnsCredentials,
     dnsCredentialsVisible,

@@ -239,6 +239,9 @@ func TestSetupDNSProviderCatalogAndOnlineTest(t *testing.T) {
 		!strings.Contains(testResponse.Body.String(), "清理记录") {
 		t.Fatalf("DNS 在线测试响应应包含阶段报告：%s", testResponse.Body.String())
 	}
+	if !strings.Contains(testResponse.Body.String(), `"verification_timeout_secs":930`) {
+		t.Fatalf("DNS 在线测试响应应包含当前最大等待时间：%s", testResponse.Body.String())
+	}
 }
 
 func TestSetupDNSTestUsesConfiguredRequestTimeout(t *testing.T) {
@@ -261,6 +264,9 @@ func TestSetupDNSTestUsesConfiguredRequestTimeout(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("模拟 DNS 验证失败应返回 422，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":31`) {
+		t.Fatalf("DNS 验证失败响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 	if !verifier.verifyHasDeadline {
 		t.Fatal("DNS 在线测试应收到带截止时间的上下文")

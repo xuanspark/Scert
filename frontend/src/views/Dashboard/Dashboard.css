@@ -1091,6 +1091,28 @@ code {
   background: #e7f8ee;
 }
 
+.dns-verification-progress {
+  display: grid;
+  gap: 4px;
+  margin: -4px 0 16px;
+  padding: 12px 13px;
+  border: 1px solid #cbdcf2;
+  border-radius: 11px;
+  color: #2d5b99;
+  background: #f0f6ff;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.dns-verification-progress strong {
+  font-size: 13px;
+}
+
+.dns-verification-progress small {
+  color: #6d7b91;
+  font-size: 12px;
+}
+
 .dns-test-report {
   display: grid;
   gap: 8px;

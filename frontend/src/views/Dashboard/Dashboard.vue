@@ -60,6 +60,8 @@ const {
   selectedDNSProvider,
   dnsTesting,
   dnsTestError,
+  dnsVerificationElapsedSeconds,
+  dnsVerificationTimeoutSeconds,
   dnsReadyToSave,
   handleDNSProviderChange,
   clearDNSCredentials,
@@ -569,6 +571,21 @@ const {
             >
               {{ settingsForm.dns.verification_state === "verified" ? "已验证" : "待验证" }}
             </span>
+          </div>
+          <div
+            v-if="dnsTesting"
+            class="dns-verification-progress"
+            role="status"
+            aria-live="polite"
+          >
+            <strong>正在进行 DNS 验证，请等待</strong>
+            <span>
+              已等待 {{ dnsVerificationElapsedSeconds }} 秒，最长等待
+              {{ dnsVerificationTimeoutSeconds }} 秒。
+            </span>
+            <small>
+              系统正在创建临时 TXT、查询验证记录并自动清理。这是 DNS API 权限验证；实际申请证书时，仍可能需要等待公网 DNS-01 记录传播。
+            </small>
           </div>
           <p v-if="dnsTestError" class="form-error">{{ dnsTestError }}</p>
           <div

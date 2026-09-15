@@ -28,9 +28,22 @@ export function verifiedResponse(token = "test-token") {
 
 // 运行真实组合式逻辑和生命周期，不加载浏览器，也不连接 DNS 或业务数据库。
 export async function mountComposable(t, factory, fetcher) {
+  const intervals = new Map();
+  let nextIntervalID = 1;
   const originals = new Map();
   for (const [key, value] of Object.entries({
-    window: { setInterval: () => 1, clearInterval() {}, location: { assign() {} } },
+    window: {
+      setInterval(callback) {
+        const intervalID = nextIntervalID;
+        nextIntervalID += 1;
+        intervals.set(intervalID, callback);
+        return intervalID;
+      },
+      clearInterval(intervalID) {
+        intervals.delete(intervalID);
+      },
+      location: { assign() {} },
+    },
     document: { body: { style: { overflow: "" } } },
   })) {
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
@@ -66,5 +79,11 @@ export async function mountComposable(t, factory, fetcher) {
   });
   await new Promise((resolve) => setImmediate(resolve));
   await nextTick();
-  return { state, unmount };
+  return {
+    state,
+    unmount,
+    runIntervals() {
+      for (const callback of [...intervals.values()]) callback();
+    },
+  };
 }

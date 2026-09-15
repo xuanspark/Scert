@@ -55,15 +55,16 @@ func TestAdminDNSTestReturnsVerificationResult(t *testing.T) {
 		t.Fatalf("DNS 在线测试失败：%d %s", response.Code, response.Body.String())
 	}
 	var payload struct {
-		Verified          bool                        `json:"verified"`
-		CredentialRef     string                      `json:"credential_ref"`
-		VerificationToken string                      `json:"verification_token"`
-		TestReport        setup.DNSVerificationReport `json:"test_report"`
+		Verified                 bool                        `json:"verified"`
+		CredentialRef            string                      `json:"credential_ref"`
+		VerificationToken        string                      `json:"verification_token"`
+		TestReport               setup.DNSVerificationReport `json:"test_report"`
+		VerificationTimeoutSecs int                         `json:"verification_timeout_secs"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("解析 DNS 在线测试响应失败：%v", err)
 	}
-	if !payload.Verified || payload.CredentialRef == "" || payload.VerificationToken == "" || payload.TestReport.RecordName == "" {
+	if !payload.Verified || payload.CredentialRef == "" || payload.VerificationToken == "" || payload.TestReport.RecordName == "" || payload.VerificationTimeoutSecs <= 0 {
 		t.Fatalf("DNS 在线测试响应内容不正确：%+v", payload)
 	}
 }

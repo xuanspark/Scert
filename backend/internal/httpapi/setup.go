@@ -157,6 +157,7 @@ func (s *Server) testAdminDNS(c *gin.Context) {
 }
 
 func (s *Server) testDNS(c *gin.Context) {
+	verificationTimeoutSecs := int(s.dnsVerificationTimeout().Seconds())
 	if s.setupDNS == nil {
 		s.writeError(c, http.StatusServiceUnavailable, "DNS 在线验证服务尚未初始化", nil)
 		return
@@ -173,7 +174,10 @@ func (s *Server) testDNS(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, dnsprovider.ErrProviderUnavailable) {
-			s.writeError(c, http.StatusNotImplemented, "该 DNS 服务商在线验证适配器尚未开放", nil)
+			c.JSON(http.StatusNotImplemented, gin.H{
+				"error":                     "该 DNS 服务商在线验证适配器尚未开放",
+				"verification_timeout_secs": verificationTimeoutSecs,
+			})
 			return
 		}
 		report := result.TestReport
@@ -184,16 +188,21 @@ func (s *Server) testDNS(c *gin.Context) {
 		if s.logger != nil {
 			s.logger.Error("DNS API 在线验证失败", "provider", request.ProviderID, "test_domain", request.TestDomain)
 		}
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "DNS API 在线验证失败，请检查凭据、测试域名和 DNS 权限", "test_report": report})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error":                     "DNS API 在线验证失败，请检查凭据、测试域名和 DNS 权限",
+			"test_report":               report,
+			"verification_timeout_secs": verificationTimeoutSecs,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"verified":           true,
-		"credential_ref":     result.CredentialRef,
-		"verification_token": result.VerificationToken,
-		"expires_at":         result.ExpiresAt,
-		"test_report":        result.TestReport,
-		"message":            "DNS API 在线验证通过，凭据已加密保存。",
+		"verified":                  true,
+		"credential_ref":            result.CredentialRef,
+		"verification_token":        result.VerificationToken,
+		"expires_at":                result.ExpiresAt,
+		"test_report":               result.TestReport,
+		"verification_timeout_secs": verificationTimeoutSecs,
+		"message":                   "DNS API 在线验证通过，凭据已加密保存。",
 	})
 }
 
