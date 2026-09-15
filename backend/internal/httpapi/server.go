@@ -64,6 +64,7 @@ type Dependencies struct {
 	Audit               repository.AuditRepository
 	Tasks               repository.TaskRepository
 	ReadinessCheck      func(context.Context) error
+	AliyunChecker       aliyunScopeChecker
 }
 
 type Server struct {
@@ -93,6 +94,7 @@ type Server struct {
 	audit               repository.AuditRepository
 	tasks               repository.TaskRepository
 	readinessCheck      func(context.Context) error
+	aliyunChecker       aliyunScopeChecker
 	taskMu              sync.Mutex
 	taskCancels         map[string]context.CancelFunc
 	issueTaskMu         sync.Mutex
@@ -135,6 +137,7 @@ func New(deps Dependencies) *Server {
 		audit:                    deps.Audit,
 		tasks:                    deps.Tasks,
 		readinessCheck:           deps.ReadinessCheck,
+		aliyunChecker:            deps.AliyunChecker,
 		taskCancels:              make(map[string]context.CancelFunc),
 		resetLimiter:             newResetRateLimiter(),
 		authSessions:             make(map[string]authSession),
@@ -180,6 +183,8 @@ func (s *Server) registerRoutes() {
 	adminAPI.PUT("/settings", s.updateSettings)
 	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
 	adminAPI.POST("/dns/test", s.testAdminDNS)
+	adminAPI.GET("/dns/aliyun/scope", s.getAliyunDNSScope)
+	adminAPI.POST("/dns/aliyun/check", s.checkAliyunDNSDomain)
 	adminAPI.POST("/renewal/run", s.runRenewalNow)
 	adminAPI.GET("/certificates", s.listCertificates)
 	adminAPI.GET("/certificates/:id", s.getCertificate)
@@ -453,6 +458,16 @@ func (s *Server) createDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "域名配置无效", err)
 		return
 	}
+	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), item.Name); err != nil {
+		s.writeError(c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
+	for _, san := range item.SANs {
+		if err := s.validateDomainAliyunAuthorization(c.Request.Context(), san); err != nil {
+			s.writeError(c, http.StatusBadRequest, err.Error(), err)
+			return
+		}
+	}
 	if err := s.repository.Create(c.Request.Context(), item); err != nil {
 		if repository.IsConflict(err) {
 			s.writeError(c, http.StatusConflict, "域名已经存在", err)
@@ -486,6 +501,16 @@ func (s *Server) updateDomain(c *gin.Context) {
 	if err != nil {
 		s.writeError(c, http.StatusBadRequest, "域名配置无效", err)
 		return
+	}
+	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), item.Name); err != nil {
+		s.writeError(c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
+	for _, san := range item.SANs {
+		if err := s.validateDomainAliyunAuthorization(c.Request.Context(), san); err != nil {
+			s.writeError(c, http.StatusBadRequest, err.Error(), err)
+			return
+		}
 	}
 	item.ID = existing.ID
 	item.CreatedAt = existing.CreatedAt

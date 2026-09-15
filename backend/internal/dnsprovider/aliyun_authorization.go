@@ -42,6 +42,7 @@ type AuthorizationReport struct {
 	MatchedDomain   string                `json:"matched_domain,omitempty"`
 	Domains         []AuthorizationDomain `json:"domains"`
 	Verified        bool                  `json:"verified"`
+	Diagnosis       string                `json:"diagnosis,omitempty"`
 	CheckedAt       time.Time             `json:"checked_at"`
 }
 
@@ -124,7 +125,8 @@ func (c *AliyunAuthorizationChecker) Verify(ctx context.Context, requestedDomain
 	if lastErr == nil {
 		lastErr = errors.New("未找到可验证的阿里云 DNS 托管根域名")
 	}
-	return report, fmt.Errorf("阿里云 RAM 账号无法写入域名 %s：%w", requestedDomain, lastErr)
+	report.Diagnosis = DiagnoseAliyunError(lastErr, requestedDomain)
+	return report, fmt.Errorf("阿里云 RAM 账号无法写入域名 %s：%w（建议：%s）", requestedDomain, lastErr, report.Diagnosis)
 }
 
 // VerifyDomain 实现证书服务使用的最小授权检查接口。
@@ -372,4 +374,23 @@ func uniqueStrings(values []string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+// DiagnoseAliyunError 对阿里云 API 返回的错误进行分类并提供明确的修复指导。
+func DiagnoseAliyunError(err error, domainName string) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	lowered := strings.ToLower(msg)
+	if strings.Contains(lowered, "forbidden.nopermission") || strings.Contains(lowered, "accessdenied") || strings.Contains(lowered, "not authorized") {
+		return fmt.Sprintf("当前阿里云 RAM 账号未获得域名 %s 的 DNS 解析权限。请在阿里云 RAM 控制台授予该账号针对 acs:alidns:*:*:domain/%s 的操作权限（Action: alidns:*）", domainName, domainName)
+	}
+	if strings.Contains(lowered, "nosuchdomain") || strings.Contains(lowered, "invaliddomainname.noexist") {
+		return fmt.Sprintf("域名 %s 未在当前阿里云账号下添加 DNS 托管，请先在阿里云云解析 DNS 控制台添加此域名", domainName)
+	}
+	if strings.Contains(lowered, "invalidaccesskeyid.notfound") || strings.Contains(lowered, "signaturedoesnotmatch") {
+		return "阿里云 AccessKey ID 或 AccessKey Secret 无效，请检查系统 DNS 凭据配置"
+	}
+	return fmt.Sprintf("阿里云 RAM 权限验证未通过：%s", msg)
 }

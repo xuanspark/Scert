@@ -121,3 +121,39 @@ func TestAliyunAuthorizationCheckerCacheIsSafeForConcurrentUse(t *testing.T) {
 		<-done
 	}
 }
+
+func TestDiagnoseAliyunError(t *testing.T) {
+	testCases := []struct {
+		err      error
+		domain   string
+		expected string
+	}{
+		{
+			err:      errors.New("SDKError: Code: Forbidden.NoPermission, Message: Specified access key is not authorized."),
+			domain:   "solit.cn",
+			expected: "当前阿里云 RAM 账号未获得域名 solit.cn 的 DNS 解析权限。请在阿里云 RAM 控制台授予该账号针对 acs:alidns:*:*:domain/solit.cn 的操作权限（Action: alidns:*）",
+		},
+		{
+			err:      errors.New("SDKError: Code: NoSuchDomain, Message: The specified domain name does not exist."),
+			domain:   "nonexistent.cn",
+			expected: "域名 nonexistent.cn 未在当前阿里云账号下添加 DNS 托管，请先在阿里云云解析 DNS 控制台添加此域名",
+		},
+		{
+			err:      errors.New("SDKError: Code: InvalidAccessKeyId.NotFound, Message: Specified access key is not found."),
+			domain:   "solit.cn",
+			expected: "阿里云 AccessKey ID 或 AccessKey Secret 无效，请检查系统 DNS 凭据配置",
+		},
+		{
+			err:      nil,
+			domain:   "solit.cn",
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		got := DiagnoseAliyunError(tc.err, tc.domain)
+		if got != tc.expected {
+			t.Errorf("DiagnoseAliyunError(%v, %s) = %q; want %q", tc.err, tc.domain, got, tc.expected)
+		}
+	}
+}

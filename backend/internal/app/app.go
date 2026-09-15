@@ -114,7 +114,8 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	sshKeys := sshkey.NewService(secretStore)
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
-	certificates.SetDNSAuthorizationChecker(dnsprovider.NewAliyunAuthorizationChecker())
+	aliyunAuthChecker := dnsprovider.NewAliyunAuthorizationChecker()
+	certificates.SetDNSAuthorizationChecker(aliyunAuthChecker)
 	deploymentService := deployment.NewService(deployment.SSHFactory{Secrets: secretStore})
 	notifier := notification.New(cfg.Notification, secretStore)
 	remoteValidator := certificate.RemoteValidator{}
@@ -140,7 +141,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	})
 	server := httpapi.New(httpapi.Dependencies{
 		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, SSHKeys: sshKeys,
-		SetupDNS: dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(),
+		SetupDNS: dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(), AliyunChecker: aliyunAuthChecker,
 		IssueCertificate: workflow.IssueForHTTP,
 		IssueSetupCertificate: func(ctx context.Context, request certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
 			return certificates.IssueForSetup(ctx, request)
