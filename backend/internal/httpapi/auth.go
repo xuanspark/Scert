@@ -192,7 +192,7 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 	s.authMu.RLock()
 	session, ok := s.authSessions[token]
 	s.authMu.RUnlock()
-	if !ok || !session.ExpiresAt.After(now) || session.AbsoluteExpiresAt.IsZero() || !session.AbsoluteExpiresAt.After(now) || session.ExpiresAt.After(session.AbsoluteExpiresAt) {
+	if !ok || !session.usableAt(now) {
 		if ok {
 			s.authMu.Lock()
 			delete(s.authSessions, token)
@@ -207,13 +207,21 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 		s.clearAuthCookie(c)
 		return authSession{}, false
 	}
-	newExpiresAt := minTime(now.Add(authSessionLifetime), session.AbsoluteExpiresAt)
 	s.authMu.Lock()
 	current, exists := s.authSessions[token]
 	if !exists || current.UserID != session.UserID || current.PasswordHash != session.PasswordHash || current.Role != session.Role || current.Username != session.Username || current.Email != session.Email || !current.AbsoluteExpiresAt.Equal(session.AbsoluteExpiresAt) {
 		s.authMu.Unlock()
 		return authSession{}, false
 	}
+	// 账号存储查询可能很慢，返回后必须按当前时间再次校验，不能复活过期会话。
+	now = s.now()
+	if !current.usableAt(now) {
+		delete(s.authSessions, token)
+		s.authMu.Unlock()
+		s.clearAuthCookie(c)
+		return authSession{}, false
+	}
+	newExpiresAt := minTime(now.Add(authSessionLifetime), current.AbsoluteExpiresAt)
 	refreshed := newExpiresAt.After(current.ExpiresAt)
 	if refreshed {
 		current.ExpiresAt = newExpiresAt
@@ -228,10 +236,7 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 }
 
 func (s *Server) authSessionAccountIsValid(ctx context.Context, session authSession) bool {
-	if strings.TrimSpace(session.UserID) == "" || strings.TrimSpace(session.PasswordHash) == "" || strings.TrimSpace(session.Username) == "" {
-		return false
-	}
-	if session.Role != repository.UserRoleUser && session.Role != repository.UserRoleAdmin && session.Role != repository.UserRoleSuperAdmin {
+	if !session.complete() {
 		return false
 	}
 	if session.UserID == "primary-super-admin" {

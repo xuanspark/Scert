@@ -25,15 +25,17 @@ func (s *Server) reserveLogin(request *http.Request, key string) bool {
 	now := s.now()
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
+	s.pruneLoginAttemptsLocked(now)
 	for name, source := range s.loginSources {
 		if source.InFlight == 0 && now.Sub(source.WindowStart) >= time.Minute {
 			delete(s.loginSources, name)
 		}
 	}
 	source, exists := s.loginSources[sourceKey]
-	attempt := s.loginAttempts[key]
+	attempt, knownAttempt := s.loginAttempts[key]
 	if attempt.BlockedTill.After(now) || attempt.Failures+s.loginPending[key] >= loginFailureLimit ||
 		s.loginInFlight >= loginConcurrentLimit || source.InFlight >= loginSourceConcurrentLimit ||
+		(!knownAttempt && len(s.loginAttempts) >= authStateCapacity) ||
 		(!exists && len(s.loginSources) >= authStateCapacity) {
 		return false
 	}

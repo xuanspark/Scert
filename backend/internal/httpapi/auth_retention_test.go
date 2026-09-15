@@ -21,6 +21,7 @@ func TestLoginPrunesUnvisitedExpiredState(t *testing.T) {
 	server.now = func() time.Time { return now }
 	server.authSessions["expired"] = authSession{ExpiresAt: now.Add(-time.Hour)}
 	server.authSessions["absolute-expired"] = authSession{ExpiresAt: now.Add(time.Hour), AbsoluteExpiresAt: now.Add(-time.Second)}
+	server.authSessions["incomplete"] = authSession{ExpiresAt: now.Add(time.Hour), AbsoluteExpiresAt: now.Add(time.Hour)}
 	server.loginAttempts["old-key"] = loginAttempt{WindowStart: now.Add(-time.Hour)}
 	server.loginAttempts["blocked-key"] = loginAttempt{WindowStart: now.Add(-time.Hour), BlockedTill: now.Add(time.Minute)}
 	response := loginAuthTest(t, server, "admin", "AdminPass123", false)
@@ -46,7 +47,10 @@ func TestSessionCapacityDoesNotEvictActiveSessions(t *testing.T) {
 	now := time.Now()
 	server.now = func() time.Time { return now }
 	for index := 0; index < authStateCapacity; index++ {
-		server.authSessions[fmt.Sprint(index)] = authSession{ExpiresAt: now.Add(time.Minute)}
+		server.authSessions[fmt.Sprint(index)] = authSession{
+			UserID: fmt.Sprint(index), Username: "operator", PasswordHash: "test-hash", Role: repository.UserRoleUser,
+			ExpiresAt: now.Add(time.Minute), AbsoluteExpiresAt: now.Add(time.Hour),
+		}
 	}
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identifier":"admin","password":"AdminPass123"}`))

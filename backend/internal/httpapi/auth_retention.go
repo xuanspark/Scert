@@ -1,14 +1,30 @@
 package httpapi
 
-import "time"
+import (
+	"strings"
+	"time"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
+)
 
 const authStateCapacity = 4096
 const authUserSessionCapacity = 16
 
+func (session authSession) complete() bool {
+	return strings.TrimSpace(session.UserID) != "" && strings.TrimSpace(session.Username) != "" &&
+		strings.TrimSpace(session.PasswordHash) != "" &&
+		(session.Role == repository.UserRoleUser || session.Role == repository.UserRoleAdmin || session.Role == repository.UserRoleSuperAdmin)
+}
+
+func (session authSession) usableAt(now time.Time) bool {
+	return session.complete() && session.ExpiresAt.After(now) && session.AbsoluteExpiresAt.After(now) &&
+		!session.ExpiresAt.After(session.AbsoluteExpiresAt)
+}
+
 // 调用方持有认证锁；会话表有容量上限，不淘汰仍然有效的用户会话。
 func (s *Server) pruneAuthSessionsLocked(now time.Time) {
 	for token, session := range s.authSessions {
-		if !session.ExpiresAt.After(now) || (!session.AbsoluteExpiresAt.IsZero() && !session.AbsoluteExpiresAt.After(now)) {
+		if !session.usableAt(now) {
 			delete(s.authSessions, token)
 		}
 	}

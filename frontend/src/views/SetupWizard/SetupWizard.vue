@@ -67,10 +67,9 @@ const {
       </p>
       <div class="warning-card">
         <strong>初始化提示</strong>
-        <span
-          >请先完成 DNS API 在线验证。证书签发和 HTTPS
-          切换将在后续任务中执行，本页不会伪报申请成功。</span
-        >
+        <span>
+          请先完成 DNS API 在线验证。提交初始化时将申请管理页面证书；只有证书校验和配置保存成功后才会完成初始化。
+        </span>
       </div>
     </template>
 

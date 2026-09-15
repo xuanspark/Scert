@@ -22,6 +22,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
