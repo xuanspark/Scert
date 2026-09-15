@@ -74,7 +74,7 @@ func newRootCommand() *cobra.Command {
 		&cobra.Command{Use: "version", Short: "显示版本信息", Run: func(cmd *cobra.Command, args []string) { cmd.Printf("Scert %s\n", version) }},
 		newInitCommand(), newStatusCommand(), newServeCommand(), newDomainCommand(), newCertificateCommand(),
 		newRenewCommand(), newDeployCommand(), newLogsCommand(), newConfigCommand(), newBackupCommand(), newRestoreCommand(),
-		newServerCommand(), newSSHKeyCommand(), newServiceCommand(),
+		newServerCommand(), newSSHKeyCommand(), newServiceCommand(), newDNSCommand(),
 	)
 	localizeHelpFlags(root)
 	return root
