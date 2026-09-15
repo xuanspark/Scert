@@ -121,7 +121,7 @@ func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain st
 	if err != nil {
 		return report, err
 	}
-	if err := ValidateAliyunDomainScope(providerID, []string{testDomain}, cleaned); err != nil {
+	if err := ValidateAliyunTargetDomains(providerID, []string{testDomain}); err != nil {
 		return report, err
 	}
 	if strings.EqualFold(strings.TrimSpace(providerID), Aliyun) {

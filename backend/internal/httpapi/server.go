@@ -191,7 +191,6 @@ func (s *Server) registerRoutes() {
 	adminAPI.PUT("/settings", s.updateSettings)
 	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
 	adminAPI.POST("/dns/test", s.dnsOperation, s.testAdminDNS)
-	adminAPI.GET("/dns/aliyun/scope", s.getAliyunDNSScope)
 	adminAPI.POST("/dns/aliyun/check", s.dnsOperation, s.checkAliyunDNSDomain)
 	adminAPI.POST("/renewal/run", s.longOperation(certificateTaskTimeout), s.runRenewalNow)
 	adminAPI.GET("/certificates", s.listCertificates)
@@ -372,9 +371,9 @@ func (s *Server) ready(c *gin.Context) {
 			s.writeReadinessFailure(c, "credential_unavailable")
 			return
 		}
-		if reference == dnsReference && cfg.DNS.Provider == dnsprovider.Aliyun {
-			if _, err := dnsprovider.ParseAliyunScope(credentials); err != nil {
-				s.writeReadinessFailure(c, "dns_scope_required")
+		if reference == dnsReference {
+			if _, err := dnsprovider.ValidateCredentials(cfg.DNS.Provider, credentials); err != nil {
+				s.writeReadinessFailure(c, "dns_credential_invalid")
 				return
 			}
 		}

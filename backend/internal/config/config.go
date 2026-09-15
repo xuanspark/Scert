@@ -143,8 +143,8 @@ func Default(baseDir string) Config {
 			RenewalUrgentThresholdDays:     3,
 			RenewalMaxRetries:              3,
 			RenewalRetryIntervalMins:       30,
-			PropagationTimeoutSecs:         900,
-			PropagationPollingIntervalSecs: 10,
+			PropagationTimeoutSecs:         300,
+			PropagationPollingIntervalSecs: 5,
 		},
 		DNS: DNSConfig{VerificationState: "not_configured"},
 		Notification: NotificationConfig{
@@ -336,7 +336,7 @@ func (c *Config) Normalize() {
 		c.DNS.VerificationState = "not_configured"
 	}
 	if c.ACME.PropagationTimeoutSecs == 0 {
-		c.ACME.PropagationTimeoutSecs = 900
+		c.ACME.PropagationTimeoutSecs = 300
 	}
 	if c.ACME.RenewalCheckIntervalDays == 0 {
 		c.ACME.RenewalCheckIntervalDays = 3
@@ -357,7 +357,7 @@ func (c *Config) Normalize() {
 		c.ACME.RenewalRetryIntervalMins = 30
 	}
 	if c.ACME.PropagationPollingIntervalSecs == 0 {
-		c.ACME.PropagationPollingIntervalSecs = 10
+		c.ACME.PropagationPollingIntervalSecs = 5
 	}
 	if c.Notification.HTTPPath == "" {
 		c.Notification.HTTPPath = "/api/email/send"

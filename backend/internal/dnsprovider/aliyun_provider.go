@@ -89,7 +89,8 @@ func newAliyunAuthorizationRecordAPI(credentials map[string]string) (aliyunRecor
 
 // 不使用自动发现托管区的上游适配器，也不沿 CNAME 自动扩大写入范围。
 type scopedAliyunProvider struct {
-	scope         AliyunScope
+	credentials   map[string]string
+	newAPI        func(map[string]string) (aliyunRecordAPI, error)
 	api           aliyunRecordAPI
 	mu            sync.Mutex
 	records       map[[32]byte]string
@@ -97,15 +98,14 @@ type scopedAliyunProvider struct {
 }
 
 func newScopedAliyunProvider(credentials map[string]string) (*scopedAliyunProvider, error) {
-	scope, err := ParseAliyunScope(credentials)
+	cleaned, err := ValidateCredentials(Aliyun, credentials)
 	if err != nil {
 		return nil, err
 	}
-	api, err := newAliyunRecordAPI(credentials)
-	if err != nil {
-		return nil, err
-	}
-	return &scopedAliyunProvider{scope: scope, api: api, records: make(map[[32]byte]string), challengeInfo: aliyunChallengeInfo}, nil
+	return &scopedAliyunProvider{
+		credentials: cleaned, newAPI: newAliyunRecordAPI,
+		records: make(map[[32]byte]string), challengeInfo: aliyunChallengeInfo,
+	}, nil
 }
 
 func aliyunChallengeInfo(ctx context.Context, domainName, keyAuth string) (string, string, string) {
@@ -115,11 +115,7 @@ func aliyunChallengeInfo(ctx context.Context, domainName, keyAuth string) (strin
 
 func (p *scopedAliyunProvider) Present(ctx context.Context, name, token, keyAuth string) error {
 	name = normalizeAuthorizationDomain(name)
-	zone, err := p.scope.Resolve(name)
-	// ACME 的通配符授权以去掉通配符的标识符进入 Provider；业务层已逐项验证 SAN。
-	if err != nil && !strings.HasPrefix(name, "*.") {
-		zone, err = p.scope.Resolve("*." + name)
-	}
+	zone, err := ResolveAliyunTargetDomain(name)
 	if err != nil {
 		return err
 	}
@@ -142,6 +138,16 @@ func (p *scopedAliyunProvider) Present(ctx context.Context, name, token, keyAuth
 	if _, ok := p.records[key]; ok {
 		return errors.New("同一 DNS 挑战已有待清理记录，拒绝重复新增")
 	}
+	if p.api == nil {
+		if p.newAPI == nil {
+			return errors.New("阿里云 DNS 客户端工厂未初始化")
+		}
+		api, err := p.newAPI(p.credentials)
+		if err != nil {
+			return err
+		}
+		p.api = api
+	}
 	id, err := p.api.Add(ctx, zone, rr, value)
 	if err != nil {
 		return err
@@ -151,12 +157,18 @@ func (p *scopedAliyunProvider) Present(ctx context.Context, name, token, keyAuth
 }
 
 func (p *scopedAliyunProvider) CleanUp(ctx context.Context, name, token, keyAuth string) error {
+	if _, err := ResolveAliyunTargetDomain(name); err != nil {
+		return err
+	}
 	key := sha256.Sum256([]byte(normalizeAuthorizationDomain(name) + "\x00" + token + "\x00" + keyAuth))
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	id, ok := p.records[key]
 	if !ok {
 		return nil
+	}
+	if p.api == nil {
+		return errors.New("阿里云 DNS 临时记录状态不完整，已拒绝清理请求")
 	}
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), aliyunAuthorizationTimeout)
 	defer cancel()

@@ -48,13 +48,11 @@ var descriptors = map[string]Descriptor{
 	},
 	Aliyun: {
 		ID: Aliyun, Name: "阿里云 DNS", Available: true,
-		Description: "仅操作显式托管区内的允许域名。范围用英文逗号分隔；通配符只允许一层子域，不包含根域。旧配置需补充范围后重新验证。",
+		Description: "输入目标域名后，系统立即使用当前账号创建、查询并清理临时 TXT 记录，以验证该域名的实际 DNS 操作权限；不枚举账号域名，也不尝试其他托管区。",
 		CredentialFields: []CredentialField{
 			{Name: "access_key_id", Label: "AccessKey ID", Required: true},
 			{Name: "access_key_secret", Label: "AccessKey Secret", Secret: true, Required: true},
 			{Name: "security_token", Label: "Security Token", Secret: true},
-			{Name: "managed_zones", Label: "明确托管区", Required: true, Placeholder: "例如 example.com,example.net；不自动尝试父域"},
-			{Name: "allowed_domains", Label: "允许操作的域名", Required: true, Placeholder: "例如 www.example.com,*.example.net；根域须单独填写"},
 		},
 	},
 	DNSPod: {
@@ -160,6 +158,11 @@ func ValidateCredentials(providerID string, credentials map[string]string) (map[
 	}
 	for name := range credentials {
 		if _, ok := allowed[name]; !ok {
+			// 旧版本曾把用户填写的范围随凭据保存。保留读取兼容，
+			// 但绝不将它们带入新凭据或作为授权依据。
+			if providerID == Aliyun && (name == "managed_zones" || name == "allowed_domains") {
+				continue
+			}
 			return nil, fmt.Errorf("DNS 凭据字段无效：%s", name)
 		}
 	}

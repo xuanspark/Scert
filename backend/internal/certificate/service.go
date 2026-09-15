@@ -128,6 +128,10 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if providerID == "" || strings.TrimSpace(s.config.DNS.CredentialRef) == "" {
 		return IssueResult{}, errors.New("DNS Provider 或凭据引用未配置")
 	}
+	// 必须在读取凭据、构造 Provider 或访问 ACME 前拒绝受保护的任意 SAN。
+	if err := dnsprovider.ValidateAliyunTargetDomains(providerID, domains); err != nil {
+		return IssueResult{}, err
+	}
 	if configured := strings.ToLower(strings.TrimSpace(s.config.DNS.Provider)); configured != "" && providerID != configured {
 		return IssueResult{}, fmt.Errorf("域名配置的 DNS Provider %s 尚未绑定独立凭据，当前初始化凭据属于 %s", providerID, configured)
 	}
@@ -214,6 +218,10 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 	if providerID == "" || credentialRef == "" {
 		return SavedResource{}, errors.New("初始化证书的 DNS Provider 或凭据引用未配置")
 	}
+	// 初始化流程同样必须先拒绝整单保护 SAN，不能触碰凭据或云端。
+	if err := dnsprovider.ValidateAliyunTargetDomains(providerID, domains); err != nil {
+		return SavedResource{}, err
+	}
 	environment := strings.ToLower(strings.TrimSpace(request.Environment))
 	if environment == "" {
 		environment = s.config.ACME.Environment
@@ -273,7 +281,7 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 
 func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string, domains []string, credentials map[string]string) error {
 	// 必须先校验全部 SAN；后续域名越界时也不能先写入前面的域名。
-	if err := dnsprovider.ValidateAliyunDomainScope(providerID, domains, credentials); err != nil {
+	if err := dnsprovider.ValidateAliyunTargetDomains(providerID, domains); err != nil {
 		return err
 	}
 	if s == nil || s.authorization == nil {
