@@ -80,17 +80,24 @@ func (s *Server) getAliyunDNSScope(c *gin.Context) {
 		return
 	}
 
-	// 尝试全局发现
-	report, discoverErr := s.aliyunChecker.Discover(c.Request.Context(), credentials)
-	if discoverErr == nil && len(report.Domains) > 0 {
-		response.GlobalDiscoveryAvailable = true
-		response.PolicyMode = "broad_or_read_all"
-		response.Message = "当前 RAM 账号具备全局根域名读取权限"
-		response.DiscoveredDomains = report.Domains
+	// 默认采用资源受限安全模式，不盲目调用全局 DescribeDomains 接口，避免产生 RAM 未授权异常告警
+	// 仅在显式请求参数 discover=true 时尝试全局探测
+	if c.Query("discover") == "true" {
+		report, discoverErr := s.aliyunChecker.Discover(c.Request.Context(), credentials)
+		if discoverErr == nil && len(report.Domains) > 0 {
+			response.GlobalDiscoveryAvailable = true
+			response.PolicyMode = "broad_or_read_all"
+			response.Message = "当前 RAM 账号具备全局根域名读取权限"
+			response.DiscoveredDomains = report.Domains
+		} else {
+			response.GlobalDiscoveryAvailable = false
+			response.PolicyMode = "resource_scoped"
+			response.Message = "当前 RAM 账号受特定域名资源限制策略（最小权限原则），不支持全局枚举，已启用单域名靶向权威考证"
+		}
 	} else {
 		response.GlobalDiscoveryAvailable = false
 		response.PolicyMode = "resource_scoped"
-		response.Message = "当前 RAM 账号受特定域名资源策略限制（最小权限原则），不支持全局枚举，已启用单域名靶向权威考证"
+		response.Message = "系统当前遵循 RAM 最小权限安全原则，采用单域名靶向精准考证"
 	}
 
 	c.JSON(http.StatusOK, response)
