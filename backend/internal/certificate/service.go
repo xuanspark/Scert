@@ -2,6 +2,7 @@ package certificate
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -55,6 +56,7 @@ type Service struct {
 	store          FileStore
 	newIssuer      IssuerFactory
 	preferredChain string
+	acmeRoots      *x509.CertPool
 }
 
 func (s *Service) SetDNSAuthorizationChecker(checker DNSAuthorizationChecker) {
@@ -181,7 +183,7 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return fail(err)
 	}
-	if err := validateIssuedResource(ctx, resource, domains); err != nil {
+	if err := s.validateACMEResource(ctx, resource, domains, item.ACMEEnvironment); err != nil {
 		return fail(err)
 	}
 	saved, err := s.store.SaveForType(ctx, item.Name, string(item.CertificateType), resource)
@@ -258,7 +260,7 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 	if err != nil {
 		return SavedResource{}, fmt.Errorf("初始化证书校验失败：%w", err)
 	}
-	if err := validateIssuedResource(ctx, resource, domains); err != nil {
+	if err := s.validateACMEResource(ctx, resource, domains, environment); err != nil {
 		return SavedResource{}, err
 	}
 	store := FileStore{Root: request.CertificateRoot, BackupRoot: request.BackupRoot}

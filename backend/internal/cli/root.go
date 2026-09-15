@@ -116,13 +116,17 @@ func newInitCommand() *cobra.Command {
 }
 
 func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command {
+	return newInitCommandWithDependencies(firewallManager, issueInitCertificate)
+}
+
+func newInitCommandWithDependencies(firewallManager firewall.Manager, issue initCertificateIssuer) *cobra.Command {
 	var (
 		adminUsername, adminEmail, adminPassword, emailProvider, emailEndpoint                         string
 		emailHTTPPath, emailHTTPLoginPath, emailHTTPAuthMode, emailHTTPCredentialRef, emailHTTPHeaders string
 		emailSMTPHost, emailSMTPUsername, emailSMTPPassword, emailSMTPMode                             string
 		emailEventMode, emailSenderName, emailSenderEmail, emailRetryIntervals                         string
 		recipients, dnsProvider, dnsCredentialRef, certificateRoot                                     string
-		webHostname, webPublicIP, httpsMode                                                            string
+		webHostname, webPublicIP, httpsMode, acmeEnvironment                                           string
 		serverPort, emailTimeoutSecs, emailRetryCount, emailSMTPPort                                   int
 		emailHTTPEnabled, emailSMTPEnabled, emailSMTPAllowPlaintextAuth, emailIncludeDeploymentDetails bool
 		emailIncludeCertificateSerial, emailIncludeManagementURL                                       bool
@@ -136,6 +140,18 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 			return err
 		}
 		cfg := config.Default(baseDir)
+		cfg.ACME.Environment = acmeEnvironment
+		lock, err := acquireProcessLock(cfg, "初始化、服务或备份恢复任务正在执行，请稍后重试")
+		if err != nil {
+			return err
+		}
+		defer lock.Close()
+		// 等待进程锁期间另一个初始化可能已完成，必须在取得锁后再次检查。
+		if _, err := os.Lstat(path); err == nil {
+			return fmt.Errorf("配置文件已存在：%s", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		emailHeaders, err := parseStringMap(emailHTTPHeaders)
 		if err != nil {
 			return fmt.Errorf("HTTP 自定义请求头格式无效：%w", err)
@@ -184,13 +200,16 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 			cleanupSecret()
 			return err
 		}
-		firewallResult, err := saveSetupWithFirewall(cmd.Context(), cfg, path, firewallManager)
+		firewallResult, err := completeInit(cmd.Context(), &cfg, path, firewallManager, issue, certificate.RollbackSavedResource)
 		if err != nil {
 			cleanupSecret()
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "初始化配置已保存：%s\n", path)
-		fmt.Fprintf(cmd.OutOrStdout(), "DNS API 已完成在线验证，凭据已加密保存；真实 Web 证书申请将在后续任务接入。\n")
+		fmt.Fprintln(cmd.OutOrStdout(), "管理后台证书已申请并校验，DNS 凭据已加密保存。")
+		if cfg.ACME.Environment == "staging" {
+			fmt.Fprintln(cmd.OutOrStdout(), "当前使用 ACME 测试环境，证书不受浏览器信任，不能作为正式生产证书。")
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "本机防火墙：%s\n", firewallResult.Message)
 		fmt.Fprintf(cmd.OutOrStdout(), "请确认云安全组已放行主服务端口 %d。Scert-admin 默认关闭；需要重置密码时启动后访问：%s\n", cfg.Server.Port, cfg.ResetURL())
 		return nil
@@ -226,7 +245,8 @@ func newInitCommandWithFirewall(firewallManager firewall.Manager) *cobra.Command
 	command.Flags().StringVar(&emailRetryIntervals, "email-retry-intervals", "30,120,600", "通知重试间隔（秒，逗号分隔）")
 	command.Flags().StringVar(&dnsProvider, "dns-provider", "", "DNS API 服务商标识")
 	command.Flags().StringVar(&dnsCredentialRef, "dns-credential-ref", "", "DNS 凭据引用")
-	command.Flags().BoolVar(&dnsVerified, "dns-verified", false, "DNS API 是否已通过验证测试")
+	command.Flags().BoolVar(&dnsVerified, "dns-verified", false, "兼容参数，不会跳过在线权限和证书校验")
+	command.Flags().StringVar(&acmeEnvironment, "acme-environment", "staging", "ACME 环境：staging 为测试，production 为正式签发")
 	command.Flags().StringVar(&certificateRoot, "certificate-root", "", "证书部署根目录，默认使用系统目录")
 	command.Flags().StringVar(&webHostname, "web-hostname", "", "管理页面域名")
 	command.Flags().StringVar(&webPublicIP, "web-public-ip", "", "没有域名时使用的公网 IP")
@@ -442,7 +462,7 @@ func prepareDNSCredentials(ctx context.Context, cfg config.Config, input *setup.
 		return func() {}, errors.New("初始化输入不能为空")
 	}
 	if strings.TrimSpace(input.DNSCredentialRef) != "" {
-		return func() {}, nil
+		return verifyExistingDNSCredentials(ctx, cfg, input, output, dnsprovider.NewAliyunAuthorizationChecker())
 	}
 	if len(input.DNSCredentials) == 0 {
 		return func() {}, errors.New("DNS 凭据不能为空")

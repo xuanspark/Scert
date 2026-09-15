@@ -1,0 +1,389 @@
+﻿[CmdletBinding()]
+param(
+    [string]$BackendDirectory = "",
+    [string]$OutputDirectory = "",
+    [string]$DesktopDirectory = "",
+    [string]$DeployDirectory = "",
+    [ValidatePattern("^V[0-9]+\.[0-9]+(?:\.[0-9]+)?$")]
+    [string]$Version = "V0.1.0",
+    [ValidatePattern("^[0-9]{8}$")]
+    [string]$ReleaseDate = (Get-Date -Format "yyyyMMdd"),
+    [ValidateSet("windows-amd64", "linux-amd64")]
+    [string[]]$Target = @("windows-amd64", "linux-amd64"),
+    [switch]$SkipDesktop
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Definition
+if ([string]::IsNullOrWhiteSpace($BackendDirectory)) {
+    $BackendDirectory = Join-Path $scriptDirectory "..\backend"
+}
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $scriptDirectory "release"
+}
+if ([string]::IsNullOrWhiteSpace($DesktopDirectory)) {
+    $DesktopDirectory = Join-Path $scriptDirectory "..\desktop"
+}
+if ([string]::IsNullOrWhiteSpace($DeployDirectory)) {
+    $DeployDirectory = Join-Path $scriptDirectory "..\deploy"
+}
+
+function Resolve-SafeDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "$Label 不能为空。"
+    }
+    return [System.IO.Path]::GetFullPath($Path)
+}
+
+function Invoke-GoBuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$OperatingSystem,
+        [Parameter(Mandatory = $true)]
+        [string]$Architecture,
+        [Parameter(Mandatory = $true)]
+        [string]$Destination,
+        [Parameter(Mandatory = $true)]
+        [string]$Package
+    )
+
+    $env:GOOS = $OperatingSystem
+    $env:GOARCH = $Architecture
+    $env:CGO_ENABLED = "0"
+    & go build -trimpath -o $Destination $Package
+    if ($LASTEXITCODE -ne 0) {
+        throw "构建 $OperatingSystem/$Architecture 的 $Package 失败。"
+    }
+}
+
+function Get-HostDesktopTarget {
+    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows
+    )) {
+        return "windows-amd64"
+    }
+    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Linux
+    )) {
+        return "linux-amd64"
+    }
+    return ""
+}
+
+function Invoke-DesktopBuild {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetName,
+        [Parameter(Mandatory = $true)]
+        [string]$Destination
+    )
+
+    if (-not (Get-Command wails -ErrorAction SilentlyContinue)) {
+        throw "未找到 Wails CLI，请先安装 Wails v2."
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory "wails.json") -PathType Leaf)) {
+        throw "桌面项目中没有找到 wails.json：$ProjectDirectory"
+    }
+
+    Write-Host "正在构建 $TargetName 的 Scert 桌面版……"
+    $desktopGoOS = $env:GOOS
+    $desktopGoArch = $env:GOARCH
+    $desktopCGOEnabled = $env:CGO_ENABLED
+    Push-Location $ProjectDirectory
+    try {
+        $env:GOOS = ""
+        $env:GOARCH = ""
+        if ($TargetName.StartsWith("linux-")) {
+            $env:CGO_ENABLED = "1"
+        }
+        & wails build -nopackage -platform ($TargetName.Replace("-", "/")) -o "ScertDesktop"
+        if ($LASTEXITCODE -ne 0) {
+            throw "构建 $TargetName 的 Scert 桌面版失败。"
+        }
+        $builtExtension = if ($TargetName.StartsWith("windows-")) { ".exe" } else { "" }
+        $builtDirectory = Join-Path (Join-Path $ProjectDirectory "build") "bin"
+        $builtPath = Join-Path $builtDirectory ("ScertDesktop" + $builtExtension)
+        if (-not (Test-Path -LiteralPath $builtPath -PathType Leaf)) {
+            throw "Wails 构建完成但没有找到桌面产物：$builtPath"
+        }
+        Copy-Item -LiteralPath $builtPath -Destination $Destination -Force
+    }
+    finally {
+        Pop-Location
+        $env:GOOS = $desktopGoOS
+        $env:GOARCH = $desktopGoArch
+        $env:CGO_ENABLED = $desktopCGOEnabled
+    }
+}
+
+function Write-Utf8NoBom {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    [System.IO.File]::WriteAllText(
+        $Path,
+        $Content,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
+
+function Get-RelativeReleasePath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $base = $BaseDirectory.TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    if (-not $Path.StartsWith($base + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "发布文件不在预期目录内：$Path"
+    }
+    return $Path.Substring($base.Length + 1).Replace("\", "/")
+}
+
+function Write-TargetChecksums {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetDirectory
+    )
+
+    $checksumPath = Join-Path $TargetDirectory "SHA256SUMS"
+    $lines = [System.Collections.Generic.List[string]]::new()
+    Get-ChildItem -LiteralPath $TargetDirectory -Recurse -File |
+        Where-Object { $_.FullName -ne $checksumPath } |
+        Sort-Object FullName |
+        ForEach-Object {
+            $relative = Get-RelativeReleasePath -BaseDirectory $TargetDirectory -Path $_.FullName
+            $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+            $lines.Add("$($hash.Hash.ToLowerInvariant())  $relative")
+        }
+    Write-Utf8NoBom -Path $checksumPath -Content (($lines -join "`n") + "`n")
+    return $checksumPath
+}
+
+function Invoke-ReleaseArchive {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+        [Parameter(Mandatory = $true)]
+        [string]$Destination,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("tar.gz", "zip")]
+        [string]$Format,
+        [string[]]$Executable = @()
+    )
+
+    $arguments = @(
+        "run",
+        "./cmd/scert-release",
+        "--source", $Source,
+        "--output", $Destination,
+        "--format", $Format
+    )
+    foreach ($path in $Executable) {
+        $arguments += @("--executable", $path)
+    }
+
+    $archiveGoOS = $env:GOOS
+    $archiveGoArch = $env:GOARCH
+    $archiveCGOEnabled = $env:CGO_ENABLED
+    try {
+        $env:GOOS = ""
+        $env:GOARCH = ""
+        $env:CGO_ENABLED = "0"
+        & go @arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "生成发布归档失败：$Destination"
+        }
+    }
+    finally {
+        $env:GOOS = $archiveGoOS
+        $env:GOARCH = $archiveGoArch
+        $env:CGO_ENABLED = $archiveCGOEnabled
+    }
+}
+
+$backend = Resolve-SafeDirectory -Path $BackendDirectory -Label "后端目录"
+$output = Resolve-SafeDirectory -Path $OutputDirectory -Label "输出目录"
+$desktop = Resolve-SafeDirectory -Path $DesktopDirectory -Label "桌面项目目录"
+$deploy = Resolve-SafeDirectory -Path $DeployDirectory -Label "部署目录"
+$frontend = Resolve-SafeDirectory -Path (Join-Path $scriptDirectory "..\frontend") -Label "前端目录"
+
+if (-not (Test-Path -LiteralPath (Join-Path $backend "go.mod") -PathType Leaf)) {
+    throw "后端目录中没有找到 go.mod：$backend"
+}
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+    throw "未找到 Go 工具链，请先安装 Go 并加入 PATH。"
+}
+$npmCommand = if ($env:OS -eq "Windows_NT") { "npm.cmd" } else { "npm" }
+if (-not (Get-Command $npmCommand -ErrorAction SilentlyContinue)) {
+    throw "未找到 npm 工具链，请先安装 Node.js 并加入 PATH。"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $frontend "package.json") -PathType Leaf)) {
+    throw "前端目录中没有找到 package.json：$frontend"
+}
+foreach ($requiredDeploymentFile in @(
+    "install-linux.sh",
+    "install-windows.ps1",
+    "README.md",
+    "systemd\Scert.service",
+    "systemd\Scert-admin.service",
+    "systemd\Scert服务管理说明.md",
+    "systemd\Scert-admin服务管理说明.md"
+)) {
+    $requiredPath = Join-Path $deploy $requiredDeploymentFile
+    if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+        throw "部署目录缺少发布文件：$requiredPath"
+    }
+}
+
+$releaseName = "Scert-$ReleaseDate-$Version"
+$releaseDirectory = Join-Path $output $releaseName
+if (Test-Path -LiteralPath $releaseDirectory) {
+    throw "发布目录已存在，拒绝覆盖：$releaseDirectory"
+}
+New-Item -ItemType Directory -Path $releaseDirectory | Out-Null
+$frontendDistribution = Join-Path $releaseDirectory "web-build"
+
+Write-Host "正在构建 Scert Web 前端……"
+Push-Location $frontend
+try {
+    & $npmCommand run build -- --outDir $frontendDistribution --emptyOutDir false
+    if ($LASTEXITCODE -ne 0) {
+        throw "构建 Scert Web 前端失败。"
+    }
+}
+finally {
+    Pop-Location
+}
+if (-not (Test-Path -LiteralPath (Join-Path $frontendDistribution "index.html") -PathType Leaf)) {
+    throw "前端构建完成但没有找到 index.html：$frontendDistribution"
+}
+
+$oldGoOS = $env:GOOS
+$oldGoArch = $env:GOARCH
+$oldCGOEnabled = $env:CGO_ENABLED
+$manifestArtifacts = [System.Collections.Generic.List[object]]::new()
+$hostDesktopTarget = Get-HostDesktopTarget
+
+Push-Location $backend
+try {
+    foreach ($item in $Target) {
+        $parts = $item.Split("-", 2)
+        $goos = $parts[0]
+        $goarch = $parts[1]
+        $targetDirectory = Join-Path $releaseDirectory $item
+        New-Item -ItemType Directory -Path $targetDirectory | Out-Null
+
+        $extension = if ($goos -eq "windows") { ".exe" } else { "" }
+        $scertPath = Join-Path $targetDirectory ("scert" + $extension)
+        $adminPath = Join-Path $targetDirectory ("scert-admin" + $extension)
+
+        Write-Host "正在构建 $goos/$goarch 的 Scert……"
+        Invoke-GoBuild -OperatingSystem $goos -Architecture $goarch -Destination $scertPath -Package "./cmd/scert"
+        Invoke-GoBuild -OperatingSystem $goos -Architecture $goarch -Destination $adminPath -Package "./cmd/scert-admin"
+
+        $webPath = Join-Path $targetDirectory "web"
+        New-Item -ItemType Directory -Path $webPath -Force | Out-Null
+        Copy-Item -Path (Join-Path $frontendDistribution "*") -Destination $webPath -Recurse -Force
+
+        Copy-Item -LiteralPath (Join-Path $deploy "README.md") -Destination (Join-Path $targetDirectory "部署说明.md")
+        if ($goos -eq "linux") {
+            Copy-Item -LiteralPath (Join-Path $deploy "install-linux.sh") -Destination (Join-Path $targetDirectory "install-linux.sh")
+            Copy-Item -LiteralPath (Join-Path $deploy "systemd") -Destination (Join-Path $targetDirectory "systemd") -Recurse
+        }
+        else {
+            Copy-Item -LiteralPath (Join-Path $deploy "install-windows.ps1") -Destination (Join-Path $targetDirectory "install-windows.ps1")
+        }
+
+        if (-not $SkipDesktop) {
+            if ($item -eq $hostDesktopTarget) {
+                $desktopExtension = if ($goos -eq "windows") { ".exe" } else { "" }
+                $desktopPath = Join-Path $targetDirectory ("ScertDesktop" + $desktopExtension)
+                Invoke-DesktopBuild -ProjectDirectory $desktop -TargetName $item -Destination $desktopPath
+                $file = Get-Item -LiteralPath $desktopPath
+                $hash = Get-FileHash -LiteralPath $desktopPath -Algorithm SHA256
+                $manifestArtifacts.Add([ordered]@{
+                    target = $item
+                    type = "desktop"
+                    file = Get-RelativeReleasePath -BaseDirectory $releaseDirectory -Path $file.FullName
+                    size = $file.Length
+                    sha256 = $hash.Hash.ToLowerInvariant()
+                })
+            }
+            else {
+                Write-Warning "当前主机不能直接构建 $item 的 Wails 桌面版；请在对应平台主机上执行同一脚本。"
+            }
+        }
+
+        Write-TargetChecksums -TargetDirectory $targetDirectory | Out-Null
+        foreach ($file in (Get-ChildItem -LiteralPath $targetDirectory -Recurse -File | Sort-Object FullName)) {
+            $hash = Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256
+            $manifestArtifacts.Add([ordered]@{
+                target = $item
+                type = "package_file"
+                file = Get-RelativeReleasePath -BaseDirectory $releaseDirectory -Path $file.FullName
+                size = $file.Length
+                sha256 = $hash.Hash.ToLowerInvariant()
+            })
+        }
+
+        if ($goos -eq "linux") {
+            $archivePath = Join-Path $output "$releaseName-$item.tar.gz"
+            Invoke-ReleaseArchive -Source $targetDirectory -Destination $archivePath -Format "tar.gz" -Executable @(
+                "install-linux.sh", "scert", "scert-admin"
+            )
+        }
+        else {
+            $archivePath = Join-Path $output "$releaseName-$item.zip"
+            Invoke-ReleaseArchive -Source $targetDirectory -Destination $archivePath -Format "zip"
+        }
+        $archive = Get-Item -LiteralPath $archivePath
+        $archiveHash = Get-FileHash -LiteralPath $archivePath -Algorithm SHA256
+        $manifestArtifacts.Add([ordered]@{
+            target = $item
+            type = "archive"
+            file = $archive.Name
+            size = $archive.Length
+            sha256 = $archiveHash.Hash.ToLowerInvariant()
+        })
+    }
+}
+finally {
+    Pop-Location
+    $env:GOOS = $oldGoOS
+    $env:GOARCH = $oldGoArch
+    $env:CGO_ENABLED = $oldCGOEnabled
+}
+
+$manifest = [ordered]@{
+    product = "Scert"
+    release_date = $ReleaseDate
+    version = $Version
+    generated_at = [DateTimeOffset]::UtcNow.ToString("o")
+    artifacts = $manifestArtifacts
+}
+$manifestPath = Join-Path $releaseDirectory "manifest.json"
+Write-Utf8NoBom -Path $manifestPath -Content (($manifest | ConvertTo-Json -Depth 6) + "`n")
+
+Write-Host "发布构建完成：$releaseDirectory"
+Write-Host "校验清单：$manifestPath"

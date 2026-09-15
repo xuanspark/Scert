@@ -21,7 +21,7 @@ func TestApplyRequiresVerifiedDNS(t *testing.T) {
 	}
 }
 
-func TestApplyBuildsReadyConfig(t *testing.T) {
+func TestApplyBuildsPendingConfig(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	err := Apply(&cfg, Input{
 		AdminUsername: "admin", AdminEmail: "admin@example.com", AdminPassword: "password123", ServerPort: 8080,
@@ -33,7 +33,7 @@ func TestApplyBuildsReadyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("初始化配置失败：%v", err)
 	}
-	if !cfg.SetupReady || cfg.DNS.VerificationState != "verified" || cfg.Admin.Username != "admin" {
+	if cfg.SetupReady || cfg.Web.InitReady || cfg.DNS.VerificationState != "verified" || cfg.Admin.Username != "admin" {
 		t.Fatalf("初始化状态不正确：%+v", cfg)
 	}
 	if len(cfg.Notification.Recipients) != 2 {

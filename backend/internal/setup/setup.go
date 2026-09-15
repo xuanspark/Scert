@@ -120,7 +120,8 @@ func Apply(cfg *config.Config, input Input) error {
 	cfg.Web.Enabled = input.WebEnabled
 	cfg.Web.Hostname = strings.TrimSpace(input.WebHostname)
 	cfg.Web.PublicIP = strings.TrimSpace(input.WebPublicIP)
-	cfg.Web.InitReady = true
+	// 配置输入通过不等于初始化完成；调用方必须先取得并校验管理后台证书。
+	cfg.Web.InitReady = false
 	cfg.Paths.Certificate = strings.TrimSpace(input.CertificateRoot)
 	cfg.DNS.Provider = strings.TrimSpace(input.DNSProvider)
 	cfg.DNS.CredentialRef = strings.TrimSpace(input.DNSCredentialRef)
@@ -179,7 +180,7 @@ func Apply(cfg *config.Config, input Input) error {
 	if len(cfg.Notification.Recipients) == 0 {
 		cfg.Notification.Recipients = []string{adminEmail}
 	}
-	cfg.SetupReady = true
+	cfg.SetupReady = false
 	if cfg.Notification.SMTPEnabled && strings.TrimSpace(cfg.Notification.SMTPCredentialRef) == "" {
 		return fmt.Errorf("启用 SMTP 通知后必须配置加密凭据引用")
 	}

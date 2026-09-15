@@ -38,6 +38,19 @@ func newMemoryClient() *memoryClient {
 
 func (c *memoryClient) MkdirAll(context.Context, string) error { return nil }
 
+func (c *memoryClient) Lock(_ context.Context, path string) error {
+	if _, exists := c.files[path]; exists {
+		return errors.New("模拟锁已存在")
+	}
+	c.files[path] = memoryFile{}
+	return nil
+}
+
+func (c *memoryClient) Unlock(_ context.Context, path string) error {
+	delete(c.files, path)
+	return nil
+}
+
 func (c *memoryClient) Exists(_ context.Context, path string) (bool, error) {
 	_, ok := c.files[path]
 	return ok, nil
@@ -196,6 +209,11 @@ func TestDeployReportsRollbackFailure(t *testing.T) {
 	}
 	if !strings.Contains(report.Results[0].Message, "自动回滚失败") || !strings.Contains(report.Results[0].Message, "恢复备份文件") {
 		t.Fatalf("应报告自动回滚失败原因：%s", report.Results[0].Message)
+	}
+	for _, path := range []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath} {
+		if _, exists := client.files[path+".scert-lock"]; !exists {
+			t.Fatal("回滚失败后必须保留协作锁，阻止后续任务覆盖待恢复现场")
+		}
 	}
 }
 

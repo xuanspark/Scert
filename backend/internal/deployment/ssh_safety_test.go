@@ -152,6 +152,36 @@ func TestSSHFactoryCancelsUnresponsiveSFTPInitialization(t *testing.T) {
 	}
 }
 
+func TestSSHDeploymentLockIsSharedAcrossConnections(t *testing.T) {
+	factory, server := safetyFactory(t, requestSFTPHandler(sftp.InMemHandler(), false, false))
+	first, err := factory.Connect(t.Context(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := factory.Connect(t.Context(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	const path = "/certificate.scert-lock"
+	if err := first.Lock(t.Context(), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Lock(t.Context(), path); err == nil {
+		t.Fatal("其他 SSH 连接不得取得同一个远程部署锁")
+	}
+	if err := first.Unlock(t.Context(), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Lock(t.Context(), path); err != nil {
+		t.Fatalf("释放锁后应允许后续部署：%v", err)
+	}
+	if err := second.Unlock(t.Context(), path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type stalledLister struct{ release <-chan struct{} }
 
 func (l stalledLister) Filelist(*sftp.Request) (sftp.ListerAt, error) {

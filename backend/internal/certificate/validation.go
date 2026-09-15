@@ -1,6 +1,7 @@
 package certificate
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -52,8 +53,16 @@ func (v LocalValidator) ValidateFiles(ctx context.Context, certificatePath, full
 	if err != nil {
 		return ValidationResult{}, fmt.Errorf("读取私钥文件失败：%w", err)
 	}
-	if _, err := tls.X509KeyPair(chainData, privateKeyData); err != nil {
+	pair, err := tls.X509KeyPair(certificateData, privateKeyData)
+	if err != nil {
 		return ValidationResult{}, fmt.Errorf("证书与私钥不匹配：%w", err)
+	}
+	chainPair, err := tls.X509KeyPair(chainData, privateKeyData)
+	if err != nil {
+		return ValidationResult{}, fmt.Errorf("证书与私钥不匹配：%w", err)
+	}
+	if !bytes.Equal(pair.Certificate[0], chainPair.Certificate[0]) {
+		return ValidationResult{}, errors.New("证书文件与完整证书链的叶子证书不一致")
 	}
 	return v.validatePEM(ctx, chainData, expectedDomains)
 }

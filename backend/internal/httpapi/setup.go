@@ -427,6 +427,7 @@ func (s *Server) applySetup(c *gin.Context) {
 		}
 	}
 	updated.SetupReady = true
+	updated.Web.InitReady = true
 	if err := updated.Validate(); err != nil {
 		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
 		if rollbackErr := s.rollbackIssuedSetupCertificate(savedCertificate); rollbackErr != nil && s.logger != nil {

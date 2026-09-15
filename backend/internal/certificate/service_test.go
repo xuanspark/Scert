@@ -112,6 +112,7 @@ func TestServiceIssuesSANCertificateAndUpdatesState(t *testing.T) {
 	repository := &serviceRepository{item: item}
 	issuer := &serviceIssuer{resource: testResourceForDomains(t, []string{"example.com", "www.example.com"})}
 	service := NewService(cfg, repository, serviceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service.acmeRoots = testResourceRoots(t, issuer.resource)
 	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer { return issuer }
 
 	result, err := service.Issue(context.Background(), item.ID)
@@ -361,6 +362,7 @@ func TestServiceIssuesSetupCertificateWithTypedLayout(t *testing.T) {
 	cfg := certificateTestConfig(root)
 	issuer := &serviceIssuer{resource: testResource(t, "scert.example.com")}
 	service := NewService(cfg, nil, serviceCredentials{}, serviceProviderFactory{}, serviceAccounts{})
+	service.acmeRoots = testResourceRoots(t, issuer.resource)
 	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer { return issuer }
 
 	saved, err := service.IssueForSetup(context.Background(), SetupCertificateRequest{
@@ -408,6 +410,7 @@ func TestServiceDecryptsCredentialReferenceBeforeCreatingProvider(t *testing.T) 
 	factory := &recordingProviderFactory{}
 	issuer := &serviceIssuer{resource: testResource(t, "example.com")}
 	service := NewService(cfg, repository, store, factory, serviceAccounts{})
+	service.acmeRoots = testResourceRoots(t, issuer.resource)
 	service.newIssuer = func(*AccountUser, challenge.Provider, string) Issuer { return issuer }
 
 	if _, err := service.Issue(context.Background(), item.ID); err != nil {

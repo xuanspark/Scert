@@ -113,6 +113,9 @@ func TestRemoteDeploymentIsolatedAcceptance(t *testing.T) {
 			if strings.Contains(file.Name(), ".scert-tmp-") {
 				t.Fatalf("残留临时文件：%s", file.Name())
 			}
+			if strings.HasSuffix(file.Name(), ".scert-lock") {
+				t.Fatalf("残留部署锁：%s", file.Name())
+			}
 			if strings.HasPrefix(file.Name(), "key.pem") && file.Mode().Perm() != 0o600 {
 				t.Fatal("私钥或私钥备份权限不安全")
 			}

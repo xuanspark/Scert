@@ -213,6 +213,11 @@ func sshOperation[T any](ctx context.Context, c *sshClientAdapter, operation fun
 			_ = c.ssh.Close()
 			return zero, err
 		}
+		var networkErr *net.OpError
+		if errors.Is(result.err, io.EOF) || errors.Is(result.err, io.ErrUnexpectedEOF) || errors.Is(result.err, net.ErrClosed) || errors.As(result.err, &networkErr) {
+			c.disconnected.Store(true)
+			_ = c.ssh.Close()
+		}
 		return result.value, result.err
 	case <-ctx.Done():
 		c.disconnected.Store(true)
@@ -233,6 +238,15 @@ func (c *sshClientAdapter) MkdirAll(ctx context.Context, path string) error {
 	return c.fileOperation(ctx, func() error { return c.sftp.MkdirAll(path) })
 }
 
+// 远程原子建目录用于协作锁，跨进程共享；已有锁绝不自动抢占或清理。
+func (c *sshClientAdapter) Lock(ctx context.Context, path string) error {
+	return c.fileOperation(ctx, func() error { return c.sftp.Mkdir(path) })
+}
+
+func (c *sshClientAdapter) Unlock(ctx context.Context, path string) error {
+	return c.fileOperation(ctx, func() error { return c.sftp.RemoveDirectory(path) })
+}
+
 func (c *sshClientAdapter) Exists(ctx context.Context, path string) (bool, error) {
 	return sshOperation(ctx, c, func() (bool, error) {
 		_, err := c.sftp.Stat(path)
@@ -244,12 +258,14 @@ func (c *sshClientAdapter) Exists(ctx context.Context, path string) (bool, error
 }
 
 func (c *sshClientAdapter) Upload(ctx context.Context, path string, data []byte, mode uint32) error {
-	return c.fileOperation(ctx, func() error {
+	var created atomic.Bool
+	err := c.fileOperation(ctx, func() error {
 		// 只创建新临时文件，不跟随已有符号链接，也不截断已存在的文件。
 		file, err := c.sftp.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 		if err != nil {
 			return err
 		}
+		created.Store(true)
 		// 先收紧空文件权限，再写入任何证书或私钥内容。
 		if err := file.Chmod(os.FileMode(mode)); err != nil {
 			_ = file.Close()
@@ -261,7 +277,17 @@ func (c *sshClientAdapter) Upload(ctx context.Context, path string, data []byte,
 		}
 		return file.Close()
 	})
+	if err != nil && !created.Load() {
+		// 未确认取得所有权的路径不得交给事务删除，包括创建响应丢失的情况。
+		return &uploadNotCreatedError{err: err}
+	}
+	return err
 }
+
+type uploadNotCreatedError struct{ err error }
+
+func (e *uploadNotCreatedError) Error() string { return e.err.Error() }
+func (e *uploadNotCreatedError) Unwrap() error { return e.err }
 
 func (c *sshClientAdapter) Rename(ctx context.Context, source, target string) error {
 	return c.fileOperation(ctx, func() error { return c.sftp.Rename(source, target) })

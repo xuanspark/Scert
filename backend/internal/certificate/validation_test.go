@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"net"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -40,6 +42,20 @@ func TestLocalValidatorRejectsMissingSAN(t *testing.T) {
 	_, err := (LocalValidator{Roots: rootPool, VerifyChain: true}).ValidatePEM(context.Background(), certificateData, []string{"api.example.com"})
 	if err == nil {
 		t.Fatal("certificate without requested SAN should fail")
+	}
+}
+
+func TestLocalValidatorDoesNotIgnoreCertificateFile(t *testing.T) {
+	cert, key, _ := validationTestCertificate(t, []string{"example.com"})
+	root := t.TempDir()
+	certPath, chainPath, keyPath := filepath.Join(root, "cert.pem"), filepath.Join(root, "chain.pem"), filepath.Join(root, "key.pem")
+	for name, data := range map[string][]byte{certPath: []byte("invalid-certificate"), chainPath: cert, keyPath: key} {
+		if err := os.WriteFile(name, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := (LocalValidator{}).ValidateFiles(t.Context(), certPath, chainPath, keyPath, []string{"example.com"}); err == nil {
+		t.Fatal("完整证书链有效不能掩盖单独证书文件无效")
 	}
 }
 
