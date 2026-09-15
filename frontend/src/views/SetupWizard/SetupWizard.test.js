@@ -4,6 +4,19 @@ import { nextTick } from "vue";
 import { useSetupWizard } from "./SetupWizard.js";
 import { aliyunProvider, deferred, mountComposable, verifiedResponse } from "../../test-support/mount.js";
 
+test("全新初始化默认选择阿里云", async (t) => {
+  const { state } = await mountComposable(t, () => useSetupWizard({ status: {} }, () => {}),
+    async () => Response.json({ items: [aliyunProvider] }));
+  assert.equal(state.form.value.dns_provider, "aliyun");
+});
+
+test("已有初始化服务商选择保持兼容", async (t) => {
+  const provider = { ...aliyunProvider, id: "cloudflare" };
+  const { state } = await mountComposable(t, () => useSetupWizard({ status: { dns_provider: "cloudflare" } }, () => {}),
+    async () => Response.json({ items: [provider, aliyunProvider] }));
+  assert.equal(state.form.value.dns_provider, "cloudflare");
+});
+
 async function setup(t, request) {
   const { state, unmount } = await mountComposable(t, () => useSetupWizard({ status: { dns_provider: "aliyun" } }, () => {}),
     async (path) => path.endsWith("/providers") ? Response.json({ items: [aliyunProvider] }) : request());

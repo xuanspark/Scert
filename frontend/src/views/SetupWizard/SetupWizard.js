@@ -75,7 +75,7 @@ export function useSetupWizard(props, emit) {
     email_retry_count: 3,
     email_retry_intervals_secs: "30,120,600",
     recipients: "",
-    dns_provider: props.status.dns_provider || "cloudflare",
+    dns_provider: props.status.dns_provider || "aliyun",
     propagation_timeout_secs: props.status.propagation_timeout_secs || 900,
     propagation_polling_interval_secs:
       props.status.propagation_polling_interval_secs || 10,

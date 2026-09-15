@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"net"
 	"net/http"
@@ -90,6 +91,12 @@ func (s *Server) authLogin(c *gin.Context) {
 	}
 	expiresAt := minTime(now.Add(authSessionLifetime), absoluteExpiresAt)
 	s.authMu.Lock()
+	s.pruneAuthSessionsLocked(now)
+	if len(s.authSessions) >= authStateCapacity {
+		s.authMu.Unlock()
+		s.writeError(c, http.StatusServiceUnavailable, "登录会话数量已达上限，请稍后重试", nil)
+		return
+	}
 	s.authSessions[token] = authSession{
 		UserID:            userID,
 		Username:          account.Username,
@@ -189,15 +196,20 @@ func (s *Server) currentAuthSession(c *gin.Context) (authSession, bool) {
 		return authSession{}, false
 	}
 	newExpiresAt := minTime(now.Add(authSessionLifetime), session.AbsoluteExpiresAt)
-	if newExpiresAt.After(session.ExpiresAt) {
-		session.ExpiresAt = newExpiresAt
-		s.authMu.Lock()
-		if current, exists := s.authSessions[token]; exists {
-			current.ExpiresAt = newExpiresAt
-			s.authSessions[token] = current
-			session = current
-		}
+	s.authMu.Lock()
+	current, exists := s.authSessions[token]
+	if !exists {
 		s.authMu.Unlock()
+		return authSession{}, false
+	}
+	refreshed := newExpiresAt.After(current.ExpiresAt)
+	if refreshed {
+		current.ExpiresAt = newExpiresAt
+		s.authSessions[token] = current
+	}
+	session = current
+	s.authMu.Unlock()
+	if refreshed {
 		s.setAuthCookie(c, token, session.ExpiresAt)
 	}
 	return session, true
@@ -270,9 +282,10 @@ func (s *Server) allowLogin(key string) bool {
 	now := s.now()
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
+	s.pruneLoginAttemptsLocked(now)
 	attempt, ok := s.loginAttempts[key]
 	if !ok {
-		return true
+		return len(s.loginAttempts) < authStateCapacity
 	}
 	if !attempt.BlockedTill.IsZero() && attempt.BlockedTill.After(now) {
 		return false
@@ -287,6 +300,10 @@ func (s *Server) recordLoginFailure(key string) {
 	now := s.now()
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
+	s.pruneLoginAttemptsLocked(now)
+	if _, exists := s.loginAttempts[key]; !exists && len(s.loginAttempts) >= authStateCapacity {
+		return
+	}
 	attempt := s.loginAttempts[key]
 	if attempt.WindowStart.IsZero() || now.Sub(attempt.WindowStart) >= loginWindow {
 		attempt = loginAttempt{WindowStart: now}
@@ -323,7 +340,8 @@ func loginAttemptKey(request *http.Request, identifier string) string {
 			remote = host
 		}
 	}
-	return strings.ToLower(strings.TrimSpace(remote + "|" + identifier))
+	digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(identifier))))
+	return strings.ToLower(strings.TrimSpace(remote)) + "|" + hex.EncodeToString(digest[:])
 }
 
 func newAuthToken() (string, error) {

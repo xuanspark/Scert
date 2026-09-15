@@ -106,6 +106,7 @@ type Server struct {
 	authMu              sync.RWMutex
 	loginAttempts       map[string]loginAttempt
 	loginMu             sync.Mutex
+	loginPrunedAt       time.Time
 	now                 func() time.Time
 	httpServer          *http.Server
 	router              *gin.Engine

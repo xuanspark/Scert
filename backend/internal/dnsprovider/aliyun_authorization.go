@@ -358,7 +358,7 @@ func DiagnoseAliyunError(err error, domainName string) string {
 	msg := err.Error()
 	lowered := strings.ToLower(msg)
 	if strings.Contains(lowered, "forbidden.nopermission") || strings.Contains(lowered, "forbidden.ram") || strings.Contains(lowered, "accessdenied") || strings.Contains(lowered, "not authorized") {
-		return fmt.Sprintf("当前阿里云 RAM 账号未获得域名 %s 的 DNS 解析权限。请在阿里云 RAM 控制台授予该账号针对 acs:alidns:*:*:domain/%s 的操作权限（Action: alidns:*）", domainName, domainName)
+		return fmt.Sprintf("当前阿里云 RAM 账号未获得域名 %s 所需的 DNS 操作权限。请管理员核对实际托管区资源 acs:alidns:*:*:domain/%s，按失败操作补充必要的读取、新增或删除权限；不要直接扩大为全部操作或全部域名权限", domainName, domainName)
 	}
 	if strings.Contains(lowered, "nosuchdomain") || strings.Contains(lowered, "invaliddomainname.noexist") {
 		return fmt.Sprintf("域名 %s 未在当前阿里云账号下添加 DNS 托管，请先在阿里云云解析 DNS 控制台添加此域名", domainName)
