@@ -479,11 +479,15 @@ func prepareDNSCredentials(ctx context.Context, cfg config.Config, input *setup.
 		dnsprovider.NewTester(dnsprovider.NewLegoFactory()),
 		store,
 	)
-	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, dnsprovider.PermissionVerificationTimeout)
+	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, dnsprovider.PermissionVerificationTimeoutFor(input.DNSProvider))
 }
 
 func prepareDNSCredentialsWithManager(ctx context.Context, input *setup.Input, output io.Writer, manager *setup.DNSVerificationManager, store *secretstore.Store) (func(), error) {
-	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, dnsprovider.PermissionVerificationTimeout)
+	timeout := dnsprovider.PermissionVerificationTimeout
+	if input != nil {
+		timeout = dnsprovider.PermissionVerificationTimeoutFor(input.DNSProvider)
+	}
+	return prepareDNSCredentialsWithManagerAndTimeout(ctx, input, output, manager, store, timeout)
 }
 
 func prepareDNSCredentialsWithManagerAndTimeout(ctx context.Context, input *setup.Input, output io.Writer, manager *setup.DNSVerificationManager, store *secretstore.Store, timeout time.Duration) (func(), error) {

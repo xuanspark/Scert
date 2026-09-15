@@ -130,6 +130,41 @@ func TestTesterCleansUpWithIndependentContextAfterQueryCancellation(t *testing.T
 	}
 }
 
+type forbiddenTXTResolver struct{}
+
+func (forbiddenTXTResolver) LookupTXT(context.Context, string) ([]string, error) {
+	return nil, errors.New("阿里云账号内权限验证不应查询公网 TXT 记录")
+}
+
+func TestTesterUsesAliyunAPIReadBackWithoutPublicDNSPropagation(t *testing.T) {
+	api := &authorizationRecordAPI{}
+	tester := &Tester{
+		resolver:            forbiddenTXTResolver{},
+		aliyunAuthorization: newAuthorizationCheckerForTest(api),
+	}
+	report, err := tester.VerifyWithReport(t.Context(), Aliyun, "www.sub.example.com", scopeCredentials())
+	if err != nil {
+		t.Fatalf("阿里云权限验证失败：%v", err)
+	}
+	if report.RecordName == "" || len(report.Stages) != 3 {
+		t.Fatalf("阿里云阶段报告不完整：%+v", report)
+	}
+	for _, stage := range report.Stages {
+		if stage.Status != "completed" {
+			t.Fatalf("阿里云阶段未完成：%+v", report.Stages)
+		}
+	}
+	if report.Stages[0].Name != "创建记录" || report.Stages[1].Name != "查询记录" || report.Stages[2].Name != "清理记录" {
+		t.Fatalf("阿里云阶段顺序错误：%+v", report.Stages)
+	}
+	if !strings.Contains(report.Stages[1].Message, "未等待公网 DNS 传播") {
+		t.Fatalf("阿里云查询阶段必须明确不等待公网传播：%+v", report.Stages[1])
+	}
+	if got := callNames(api.calls); got != "add,describe,delete" {
+		t.Fatalf("阿里云不应调用公网 TXT 查询：%s", got)
+	}
+}
+
 func TestTesterReportsCleanupFailureAfterQueryFailure(t *testing.T) {
 	t.Setenv("LEGO_DISABLE_CNAME_SUPPORT", "true")
 	provider := &fakeProvider{cleanupErr: errors.New("权限不足")}

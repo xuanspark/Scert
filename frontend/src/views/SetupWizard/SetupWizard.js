@@ -1,6 +1,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
+const aliyunDNSVerificationTimeoutSeconds = 15;
+
+function dnsVerificationTimeoutFor(providerID) {
+  return String(providerID || "").trim().toLowerCase() === "aliyun"
+    ? aliyunDNSVerificationTimeoutSeconds
+    : defaultDNSVerificationTimeoutSeconds;
+}
 
 const commonEmailDomains = [
   { label: "常用邮箱", value: "" },
@@ -170,9 +177,9 @@ export function useSetupWizard(props, emit) {
     dnsVerificationElapsedSeconds.value = 0;
   }
 
-  function startDNSVerificationTimer(requestVersion) {
+  function startDNSVerificationTimer(requestVersion, providerID) {
     stopDNSVerificationTimer();
-    dnsVerificationTimeoutSeconds.value = defaultDNSVerificationTimeoutSeconds;
+    dnsVerificationTimeoutSeconds.value = dnsVerificationTimeoutFor(providerID);
     const startedAt = Date.now();
     const updateElapsedSeconds = () => {
       if (requestVersion !== dnsRequestVersion) return;
@@ -456,7 +463,7 @@ export function useSetupWizard(props, emit) {
 
     const requestVersion = dnsRequestVersion;
     dnsTesting.value = true;
-    startDNSVerificationTimer(requestVersion);
+    startDNSVerificationTimer(requestVersion, provider.id);
     try {
       const response = await fetch("/api/v1/setup/dns/test", {
         method: "POST",

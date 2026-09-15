@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
@@ -79,8 +80,13 @@ func TestDNSCheckReportsLiveResultWithoutPersistingConfiguration(t *testing.T) {
 				if name != "example.com" || credentials["access_key_id"] != "test-id" {
 					t.Fatal("检查目标或凭据来源不正确")
 				}
-				if _, ok := ctx.Deadline(); !ok {
+				deadline, ok := ctx.Deadline()
+				if !ok {
 					t.Fatal("权限请求必须设置超时")
+				}
+				remaining := time.Until(deadline)
+				if remaining < 14*time.Second || remaining > 16*time.Second {
+					t.Fatalf("阿里云 CLI 权限验证时限错误：%s", remaining)
 				}
 				report := dnsprovider.AuthorizationReport{Provider: "aliyun", RequestedDomain: name, Verified: outcome == "allowed"}
 				switch outcome {

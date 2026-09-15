@@ -28,6 +28,7 @@ type TXTResolver interface {
 type Tester struct {
 	factory             Factory
 	resolver            TXTResolver
+	aliyunAuthorization *AliyunAuthorizationChecker
 	propagationTimeout  time.Duration
 	propagationInterval time.Duration
 }
@@ -37,10 +38,21 @@ const (
 	// 它与 ACME DNS-01 的公网传播等待相互独立。
 	PermissionVerificationTimeout = 60 * time.Second
 
+	// AliyunPermissionVerificationTimeout 限制阿里云账号内的创建、查询和清理闭环。
+	// 该流程不等待公网 DNS 传播。
+	AliyunPermissionVerificationTimeout = 15 * time.Second
+
 	dnsCleanupTimeout                     = 30 * time.Second
 	defaultDNSPermissionTXTLookupTimeout  = 30 * time.Second
 	defaultDNSPermissionTXTLookupInterval = 2 * time.Second
 )
+
+func PermissionVerificationTimeoutFor(providerID string) time.Duration {
+	if strings.EqualFold(strings.TrimSpace(providerID), Aliyun) {
+		return AliyunPermissionVerificationTimeout
+	}
+	return PermissionVerificationTimeout
+}
 
 func NewTester(factory Factory) *Tester {
 	return NewTesterWithResolverAndSettings(factory, legoTXTResolver{}, defaultDNSPermissionTXTLookupTimeout, defaultDNSPermissionTXTLookupInterval)
@@ -67,6 +79,7 @@ func NewTesterWithResolverAndSettings(factory Factory, resolver TXTResolver, tim
 	return &Tester{
 		factory:             factory,
 		resolver:            resolver,
+		aliyunAuthorization: NewAliyunAuthorizationChecker(),
 		propagationTimeout:  timeout,
 		propagationInterval: interval,
 	}
@@ -97,7 +110,7 @@ func (t *Tester) Verify(ctx context.Context, providerID, testDomain string, cred
 
 func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain string, credentials map[string]string) (setup.DNSVerificationReport, error) {
 	report := setup.DNSVerificationReport{}
-	if t == nil || t.factory == nil || t.resolver == nil {
+	if t == nil {
 		return report, errors.New("DNS 验证服务未初始化")
 	}
 	testDomain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(testDomain), "."))
@@ -110,6 +123,12 @@ func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain st
 	}
 	if err := ValidateAliyunDomainScope(providerID, []string{testDomain}, cleaned); err != nil {
 		return report, err
+	}
+	if strings.EqualFold(strings.TrimSpace(providerID), Aliyun) {
+		return t.verifyAliyun(ctx, testDomain, cleaned)
+	}
+	if t.factory == nil || t.resolver == nil {
+		return report, errors.New("DNS 验证服务未初始化")
 	}
 	provider, err := t.factory.Create(providerID, cleaned)
 	if err != nil {
@@ -170,6 +189,58 @@ func (t *Tester) VerifyWithReport(ctx context.Context, providerID, testDomain st
 		}
 	}
 	return report, nil
+}
+
+func (t *Tester) verifyAliyun(ctx context.Context, testDomain string, credentials map[string]string) (setup.DNSVerificationReport, error) {
+	report := setup.DNSVerificationReport{}
+	if t.aliyunAuthorization == nil {
+		return report, errors.New("阿里云 DNS 权限验证服务未初始化")
+	}
+	authorization, err := t.aliyunAuthorization.Verify(ctx, testDomain, credentials)
+	report.RecordName = authorization.RecordName
+	if len(authorization.Domains) == 0 || !authorization.Domains[0].Writable {
+		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+			Name: "创建记录", Status: "failed", Message: "调用阿里云 DNS API 创建临时 TXT 记录失败。",
+		})
+		return report, &VerificationError{Report: report, Err: aliyunVerificationError(err)}
+	}
+	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		Name: "创建记录", Status: "completed", Message: "已通过阿里云 DNS API 创建临时 TXT 记录。",
+	})
+	if !authorization.Domains[0].Readable {
+		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+			Name: "查询记录", Status: "failed", Message: "阿里云 DNS API 未能精确查询并比对本次临时 TXT 记录。",
+		})
+		appendAliyunCleanupStage(&report, authorization.Domains[0].Cleanup)
+		return report, &VerificationError{Report: report, Err: aliyunVerificationError(err)}
+	}
+	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		Name: "查询记录", Status: "completed", Message: "已通过阿里云 DNS API 精确查询并比对临时 TXT 记录，未等待公网 DNS 传播。",
+	})
+	appendAliyunCleanupStage(&report, authorization.Domains[0].Cleanup)
+	if err != nil || !authorization.Verified {
+		return report, &VerificationError{Report: report, Err: aliyunVerificationError(err)}
+	}
+	return report, nil
+}
+
+func appendAliyunCleanupStage(report *setup.DNSVerificationReport, cleaned bool) {
+	if cleaned {
+		report.Stages = append(report.Stages, setup.DNSVerificationStage{
+			Name: "清理记录", Status: "completed", Message: "已通过阿里云 DNS API 清理本次临时 TXT 记录。",
+		})
+		return
+	}
+	report.Stages = append(report.Stages, setup.DNSVerificationStage{
+		Name: "清理记录", Status: "failed", Message: "临时 TXT 记录清理失败，不能确认阿里云 DNS 权限验证通过。",
+	})
+}
+
+func aliyunVerificationError(err error) error {
+	if err != nil {
+		return err
+	}
+	return errors.New("阿里云 DNS 权限验证未通过")
 }
 
 func cleanupChallenge(ctx context.Context, provider challenge.Provider, testDomain, token, keyAuth string) error {

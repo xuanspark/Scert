@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"github.com/gin-gonic/gin"
 )
 
@@ -30,7 +31,9 @@ func (s *Server) longOperation(timeout time.Duration) gin.HandlerFunc {
 }
 
 func (s *Server) dnsOperation(c *gin.Context) {
-	s.longOperation(dnsAPIPermissionVerificationTimeout())(c)
+	// 路由中间件在绑定 JSON 前无法可靠识别服务商，保留兼容服务商的最长响应时限。
+	// testDNS 会在参数校验后按服务商建立更精确的工作上下文。
+	s.longOperation(dnsprovider.PermissionVerificationTimeout)(c)
 }
 
 func (s *Server) requireSameOrigin(c *gin.Context) {

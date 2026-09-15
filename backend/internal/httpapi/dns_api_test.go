@@ -69,6 +69,23 @@ func TestAdminDNSTestReturnsVerificationResult(t *testing.T) {
 	}
 }
 
+func TestAdminAliyunDNSTestReportsFastVerificationTimeout(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	server := New(Dependencies{Config: cfg, SetupDNS: &fakeSetupDNSVerifier{}})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/dns/test", strings.NewReader(`{
+		"provider":"aliyun",
+		"test_domain":"example.com",
+		"credentials":{"access_key_id":"test-id","access_key_secret":"test-secret","managed_zones":"example.com","allowed_domains":"example.com"}
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	serveAdminHTTP(server, response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"verification_timeout_secs":15`) {
+		t.Fatalf("管理端阿里云 DNS 在线测试未返回 15 秒等待上限：%d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAdminDNSTestRejectsUnavailableService(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	cfg.SetupReady = true

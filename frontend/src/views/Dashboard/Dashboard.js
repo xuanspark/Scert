@@ -1,6 +1,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
+const aliyunDNSVerificationTimeoutSeconds = 15;
+
+function dnsVerificationTimeoutFor(providerID) {
+  return String(providerID || "").trim().toLowerCase() === "aliyun"
+    ? aliyunDNSVerificationTimeoutSeconds
+    : defaultDNSVerificationTimeoutSeconds;
+}
 
 export function useDashboard() {
   const scertLogo = "/Scert.png";
@@ -233,9 +240,9 @@ export function useDashboard() {
     dnsVerificationElapsedSeconds.value = 0;
   }
 
-  function startDNSVerificationTimer(requestVersion) {
+  function startDNSVerificationTimer(requestVersion, providerID) {
     stopDNSVerificationTimer();
-    dnsVerificationTimeoutSeconds.value = defaultDNSVerificationTimeoutSeconds;
+    dnsVerificationTimeoutSeconds.value = dnsVerificationTimeoutFor(providerID);
     const startedAt = Date.now();
     const updateElapsedSeconds = () => {
       if (requestVersion !== dnsRequestVersion) return;
@@ -801,7 +808,7 @@ export function useDashboard() {
     const requestVersion = dnsRequestVersion;
     dnsTesting.value = true;
     dns.verification_state = "pending";
-    startDNSVerificationTimer(requestVersion);
+    startDNSVerificationTimer(requestVersion, dns.provider);
     try {
       const response = await fetchAdmin("/api/v1/dns/test", {
         method: "POST",

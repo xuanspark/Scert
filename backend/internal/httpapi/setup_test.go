@@ -276,6 +276,39 @@ func TestSetupDNSTestUsesShortPermissionVerificationTimeout(t *testing.T) {
 		t.Fatalf("DNS 在线测试请求超时不应继承 ACME 传播配置：剩余时间=%s", remaining)
 	}
 }
+
+func TestSetupAliyunDNSTestUsesFastAccountAPITimeout(t *testing.T) {
+	baseDir := t.TempDir()
+	cfg := config.Default(baseDir)
+	cfg.ACME.PropagationTimeoutSecs = 86400
+	cfg.ACME.PropagationPollingIntervalSecs = 60
+	verifier := &fakeSetupDNSVerifier{verifyErr: errors.New("测试 DNS 验证失败")}
+	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, SetupDNS: verifier})
+
+	started := time.Now()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup/dns/test", strings.NewReader(`{
+		"provider":"aliyun",
+		"test_domain":"example.com",
+		"credentials":{"access_key_id":"test-id","access_key_secret":"test-secret","managed_zones":"example.com","allowed_domains":"example.com"}
+	}`))
+	request.RemoteAddr = "127.0.0.1:53000"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("模拟阿里云 DNS 验证失败应返回 422，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":15`) {
+		t.Fatalf("阿里云 DNS 验证失败响应应包含 15 秒等待上限：%s", response.Body.String())
+	}
+	if !verifier.verifyHasDeadline {
+		t.Fatal("阿里云 DNS 在线测试应收到带截止时间的上下文")
+	}
+	remaining := verifier.verifyDeadline.Sub(started)
+	if remaining < 14*time.Second || remaining > 16*time.Second {
+		t.Fatalf("阿里云权限验证不应继承 ACME 传播配置：剩余时间=%s", remaining)
+	}
+}
 func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := config.Default(baseDir)
@@ -547,7 +580,7 @@ func TestSetupDNSTestReturnsNotImplementedForUnavailableProvider(t *testing.T) {
 	if strings.Contains(response.Body.String(), "access_key_secret") || strings.Contains(response.Body.String(), "secret") {
 		t.Fatal("未开放 Provider 响应不应包含提交的凭据")
 	}
-	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":60`) {
+	if !strings.Contains(response.Body.String(), `"verification_timeout_secs":15`) {
 		t.Fatalf("未开放 Provider 响应应包含当前最大等待时间：%s", response.Body.String())
 	}
 }

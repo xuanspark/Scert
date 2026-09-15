@@ -583,7 +583,10 @@ const {
               已等待 {{ dnsVerificationElapsedSeconds }} 秒，最长等待
               {{ dnsVerificationTimeoutSeconds }} 秒。
             </span>
-            <small>
+            <small v-if="selectedDNSProvider?.id === 'aliyun'">
+              正在通过阿里云 DNS API 创建、查询并清理临时 TXT 记录，不等待公网 DNS 传播，通常数秒即可完成；实际申请证书时，仍可能需要等待公网 DNS-01 记录传播。
+            </small>
+            <small v-else>
               系统正在创建临时 TXT、查询验证记录并自动清理。这是 DNS API 权限验证；实际申请证书时，仍可能需要等待公网 DNS-01 记录传播。
             </small>
           </div>

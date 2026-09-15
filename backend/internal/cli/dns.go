@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -76,7 +75,7 @@ func newDNSPermissionCommand(verify dnsPermissionVerifier, readOnly bool) *cobra
 					return err
 				}
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), 45*time.Second)
+			ctx, cancel := context.WithTimeout(cmd.Context(), dnsprovider.PermissionVerificationTimeoutFor(dnsprovider.Aliyun))
 			defer cancel()
 			report, verifyErr := verify(ctx, requestedDomain, credentials)
 			if err := printJSON(cmd, report); err != nil {

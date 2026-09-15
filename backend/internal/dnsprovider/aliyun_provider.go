@@ -15,7 +15,16 @@ import (
 
 type aliyunRecordAPI interface {
 	Add(context.Context, string, string, string) (string, error)
+	Describe(context.Context, string) (aliyunRecordInfo, error)
 	Delete(context.Context, string) error
+}
+
+type aliyunRecordInfo struct {
+	RecordID   string
+	DomainName string
+	RR         string
+	Type       string
+	Value      string
 }
 
 type aliyunRecords struct{ client *client.Client }
@@ -33,6 +42,28 @@ func (a aliyunRecords) Add(ctx context.Context, zone, rr, value string) (string,
 		return "", errors.New("阿里云未返回新增记录 ID，状态未确认，请人工核对本次记录")
 	}
 	return strings.TrimSpace(*response.Body.RecordId), nil
+}
+
+func (a aliyunRecords) Describe(ctx context.Context, recordID string) (aliyunRecordInfo, error) {
+	response, err := client.DescribeDomainRecordInfoWithContext(
+		ctx,
+		a.client,
+		new(client.DescribeDomainRecordInfoRequest).SetRecordId(recordID),
+		&dara.RuntimeOptions{},
+	)
+	if err != nil {
+		return aliyunRecordInfo{}, err
+	}
+	if response == nil || response.Body == nil {
+		return aliyunRecordInfo{}, errors.New("阿里云未返回临时 TXT 记录详情")
+	}
+	return aliyunRecordInfo{
+		RecordID:   strings.TrimSpace(dereferenceString(response.Body.RecordId)),
+		DomainName: normalizeAuthorizationDomain(dereferenceString(response.Body.DomainName)),
+		RR:         strings.TrimSpace(dereferenceString(response.Body.RR)),
+		Type:       strings.TrimSpace(dereferenceString(response.Body.Type)),
+		Value:      dereferenceString(response.Body.Value),
+	}, nil
 }
 
 func (a aliyunRecords) Delete(ctx context.Context, id string) error {

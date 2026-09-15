@@ -50,15 +50,36 @@ func TestAliyunScopeBoundaries(t *testing.T) {
 }
 
 type fakeAliyunRecords struct {
-	zones, rrs, deleted []string
-	addErr, deleteErr   error
-	canceledCleanup     bool
+	zones, rrs, values, deleted    []string
+	addErr, describeErr, deleteErr error
+	describeInfo                   aliyunRecordInfo
+	canceledCleanup                bool
 }
 
-func (f *fakeAliyunRecords) Add(_ context.Context, zone, rr, _ string) (string, error) {
+func (f *fakeAliyunRecords) Add(_ context.Context, zone, rr, value string) (string, error) {
 	f.zones = append(f.zones, zone)
 	f.rrs = append(f.rrs, rr)
+	f.values = append(f.values, value)
 	return "created-record-id", f.addErr
+}
+
+func (f *fakeAliyunRecords) Describe(_ context.Context, _ string) (aliyunRecordInfo, error) {
+	if f.describeErr != nil {
+		return aliyunRecordInfo{}, f.describeErr
+	}
+	if f.describeInfo.RecordID != "" {
+		return f.describeInfo, nil
+	}
+	if len(f.zones) == 0 || len(f.rrs) == 0 || len(f.values) == 0 {
+		return aliyunRecordInfo{}, errors.New("没有可供查询的临时记录")
+	}
+	return aliyunRecordInfo{
+		RecordID:   "created-record-id",
+		DomainName: f.zones[len(f.zones)-1],
+		RR:         f.rrs[len(f.rrs)-1],
+		Type:       "TXT",
+		Value:      f.values[len(f.values)-1],
+	}, nil
 }
 
 func (f *fakeAliyunRecords) Delete(ctx context.Context, id string) error {
