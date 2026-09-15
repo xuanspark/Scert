@@ -54,9 +54,9 @@ type settingsACMEView struct {
 }
 
 type settingsDNSView struct {
-	Provider             string                   `json:"provider"`
-	VerificationState    string                   `json:"verification_state"`
-	CredentialConfigured bool                     `json:"credential_configured"`
+	Provider             string `json:"provider"`
+	VerificationState    string `json:"verification_state"`
+	CredentialConfigured bool   `json:"credential_configured"`
 }
 
 type settingsNotificationView struct {
