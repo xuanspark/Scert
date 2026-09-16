@@ -93,7 +93,7 @@ func Open(configPath, baseDir string) (*Runtime, error) {
 
 func (r *Runtime) Handler() http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if r == nil {
+		if r == nil || r.ctx == nil {
 			http.Error(writer, "Scert 核心服务未初始化", http.StatusServiceUnavailable)
 			return
 		}

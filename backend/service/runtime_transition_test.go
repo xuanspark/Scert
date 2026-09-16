@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
@@ -121,5 +123,44 @@ func TestDesktopTransitionRejectsCorruptedSavedConfig(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil))
 	if response.Code != http.StatusServiceUnavailable || runtime.core != nil {
 		t.Fatal("损坏配置不得回退到新的初始化或启动正式服务")
+	}
+}
+
+func TestDesktopCloseCancelsInFlightInitialization(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	finished := make(chan struct{})
+	runtime := &Runtime{
+		ctx: ctx, cancel: cancel, configPath: filepath.Join(t.TempDir(), "scert.json"),
+		initial: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			close(started)
+			<-request.Context().Done()
+			writer.WriteHeader(http.StatusServiceUnavailable)
+		}),
+	}
+	go func() {
+		defer close(finished)
+		runtime.Handler().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/setup", nil))
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("初始化处理器没有启动")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- runtime.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("关闭运行时没有取消在途初始化请求")
+	}
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("关闭后仍有初始化处理器运行")
 	}
 }
