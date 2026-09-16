@@ -177,7 +177,7 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 		MinVersion: tls.VersionTLS12, RootCAs: formalRoots, ServerName: input.WebPublicIP,
 	}}
 	defer formalTransport.CloseIdleConnections()
-	formalClient := &http.Client{Transport: formalTransport, Timeout: time.Second}
+	formalClient := &http.Client{Transport: formalTransport, Jar: jar, Timeout: 5 * time.Second}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		response, err := formalClient.Get(origin + "/healthz")
@@ -205,6 +205,34 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 		response.Body.Close()
 		if response.StatusCode != expected {
 			t.Fatalf("切换后 %s 状态错误：%d", path, response.StatusCode)
+		}
+	}
+	loginBody, err := json.Marshal(map[string]string{"identifier": input.AdminUsername, "password": input.AdminPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+	login, err := http.NewRequest(http.MethodPost, origin+"/api/v1/auth/login", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	login.Header.Set("Content-Type", "application/json")
+	login.Header.Set("Origin", origin)
+	response, err := formalClient.Do(login)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("新管理员无法登录正式 HTTPS：%d", response.StatusCode)
+	}
+	for _, path := range []string{"/api/v1/auth/session", "/api/v1/users", "/readyz"} {
+		response, err := formalClient.Get(origin + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("初始化后会话、管理员权限或本地就绪检查失败：%s %d", path, response.StatusCode)
 		}
 	}
 	closeApplication()

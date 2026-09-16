@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
@@ -20,6 +21,10 @@ import (
 )
 
 type Runtime struct {
+	mu         sync.RWMutex
+	closed     bool
+	ctx        context.Context
+	configPath string
 	core       *app.App
 	cancel     context.CancelFunc
 	initial    http.Handler
@@ -73,7 +78,7 @@ func Open(configPath, baseDir string) (*Runtime, error) {
 			}
 			http.NotFound(writer, request)
 		})
-		return &Runtime{cancel: cancel, initial: handler, initialDNS: dns}, nil
+		return &Runtime{ctx: ctx, configPath: configPath, cancel: cancel, initial: handler, initialDNS: dns}, nil
 	}
 	core, err := app.NewWithConfigPath(ctx, cfg, configPath)
 	if err != nil {
@@ -83,28 +88,94 @@ func Open(configPath, baseDir string) (*Runtime, error) {
 	if core.Renewal != nil && cfg.SetupReady {
 		core.Renewal.Start(ctx)
 	}
-	return &Runtime{core: core, cancel: cancel}, nil
+	return &Runtime{ctx: ctx, configPath: configPath, core: core, cancel: cancel}, nil
 }
 
 func (r *Runtime) Handler() http.Handler {
-	if r != nil && r.initial != nil {
-		return r.initial
-	}
-	if r == nil || r.core == nil || r.core.HTTP == nil {
-		return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if r == nil {
 			http.Error(writer, "Scert 核心服务未初始化", http.StatusServiceUnavailable)
-		})
+			return
+		}
+		ctx, cancel := context.WithCancel(request.Context())
+		stop := context.AfterFunc(r.ctx, cancel)
+		defer stop()
+		defer cancel()
+		request = request.WithContext(ctx)
+		r.mu.RLock()
+		if !r.closed && r.core != nil {
+			defer r.mu.RUnlock()
+			r.core.HTTP.Handler().ServeHTTP(writer, request)
+			return
+		}
+		r.mu.RUnlock()
+		// 桌面初始化请求串行处理，保存后下一次请求才切换，避免关闭在途验证的凭据。
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.closed {
+			http.Error(writer, "Scert 核心服务已关闭", http.StatusServiceUnavailable)
+			return
+		}
+		if r.core == nil {
+			if err := r.activateCompletedSetup(); err != nil {
+				http.Error(writer, "初始化配置已保存，但核心服务启动失败，请检查配置和运行目录后重试", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		if r.core != nil {
+			r.core.HTTP.Handler().ServeHTTP(writer, request)
+			return
+		}
+		if r.initial == nil {
+			http.Error(writer, "Scert 核心服务未初始化", http.StatusServiceUnavailable)
+			return
+		}
+		r.initial.ServeHTTP(writer, request)
+	})
+}
+
+// 调用方持有运行时写锁；不重新创建窗口，原有处理器即可切换到正式服务。
+func (r *Runtime) activateCompletedSetup() error {
+	cfg, err := config.LoadWithEnv(r.configPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	return r.core.HTTP.Handler()
+	if err != nil {
+		return err
+	}
+	if !cfg.SetupReady {
+		return nil
+	}
+	core, err := app.NewWithConfigPath(r.ctx, cfg, r.configPath)
+	if err != nil {
+		return err
+	}
+	if core.Renewal != nil {
+		core.Renewal.Start(r.ctx)
+	}
+	r.core = core
+	r.initial = nil
+	if r.initialDNS != nil {
+		r.initialDNS.DiscardAllExcept(cfg.DNS.CredentialRef)
+		r.initialDNS = nil
+	}
+	return nil
 }
 
 func (r *Runtime) Close() error {
 	if r == nil {
 		return nil
 	}
+	// 先取消长操作再等待处理器退出，避免关闭过程被初始化验证阻塞。
 	if r.cancel != nil {
 		r.cancel()
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil
+	}
+	r.closed = true
 	if r.initialDNS != nil {
 		r.initialDNS.DiscardAll()
 	}
