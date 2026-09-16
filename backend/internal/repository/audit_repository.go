@@ -23,11 +23,16 @@ type AuditRepository interface {
 }
 
 type SQLAuditRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	driver string
 }
 
-func NewSQLAuditRepository(db *sql.DB) *SQLAuditRepository {
-	return &SQLAuditRepository{db: db}
+func NewSQLAuditRepository(db *sql.DB, driver ...string) *SQLAuditRepository {
+	return &SQLAuditRepository{db: db, driver: repositoryDriver(driver)}
+}
+
+func (r *SQLAuditRepository) query(value string) string {
+	return Rebind(r.driver, value)
 }
 
 func (r *SQLAuditRepository) CreateAuditLog(ctx context.Context, item AuditLog) error {
@@ -44,9 +49,9 @@ func (r *SQLAuditRepository) CreateAuditLog(ctx context.Context, item AuditLog) 
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = time.Now().UTC()
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO audit_logs
+	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO audit_logs
 		(action, resource_type, resource_id, status, message, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, item.Action, item.ResourceType, item.ResourceID, item.Status, item.Message, item.CreatedAt.UTC())
+		VALUES (?, ?, ?, ?, ?, ?)`), item.Action, item.ResourceType, item.ResourceID, item.Status, item.Message, item.CreatedAt.UTC())
 	if err != nil {
 		return fmt.Errorf("保存审计日志失败：%w", err)
 	}
@@ -60,7 +65,7 @@ func (r *SQLAuditRepository) PruneExpiredAuditLogs(ctx context.Context, before t
 	if before.IsZero() {
 		return 0, errors.New("审计日志清理时间不能为空")
 	}
-	result, err := r.db.ExecContext(ctx, `DELETE FROM audit_logs WHERE created_at < ?`, before.UTC())
+	result, err := r.db.ExecContext(ctx, r.query(`DELETE FROM audit_logs WHERE created_at < ?`), before.UTC())
 	if err != nil {
 		return 0, fmt.Errorf("清理过期审计日志失败：%w", err)
 	}

@@ -9,14 +9,14 @@ import (
 	"strings"
 )
 
-//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/sqlite/0004_task_attempts.sql migrations/sqlite/0005_users.sql migrations/sqlite/0006_server_validation.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql migrations/mysql/0004_task_attempts.sql migrations/mysql/0005_users.sql migrations/mysql/0006_server_validation.sql
+//go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/sqlite/0004_task_attempts.sql migrations/sqlite/0005_users.sql migrations/sqlite/0006_server_validation.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql migrations/mysql/0004_task_attempts.sql migrations/mysql/0005_users.sql migrations/mysql/0006_server_validation.sql migrations/postgres/0001_initial.sql migrations/postgres/0002_domain_options.sql migrations/postgres/0003_deployment.sql migrations/postgres/0004_task_attempts.sql migrations/postgres/0005_users.sql migrations/postgres/0006_server_validation.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	if db == nil {
 		return fmt.Errorf("数据库连接不能为空")
 	}
-	if driver != "sqlite" && driver != "mysql" {
+	if driver != "sqlite" && driver != "mysql" && driver != "postgres" {
 		return fmt.Errorf("数据库驱动无效：%s", driver)
 	}
 	if _, err := db.ExecContext(ctx, migrationTableSQL(driver)); err != nil {
@@ -75,7 +75,11 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 			return fmt.Errorf("执行数据库迁移失败：%w", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
+	migrationVersionInsert := "INSERT INTO schema_migrations (version) VALUES (?)"
+	if driver == "postgres" {
+		migrationVersionInsert = "INSERT INTO schema_migrations (version) VALUES ($1)"
+	}
+	if _, err := tx.ExecContext(ctx, migrationVersionInsert, version); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("记录迁移版本失败：%w", err)
 	}
@@ -148,6 +152,12 @@ func migrationTableSQL(driver string) string {
 		return `CREATE TABLE IF NOT EXISTS schema_migrations (
 			version INT NOT NULL PRIMARY KEY,
 			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	if driver == "postgres" {
+		return `CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER NOT NULL PRIMARY KEY,
+			applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`
 	}
 	return `CREATE TABLE IF NOT EXISTS schema_migrations (

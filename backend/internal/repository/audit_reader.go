@@ -18,7 +18,7 @@ func (r *SQLAuditRepository) ListAuditLogs(ctx context.Context, limit int) ([]Au
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT action, resource_type, resource_id, status, message, created_at FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT `+fmt.Sprintf("%d", limit))
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT action, resource_type, resource_id, status, message, created_at FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT `+fmt.Sprintf("%d", limit)))
 	if err != nil {
 		return nil, fmt.Errorf("查询审计日志失败：%w", err)
 	}

@@ -13,11 +13,16 @@ import (
 )
 
 type SQLDomainRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	driver string
 }
 
-func NewSQLDomainRepository(db *sql.DB) *SQLDomainRepository {
-	return &SQLDomainRepository{db: db}
+func NewSQLDomainRepository(db *sql.DB, driver ...string) *SQLDomainRepository {
+	return &SQLDomainRepository{db: db, driver: repositoryDriver(driver)}
+}
+
+func (r *SQLDomainRepository) query(value string) string {
+	return Rebind(r.driver, value)
 }
 
 func (r *SQLDomainRepository) Create(ctx context.Context, item domain.Domain) error {
@@ -28,9 +33,9 @@ func (r *SQLDomainRepository) Create(ctx context.Context, item domain.Domain) er
 	if err != nil {
 		return fmt.Errorf("编码 SAN 域名失败：%w", err)
 	}
-	_, err = r.db.ExecContext(ctx, `INSERT INTO domains
+	_, err = r.db.ExecContext(ctx, r.query(`INSERT INTO domains
 		(id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
 		item.ACMEEnvironment, item.DNSProvider, item.Status, nullableTime(item.ExpiresAt), item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("保存域名失败：%w", err)
@@ -46,9 +51,9 @@ func (r *SQLDomainRepository) Update(ctx context.Context, item domain.Domain) er
 	if err != nil {
 		return fmt.Errorf("编码 SAN 域名失败：%w", err)
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE domains SET
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE domains SET
 		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?
-		WHERE id = ?`, item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
+		WHERE id = ?`), item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
 		item.DNSProvider, item.UpdatedAt, item.ID)
 	if err != nil {
 		return fmt.Errorf("更新域名失败：%w", err)
@@ -67,8 +72,8 @@ func (r *SQLDomainRepository) GetByID(ctx context.Context, id string) (domain.Do
 	if r == nil || r.db == nil {
 		return domain.Domain{}, errors.New("数据库连接不能为空")
 	}
-	row := r.db.QueryRowContext(ctx, `SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
-		FROM domains WHERE id = ?`, id)
+	row := r.db.QueryRowContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
+		FROM domains WHERE id = ?`), id)
 	return scanDomain(row)
 }
 
@@ -76,8 +81,8 @@ func (r *SQLDomainRepository) List(ctx context.Context) ([]domain.Domain, error)
 	if r == nil || r.db == nil {
 		return nil, errors.New("数据库连接不能为空")
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
-		FROM domains ORDER BY name`)
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
+		FROM domains ORDER BY name`))
 	if err != nil {
 		return nil, fmt.Errorf("查询域名失败：%w", err)
 	}
@@ -108,10 +113,10 @@ func (r *SQLDomainRepository) Delete(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return cause
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM domain_servers WHERE domain_id = ?", id); err != nil {
+	if _, err := tx.ExecContext(ctx, r.query("DELETE FROM domain_servers WHERE domain_id = ?"), id); err != nil {
 		return rollback(fmt.Errorf("删除域名服务器关联失败：%w", err))
 	}
-	result, err := tx.ExecContext(ctx, "DELETE FROM domains WHERE id = ?", id)
+	result, err := tx.ExecContext(ctx, r.query("DELETE FROM domains WHERE id = ?"), id)
 	if err != nil {
 		return rollback(fmt.Errorf("删除域名失败：%w", err))
 	}
@@ -136,7 +141,7 @@ func (r *SQLDomainRepository) UpdateCertificateState(ctx context.Context, id, st
 	if status == "" {
 		return errors.New("证书状态不能为空")
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE domains SET status = ?, expires_at = ?, updated_at = ? WHERE id = ?`,
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE domains SET status = ?, expires_at = ?, updated_at = ? WHERE id = ?`),
 		status, nullableTime(expiresAt), time.Now().UTC(), id)
 	if err != nil {
 		return fmt.Errorf("更新证书状态失败：%w", err)

@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -19,25 +22,37 @@ type Database struct {
 }
 
 func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
-	if cfg.Driver != "sqlite" && cfg.Driver != "mysql" {
+	driver := strings.ToLower(strings.TrimSpace(cfg.Driver))
+	if driver != "sqlite" && driver != "mysql" && driver != "postgres" {
 		return nil, fmt.Errorf("数据库驱动无效：%s", cfg.Driver)
 	}
-	dsn := cfg.DSN
-	if cfg.Driver == "mysql" {
+	dsn := strings.TrimSpace(cfg.DSN)
+	if driver == "mysql" {
 		var err error
 		dsn, err = normalizeMySQLDSN(dsn)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if cfg.Driver == "sqlite" {
+	if driver == "postgres" {
+		var err error
+		dsn, err = normalizePostgresDSN(dsn)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if driver == "sqlite" {
 		if cfg.DSN != ":memory:" && len(cfg.DSN) > 0 && cfg.DSN != "file::memory:?cache=shared" {
 			if err := ensureSQLiteDir(cfg.DSN); err != nil {
 				return nil, err
 			}
 		}
 	}
-	db, err := sql.Open(cfg.Driver, dsn)
+	sqlDriver := driver
+	if driver == "postgres" {
+		sqlDriver = "pgx"
+	}
+	db, err := sql.Open(sqlDriver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败：%w", err)
 	}
@@ -50,7 +65,7 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("连接数据库失败：%w", err)
 	}
-	if cfg.Driver == "sqlite" {
+	if driver == "sqlite" {
 		if err := configureSQLite(pingCtx, db); err != nil {
 			_ = db.Close()
 			return nil, err
@@ -86,9 +101,42 @@ func normalizeMySQLDSN(dsn string) (string, error) {
 	return cfg.FormatDSN(), nil
 }
 
+func normalizePostgresDSN(dsn string) (string, error) {
+	parsed, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return "", fmt.Errorf("解析 PostgreSQL 连接信息失败：%w", err)
+	}
+	if strings.TrimSpace(parsed.Host) == "" || strings.TrimSpace(parsed.Database) == "" || strings.TrimSpace(parsed.User) == "" {
+		return "", fmt.Errorf("PostgreSQL 连接信息必须包含主机、数据库和用户名")
+	}
+	sslMode := postgresSSLMode(dsn)
+	if sslMode != "verify-full" {
+		return "", fmt.Errorf("PostgreSQL 连接必须使用 sslmode=verify-full")
+	}
+	if parsed.TLSConfig == nil || parsed.TLSConfig.InsecureSkipVerify {
+		return "", fmt.Errorf("PostgreSQL TLS 校验配置无效")
+	}
+	return dsn, nil
+}
+
+func postgresSSLMode(dsn string) string {
+	dsn = strings.TrimSpace(dsn)
+	if parsed, err := url.Parse(dsn); err == nil && (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") {
+		return strings.ToLower(strings.TrimSpace(parsed.Query().Get("sslmode")))
+	}
+	for _, field := range strings.Fields(dsn) {
+		key, value, found := strings.Cut(field, "=")
+		if found && strings.EqualFold(strings.TrimSpace(key), "sslmode") {
+			return strings.ToLower(strings.Trim(strings.TrimSpace(value), "'\""))
+		}
+	}
+	return ""
+}
+
 // SanitizeDSN 返回可写入日志的数据库连接信息，不包含 MySQL 密码。
 func SanitizeDSN(driver, dsn string) string {
-	if strings.EqualFold(strings.TrimSpace(driver), "mysql") {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "mysql":
 		cfg, err := mysql.ParseDSN(dsn)
 		if err != nil {
 			return "mysql://[连接信息无效]"
@@ -97,8 +145,31 @@ func SanitizeDSN(driver, dsn string) string {
 			cfg.Passwd = "********"
 		}
 		return cfg.FormatDSN()
+	case "postgres":
+		parsed, err := url.Parse(dsn)
+		if err == nil && (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") {
+			if parsed.User != nil {
+				username := parsed.User.Username()
+				if _, hasPassword := parsed.User.Password(); hasPassword {
+					parsed.User = url.UserPassword(username, "********")
+				}
+			}
+			return parsed.String()
+		}
+		return sanitizePostgresKeywordDSN(dsn)
 	}
 	return dsn
+}
+
+func sanitizePostgresKeywordDSN(dsn string) string {
+	fields := strings.Fields(dsn)
+	for index, field := range fields {
+		key, _, found := strings.Cut(field, "=")
+		if found && strings.EqualFold(strings.TrimSpace(key), "password") {
+			fields[index] = key + "=********"
+		}
+	}
+	return strings.Join(fields, " ")
 }
 
 func ensureSQLiteDir(dsn string) error {

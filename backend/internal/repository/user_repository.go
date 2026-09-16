@@ -85,7 +85,7 @@ func (r *SQLUserRepository) FindByIdentifier(ctx context.Context, identifier str
 	if err != nil {
 		return User{}, err
 	}
-	row := r.db.QueryRowContext(ctx, userSelect+` WHERE LOWER(username) = ? OR (email IS NOT NULL AND LOWER(email) = ?) LIMIT 1`, normalized, normalized)
+	row := r.db.QueryRowContext(ctx, r.query(userSelect+` WHERE LOWER(username) = ? OR (email IS NOT NULL AND LOWER(email) = ?) LIMIT 1`), normalized, normalized)
 	return scanUser(row)
 }
 
@@ -93,7 +93,7 @@ func (r *SQLUserRepository) ListUsers(ctx context.Context) ([]User, error) {
 	if err := r.ensureDB(); err != nil {
 		return nil, err
 	}
-	rows, err := r.db.QueryContext(ctx, userSelect+` ORDER BY role, username, id`)
+	rows, err := r.db.QueryContext(ctx, r.query(userSelect+` ORDER BY role, username, id`))
 	if err != nil {
 		return nil, fmt.Errorf("查询用户失败：%w", err)
 	}
@@ -120,7 +120,7 @@ func (r *SQLUserRepository) GetUserByID(ctx context.Context, id string) (User, e
 	if id == "" {
 		return User{}, errors.New("用户 ID 不能为空")
 	}
-	return scanUser(r.db.QueryRowContext(ctx, userSelect+` WHERE id = ?`, id))
+	return scanUser(r.db.QueryRowContext(ctx, r.query(userSelect+` WHERE id = ?`), id))
 }
 
 func (r *SQLUserRepository) CreateUser(ctx context.Context, item User) error {
@@ -137,9 +137,9 @@ func (r *SQLUserRepository) CreateUser(ctx context.Context, item User) error {
 	if item.UpdatedAt.IsZero() {
 		item.UpdatedAt = item.CreatedAt
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO users
+	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO users
 		(id, username, email, password_hash, role, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, item.ID, item.Username, r.emailValue(item.Email), item.PasswordHash,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Username, r.emailValue(item.Email), item.PasswordHash,
 		item.Role, item.Status, item.CreatedAt, item.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("保存用户失败：%w", err)
@@ -155,7 +155,7 @@ func (r *SQLUserRepository) UpdateUser(ctx context.Context, item User) error {
 	if err := validateUser(item, false); err != nil {
 		return err
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE users SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`,
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE users SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`),
 		item.Username, r.emailValue(item.Email), item.PasswordHash, item.Role, item.Status, time.Now().UTC(), item.ID)
 	if err != nil {
 		return fmt.Errorf("更新用户失败：%w", err)
@@ -181,7 +181,7 @@ func (r *SQLUserRepository) DeleteUser(ctx context.Context, id string) error {
 	if id == "primary-super-admin" {
 		return ErrSuperAdminProtected
 	}
-	result, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	result, err := r.db.ExecContext(ctx, r.query(`DELETE FROM users WHERE id = ?`), id)
 	if err != nil {
 		return fmt.Errorf("删除用户失败：%w", err)
 	}
@@ -208,7 +208,7 @@ func (r *SQLUserRepository) upsert(ctx context.Context, item User) error {
 		item.CreatedAt = now
 	}
 	item.UpdatedAt = now
-	result, err := r.db.ExecContext(ctx, `UPDATE users SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`,
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE users SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`),
 		item.Username, r.emailValue(item.Email), item.PasswordHash, item.Role, item.Status, item.UpdatedAt, item.ID)
 	if err != nil {
 		return err
@@ -220,18 +220,22 @@ func (r *SQLUserRepository) upsert(ctx context.Context, item User) error {
 	if count > 0 {
 		return nil
 	}
-	_, err = r.db.ExecContext(ctx, `INSERT INTO users
+	_, err = r.db.ExecContext(ctx, r.query(`INSERT INTO users
 		(id, username, email, password_hash, role, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, item.ID, item.Username, r.emailValue(item.Email), item.PasswordHash,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Username, r.emailValue(item.Email), item.PasswordHash,
 		item.Role, item.Status, item.CreatedAt, item.UpdatedAt)
 	return err
 }
 
 func (r *SQLUserRepository) emailValue(email string) any {
-	if email == "" && r.driver == "mysql" {
+	if email == "" && (r.driver == "mysql" || r.driver == "postgres") {
 		return nil
 	}
 	return email
+}
+
+func (r *SQLUserRepository) query(value string) string {
+	return Rebind(r.driver, value)
 }
 
 func normalizeUser(item User) User {
