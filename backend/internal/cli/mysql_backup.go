@@ -17,7 +17,15 @@ import (
 
 // backupMySQL 将 MySQL 的表结构和数据导出为可在 MySQL 5.7/8.0 导入的 SQL 文件。
 func backupMySQL(ctx context.Context, cfg config.Config, output string) error {
-	db, err := database.Open(ctx, cfg.Database)
+	resolved, err := resolveMaintenanceDatabase(ctx, cfg.Database, cfg.Paths.Config)
+	if err != nil {
+		return err
+	}
+	return backupMySQLDatabase(ctx, resolved, output)
+}
+
+func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output string) error {
+	db, err := database.Open(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("打开 MySQL 备份连接失败：%w", err)
 	}
@@ -84,7 +92,7 @@ func backupMySQL(ctx context.Context, cfg config.Config, output string) error {
 
 // createMySQLRestoreBackup 在恢复前保留目标数据库快照，供失败时回滚使用。
 // 快照目录不会在恢复成功后自动删除，便于管理员在需要时继续排查或手动恢复。
-func createMySQLRestoreBackup(ctx context.Context, cfg config.Config) (string, error) {
+func createMySQLRestoreBackup(ctx context.Context, cfg config.Config, connection config.DatabaseConfig) (string, error) {
 	backupRoot := filepath.Clean(strings.TrimSpace(cfg.Paths.Backup))
 	if backupRoot == "." || backupRoot == "" {
 		return "", fmt.Errorf("MySQL 恢复前备份目录不能为空")
@@ -107,7 +115,7 @@ func createMySQLRestoreBackup(ctx context.Context, cfg config.Config) (string, e
 		return "", fmt.Errorf("创建 MySQL 恢复快照目录失败：%w", err)
 	}
 	rollbackPath := filepath.Join(rollbackDirectory, "scert.sql")
-	if err := backupMySQL(ctx, cfg, rollbackPath); err != nil {
+	if err := backupMySQLDatabase(ctx, connection, rollbackPath); err != nil {
 		return "", fmt.Errorf("创建 MySQL 恢复前快照失败：%w", err)
 	}
 	return rollbackPath, nil
@@ -225,12 +233,12 @@ func mysqlStringLiteral(value string) string {
 }
 
 // restoreMySQL 执行 Scert 生成的 MySQL SQL 备份。
-func restoreMySQL(ctx context.Context, cfg config.Config, input string) error {
+func restoreMySQL(ctx context.Context, cfg config.DatabaseConfig, input string) error {
 	script, err := os.ReadFile(input)
 	if err != nil {
 		return fmt.Errorf("读取 MySQL 备份文件失败：%w", err)
 	}
-	db, err := database.Open(ctx, cfg.Database)
+	db, err := database.Open(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("打开 MySQL 恢复连接失败：%w", err)
 	}

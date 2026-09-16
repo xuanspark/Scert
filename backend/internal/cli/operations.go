@@ -369,6 +369,9 @@ func newRestoreCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("读取备份配置失败：%w", err)
 			}
+			if err := validateBackupDriver(cfg.Database.Driver); err != nil {
+				return err
+			}
 			if err := validateBackupSecretStore(cmd.Context(), input, cfg); err != nil {
 				return err
 			}
@@ -444,6 +447,20 @@ func newRestoreCommand() *cobra.Command {
 				}
 			}
 
+			// 当前账号用于恢复前快照、导入和回滚，不能因替换配置或主密钥而丢失。
+			// 无当前配置时才使用已校验的备份凭据；连接信息始终仅保留在内存。
+			var mysqlConnection config.DatabaseConfig
+			if cfg.Database.Driver == "mysql" {
+				connectionConfig, secretDirectory := cfg.Database, input
+				if currentConfigErr == nil {
+					connectionConfig, secretDirectory = currentConfig.Database, currentConfig.Paths.Config
+				}
+				mysqlConnection, err = resolveMaintenanceDatabase(cmd.Context(), connectionConfig, secretDirectory)
+				if err != nil {
+					return err
+				}
+			}
+
 			configBackupPath := ""
 			if isRegularFile(currentPath) {
 				configBackupPath = currentPath + ".before-restore-" + time.Now().UTC().Format("20060102-150405.000000000")
@@ -462,7 +479,7 @@ func newRestoreCommand() *cobra.Command {
 
 			mysqlBackupPath := ""
 			if cfg.Database.Driver == "mysql" {
-				mysqlBackupPath, err = createMySQLRestoreBackup(cmd.Context(), cfg)
+				mysqlBackupPath, err = createMySQLRestoreBackup(cmd.Context(), cfg, mysqlConnection)
 				if err != nil {
 					return err
 				}
@@ -474,7 +491,7 @@ func newRestoreCommand() *cobra.Command {
 			rollbackCore := func() error {
 				var rollbackErr error
 				if mysqlRestoreAttempted && mysqlBackupPath != "" {
-					rollbackErr = errors.Join(rollbackErr, restoreMySQL(cmd.Context(), cfg, mysqlBackupPath))
+					rollbackErr = errors.Join(rollbackErr, restoreMySQL(cmd.Context(), mysqlConnection, mysqlBackupPath))
 				}
 				if sqliteRestoreAttempted {
 					if databaseBackupPath != "" {
@@ -505,7 +522,7 @@ func newRestoreCommand() *cobra.Command {
 			}
 			if cfg.Database.Driver == "mysql" {
 				mysqlRestoreAttempted = true
-				if err := restoreMySQL(cmd.Context(), cfg, mysqlSource); err != nil {
+				if err := restoreMySQL(cmd.Context(), mysqlConnection, mysqlSource); err != nil {
 					return errors.Join(fmt.Errorf("恢复 MySQL 数据库失败：%w", err), rollbackCore())
 				}
 			}

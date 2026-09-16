@@ -38,6 +38,9 @@ type backupManifestFile struct {
 }
 
 func createBackup(ctx context.Context, cfg config.Config, configPath, output string) error {
+	if err := validateBackupDriver(cfg.Database.Driver); err != nil {
+		return err
+	}
 	output = filepath.Clean(output)
 	if err := ensureBackupDestination(output); err != nil {
 		return err
@@ -207,6 +210,9 @@ func sqliteDatabasePath(dsn string) (string, bool, error) {
 }
 
 func validateRestoreCompatibility(current, backup config.Config) error {
+	if err := validateBackupDriver(backup.Database.Driver); err != nil {
+		return err
+	}
 	if current.Database.Driver != backup.Database.Driver {
 		return fmt.Errorf("备份数据库类型（%s）与当前配置数据库类型（%s）不一致，拒绝恢复", backup.Database.Driver, current.Database.Driver)
 	}
@@ -248,7 +254,7 @@ func validateBackupSecretStore(ctx context.Context, directory string, cfg config
 		if secretsExists {
 			return errors.New("敏感配置包含 secrets.json，但缺少 master.key")
 		}
-		if cfg.SetupReady {
+		if cfg.SetupReady || strings.TrimSpace(cfg.Database.CredentialRef) != "" {
 			return errors.New("已初始化配置缺少 master.key")
 		}
 		return nil
@@ -268,7 +274,7 @@ func validateBackupSecretStore(ctx context.Context, directory string, cfg config
 		}
 		available[item.Reference] = struct{}{}
 	}
-	for _, reference := range []string{cfg.DNS.CredentialRef, cfg.Notification.HTTPCredentialRef, cfg.Notification.SMTPCredentialRef} {
+	for _, reference := range []string{cfg.Database.CredentialRef, cfg.DNS.CredentialRef, cfg.Notification.HTTPCredentialRef, cfg.Notification.SMTPCredentialRef} {
 		reference = strings.TrimSpace(reference)
 		if reference == "" {
 			continue
