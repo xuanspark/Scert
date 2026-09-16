@@ -186,8 +186,14 @@ func WriteBootstrapURL(path, value string) error {
 		return errors.New("Bootstrap 地址不能为空")
 	}
 	directory := filepath.Dir(path)
+	if directory == filepath.VolumeName(directory)+string(filepath.Separator) {
+		return errors.New("Bootstrap 地址文件不能直接放在文件系统根目录")
+	}
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("创建 Bootstrap 运行目录失败：%w", err)
+	}
+	if info, err := os.Lstat(directory); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("Bootstrap 运行目录必须是普通目录")
 	}
 	if err := os.Chmod(directory, 0o700); err != nil {
 		return fmt.Errorf("设置 Bootstrap 运行目录权限失败：%w", err)
@@ -197,24 +203,24 @@ func WriteBootstrapURL(path, value string) error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("检查 Bootstrap 地址文件失败：%w", err)
 	}
-	temporaryPath := path + ".tmp"
-	if info, err := os.Lstat(temporaryPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("Bootstrap 临时地址文件不能是符号链接")
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("检查 Bootstrap 临时地址文件失败：%w", err)
-	}
-	if err := os.WriteFile(temporaryPath, []byte(value+"\n"), 0o600); err != nil {
+	temporary, err := os.CreateTemp(directory, ".bootstrap-url-")
+	if err != nil { return fmt.Errorf("创建 Bootstrap 临时地址文件失败：%w", err) }
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	defer temporary.Close()
+	if _, err := temporary.WriteString(value+"\n"); err != nil {
 		return fmt.Errorf("写入 Bootstrap 临时地址文件失败：%w", err)
 	}
-	if err := os.Chmod(temporaryPath, 0o600); err != nil {
-		_ = os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
 		return fmt.Errorf("设置 Bootstrap 临时地址文件权限失败：%w", err)
 	}
+	if err := temporary.Sync(); err != nil { return fmt.Errorf("同步 Bootstrap 地址文件失败：%w", err) }
+	if err := temporary.Close(); err != nil { return fmt.Errorf("关闭 Bootstrap 地址文件失败：%w", err) }
 	if err := os.Rename(temporaryPath, path); err != nil {
 		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("替换 Bootstrap 地址文件失败：%w", err)
 	}
-	return os.Chmod(path, 0o600)
+	return nil
 }
 
 func cloneIPs(values []net.IP) []net.IP {

@@ -14,6 +14,8 @@ func TestOpenCreatesUninitializedRuntime(t *testing.T) {
 		t.Fatalf("打开桌面核心服务失败：%v", err)
 	}
 	defer runtime.Close()
+	if runtime.core != nil { t.Fatal("桌面首次初始化不应创建正式应用") }
+	if _, err := os.Stat(defaultConfig(baseDir).Database.DSN); !os.IsNotExist(err) { t.Fatalf("桌面初始化提前创建数据库：%v", err) }
 
 	request, err := http.NewRequest(http.MethodGet, "http://127.0.0.1/api/v1/setup/status", nil)
 	if err != nil {

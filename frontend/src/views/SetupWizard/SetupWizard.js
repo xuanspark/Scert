@@ -1,4 +1,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useDatabaseSetup } from "./DatabaseSetup.js";
+import { bootstrapPayload } from "./BootstrapPayload.js";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
 const aliyunDNSVerificationTimeoutSeconds = 6;
@@ -26,6 +28,8 @@ const commonEmailDomains = [
 
 export function useSetupWizard(props, emit) {
   const scertLogo = "/Scert.png";
+  const isBootstrap = props.status.mode === "bootstrap";
+  const apiBase = isBootstrap ? "/api/v1/bootstrap" : "/api/v1/setup";
 
   const submitting = ref(false);
   const error = ref("");
@@ -44,6 +48,8 @@ export function useSetupWizard(props, emit) {
   const dnsTestDomain = ref(props.status.web_hostname || "");
   const dnsVerification = ref(null);
   const verificationClock = ref(Date.now());
+  const database = useDatabaseSetup(verificationClock);
+  const completed = ref(false);
   const currentStep = ref(1);
   const notificationAdvancedVisible = ref(false);
   const selectedEmailDomain = ref("");
@@ -96,6 +102,7 @@ export function useSetupWizard(props, emit) {
     web_public_ip: props.status.web_public_ip || "",
     web_enabled: props.status.web_enabled !== false,
     https_mode: props.status.https_mode || "direct",
+    acme_environment: props.status.acme_environment || "staging",
   });
 
   const targetLabel = computed(() =>
@@ -146,8 +153,8 @@ export function useSetupWizard(props, emit) {
   const dnsVerificationValid = computed(() => {
     verificationClock.value;
     if (
-      !dnsVerification.value?.verification_token ||
-      !dnsVerification.value?.credential_ref
+      dnsVerification.value?.verified !== true || !dnsVerification.value?.verification_token ||
+      (!isBootstrap && !dnsVerification.value?.credential_ref)
     )
       return false;
     return new Date(dnsVerification.value.expires_at).getTime() > Date.now();
@@ -377,7 +384,7 @@ export function useSetupWizard(props, emit) {
     dnsCatalogLoading.value = true;
     dnsCatalogError.value = "";
     try {
-      const response = await fetch("/api/v1/setup/dns/providers");
+      const response = await fetch(`${apiBase}/dns/providers`);
       const result = await response.json().catch(() => ({}));
       if (!response.ok)
         throw new Error(result.error || "读取 DNS 服务商列表失败");
@@ -465,7 +472,7 @@ export function useSetupWizard(props, emit) {
     dnsTesting.value = true;
     startDNSVerificationTimer(requestVersion, provider.id);
     try {
-      const response = await fetch("/api/v1/setup/dns/test", {
+      const response = await fetch(`${apiBase}/dns/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -535,6 +542,10 @@ export function useSetupWizard(props, emit) {
         error.value = `请填写${targetLabel.value}。`;
         return false;
       }
+      if (isBootstrap && !database.databaseVerified.value) {
+        error.value = "请先验证所选数据库的连接和写权限。";
+        return false;
+      }
     }
 
     if (currentStep.value === 2) {
@@ -572,10 +583,10 @@ export function useSetupWizard(props, emit) {
       if (
         form.value.email_http_enabled &&
         form.value.email_http_auth_mode !== "none" &&
-        !form.value.email_http_credential_ref.trim() &&
+        (isBootstrap || !form.value.email_http_credential_ref.trim()) &&
         !emailCredentials.value.trim()
       ) {
-        error.value = "启用 HTTP 通知认证后必须填写明文凭据或已有凭据引用。";
+        error.value = "启用 HTTP 通知认证后必须填写有效凭据。";
         return false;
       }
       if (
@@ -674,11 +685,12 @@ export function useSetupWizard(props, emit) {
   }
 
   function handleSubmit() {
+    if (submitting.value || completed.value) return;
     if (currentStep.value < 4) {
       nextStep();
       return;
     }
-    submit();
+    return submit();
   }
 
   function recipients() {
@@ -703,6 +715,10 @@ export function useSetupWizard(props, emit) {
   async function submit() {
     error.value = "";
     resultMessage.value = "";
+    if (isBootstrap && !database.databaseVerified.value) {
+      error.value = "数据库验证结果无效或已过期，请重新验证。";
+      return;
+    }
     if (
       form.value.admin_password.length < 8 ||
       form.value.admin_password.length > 12
@@ -755,13 +771,17 @@ export function useSetupWizard(props, emit) {
       error.value = `请填写${targetLabel.value}。`;
       return;
     }
+    if (isBootstrap && hostname && hostname.toLowerCase().replace(/\.$/, "") !== dnsTestDomain.value.trim().toLowerCase().replace(/\.$/, "")) {
+      error.value = "DNS 验证域名必须与管理页面域名一致，请重新验证。";
+      return;
+    }
 
     submitting.value = true;
     try {
-      const response = await fetch("/api/v1/setup", {
+      const response = await fetch(isBootstrap ? `${apiBase}/complete` : apiBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify((isBootstrap ? (payload) => bootstrapPayload(payload, database.databaseVerification.value.verification_token, form.value.acme_environment) : (payload) => payload)({
           admin_username: form.value.admin_username,
           admin_email: form.value.admin_email,
           admin_password: form.value.admin_password,
@@ -809,14 +829,20 @@ export function useSetupWizard(props, emit) {
           web_public_ip: publicIP,
           web_enabled: form.value.web_enabled,
           https_mode: form.value.https_mode,
-        }),
+        })),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存初始化配置失败");
-      resultMessage.value = result.message || "初始化配置已保存。";
+      completed.value = true;
+      resultMessage.value = isBootstrap ? `初始化配置已保存，正在切换至 ${result.management_url}。请稍候；IP 自签名证书或测试证书需要人工核对。` : result.message || "初始化配置已保存。";
       emit("initialized", result);
     } catch (err) {
       error.value = err.message || "保存初始化配置失败";
+      if (isBootstrap) {
+        // 服务端可能已领取令牌；失败重试必须重新验证，不能复用已消费状态。
+        database.invalidateDatabase();
+        invalidateDNSVerification();
+      }
     } finally {
       submitting.value = false;
     }
@@ -833,6 +859,10 @@ export function useSetupWizard(props, emit) {
 
   watch(dnsCredentials, invalidateDNSVerification, { deep: true, flush: "sync" });
   watch(dnsTestDomain, invalidateDNSVerification, { flush: "sync" });
+
+  watch(() => [targetType.value, form.value.web_hostname], ([target, hostname]) => {
+    if (isBootstrap && target === "hostname") dnsTestDomain.value = hostname;
+  }, { flush: "sync" });
 
   onMounted(() => {
     loadDNSProviders();
@@ -851,6 +881,9 @@ export function useSetupWizard(props, emit) {
   });
 
   return {
+    isBootstrap,
+    completed,
+    ...database,
     scertLogo,
     submitting,
     error,

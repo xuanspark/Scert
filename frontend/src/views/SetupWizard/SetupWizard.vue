@@ -1,6 +1,7 @@
 <script setup>
 import { useSetupWizard } from "./SetupWizard.js";
 import AccessShell from "../components/AccessShell/AccessShell.vue";
+import DatabaseSetup from "./DatabaseSetup.vue";
 
 const props = defineProps({
   status: {
@@ -12,6 +13,13 @@ const props = defineProps({
 const emit = defineEmits(["initialized"]);
 
 const {
+  isBootstrap,
+  completed,
+  databaseForm,
+  databaseTesting,
+  databaseError,
+  databaseVerified,
+  testDatabase,
   scertLogo,
   submitting,
   error,
@@ -38,6 +46,8 @@ const {
   selectedEmailDomain,
   emailLocalPart,
   emailInputElement,
+  emailAutofillElement,
+  handleEmailAutofill,
   targetLabel,
   resetURLPreview,
   emailCredentialLabel,
@@ -81,7 +91,7 @@ const {
           <p class="setup-eyebrow">初始化向导</p>
           <h2>基础配置</h2>
         </div>
-        <span class="local-badge">仅限本机</span>
+        <span class="local-badge">{{ isBootstrap ? "受保护的 HTTPS 初始化" : "仅限本机" }}</span>
       </header>
 
       <nav class="setup-progress" aria-label="初始化步骤">
@@ -115,7 +125,7 @@ const {
         @submit.prevent="handleSubmit"
       >
         <div class="setup-step-grid">
-          <fieldset v-if="currentStep === 1" class="setup-step-card">
+          <fieldset v-if="currentStep === 1" class="setup-step-card" :disabled="submitting || completed">
             <legend><span>01</span>超级管理员</legend>
             <div class="setup-grid two-columns">
               <label
@@ -264,6 +274,14 @@ const {
                 />
               </label>
             </div>
+            <DatabaseSetup
+              v-if="isBootstrap"
+              :form="databaseForm"
+              :testing="databaseTesting"
+              :verified="databaseVerified"
+              :error="databaseError"
+              @test="testDatabase"
+            />
             <div class="provider-description reset-preview">
               <strong>密码重置地址预览</strong>
               <span>{{ resetURLPreview }}</span>
@@ -513,7 +531,7 @@ const {
                         placeholder="/api/login"
                       />
                     </label>
-                    <label>
+                    <label v-if="!isBootstrap">
                       <span>已有凭据引用（可选）</span>
                       <input
                         id="email-http-credential-ref"
@@ -524,7 +542,7 @@ const {
                   </div>
 
                   <div v-else class="notification-row notification-auth-row">
-                    <label>
+                    <label v-if="!isBootstrap">
                       <span>已有凭据引用（可选）</span>
                       <input
                         id="email-http-credential-ref"
@@ -532,7 +550,7 @@ const {
                         placeholder="已有安全凭据引用"
                       />
                     </label>
-                    <div class="notification-auth-note">
+                    <div v-if="form.email_http_auth_mode === 'none'" class="notification-auth-note">
                       当前接口不启用认证，不需要填写凭据。
                     </div>
                   </div>
@@ -865,8 +883,17 @@ const {
                   id="certificate-root"
                   name="certificate_root"
                   v-model.trim="form.certificate_root"
+                  :readonly="isBootstrap"
                   required
                 />
+              </label>
+              <label v-if="isBootstrap">
+                <span>证书签发环境</span>
+                <select v-model="form.acme_environment">
+                  <option value="staging">测试环境（证书不受公共信任）</option>
+                  <option value="production">正式环境（实际申请受信任域名证书）</option>
+                </select>
+                <small>IP 管理入口使用自签名证书，不会因选择正式环境而自动受信任。</small>
               </label>
               <label>
                 <span>HTTPS 模式</span>
@@ -887,6 +914,7 @@ const {
                 id="web-enabled"
                 name="web_enabled"
                 v-model="form.web_enabled"
+                :disabled="isBootstrap"
                 type="checkbox"
               />
               <span>
@@ -901,17 +929,18 @@ const {
         <p v-if="resultMessage" class="setup-success">{{ resultMessage }}</p>
         <footer>
           <span
-            >初始化程序将自动配置本机防火墙；云安全组只需放行主服务端口。配置完成前仅保存在内存中。</span
+            >请放行初始化及正式服务端口。验证凭据加密保存；完成后关闭临时入口并切换正式管理地址。</span
           >
           <div class="wizard-actions">
             <button
               v-if="currentStep > 1"
               class="back-button"
               type="button"
+              :disabled="submitting || completed"
               @click="previousStep"
             >
               上一步</button
-            ><button type="submit" :disabled="submitting || dnsTesting">
+            ><button type="submit" :disabled="submitting || dnsTesting || databaseTesting || completed">
               {{
                 currentStep < 4
                   ? "下一步"

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,11 +10,11 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
+	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
 func TestNewWiresApplicationServices(t *testing.T) {
-	baseDir := t.TempDir()
-	cfg := config.Default(baseDir)
+	cfg := readyApplicationConfig(t)
 	application, err := NewWithConfigPath(context.Background(), cfg, filepath.Join(cfg.Paths.Config, "scert.json"))
 	if err != nil {
 		t.Fatalf("初始化应用失败：%v", err)
@@ -31,8 +32,7 @@ func TestNewWiresApplicationServices(t *testing.T) {
 	}
 }
 func TestNewWithConfigPathRecoversInterruptedTasks(t *testing.T) {
-	baseDir := t.TempDir()
-	cfg := config.Default(baseDir)
+	cfg := readyApplicationConfig(t)
 	configPath := filepath.Join(cfg.Paths.Config, "scert.json")
 
 	first, err := NewWithConfigPath(context.Background(), cfg, configPath)
@@ -106,5 +106,39 @@ func TestNewWithConfigPathRecoversInterruptedTasks(t *testing.T) {
 	}
 	if completed.Status != "success" || completed.Stage != "validate" || completed.Message != "已完成" {
 		t.Fatalf("已完成任务不应被重启恢复逻辑修改：%+v", completed)
+	}
+}
+
+func readyApplicationConfig(t *testing.T) config.Config {
+	t.Helper()
+	root := t.TempDir()
+	cfg := config.Default(root)
+	cfg.Paths = config.PathsConfig{
+		Install: root, Config: filepath.Join(root, "conf"), Data: filepath.Join(root, "data"),
+		Certificate: filepath.Join(root, "ssl"), Backup: filepath.Join(root, "backups"), Log: filepath.Join(root, "logs"),
+	}
+	cfg.Database.DSN = filepath.Join(cfg.Paths.Data, "scert.db")
+	if err := setup.Apply(&cfg, setup.Input{
+		AdminUsername: "admin", AdminEmail: "admin@example.test", AdminPassword: "Test1234!",
+		ServerPort: 8080, WebHostname: "scert.example.test", WebEnabled: true,
+		DNSProvider: "aliyun", DNSCredentialRef: "secret://dns/test", DNSVerified: true,
+		CertificateRoot: cfg.Paths.Certificate, HTTPSMode: "direct",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetupReady = true
+	cfg.Web.InitReady = true
+	return cfg
+}
+
+func TestUninitializedApplicationHasNoSideEffects(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default(root)
+	cfg.Paths.Install = filepath.Join(root, "must-not-exist")
+	if _, err := NewWithConfigPath(context.Background(), cfg, filepath.Join(root, "config.json")); err == nil {
+		t.Fatal("未初始化配置未被拒绝")
+	}
+	if _, err := os.Stat(cfg.Paths.Install); !os.IsNotExist(err) {
+		t.Fatalf("拒绝启动前产生了文件副作用：%v", err)
 	}
 }

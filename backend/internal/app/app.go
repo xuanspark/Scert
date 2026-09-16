@@ -53,6 +53,9 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 }
 
 func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string) (*App, error) {
+	if !cfg.SetupReady {
+		return nil, fmt.Errorf("系统尚未初始化，请先启动 scert serve 完成首次配置")
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}

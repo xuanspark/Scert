@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
+	"git.pcux.cn/xuans/Scert/backend/internal/bootstrap"
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -653,45 +653,45 @@ func commandStatus(cfg config.Config) map[string]any {
 }
 
 func newServeCommand() *cobra.Command {
-	return &cobra.Command{Use: "serve", Short: "启动网站服务", RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := loadConfig()
+	var publicIP string
+	command := &cobra.Command{Use: "serve", Short: "启动网站服务", RunE: func(cmd *cobra.Command, args []string) error {
+		path, err := filepath.Abs(resolveConfigPath())
 		if err != nil {
 			return err
 		}
-		if !cfg.SetupReady {
-			cfg.Server.Host = "127.0.0.1"
-			fmt.Fprintln(cmd.OutOrStdout(), "系统尚未初始化，临时服务仅监听本机；请完成初始化后重启服务。")
-		}
-		if cfg.SetupReady && !cfg.Web.Enabled {
-			return fmt.Errorf("管理页面已关闭")
+		reload := func() (config.Config, error) { return loadServeConfig(path, config.Default(baseDir)) }
+		cfg, err := reload()
+		if err != nil {
+			return err
 		}
 		lock, err := acquireProcessLock(cfg, "Scert 服务已在运行或备份恢复任务正在执行")
 		if err != nil {
 			return err
 		}
 		defer lock.Close()
-		service, err := app.NewWithConfigPath(cmd.Context(), cfg, resolveConfigPath())
+		lockedDataPath := cfg.Paths.Data
+		cfg, err = reload()
 		if err != nil {
 			return err
 		}
-		defer service.Close()
+		if filepath.Clean(cfg.Paths.Data) != filepath.Clean(lockedDataPath) {
+			return fmt.Errorf("配置的数据目录已经变更，请重新启动服务")
+		}
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if service.Renewal != nil && cfg.SetupReady {
-			service.Renewal.Start(ctx)
+		advertisedIP := publicIP
+		if !cmd.Flags().Changed("bootstrap-public-ip") {
+			advertisedIP = os.Getenv("SCERT_BOOTSTRAP_PUBLIC_IP")
 		}
-		errCh := make(chan error, 1)
-		go func() { errCh <- service.HTTP.ListenAndServe() }()
-		select {
-		case <-ctx.Done():
-			return nil
-		case err := <-errCh:
-			if errors.Is(err, http.ErrServerClosed) {
-				return nil
-			}
-			return err
-		}
+		return serveLifecycle(ctx, cfg, reload,
+			func(ctx context.Context, initial config.Config) (bool, error) {
+				return bootstrap.Run(ctx, bootstrap.ServerOptions{Config: initial, ConfigPath: path, PublicIP: advertisedIP, URLPath: bootstrapURLPath(initial), Output: cmd.OutOrStdout()})
+			},
+			func(ctx context.Context, ready config.Config) (bool, error) { return runApplication(ctx, ready, path) },
+		)
 	}}
+	command.Flags().StringVar(&publicIP, "bootstrap-public-ip", "", "首次初始化地址中的公网 IP；也可设置 SCERT_BOOTSTRAP_PUBLIC_IP")
+	return command
 }
 
 func newDomainCommand() *cobra.Command {

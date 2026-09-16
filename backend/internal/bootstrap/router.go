@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
@@ -37,10 +38,12 @@ type bootstrapCompleter interface {
 
 // Router 只承载首次初始化接口，不注册正式管理接口。
 type Router struct {
-	sessions  *SessionManager
-	database  bootstrapDatabaseVerifier
-	dns       bootstrapDNSVerifier
-	completer bootstrapCompleter
+	sessions     *SessionManager
+	database     bootstrapDatabaseVerifier
+	dns          bootstrapDNSVerifier
+	completer    bootstrapCompleter
+	completed    chan struct{}
+	completeOnce sync.Once
 }
 
 type bootstrapSessionRequest struct {
@@ -55,8 +58,11 @@ type bootstrapDNSTestRequest struct {
 
 // NewRouter 创建与正式管理服务完全分离的首次初始化路由。
 func NewRouter(sessions *SessionManager, database bootstrapDatabaseVerifier, dns bootstrapDNSVerifier, completer bootstrapCompleter) *Router {
-	return &Router{sessions: sessions, database: database, dns: dns, completer: completer}
+	return &Router{sessions: sessions, database: database, dns: dns, completer: completer, completed: make(chan struct{})}
 }
+
+// Completed 在成功响应写入后通知临时服务开始优雅关闭。
+func (router *Router) Completed() <-chan struct{} { return router.completed }
 
 func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	setBootstrapSecurityHeaders(writer)
@@ -254,6 +260,7 @@ func (router *Router) complete(writer http.ResponseWriter, request *http.Request
 	router.sessions.RevokeAll()
 	http.SetCookie(writer, ClearBootstrapSessionCookie())
 	writeBootstrapJSON(writer, http.StatusOK, result)
+	router.completeOnce.Do(func() { close(router.completed) })
 }
 
 func writeBootstrapCompletionError(writer http.ResponseWriter, err error) {
