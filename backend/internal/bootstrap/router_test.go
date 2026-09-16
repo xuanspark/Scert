@@ -48,7 +48,7 @@ func TestBootstrapRouterRequiresSessionForProtectedAPIs(t *testing.T) {
 	}
 	database := &fakeBootstrapDatabaseVerifier{}
 	dns := &fakeBootstrapDNSVerifier{}
-	router := NewRouter(sessions, database, dns)
+	router := NewRouter(sessions, database, dns, nil)
 
 	for _, item := range []struct {
 		method string
@@ -58,6 +58,7 @@ func TestBootstrapRouterRequiresSessionForProtectedAPIs(t *testing.T) {
 		{http.MethodPost, "/api/v1/bootstrap/database/test", `{"driver":"sqlite"}`},
 		{http.MethodGet, "/api/v1/bootstrap/dns/providers", ""},
 		{http.MethodPost, "/api/v1/bootstrap/dns/test", `{"provider":"aliyun"}`},
+		{http.MethodPost, "/api/v1/bootstrap/complete", `{}`},
 	} {
 		response := performBootstrapRequest(router, item.method, item.path, item.body, nil, "192.0.2.10:50000")
 		if response.Code != http.StatusUnauthorized {
@@ -75,7 +76,7 @@ func TestBootstrapRouterExchangesTokenOnceAndSetsSecureCookie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := NewRouter(sessions, nil, nil)
+	router := NewRouter(sessions, nil, nil, nil)
 	body := fmt.Sprintf(`{"token":%q}`, token)
 	first := performBootstrapRequest(router, http.MethodPost, "/api/v1/bootstrap/session", body, map[string]string{
 		"Content-Type":    "application/json",
@@ -109,7 +110,7 @@ func TestBootstrapRouterIgnoresForwardedHeadersForRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router := NewRouter(sessions, nil, nil)
+	router := NewRouter(sessions, nil, nil, nil)
 	for index := 0; index < bootstrapSourceAttemptLimit; index++ {
 		response := performBootstrapRequest(router, http.MethodPost, "/api/v1/bootstrap/session", `{"token":"wrong"}`, map[string]string{
 			"Content-Type":    "application/json",
@@ -147,7 +148,7 @@ func TestBootstrapRouterRejectsInvalidJSONBodies(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response := performBootstrapRequest(NewRouter(sessions, nil, nil), http.MethodPost, "/api/v1/bootstrap/session", item.body, map[string]string{
+			response := performBootstrapRequest(NewRouter(sessions, nil, nil, nil), http.MethodPost, "/api/v1/bootstrap/session", item.body, map[string]string{
 				"Content-Type": item.mediaType,
 			}, "192.0.2.50:53000")
 			if response.Code != item.wantStatus {
@@ -160,7 +161,7 @@ func TestBootstrapRouterRejectsInvalidJSONBodies(t *testing.T) {
 func TestBootstrapRouterOnlyListsAndAcceptsAliyun(t *testing.T) {
 	sessions, cookie := authenticatedBootstrapSession(t)
 	dns := &fakeBootstrapDNSVerifier{}
-	router := NewRouter(sessions, nil, dns)
+	router := NewRouter(sessions, nil, dns, nil)
 
 	providers := performBootstrapRequest(router, http.MethodGet, "/api/v1/bootstrap/dns/providers", "", nil, "192.0.2.60:54000", cookie)
 	if providers.Code != http.StatusOK {
@@ -206,7 +207,7 @@ func TestBootstrapRouterResponsesDoNotLeakDatabaseOrDNSCredentials(t *testing.T)
 			{Name: "查询记录", Status: "completed", Message: "已完成安全验证。"},
 		}},
 	}}
-	router := NewRouter(sessions, database, dns)
+	router := NewRouter(sessions, database, dns, nil)
 
 	databaseResponse := performBootstrapRequest(router, http.MethodPost, "/api/v1/bootstrap/database/test", `{
 		"driver":"mysql",
@@ -248,7 +249,7 @@ func TestBootstrapRouterRedactsSensitiveUnderlyingErrors(t *testing.T) {
 		Report: report,
 		Err:    errors.New("aliyun rejected " + dnsSecret),
 	}}
-	router := NewRouter(sessions, database, dns)
+	router := NewRouter(sessions, database, dns, nil)
 
 	databaseResponse := performBootstrapRequest(router, http.MethodPost, "/api/v1/bootstrap/database/test", fmt.Sprintf(`{
 		"driver":"mysql","host":"db.example.test","database":"scert",
@@ -270,7 +271,7 @@ func TestBootstrapRouterRedactsSensitiveUnderlyingErrors(t *testing.T) {
 }
 
 func TestBootstrapRouterStatusAndUnknownAPIAreSafeJSON(t *testing.T) {
-	router := NewRouter(nil, nil, nil)
+	router := NewRouter(nil, nil, nil, nil)
 	status := performBootstrapRequest(router, http.MethodGet, "/api/v1/bootstrap/status", "", nil, "192.0.2.90:57000")
 	if status.Code != http.StatusOK || status.Header().Get("Content-Type") != "application/json; charset=utf-8" {
 		t.Fatalf("Bootstrap 状态响应不正确：%d headers=%v", status.Code, status.Header())

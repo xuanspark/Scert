@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ const (
 	bootstrapSessionRequestLimit   = 4 * 1024
 	bootstrapRequestLimit          = 64 * 1024
 	databaseVerificationTimeout    = 20 * time.Second
+	bootstrapCompletionTimeout     = 12 * time.Minute
 	bootstrapDatabaseDisplaySQLite = "SQLite"
 )
 
@@ -29,11 +31,16 @@ type bootstrapDNSVerifier interface {
 	Verify(context.Context, setup.DNSVerificationInput) (setup.DNSVerificationResult, error)
 }
 
+type bootstrapCompleter interface {
+	Complete(context.Context, CompleteRequest) (CompleteResult, error)
+}
+
 // Router 只承载首次初始化接口，不注册正式管理接口。
 type Router struct {
-	sessions *SessionManager
-	database bootstrapDatabaseVerifier
-	dns      bootstrapDNSVerifier
+	sessions  *SessionManager
+	database  bootstrapDatabaseVerifier
+	dns       bootstrapDNSVerifier
+	completer bootstrapCompleter
 }
 
 type bootstrapSessionRequest struct {
@@ -47,8 +54,8 @@ type bootstrapDNSTestRequest struct {
 }
 
 // NewRouter 创建与正式管理服务完全分离的首次初始化路由。
-func NewRouter(sessions *SessionManager, database bootstrapDatabaseVerifier, dns bootstrapDNSVerifier) *Router {
-	return &Router{sessions: sessions, database: database, dns: dns}
+func NewRouter(sessions *SessionManager, database bootstrapDatabaseVerifier, dns bootstrapDNSVerifier, completer bootstrapCompleter) *Router {
+	return &Router{sessions: sessions, database: database, dns: dns, completer: completer}
 }
 
 func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -83,6 +90,11 @@ func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 			return
 		}
 		router.testDNS(writer, request)
+	case "/api/v1/bootstrap/complete":
+		if !requireBootstrapMethod(writer, request, http.MethodPost) || !router.authenticate(writer, request) {
+			return
+		}
+		router.complete(writer, request)
 	default:
 		writeBootstrapError(writer, http.StatusNotFound, "接口不存在")
 	}
@@ -94,6 +106,7 @@ func (router *Router) status(writer http.ResponseWriter) {
 		"session_required":        true,
 		"database_test_available": router != nil && router.database != nil,
 		"dns_test_available":      router != nil && router.dns != nil,
+		"complete_available":      router != nil && router.completer != nil,
 		"database_drivers": []map[string]string{
 			{"id": "sqlite", "name": bootstrapDatabaseDisplaySQLite},
 			{"id": "mysql", "name": "MySQL"},
@@ -217,6 +230,56 @@ func (router *Router) testDNS(writer http.ResponseWriter, request *http.Request)
 	})
 }
 
+func (router *Router) complete(writer http.ResponseWriter, request *http.Request) {
+	if router == nil || router.completer == nil {
+		writeBootstrapError(writer, http.StatusServiceUnavailable, "初始化提交服务尚未就绪")
+		return
+	}
+	var input CompleteRequest
+	if err := decodeBootstrapJSON(writer, request, &input, bootstrapRequestLimit); err != nil {
+		writeBootstrapError(writer, http.StatusBadRequest, "初始化提交请求参数无效")
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), bootstrapCompletionTimeout)
+	defer cancel()
+	result, err := router.completer.Complete(ctx, input)
+	if err != nil {
+		writeBootstrapCompletionError(writer, err)
+		return
+	}
+	if !result.Completed || strings.TrimSpace(result.ManagementURL) == "" {
+		writeBootstrapError(writer, http.StatusInternalServerError, "初始化提交结果无效，请检查服务状态")
+		return
+	}
+	router.sessions.RevokeAll()
+	http.SetCookie(writer, ClearBootstrapSessionCookie())
+	writeBootstrapJSON(writer, http.StatusOK, result)
+}
+
+func writeBootstrapCompletionError(writer http.ResponseWriter, err error) {
+	var completionErr *CompleteError
+	switch {
+	case errors.Is(err, ErrCompleteBusy):
+		writeBootstrapError(writer, http.StatusConflict, "初始化正在执行，请等待当前请求完成")
+	case errors.Is(err, ErrCompleteDone):
+		writeBootstrapError(writer, http.StatusConflict, "初始化已经完成，请使用正式管理入口")
+	case errors.As(err, &completionErr):
+		// 不转发底层错误或可注入的说明，防止密码、凭据引用及验证令牌泄露。
+		switch completionErr.Kind {
+		case CompleteErrorInput:
+			writeBootstrapError(writer, http.StatusBadRequest, "初始化参数无效，请检查管理员、管理入口和服务配置")
+		case CompleteErrorVerification:
+			writeBootstrapError(writer, http.StatusUnprocessableEntity, "数据库或 DNS 验证结果无效、过期或不匹配，请重新验证")
+		case CompleteErrorDependency:
+			writeBootstrapError(writer, http.StatusBadGateway, "初始化依赖操作失败，请检查数据库、证书签发和防火墙状态后重新验证")
+		default:
+			writeBootstrapError(writer, http.StatusInternalServerError, "初始化提交失败，请检查服务器状态后重新验证")
+		}
+	default:
+		writeBootstrapError(writer, http.StatusInternalServerError, "初始化提交失败，请检查服务器状态后重新验证")
+	}
+}
+
 func redactDNSReport(report setup.DNSVerificationReport, credentials map[string]string) setup.DNSVerificationReport {
 	redacted := report
 	redacted.RecordName = redactCredentialValues(redacted.RecordName, credentials)
@@ -265,7 +328,15 @@ func decodeBootstrapJSON(writer http.ResponseWriter, request *http.Request, targ
 		}
 	}
 	request.Body = http.MaxBytesReader(writer, request.Body, limit)
-	decoder := json.NewDecoder(request.Body)
+	data, err := io.ReadAll(request.Body)
+	if err != nil {
+		return err
+	}
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '{' {
+		return errors.New("请求体必须是 JSON 对象")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
