@@ -59,6 +59,7 @@ type WebConfig struct {
 type DatabaseConfig struct {
 	Driver              string `json:"driver"`
 	DSN                 string `json:"dsn"`
+	CredentialRef       string `json:"credential_ref"`
 	MaxOpenConns        int    `json:"max_open_conns"`
 	MaxIdleConns        int    `json:"max_idle_conns"`
 	ConnMaxLifetimeMins int    `json:"conn_max_lifetime_mins"`
@@ -251,6 +252,7 @@ func (c *Config) ApplyEnvironment() error {
 		{"SCERT_WEB_PUBLIC_IP", &c.Web.PublicIP},
 		{"SCERT_DATABASE_DRIVER", &c.Database.Driver},
 		{"SCERT_DATABASE_DSN", &c.Database.DSN},
+		{"SCERT_DATABASE_CREDENTIAL_REF", &c.Database.CredentialRef},
 		{"SCERT_ACME_ENVIRONMENT", &c.ACME.Environment},
 		{"SCERT_ACME_ACCOUNT_EMAIL", &c.ACME.AccountEmail},
 		{"SCERT_DNS_PROVIDER", &c.DNS.Provider},
@@ -329,6 +331,9 @@ func (c *Config) Normalize() {
 	if c.Server.HTTPSMode == "" {
 		c.Server.HTTPSMode = "direct"
 	}
+	c.Database.Driver = strings.ToLower(strings.TrimSpace(c.Database.Driver))
+	c.Database.DSN = strings.TrimSpace(c.Database.DSN)
+	c.Database.CredentialRef = strings.TrimSpace(c.Database.CredentialRef)
 	if c.Web.Hostname == "" && c.Web.PublicIP == "" && !c.SetupReady {
 		c.Web.Enabled = true
 	}
@@ -467,7 +472,7 @@ func (c Config) Validate() error {
 	if c.Server.HTTPSMode != "direct" && c.Server.HTTPSMode != "proxy" {
 		return fmt.Errorf("HTTPS 模式无效：%s", c.Server.HTTPSMode)
 	}
-	if c.Database.Driver != "sqlite" && c.Database.Driver != "mysql" {
+	if c.Database.Driver != "sqlite" && c.Database.Driver != "mysql" && c.Database.Driver != "postgres" {
 		return fmt.Errorf("数据库驱动无效：%s", c.Database.Driver)
 	}
 	if strings.TrimSpace(c.Database.DSN) == "" {
