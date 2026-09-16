@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
-	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
+	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/httpapi"
@@ -20,9 +20,9 @@ import (
 )
 
 type Runtime struct {
-	core   *app.App
-	cancel context.CancelFunc
-	initial http.Handler
+	core       *app.App
+	cancel     context.CancelFunc
+	initial    http.Handler
 	initialDNS *setup.DNSVerificationManager
 }
 
@@ -54,7 +54,10 @@ func Open(configPath, baseDir string) (*Runtime, error) {
 	if !cfg.SetupReady {
 		// 桌面端保留本机向导，但不再为初始化预先创建正式数据库和后台任务。
 		store, err := secretstore.Open(cfg.Paths.Config)
-		if err != nil { cancel(); return nil, err }
+		if err != nil {
+			cancel()
+			return nil, err
+		}
 		dns := setup.NewDNSVerificationManager(dnsprovider.NewTester(dnsprovider.NewLegoFactory()), store)
 		issuer := certificate.NewService(cfg, nil, store, dnsprovider.NewLegoFactory(), certificate.NewAccountRepository(store))
 		issuer.SetDNSAuthorizationChecker(dnsprovider.NewAliyunAuthorizationChecker())
@@ -84,7 +87,9 @@ func Open(configPath, baseDir string) (*Runtime, error) {
 }
 
 func (r *Runtime) Handler() http.Handler {
-	if r != nil && r.initial != nil { return r.initial }
+	if r != nil && r.initial != nil {
+		return r.initial
+	}
 	if r == nil || r.core == nil || r.core.HTTP == nil {
 		return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 			http.Error(writer, "Scert 核心服务未初始化", http.StatusServiceUnavailable)
@@ -100,7 +105,9 @@ func (r *Runtime) Close() error {
 	if r.cancel != nil {
 		r.cancel()
 	}
-	if r.initialDNS != nil { r.initialDNS.DiscardAll() }
+	if r.initialDNS != nil {
+		r.initialDNS.DiscardAll()
+	}
 	if r.core != nil {
 		return r.core.Close()
 	}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +69,10 @@ func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	setBootstrapSecurityHeaders(writer)
 	if request == nil {
 		writeBootstrapError(writer, http.StatusBadRequest, "请求无效")
+		return
+	}
+	if request.Method != http.MethodGet && request.Method != http.MethodHead && !bootstrapSameOrigin(request) {
+		writeBootstrapError(writer, http.StatusForbidden, "初始化写入请求必须来自当前管理页面")
 		return
 	}
 	switch request.URL.Path {
@@ -364,6 +369,21 @@ func requireBootstrapMethod(writer http.ResponseWriter, request *http.Request, m
 	writer.Header().Set("Allow", method)
 	writeBootstrapError(writer, http.StatusMethodNotAllowed, "请求方法不受支持")
 	return false
+}
+
+// 不信任转发头；同站子域也不能向初始化服务提交写入请求。
+func bootstrapSameOrigin(request *http.Request) bool {
+	if site := request.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		return false
+	}
+	origin := request.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	return err == nil && parsed.Scheme == "https" && parsed.User == nil &&
+		parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == "" &&
+		strings.EqualFold(parsed.Host, request.Host)
 }
 
 func setBootstrapSecurityHeaders(writer http.ResponseWriter) {

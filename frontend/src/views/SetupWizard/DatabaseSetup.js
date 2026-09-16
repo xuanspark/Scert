@@ -1,7 +1,15 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 
 export function useDatabaseSetup(clock) {
-  const databaseForm = ref({ driver: "sqlite", host: "", port: 3306, database: "scert", username: "", password: "", root_certificate: "" });
+  const databaseForm = ref({
+    driver: "sqlite",
+    host: "",
+    port: 3306,
+    database: "scert",
+    username: "",
+    password: "",
+    root_certificate: "",
+  });
   const databaseTesting = ref(false);
   const databaseError = ref("");
   const databaseVerification = ref(null);
@@ -38,7 +46,8 @@ export function useDatabaseSetup(clock) {
       });
       const result = await response.json().catch(() => ({}));
       if (current !== version) return;
-      if (!response.ok || !result.verified || !result.verification_token) {
+      if (!response.ok || result.verified !== true || !result.verification_token ||
+        result.driver !== payload.driver || !(new Date(result.expires_at).getTime() > Date.now())) {
         throw new Error(result.error || "数据库连接和写权限验证失败。");
       }
       databaseVerification.value = result;

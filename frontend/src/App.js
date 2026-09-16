@@ -71,7 +71,13 @@ export function useAppShell() {
 
   function handleInitialized(result) {
     if (result?.completed && result?.management_url) {
-      const destination = new URL(result.management_url);
+      let destination;
+      try {
+        destination = new URL(result.management_url);
+      } catch {
+        error.value = "正式管理地址无效，请检查服务器配置。";
+        return;
+      }
       if (destination.protocol !== "https:" || destination.username || destination.password) {
         error.value = "正式管理地址无效，请检查服务器配置。";
         return;

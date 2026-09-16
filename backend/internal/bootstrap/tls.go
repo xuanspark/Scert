@@ -204,18 +204,24 @@ func WriteBootstrapURL(path, value string) error {
 		return fmt.Errorf("检查 Bootstrap 地址文件失败：%w", err)
 	}
 	temporary, err := os.CreateTemp(directory, ".bootstrap-url-")
-	if err != nil { return fmt.Errorf("创建 Bootstrap 临时地址文件失败：%w", err) }
+	if err != nil {
+		return fmt.Errorf("创建 Bootstrap 临时地址文件失败：%w", err)
+	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	defer temporary.Close()
-	if _, err := temporary.WriteString(value+"\n"); err != nil {
+	if _, err := temporary.WriteString(value + "\n"); err != nil {
 		return fmt.Errorf("写入 Bootstrap 临时地址文件失败：%w", err)
 	}
 	if err := temporary.Chmod(0o600); err != nil {
 		return fmt.Errorf("设置 Bootstrap 临时地址文件权限失败：%w", err)
 	}
-	if err := temporary.Sync(); err != nil { return fmt.Errorf("同步 Bootstrap 地址文件失败：%w", err) }
-	if err := temporary.Close(); err != nil { return fmt.Errorf("关闭 Bootstrap 地址文件失败：%w", err) }
+	if err := temporary.Sync(); err != nil {
+		return fmt.Errorf("同步 Bootstrap 地址文件失败：%w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("关闭 Bootstrap 地址文件失败：%w", err)
+	}
 	if err := os.Rename(temporaryPath, path); err != nil {
 		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("替换 Bootstrap 地址文件失败：%w", err)

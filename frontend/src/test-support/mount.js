@@ -43,7 +43,10 @@ export async function mountComposable(t, factory, fetcher) {
       clearInterval(intervalID) {
         intervals.delete(intervalID);
       },
-      location: { assign() {} },
+      location: { pathname: "/", search: "", hash: "", assign() {} },
+      history: { replaceState() {} },
+      setTimeout,
+      clearTimeout,
     },
     document: { body: { style: { overflow: "" } } },
   })) {

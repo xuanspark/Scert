@@ -24,11 +24,26 @@ const emit = defineEmits(["test"]);
         </select>
       </label>
       <template v-if="form.driver !== 'sqlite'">
-        <label><span>数据库主机</span><input v-model.trim="form.host" autocomplete="off" placeholder="db.example.com" /></label>
-        <label><span>数据库端口</span><input v-model.number="form.port" type="number" min="1" max="65535" /></label>
-        <label><span>数据库名称</span><input v-model.trim="form.database" autocomplete="off" /></label>
-        <label><span>数据库用户名</span><input v-model.trim="form.username" autocomplete="off" /></label>
-        <label><span>数据库密码</span><input v-model="form.password" type="password" autocomplete="new-password" /></label>
+        <label>
+          <span>数据库主机</span>
+          <input v-model.trim="form.host" autocomplete="off" placeholder="db.example.com" />
+        </label>
+        <label>
+          <span>数据库端口</span>
+          <input v-model.number="form.port" type="number" min="1" max="65535" />
+        </label>
+        <label>
+          <span>数据库名称</span>
+          <input v-model.trim="form.database" autocomplete="off" />
+        </label>
+        <label>
+          <span>数据库用户名</span>
+          <input v-model.trim="form.username" autocomplete="off" />
+        </label>
+        <label>
+          <span>数据库密码</span>
+          <input v-model="form.password" type="password" autocomplete="new-password" />
+        </label>
         <label v-if="form.driver === 'postgres'">
           <span>根证书路径（服务器绝对路径，可选）</span>
           <input v-model.trim="form.root_certificate" placeholder="使用系统信任库时留空" />
@@ -45,3 +60,5 @@ const emit = defineEmits(["test"]);
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
   </section>
 </template>
+
+<style scoped src="./DatabaseSetup.css"></style>
