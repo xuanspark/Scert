@@ -175,6 +175,7 @@ func renderUnitFile(options Options) (string, error) {
 	lines = append(lines,
 		"WorkingDirectory="+quoteUnitValue(normalized.WorkDir),
 		"ExecStart="+quoteUnitValue(normalized.Executable)+" --config "+quoteUnitValue(normalized.ConfigPath)+" serve",
+		"Environment=SCERT_BOOTSTRAP_FIREWALL_MODE=external",
 		"KillSignal=SIGTERM",
 		"TimeoutStopSec=30",
 		"Restart=on-failure",

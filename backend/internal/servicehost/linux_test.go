@@ -28,6 +28,7 @@ func TestRenderUnitFileIncludesExecutableConfigurationAndWorkDir(t *testing.T) {
 		"After=network-online.target",
 		"RuntimeDirectory=scert",
 		"RuntimeDirectoryMode=0700",
+		"Environment=SCERT_BOOTSTRAP_FIREWALL_MODE=external",
 		"[Service]",
 		"Type=simple",
 		"User=Scert",

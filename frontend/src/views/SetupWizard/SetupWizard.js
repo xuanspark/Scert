@@ -814,6 +814,10 @@ export function useSetupWizard(props, emit) {
       }
       completed.value = true;
       resultMessage.value = isBootstrap ? `初始化配置已保存，正在切换至 ${result.management_url}。请稍候；IP 自签名证书或测试证书需要人工核对。` : result.message || "初始化配置已保存。";
+      if (isBootstrap && Array.isArray(result.warnings)) {
+        const warnings = result.warnings.filter((message) => typeof message === "string" && message.trim());
+        if (warnings.length) resultMessage.value += ` 注意：${warnings.join("；")}`;
+      }
       emit("initialized", result);
     } catch (err) {
       error.value = err.message || "保存初始化配置失败";

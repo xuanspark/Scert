@@ -10,6 +10,7 @@ User=Scert
 Group=Scert
 WorkingDirectory=/scert
 ExecStart=/scert/scert --config /scert/conf/scert.json serve
+Environment=SCERT_BOOTSTRAP_FIREWALL_MODE=external
 KillSignal=SIGTERM
 TimeoutStopSec=30
 Restart=on-failure

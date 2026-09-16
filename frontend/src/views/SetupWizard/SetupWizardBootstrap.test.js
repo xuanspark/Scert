@@ -98,6 +98,20 @@ test("首次向导提交中和完成后禁止重复提交", async (t) => {
   assert.equal(state.submitting.value, false);
 });
 
+test("首次向导成功后显示外部防火墙提示且不输出畸形警告", async (t) => {
+  const { state, emitted } = await setup(t, () => Response.json({
+    completed: true,
+    management_url: "https://203.0.113.20:8443/",
+    warnings: ["防火墙由管理员管理，端口 8443 未检查或修改。", null, {}, ""],
+  }));
+  state.currentStep.value = 4;
+  await state.handleSubmit();
+  assert.equal(state.completed.value, true);
+  assert.equal(emitted.length, 1);
+  assert.match(state.resultMessage.value, /端口 8443 未检查或修改/);
+  assert.doesNotMatch(state.resultMessage.value, /null|\[object Object\]/);
+});
+
 test("首次向导提交失败清除已领取令牌，重新验证后允许重试", async (t) => {
   let attempts = 0;
   const { state, submitted, emitted } = await setup(t, () => ++attempts === 1

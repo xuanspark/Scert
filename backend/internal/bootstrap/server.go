@@ -26,17 +26,22 @@ import (
 )
 
 type ServerOptions struct {
-	Config     config.Config
-	ConfigPath string
-	PublicIP   string
-	URLPath    string
-	Output     io.Writer
+	Config       config.Config
+	ConfigPath   string
+	PublicIP     string
+	URLPath      string
+	Output       io.Writer
+	FirewallMode string
 }
 
 // Run 只创建初始化所需组件；正式数据库、业务路由和后台任务由切换后的应用创建。
 func Run(ctx context.Context, options ServerOptions) (bool, error) {
 	if options.Config.SetupReady {
 		return false, errors.New("已经初始化，不能启动临时初始化服务")
+	}
+	firewallManager, err := firewall.NewManagerWithMode(options.FirewallMode)
+	if err != nil {
+		return false, err
 	}
 	material, err := NewTemporaryTLSMaterial(options.PublicIP)
 	if err != nil {
@@ -69,7 +74,7 @@ func Run(ctx context.Context, options ServerOptions) (bool, error) {
 	completer := NewCompleter(CompleteDependencies{
 		BaseConfig: options.Config, ConfigPath: options.ConfigPath, BootstrapURLPath: options.URLPath,
 		DatabaseSessions: databases, DNSSessions: dns, Credentials: store, Sessions: sessions,
-		Firewall: firewall.NewManager(), Certificate: issuer,
+		Firewall: firewallManager, Certificate: issuer,
 		Warn: func(message string) {
 			if options.Output != nil {
 				fmt.Fprintln(options.Output, message)
@@ -94,6 +99,9 @@ func Run(ctx context.Context, options ServerOptions) (bool, error) {
 	}()
 	if options.Output != nil {
 		writeBootstrapNotice(options.Output, options.Config.Server.Port, options.URLPath, material)
+		if strings.EqualFold(strings.TrimSpace(options.FirewallMode), firewall.ModeExternal) {
+			fmt.Fprintln(options.Output, "初始化防火墙采用 external 模式：不检查或修改主机规则及云安全组，请管理员预先放行所需端口。")
+		}
 	}
 	return serveTemporaryHTTPS(ctx, listener, material, handler, router.Completed())
 }

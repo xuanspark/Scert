@@ -255,6 +255,7 @@ func TestBootstrapRunCancellationRemovesURLWithoutCreatingBusinessDatabase(t *te
 		ok, err := Run(ctx, ServerOptions{
 			Config: fixture.base, ConfigPath: fixture.configPath,
 			PublicIP: "127.0.0.1", URLPath: fixture.urlPath, Output: &output,
+			FirewallMode: "external",
 		})
 		if ok {
 			err = errors.New("取消操作误报初始化完成")
@@ -291,6 +292,9 @@ func TestBootstrapRunCancellationRemovesURLWithoutCreatingBusinessDatabase(t *te
 	}
 	if !strings.Contains(output.String(), "Bootstrap 临时证书 SHA-256 指纹：") {
 		t.Fatal("初始化启动日志缺少可通过可信运维通道核对的证书指纹")
+	}
+	if !strings.Contains(output.String(), "不检查或修改主机规则及云安全组") {
+		t.Fatal("外部防火墙管理策略必须明确记录，不得悄悄跳过")
 	}
 	for _, path := range []string{fixture.urlPath, fixture.configPath, filepath.Join(fixture.base.Paths.Data, "scert.db")} {
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {

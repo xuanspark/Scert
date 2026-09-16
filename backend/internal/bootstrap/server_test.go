@@ -113,3 +113,20 @@ func TestBootstrapHandlerIsolatesBusinessRoutesAndSettings(t *testing.T) {
 		t.Fatal("认证后无法读取初始化设置")
 	}
 }
+
+func TestBootstrapRejectsInvalidFirewallModeBeforeWritingFiles(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "conf", "scert.json")
+	urlPath := filepath.Join(root, "run", "bootstrap-url")
+	ok, err := Run(context.Background(), ServerOptions{
+		Config: config.Default(root), ConfigPath: configPath, URLPath: urlPath,
+		PublicIP: "127.0.0.1", FirewallMode: "invalid",
+	})
+	if err == nil || ok {
+		t.Fatal("错误防火墙模式不应启动初始化")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("防火墙模式校验应发生在创建任何配置或敏感信息文件之前")
+	}
+}

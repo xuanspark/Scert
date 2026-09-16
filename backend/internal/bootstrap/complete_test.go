@@ -110,10 +110,13 @@ type completionFirewall struct {
 	openCalls     int
 	rollbackCalls int
 	block         chan struct{}
+	deadline      time.Time
+	hasDeadline   bool
 }
 
-func (manager *completionFirewall) OpenTCP(_ context.Context, port int) (firewall.Result, error) {
+func (manager *completionFirewall) OpenTCP(ctx context.Context, port int) (firewall.Result, error) {
 	manager.mu.Lock()
+	manager.deadline, manager.hasDeadline = ctx.Deadline()
 	manager.openCalls++
 	result := manager.result
 	openErr := manager.openErr
@@ -288,6 +291,58 @@ func TestCompleterRejectsDNSDomainMismatchBeforeDatabaseSideEffects(t *testing.T
 	}
 	if fixture.store.has(fixture.dnsRef) {
 		t.Fatal("失败初始化的 DNS 临时凭据未回收")
+	}
+}
+
+func TestCompleterExternalFirewallCommitsWithExplicitWarning(t *testing.T) {
+	fixture := newCompletionFixture(t, "admin.example.test")
+	selected, err := firewall.NewManagerWithMode(firewall.ModeExternal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var warnings []string
+	result, err := fixture.completer(func(dependencies *CompleteDependencies) {
+		dependencies.Firewall = selected
+		dependencies.Warn = func(message string) { warnings = append(warnings, message) }
+	}).Complete(context.Background(), fixture.request("admin.example.test"))
+	if err != nil || !result.Completed || len(result.Warnings) != 1 || len(warnings) != 1 {
+		t.Fatalf("外部管理模式必须完成配置并明确警告：%+v，%v", result, err)
+	}
+	if !strings.Contains(result.Warnings[0], "未检查或修改") || !strings.Contains(warnings[0], "8443") {
+		t.Fatal("响应和运维日志必须说明正式端口没有经过防火墙验证")
+	}
+	stored, err := config.Load(fixture.configPath)
+	if err != nil || !stored.SetupReady {
+		t.Fatalf("外部管理模式没有保存正式配置：%v", err)
+	}
+}
+
+func TestCompleterFirewallHasBoundedDeadline(t *testing.T) {
+	fixture := newCompletionFixture(t, "admin.example.test")
+	started := time.Now()
+	_, err := fixture.completer(nil).Complete(context.Background(), fixture.request("admin.example.test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fixture.firewall.hasDeadline || fixture.firewall.deadline.Before(started) ||
+		fixture.firewall.deadline.After(time.Now().Add(30*time.Second)) {
+		t.Fatal("初始化防火墙命令必须有不超过三十秒的超时")
+	}
+}
+
+func TestCompleterAutomaticFirewallFailureDoesNotSilentlySkip(t *testing.T) {
+	fixture := newCompletionFixture(t, "admin.example.test")
+	fixture.firewall.openErr = errors.New("permission denied")
+	_, err := fixture.completer(nil).Complete(context.Background(), fixture.request("admin.example.test"))
+	var completeErr *CompleteError
+	if !errors.As(err, &completeErr) || completeErr.Kind != CompleteErrorDependency {
+		t.Fatalf("自动模式权限失败必须中止初始化：%v", err)
+	}
+	if _, statErr := os.Stat(fixture.configPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatal("防火墙失败不应提交正式配置")
+	}
+	if _, statErr := os.Stat(fixture.issuer.saved.CertificatePath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatal("防火墙失败必须回滚本次管理证书")
 	}
 }
 

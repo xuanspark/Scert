@@ -327,7 +327,9 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 	candidate.Server.TLSCert = certificateResult.fullChainPath
 	candidate.Server.TLSKey = certificateResult.privateKeyPath
 
-	firewallResult, err = completer.firewall.OpenTCP(ctx, candidate.Server.Port)
+	firewallContext, cancelFirewall := context.WithTimeout(ctx, 30*time.Second)
+	firewallResult, err = completer.firewall.OpenTCP(firewallContext, candidate.Server.Port)
+	cancelFirewall()
 	if err != nil {
 		return result, completeError(CompleteErrorDependency, "配置主服务防火墙规则失败", err)
 	}
@@ -348,6 +350,12 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 	completer.base = candidate
 	result = CompleteResult{Completed: true, ManagementURL: managementURL(candidate)}
 	result.Warnings = completer.afterCommit(candidate)
+	if firewallResult.Backend == firewall.BackendExternal {
+		result.Warnings = append(result.Warnings, firewallResult.Message)
+		if completer.warn != nil {
+			completer.warn(firewallResult.Message)
+		}
+	}
 	return result, nil
 }
 

@@ -654,6 +654,7 @@ func commandStatus(cfg config.Config) map[string]any {
 
 func newServeCommand() *cobra.Command {
 	var publicIP string
+	var firewallMode string
 	command := &cobra.Command{Use: "serve", Short: "启动网站服务", RunE: func(cmd *cobra.Command, args []string) error {
 		path, err := filepath.Abs(resolveConfigPath())
 		if err != nil {
@@ -683,14 +684,24 @@ func newServeCommand() *cobra.Command {
 		if !cmd.Flags().Changed("bootstrap-public-ip") {
 			advertisedIP = os.Getenv("SCERT_BOOTSTRAP_PUBLIC_IP")
 		}
+		selectedFirewallMode := firewallMode
+		if !cmd.Flags().Changed("bootstrap-firewall-mode") {
+			if value, ok := os.LookupEnv("SCERT_BOOTSTRAP_FIREWALL_MODE"); ok {
+				selectedFirewallMode = value
+			}
+		}
 		return serveLifecycle(ctx, cfg, reload,
 			func(ctx context.Context, initial config.Config) (bool, error) {
-				return bootstrap.Run(ctx, bootstrap.ServerOptions{Config: initial, ConfigPath: path, PublicIP: advertisedIP, URLPath: bootstrapURLPath(initial), Output: cmd.OutOrStdout()})
+				return bootstrap.Run(ctx, bootstrap.ServerOptions{
+					Config: initial, ConfigPath: path, PublicIP: advertisedIP,
+					URLPath: bootstrapURLPath(initial), Output: cmd.OutOrStdout(), FirewallMode: selectedFirewallMode,
+				})
 			},
 			func(ctx context.Context, ready config.Config) (bool, error) { return runApplication(ctx, ready, path) },
 		)
 	}}
 	command.Flags().StringVar(&publicIP, "bootstrap-public-ip", "", "首次初始化地址中的公网 IP；也可设置 SCERT_BOOTSTRAP_PUBLIC_IP")
+	command.Flags().StringVar(&firewallMode, "bootstrap-firewall-mode", firewall.ModeAuto, "首次初始化防火墙模式：auto 自动管理，external 由管理员预先配置；也可设置 SCERT_BOOTSTRAP_FIREWALL_MODE")
 	return command
 }
 
