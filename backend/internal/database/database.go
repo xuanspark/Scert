@@ -22,6 +22,9 @@ type Database struct {
 }
 
 func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
+	if err := ValidateConfigForOpen(cfg); err != nil {
+		return nil, err
+	}
 	driver := strings.ToLower(strings.TrimSpace(cfg.Driver))
 	if driver != "sqlite" && driver != "mysql" && driver != "postgres" {
 		return nil, fmt.Errorf("数据库驱动无效：%s", cfg.Driver)
@@ -72,6 +75,22 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
 		}
 	}
 	return &Database{DB: db}, nil
+}
+
+// ValidateConfigForOpen 接受已在内存中补全凭据的外部数据库配置。
+// 持久化配置必须使用 ValidateConfig；运行时配置由 ResolveConfig 生成。
+func ValidateConfigForOpen(cfg config.DatabaseConfig) error {
+	driver := strings.ToLower(strings.TrimSpace(cfg.Driver))
+	if driver != "sqlite" && driver != "mysql" && driver != "postgres" {
+		return fmt.Errorf("数据库驱动无效：%s", cfg.Driver)
+	}
+	if strings.TrimSpace(cfg.DSN) == "" {
+		return fmt.Errorf("数据库连接信息不能为空")
+	}
+	if driver == "sqlite" && strings.TrimSpace(cfg.CredentialRef) != "" {
+		return fmt.Errorf("SQLite 不允许配置数据库凭据引用")
+	}
+	return nil
 }
 
 func configureSQLite(ctx context.Context, db *sql.DB) error {

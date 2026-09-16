@@ -478,6 +478,21 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Database.DSN) == "" {
 		return fmt.Errorf("数据库连接信息不能为空")
 	}
+	if c.Database.Driver == "sqlite" {
+		if strings.TrimSpace(c.Database.CredentialRef) != "" {
+			return fmt.Errorf("SQLite 不允许配置数据库凭据引用")
+		}
+	} else {
+		if strings.TrimSpace(c.Database.CredentialRef) == "" {
+			return fmt.Errorf("外部数据库必须配置加密凭据引用")
+		}
+		if !strings.HasPrefix(strings.TrimSpace(c.Database.CredentialRef), "secret://database/") {
+			return fmt.Errorf("数据库凭据引用必须使用 secret://database/ 前缀")
+		}
+		if databaseDSNContainsPassword(c.Database.Driver, c.Database.DSN) {
+			return fmt.Errorf("数据库连接信息不能包含密码，请使用加密凭据引用")
+		}
+	}
 	if c.Database.MaxOpenConns < 1 || c.Database.MaxIdleConns < 0 || c.Database.MaxIdleConns > c.Database.MaxOpenConns {
 		return fmt.Errorf("数据库连接池配置无效")
 	}
@@ -601,6 +616,38 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func databaseDSNContainsPassword(driver, dsn string) bool {
+	driver = strings.ToLower(strings.TrimSpace(driver))
+	dsn = strings.TrimSpace(dsn)
+	if dsn == "" {
+		return false
+	}
+	switch driver {
+	case "mysql":
+		at := strings.Index(dsn, "@")
+		if at < 0 {
+			return false
+		}
+		credentials := dsn[:at]
+		return strings.Contains(credentials, ":")
+	case "postgres":
+		if parsed, err := url.Parse(dsn); err == nil && (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") {
+			if parsed.User == nil {
+				return false
+			}
+			_, present := parsed.User.Password()
+			return present
+		}
+		for _, field := range strings.Fields(dsn) {
+			key, _, found := strings.Cut(field, "=")
+			if found && strings.EqualFold(strings.TrimSpace(key), "password") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ResetURL 返回通过主 Web 服务访问密码重置入口的公开地址。

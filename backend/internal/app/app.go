@@ -65,27 +65,31 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	if err != nil {
 		return nil, fmt.Errorf("初始化日志失败：%w", err)
 	}
-	db, err := database.Open(ctx, cfg.Database)
-	if err != nil {
-		_ = logger.Close()
-		return nil, err
-	}
-	if err := database.Migrate(ctx, db.DB, cfg.Database.Driver); err != nil {
-		_ = db.Close()
-		_ = logger.Close()
-		return nil, err
-	}
 	secretStore, err := secretstore.Open(cfg.Paths.Config)
 	if err != nil {
-		_ = db.Close()
 		_ = logger.Close()
 		return nil, fmt.Errorf("初始化敏感信息存储失败：%w", err)
 	}
+	runtimeDatabaseConfig, err := database.ResolveConfig(ctx, cfg.Database, secretStore)
+	if err != nil {
+		_ = logger.Close()
+		return nil, err
+	}
+	db, err := database.Open(ctx, runtimeDatabaseConfig)
+	if err != nil {
+		_ = logger.Close()
+		return nil, err
+	}
+	if err := database.Migrate(ctx, db.DB, runtimeDatabaseConfig.Driver); err != nil {
+		_ = db.Close()
+		_ = logger.Close()
+		return nil, err
+	}
 	dnsTester := dnsprovider.NewTester(dnsprovider.NewLegoFactory())
 	dnsVerification := setup.NewDNSVerificationManager(dnsTester, secretStore)
-	repo := repository.NewSQLDomainRepository(db.DB, cfg.Database.Driver)
-	serverRepo := repository.NewSQLServerRepository(db.DB, cfg.Database.Driver)
-	userRepo := repository.NewSQLUserRepository(db.DB, cfg.Database.Driver)
+	repo := repository.NewSQLDomainRepository(db.DB, runtimeDatabaseConfig.Driver)
+	serverRepo := repository.NewSQLServerRepository(db.DB, runtimeDatabaseConfig.Driver)
+	userRepo := repository.NewSQLUserRepository(db.DB, runtimeDatabaseConfig.Driver)
 	if cfg.SetupReady && cfg.Admin.Username != "" && cfg.Admin.PasswordHash != "" {
 		if err := userRepo.EnsureSuperAdmin(ctx, repository.User{ID: "primary-super-admin", Username: cfg.Admin.Username, Email: cfg.Admin.Email, PasswordHash: cfg.Admin.PasswordHash}); err != nil {
 			_ = db.Close()
@@ -93,7 +97,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			return nil, fmt.Errorf("初始化超级管理员用户失败：%w", err)
 		}
 	}
-	taskRepo := repository.NewSQLTaskRepository(db.DB, cfg.Database.Driver)
+	taskRepo := repository.NewSQLTaskRepository(db.DB, runtimeDatabaseConfig.Driver)
 	if recovered, err := taskRepo.RecoverInterruptedTasks(ctx, time.Now().UTC()); err != nil {
 		_ = db.Close()
 		_ = logger.Close()
@@ -101,7 +105,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	} else if recovered > 0 {
 		logger.Warn("\u670d\u52a1\u91cd\u542f\u524d\u672a\u5b8c\u6210\u4efb\u52a1\u5df2\u6807\u8bb0\u4e3a\u5931\u8d25", "count", recovered)
 	}
-	auditRepo := repository.NewSQLAuditRepository(db.DB, cfg.Database.Driver)
+	auditRepo := repository.NewSQLAuditRepository(db.DB, runtimeDatabaseConfig.Driver)
 	if deleted, err := auditRepo.PruneExpiredAuditLogs(ctx, time.Now().UTC().AddDate(0, 0, -auditLogRetentionDays)); err != nil {
 		logger.Warn("启动时清理过期审计日志失败", "error", err)
 	} else if deleted > 0 {

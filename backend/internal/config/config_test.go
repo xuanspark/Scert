@@ -78,6 +78,41 @@ func TestValidateRejectsInvalidPort(t *testing.T) {
 	}
 }
 
+func TestValidateProtectsExternalDatabasePasswords(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*Config)
+	}{
+		{
+			name: "MySQL password in DSN",
+			edit: func(cfg *Config) {
+				cfg.Database = DatabaseConfig{Driver: "mysql", DSN: "user:password@tcp(db.example.test:3306)/scert", CredentialRef: "secret://database/mysql"}
+			},
+		},
+		{
+			name: "PostgreSQL password in DSN",
+			edit: func(cfg *Config) {
+				cfg.Database = DatabaseConfig{Driver: "postgres", DSN: "postgres://user:password@db.example.test:5432/scert?sslmode=verify-full", CredentialRef: "secret://database/postgres"}
+			},
+		},
+		{
+			name: "missing external database credential reference",
+			edit: func(cfg *Config) {
+				cfg.Database = DatabaseConfig{Driver: "mysql", DSN: "user@tcp(db.example.test:3306)/scert"}
+			},
+		},
+	}
+	for _, item := range tests {
+		t.Run(item.name, func(t *testing.T) {
+			cfg := Default(t.TempDir())
+			item.edit(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("不安全外部数据库配置未被拒绝")
+			}
+		})
+	}
+}
+
 func TestResetURLAlwaysUsesWebHostnameWithoutPort(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.Web.Hostname = "scert.example.test"
