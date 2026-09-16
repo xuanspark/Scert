@@ -501,6 +501,7 @@ export function useSetupWizard(props, emit) {
   }
 
   function validateCurrentStep() {
+    verificationClock.value = Date.now();
     if (currentStep.value === 1) synchronizeEmailField();
     error.value = "";
     resultMessage.value = "";
@@ -713,55 +714,21 @@ export function useSetupWizard(props, emit) {
   }
 
   async function submit() {
+    verificationClock.value = Date.now();
     error.value = "";
     resultMessage.value = "";
     if (isBootstrap && !database.databaseVerified.value) {
       error.value = "数据库验证结果无效或已过期，请重新验证。";
       return;
     }
-    if (
-      form.value.admin_password.length < 8 ||
-      form.value.admin_password.length > 12
-    ) {
-      error.value = "超级管理员密码长度必须为 8 至 12 个字符。";
-      return;
-    }
-    if (form.value.admin_password !== form.value.confirm_password) {
-      error.value = "两次输入的超级管理员密码不一致。";
-      return;
-    }
     if (!dnsVerificationValid.value) {
       error.value = "必须先完成 DNS API 在线验证；验证结果已过期时请重新测试。";
       return;
     }
-    if (form.value.email_smtp_enabled) {
-      const smtpPort = Number(form.value.email_smtp_port);
-      if (!form.value.email_smtp_host.trim()) {
-        error.value = "启用 SMTP 通知后必须填写 SMTP 主机。";
-        return;
-      }
-      if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
-        error.value = "SMTP 端口必须在 1 至 65535 之间。";
-        return;
-      }
-      if (!form.value.email_smtp_username.trim()) {
-        error.value = "启用 SMTP 通知后必须填写 SMTP 用户名。";
-        return;
-      }
-      if (!form.value.email_smtp_password) {
-        error.value = "启用 SMTP 通知后必须填写 SMTP 密码。";
-        return;
-      }
-      if (form.value.email_smtp_mode === "plain" && !form.value.email_smtp_allow_plaintext_auth) {
-        error.value = "SMTP 明文模式必须明确允许明文认证，建议改用 STARTTLS 或隐式 TLS。";
-        return;
-      }
-    }
-    try {
-      emailCredentialPayload();
-    } catch (err) {
-      error.value = err.message || "HTTP 通知凭据格式无效。";
-      return;
+    // 提交前重新检查全部步骤，不能依赖之前点击“下一步”时的校验结果。
+    for (let step = 1; step <= 4; step += 1) {
+      currentStep.value = step;
+      if (!validateCurrentStep()) return;
     }
     const hostname =
       targetType.value === "hostname" ? form.value.web_hostname.trim() : "";
@@ -833,6 +800,18 @@ export function useSetupWizard(props, emit) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存初始化配置失败");
+      if (isBootstrap) {
+        let destination;
+        try {
+          destination = new URL(result?.management_url);
+        } catch {
+          throw new Error("初始化响应不完整，请检查服务器状态后再继续。");
+        }
+        if (result?.completed !== true || destination.protocol !== "https:" ||
+          destination.username || destination.password) {
+          throw new Error("初始化响应不完整，请检查服务器状态后再继续。");
+        }
+      }
       completed.value = true;
       resultMessage.value = isBootstrap ? `初始化配置已保存，正在切换至 ${result.management_url}。请稍候；IP 自签名证书或测试证书需要人工核对。` : result.message || "初始化配置已保存。";
       emit("initialized", result);

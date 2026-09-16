@@ -14,7 +14,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,7 +117,7 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 	input.DNSVerificationToken = dnsResult.Token
 	var completed CompleteResult
 	post("/api/v1/bootstrap/complete", input, &completed)
-	if !completed.Completed || completed.ManagementURL != "https://"+net.JoinHostPort(input.WebPublicIP, strings.Split(address, ":")[1])+"/" {
+	if !completed.Completed || completed.ManagementURL != "https://"+net.JoinHostPort(input.WebPublicIP, strconv.Itoa(input.ServerPort))+"/" {
 		t.Fatal("初始化未返回正确管理地址")
 	}
 	select {
@@ -143,6 +145,23 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	applicationResult := make(chan error, 1)
+	var closeOnce sync.Once
+	closeApplication := func() {
+		closeOnce.Do(func() {
+			if err := application.Close(); err != nil {
+				t.Error(err)
+			}
+			select {
+			case err := <-applicationResult:
+				if !errors.Is(err, http.ErrServerClosed) {
+					t.Errorf("正式服务关闭错误：%v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Error("正式服务关闭超时")
+			}
+		})
+	}
+	defer closeApplication()
 	go func() { applicationResult <- application.HTTP.ListenAndServe() }()
 	// 正式 IP 证书与临时证书不同，只信任本次生成的正式证书。
 	certificatePEM, err := os.ReadFile(stored.Server.TLSCert)
@@ -174,7 +193,6 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	defer application.Close()
 	for path, expected := range map[string]int{
 		"/api/v1/bootstrap/status":   http.StatusNotFound,
 		"/api/v1/bootstrap/settings": http.StatusNotFound,
@@ -189,17 +207,7 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 			t.Fatalf("切换后 %s 状态错误：%d", path, response.StatusCode)
 		}
 	}
-	if err := application.Close(); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-applicationResult:
-		if !errors.Is(err, http.ErrServerClosed) {
-			t.Fatalf("正式服务关闭错误：%v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("正式服务关闭超时")
-	}
+	closeApplication()
 }
 
 func TestBootstrapRunCancellationRemovesURLWithoutCreatingBusinessDatabase(t *testing.T) {

@@ -874,7 +874,7 @@ const {
             </div>
           </fieldset>
 
-          <fieldset v-if="currentStep === 4" class="setup-step-card">
+          <fieldset v-if="currentStep === 4" class="setup-step-card" :disabled="submitting || completed">
             <legend><span>04</span>证书目录与剩余设置</legend>
             <div class="setup-grid two-columns">
               <label>

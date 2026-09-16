@@ -80,6 +80,10 @@ type dnsTestRequest struct {
 
 func (s *Server) registerSetupRoutes() {
 	s.router.GET("/api/v1/setup/status", s.setupStatus)
+	// 正式服务只保留状态查询；旧写接口仅供桌面端本机初始化使用。
+	if s.config.SetupReady {
+		return
+	}
 	s.router.GET("/api/v1/setup/dns/providers", s.setupDNSProviders)
 	s.router.POST("/api/v1/setup/dns/test", s.requireSameOrigin, s.requireSetupAccess, s.dnsOperation, s.testSetupDNS)
 	s.router.POST("/api/v1/setup", s.requireSameOrigin, s.requireSetupAccess, s.longOperation(12*time.Minute), s.applySetup)

@@ -112,6 +112,8 @@ type Server struct {
 	loginInFlight       int
 	loginPrunedAt       time.Time
 	now                 func() time.Time
+	httpMu              sync.Mutex
+	httpStopped         bool
 	httpServer          *http.Server
 	router              *gin.Engine
 }
@@ -221,16 +223,12 @@ func (s *Server) ListenAndServe() error {
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
+	if !cfg.SetupReady {
+		return errors.New("初始化未完成，请使用独立 HTTPS 初始化服务")
+	}
 	address, err := listenAddress(cfg)
 	if err != nil {
 		return err
-	}
-	s.httpServer = newHTTPServer(address, s.router)
-	if !cfg.SetupReady {
-		if s.logger != nil {
-			s.logger.Info("HTTP 服务启动", "address", s.httpServer.Addr, "https_mode", "初始化明文 HTTP")
-		}
-		return s.httpServer.ListenAndServe()
 	}
 	certPath := strings.TrimSpace(cfg.Server.TLSCert)
 	keyPath := strings.TrimSpace(cfg.Server.TLSKey)
@@ -243,10 +241,22 @@ func (s *Server) ListenAndServe() error {
 	if _, err := os.Stat(filepath.Clean(keyPath)); err != nil {
 		return fmt.Errorf("读取 HTTPS 私钥失败：%w", err)
 	}
-	if s.logger != nil {
-		s.logger.Info("HTTPS 服务启动", "address", s.httpServer.Addr, "https_mode", cfg.Server.HTTPSMode)
+	server := newHTTPServer(address, s.router)
+	s.httpMu.Lock()
+	if s.httpStopped {
+		s.httpMu.Unlock()
+		return http.ErrServerClosed
 	}
-	return s.httpServer.ListenAndServeTLS(certPath, keyPath)
+	if s.httpServer != nil {
+		s.httpMu.Unlock()
+		return errors.New("HTTPS 服务已经启动")
+	}
+	s.httpServer = server
+	s.httpMu.Unlock()
+	if s.logger != nil {
+		s.logger.Info("HTTPS 服务启动", "address", server.Addr, "https_mode", cfg.Server.HTTPSMode)
+	}
+	return server.ListenAndServeTLS(certPath, keyPath)
 }
 
 func newHTTPServer(address string, handler http.Handler) *http.Server {
@@ -289,10 +299,14 @@ func isLoopbackHost(host string) bool {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	if s.httpServer == nil {
+	s.httpMu.Lock()
+	s.httpStopped = true
+	server := s.httpServer
+	s.httpMu.Unlock()
+	if server == nil {
 		return nil
 	}
-	err := s.httpServer.Shutdown(ctx)
+	err := server.Shutdown(ctx)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
