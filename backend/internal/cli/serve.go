@@ -11,6 +11,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"github.com/spf13/cobra"
 )
 
 type serveStage func(context.Context, config.Config) (bool, error)
@@ -61,11 +62,18 @@ func serveLifecycle(ctx context.Context, cfg config.Config, reload func() (confi
 	if ctx.Err() != nil {
 		return nil
 	}
-	if !cfg.Web.Enabled {
-		return errors.New("管理页面已关闭")
-	}
+	// 关闭 Web 静态页面不等于停用核心 API、桌面管理和后台续期服务。
 	_, err := applicationStage(ctx, cfg)
 	return err
+}
+
+func bootstrapFirewallMode(command *cobra.Command, value string) string {
+	if !command.Flags().Changed("bootstrap-firewall-mode") {
+		if environment, ok := os.LookupEnv("SCERT_BOOTSTRAP_FIREWALL_MODE"); ok {
+			return environment
+		}
+	}
+	return value
 }
 
 func runApplication(ctx context.Context, cfg config.Config, path string) (bool, error) {

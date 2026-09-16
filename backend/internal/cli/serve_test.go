@@ -38,7 +38,7 @@ func TestLoadServeConfigFailsClosed(t *testing.T) {
 }
 
 func TestServeLifecycle(t *testing.T) {
-	for _, name := range []string{"missing", "ready", "cancel", "bootstrap-error", "reload-error", "not-ready", "path-changed", "web-disabled", "application-error"} {
+	for _, name := range []string{"missing", "ready", "cancel", "bootstrap-error", "reload-error", "not-ready", "path-changed", "web-disabled", "bootstrap-web-disabled", "application-error"} {
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Default(t.TempDir())
 			cfg.SetupReady = name == "ready" || name == "web-disabled" || name == "application-error"
@@ -53,6 +53,9 @@ func TestServeLifecycle(t *testing.T) {
 				}
 				next := cfg
 				next.SetupReady = name != "not-ready"
+				if name == "bootstrap-web-disabled" {
+					next.Web.Enabled = false
+				}
 				if name == "path-changed" {
 					next.Paths.Data += "-changed"
 				}
@@ -72,17 +75,20 @@ func TestServeLifecycle(t *testing.T) {
 				if !ready.SetupReady {
 					t.Fatal("未初始化时构造业务应用")
 				}
+				if (name == "web-disabled" || name == "bootstrap-web-disabled") && ready.Web.Enabled {
+					t.Fatal("关闭静态页面的配置不能被启动流程覆盖")
+				}
 				if name == "application-error" {
 					return false, errors.New("test")
 				}
 				return false, nil
 			})
-			wantError := name != "missing" && name != "ready" && name != "cancel"
+			wantError := name != "missing" && name != "ready" && name != "cancel" && name != "web-disabled" && name != "bootstrap-web-disabled"
 			if (err != nil) != wantError {
 				t.Fatalf("错误边界不符：%v", err)
 			}
 			wantApp := 0
-			if name == "missing" || name == "ready" || name == "application-error" {
+			if name == "missing" || name == "ready" || name == "application-error" || name == "web-disabled" || name == "bootstrap-web-disabled" {
 				wantApp = 1
 			}
 			if appCalls != wantApp {
@@ -93,6 +99,37 @@ func TestServeLifecycle(t *testing.T) {
 			}
 			if !cfg.SetupReady && bootstrapCalls != 1 {
 				t.Fatal("初始化未运行一次")
+			}
+		})
+	}
+}
+
+func TestBootstrapFirewallModeFlagOverridesEnvironment(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		environment string
+		flag        string
+		want        string
+	}{
+		{name: "environment", environment: "external", want: "external"},
+		{name: "flag", environment: "external", flag: "auto", want: "auto"},
+		{name: "external-flag", environment: "auto", flag: "external", want: "external"},
+		{name: "invalid-environment", environment: "invalid", want: "invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("SCERT_BOOTSTRAP_FIREWALL_MODE", test.environment)
+			command := newServeCommand()
+			if test.flag != "" {
+				if err := command.ParseFlags([]string{"--bootstrap-firewall-mode", test.flag}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			value, err := command.Flags().GetString("bootstrap-firewall-mode")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := bootstrapFirewallMode(command, value); got != test.want {
+				t.Fatalf("本机策略优先级错误：得到 %q，期望 %q", got, test.want)
 			}
 		})
 	}

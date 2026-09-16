@@ -684,12 +684,7 @@ func newServeCommand() *cobra.Command {
 		if !cmd.Flags().Changed("bootstrap-public-ip") {
 			advertisedIP = os.Getenv("SCERT_BOOTSTRAP_PUBLIC_IP")
 		}
-		selectedFirewallMode := firewallMode
-		if !cmd.Flags().Changed("bootstrap-firewall-mode") {
-			if value, ok := os.LookupEnv("SCERT_BOOTSTRAP_FIREWALL_MODE"); ok {
-				selectedFirewallMode = value
-			}
-		}
+		selectedFirewallMode := bootstrapFirewallMode(cmd, firewallMode)
 		return serveLifecycle(ctx, cfg, reload,
 			func(ctx context.Context, initial config.Config) (bool, error) {
 				return bootstrap.Run(ctx, bootstrap.ServerOptions{

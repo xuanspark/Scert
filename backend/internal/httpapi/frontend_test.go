@@ -70,4 +70,13 @@ func TestFrontendRespectsWebEnabled(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("关闭 Web 后根路径应返回 404：%d", response.Code)
 	}
+	for path, expected := range map[string]int{
+		"/healthz": http.StatusOK, "/api/v1/auth/session": http.StatusUnauthorized,
+	} {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != expected {
+			t.Fatalf("关闭静态页面不能关闭核心 API：%s 状态 %d", path, response.Code)
+		}
+	}
 }

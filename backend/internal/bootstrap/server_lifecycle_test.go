@@ -22,11 +22,19 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
 func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
+	for _, mode := range []string{"automatic-fixture", "external"} {
+		t.Run(mode, func(t *testing.T) { testHTTPSBootstrapLifecycle(t, mode) })
+	}
+}
+
+func testHTTPSBootstrapLifecycle(t *testing.T, mode string) {
+	t.Helper()
 	fixture := newCompletionFixture(t, "authorized.example.test")
 	store, err := secretstore.Open(fixture.base.Paths.Config)
 	if err != nil {
@@ -38,10 +46,17 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var firewallManager firewall.Manager = fixture.firewall
+	if mode == "external" {
+		firewallManager, err = firewall.NewManagerWithMode(mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	completer := NewCompleter(CompleteDependencies{
 		BaseConfig: fixture.base, ConfigPath: fixture.configPath,
 		DatabaseSessions: databases, DNSSessions: dns, Credentials: store,
-		Sessions: sessions, Firewall: fixture.firewall, Certificate: fixture.issuer,
+		Sessions: sessions, Firewall: firewallManager, Certificate: fixture.issuer,
 	})
 	router := NewRouter(sessions, databases, dns, completer)
 	handler, closeFiles := bootstrapHandler(router, fixture.base)
@@ -119,6 +134,9 @@ func TestHTTPSBootstrapCompletesSQLiteAndStartsApplication(t *testing.T) {
 	post("/api/v1/bootstrap/complete", input, &completed)
 	if !completed.Completed || completed.ManagementURL != "https://"+net.JoinHostPort(input.WebPublicIP, strconv.Itoa(input.ServerPort))+"/" {
 		t.Fatal("初始化未返回正确管理地址")
+	}
+	if mode == "external" && (len(completed.Warnings) != 1 || !strings.Contains(completed.Warnings[0], "未检查或修改")) {
+		t.Fatal("真实 HTTPS 完成响应缺少外部防火墙提示")
 	}
 	select {
 	case err := <-result:
