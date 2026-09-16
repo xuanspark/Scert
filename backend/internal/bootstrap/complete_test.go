@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"database/sql"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -22,6 +23,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsverification"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
@@ -169,6 +171,12 @@ func newCompletionFixture(t *testing.T, domain string) completionFixture {
 	t.Helper()
 	baseDir := t.TempDir()
 	base := config.Default(baseDir)
+	// Linux 默认路径指向真实安装目录，测试必须显式隔离所有可写路径。
+	base.Paths = config.PathsConfig{
+		Install: baseDir, Config: filepath.Join(baseDir, "conf"), Data: filepath.Join(baseDir, "data"),
+		Certificate: filepath.Join(baseDir, "ssl"), Log: filepath.Join(baseDir, "log"), Backup: filepath.Join(baseDir, "backups"),
+	}
+	base.Database.DSN = filepath.Join(base.Paths.Data, "scert.db")
 	configPath := filepath.Join(base.Paths.Config, "scert.json")
 	store := newCompletionMemorySecrets()
 	databaseManager := NewDatabaseVerificationManager(base, store)
@@ -374,6 +382,59 @@ func TestCompleterSupportsPublicIPManagementCertificate(t *testing.T) {
 	}
 	if stored.Web.PublicIP != "203.0.113.70" || stored.Web.Hostname != "" || !strings.Contains(stored.Server.TLSCert, "management-ip") {
 		t.Fatalf("公网 IP 初始化配置不正确：%+v", stored)
+	}
+}
+
+func TestCompleterOwnsCredentialsDuringSlowSubmission(t *testing.T) {
+	for _, failSave := range []bool{false, true} {
+		name := "success"
+		if failSave {
+			name = "failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := newCompletionFixture(t, "admin.example.test")
+			verified, err := fixture.database.Verify(t.Context(), DatabaseInput{
+				Driver: "mysql", Host: "db.example.test", Database: "scert", Username: "owner", Password: "test-password",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := fixture.request("admin.example.test")
+			request.DatabaseVerificationToken = verified.VerificationToken
+			result, err := fixture.completer(func(dependencies *CompleteDependencies) {
+				// 外部数据库仅模拟连接适配；这里检验凭据生命周期，不冒充 MySQL 实机验收。
+				dependencies.OpenDatabase = func(ctx context.Context, _ config.DatabaseConfig) (*database.Database, error) {
+					return database.Open(ctx, fixture.base.Database)
+				}
+				dependencies.Migrate = func(ctx context.Context, db *sql.DB, _ string) error {
+					return database.Migrate(ctx, db, "sqlite")
+				}
+				dependencies.EnsureAdmin = func(ctx context.Context, db *sql.DB, _ string, user repository.User) error {
+					return repository.NewSQLUserRepository(db, "sqlite").EnsureSuperAdmin(ctx, user)
+				}
+				dependencies.SaveConfig = func(candidate config.Config, path string) error {
+					fixture.database.now = func() time.Time { return verified.ExpiresAt.Add(time.Second) }
+					_, _ = fixture.database.Resolve(verified.VerificationToken)
+					fixture.database.DiscardAll()
+					fixture.dns.DiscardAll()
+					if !fixture.store.has(verified.CredentialRef) || !fixture.store.has(fixture.dnsRef) {
+						t.Fatal("提交期间清理删除了事务持有的凭据")
+					}
+					if failSave {
+						return errors.New("save failed")
+					}
+					return candidate.Save(path)
+				}
+			}).Complete(t.Context(), request)
+			if failSave {
+				if err == nil || fixture.store.has(verified.CredentialRef) || fixture.store.has(fixture.dnsRef) {
+					t.Fatalf("失败提交必须回收已领取凭据：%v", err)
+				}
+			} else if err != nil || !result.Completed || len(result.Warnings) != 0 ||
+				!fixture.store.has(verified.CredentialRef) || !fixture.store.has(fixture.dnsRef) {
+				t.Fatalf("成功提交未保留凭据：%+v，%v", result, err)
+			}
+		})
 	}
 }
 

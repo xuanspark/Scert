@@ -82,16 +82,12 @@ type CompleteResult struct {
 }
 
 type completionDatabaseSessions interface {
-	Resolve(string) (DatabaseVerificationSession, error)
-	Consume(string, string) (config.DatabaseConfig, error)
-	Discard(string) error
+	Claim(string) (DatabaseVerificationSession, func() error, error)
 	DiscardAllExcept(...string)
 }
 
 type completionDNSSessions interface {
-	Resolve(string) (setup.DNSVerificationSession, error)
-	Consume(string, string, string, string) error
-	Discard(string) error
+	Claim(string) (setup.DNSVerificationSession, func() error, error)
 	DiscardAllExcept(...string)
 }
 
@@ -220,30 +216,28 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 		return result, completeError(CompleteErrorInput, "初始化参数无效", err)
 	}
 
-	databaseSession, err := completer.databaseSessions.Resolve(request.DatabaseVerificationToken)
+	databaseSession, discardDatabase, err := completer.databaseSessions.Claim(request.DatabaseVerificationToken)
 	if err != nil {
 		return result, completeError(CompleteErrorVerification, "数据库验证结果无效或已经过期，请重新测试", err)
 	}
-	databaseResolved := true
-	dnsResolved := false
+	var discardDNS func() error
 	committed := false
 	defer func() {
 		if committed {
 			return
 		}
-		if dnsResolved {
-			completer.discardDNS(request.DNSVerificationToken)
+		if discardDNS != nil {
+			completer.cleanupCredential(discardDNS, "失败初始化的 DNS 临时凭据回收未确认")
 		}
-		if databaseResolved {
-			completer.discardDatabase(request.DatabaseVerificationToken)
+		if discardDatabase != nil {
+			completer.cleanupCredential(discardDatabase, "失败初始化的数据库临时凭据回收未确认")
 		}
 	}()
 
-	dnsSession, err := completer.dnsSessions.Resolve(request.DNSVerificationToken)
+	dnsSession, discardDNS, err := completer.dnsSessions.Claim(request.DNSVerificationToken)
 	if err != nil {
 		return result, completeError(CompleteErrorVerification, "DNS 验证结果无效或已经过期，请重新测试", err)
 	}
-	dnsResolved = true
 	if err := validateResolvedDNS(request, dnsSession); err != nil {
 		return result, completeError(CompleteErrorVerification, "DNS 验证结果与管理入口不匹配，请重新验证", err)
 	}
@@ -340,7 +334,7 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 	completer.completed = true
 	completer.base = candidate
 	result = CompleteResult{Completed: true, ManagementURL: managementURL(candidate)}
-	result.Warnings = completer.afterCommit(request, candidate, dnsSession, databaseSession)
+	result.Warnings = completer.afterCommit(candidate)
 	return result, nil
 }
 
@@ -462,19 +456,13 @@ func validateCompletionCertificatePaths(saved completionCertificate) error {
 	return nil
 }
 
-func (completer *Completer) afterCommit(request CompleteRequest, candidate config.Config, dnsSession setup.DNSVerificationSession, databaseSession DatabaseVerificationSession) []string {
+func (completer *Completer) afterCommit(candidate config.Config) []string {
 	warnings := make([]string, 0, 4)
 	appendWarning := func(message string) {
 		warnings = append(warnings, message)
 		if completer.warn != nil {
 			completer.warn(message)
 		}
-	}
-	if _, err := completer.databaseSessions.Consume(request.DatabaseVerificationToken, databaseSession.CredentialRef); err != nil {
-		appendWarning("正式配置已保存，但数据库验证令牌清理未确认")
-	}
-	if err := completer.dnsSessions.Consume(request.DNSVerificationToken, dnsSession.ProviderID, dnsSession.CredentialRef, dnsSession.TestDomain); err != nil {
-		appendWarning("正式配置已保存，但 DNS 验证令牌清理未确认")
 	}
 	completer.sessions.RevokeAll()
 	completer.databaseSessions.DiscardAllExcept(candidate.Database.CredentialRef)
@@ -487,15 +475,9 @@ func (completer *Completer) afterCommit(request CompleteRequest, candidate confi
 	return warnings
 }
 
-func (completer *Completer) discardDatabase(token string) {
-	if err := completer.databaseSessions.Discard(token); err != nil && completer.warn != nil {
-		completer.warn("失败初始化的数据库临时凭据回收未确认")
-	}
-}
-
-func (completer *Completer) discardDNS(token string) {
-	if err := completer.dnsSessions.Discard(token); err != nil && completer.warn != nil {
-		completer.warn("失败初始化的 DNS 临时凭据回收未确认")
+func (completer *Completer) cleanupCredential(cleanup func() error, message string) {
+	if err := cleanup(); err != nil && completer.warn != nil {
+		completer.warn(message)
 	}
 }
 

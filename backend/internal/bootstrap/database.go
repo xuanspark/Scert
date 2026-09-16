@@ -160,7 +160,7 @@ func (m *DatabaseVerificationManager) Consume(token, credentialRef string) (conf
 
 // Resolve 按验证令牌读取完整初始化所需的服务端状态，但不消费令牌。
 func (m *DatabaseVerificationManager) Resolve(token string) (DatabaseVerificationSession, error) {
-	session, err := m.resolveSession(token)
+	session, err := m.resolveSession(token, false)
 	if err != nil {
 		return DatabaseVerificationSession{}, err
 	}
@@ -169,6 +169,19 @@ func (m *DatabaseVerificationManager) Resolve(token string) (DatabaseVerificatio
 		CredentialRef: session.CredentialRef,
 		ExpiresAt:     session.ExpiresAt,
 	}, nil
+}
+
+// Claim 原子领取验证结果，并把凭据回收责任移交给初始化事务。
+// 领取后令牌立即失效，不再受过期或批量清理影响；提交失败时必须调用返回的回收函数。
+func (m *DatabaseVerificationManager) Claim(token string) (DatabaseVerificationSession, func() error, error) {
+	session, err := m.resolveSession(token, true)
+	if err != nil {
+		return DatabaseVerificationSession{}, nil, err
+	}
+	cleanup := sync.OnceValue(func() error { return m.deleteCredential(session.CredentialRef) })
+	return DatabaseVerificationSession{
+		Config: session.Config, CredentialRef: session.CredentialRef, ExpiresAt: session.ExpiresAt,
+	}, cleanup, nil
 }
 
 // Discard 按验证令牌精确回收尚未消费的数据库凭据，不影响其他初始化会话。
@@ -228,7 +241,7 @@ func (m *DatabaseVerificationManager) session(token, credentialRef string, consu
 	return session.Config, nil
 }
 
-func (m *DatabaseVerificationManager) resolveSession(token string) (databaseVerificationSession, error) {
+func (m *DatabaseVerificationManager) resolveSession(token string, claim bool) (databaseVerificationSession, error) {
 	if m == nil {
 		return databaseVerificationSession{}, errors.New("数据库验证服务尚未初始化")
 	}
@@ -240,6 +253,9 @@ func (m *DatabaseVerificationManager) resolveSession(token string) (databaseVeri
 	m.mu.Lock()
 	expired := m.clearExpiredLocked(now)
 	session, ok := m.sessions[token]
+	if ok && claim {
+		delete(m.sessions, token)
+	}
 	m.mu.Unlock()
 	m.deleteCredentials(expired)
 	if !ok {

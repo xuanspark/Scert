@@ -183,7 +183,7 @@ func (m *DNSVerificationManager) Consume(token, providerID, credentialRef, testD
 
 // Resolve 按验证令牌读取完整初始化所需的服务端状态，但不消费令牌。
 func (m *DNSVerificationManager) Resolve(token string) (DNSVerificationSession, error) {
-	session, err := m.resolveSession(token)
+	session, err := m.resolveSession(token, false)
 	if err != nil {
 		return DNSVerificationSession{}, err
 	}
@@ -193,6 +193,20 @@ func (m *DNSVerificationManager) Resolve(token string) (DNSVerificationSession, 
 		CredentialRef: session.CredentialRef,
 		ExpiresAt:     session.ExpiresAt,
 	}, nil
+}
+
+// Claim 原子领取验证结果，并把凭据回收责任移交给初始化事务。
+// 领取后令牌立即失效，不再受过期或批量清理影响；提交失败时必须调用返回的回收函数。
+func (m *DNSVerificationManager) Claim(token string) (DNSVerificationSession, func() error, error) {
+	session, err := m.resolveSession(token, true)
+	if err != nil {
+		return DNSVerificationSession{}, nil, err
+	}
+	cleanup := sync.OnceValue(func() error { return m.deleteCredential(session.CredentialRef) })
+	return DNSVerificationSession{
+		ProviderID: session.ProviderID, TestDomain: session.TestDomain,
+		CredentialRef: session.CredentialRef, ExpiresAt: session.ExpiresAt,
+	}, cleanup, nil
 }
 
 // Discard 按验证令牌精确回收尚未消费的 DNS 临时凭据，不影响其他初始化会话。
@@ -283,7 +297,7 @@ func (m *DNSVerificationManager) validateSession(token, providerID, credentialRe
 	return nil
 }
 
-func (m *DNSVerificationManager) resolveSession(token string) (dnsVerificationSession, error) {
+func (m *DNSVerificationManager) resolveSession(token string, claim bool) (dnsVerificationSession, error) {
 	if m == nil {
 		return dnsVerificationSession{}, errors.New("DNS 在线验证服务未初始化")
 	}
@@ -295,6 +309,9 @@ func (m *DNSVerificationManager) resolveSession(token string) (dnsVerificationSe
 	m.mu.Lock()
 	expiredRefs := m.clearExpiredLocked(now)
 	session, ok := m.sessions[token]
+	if ok && claim {
+		delete(m.sessions, token)
+	}
 	m.mu.Unlock()
 	m.deleteCredentials(expiredRefs)
 	if !ok {
