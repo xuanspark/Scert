@@ -39,7 +39,7 @@ func TestAliyunAuthorizationCheckerRechecksEveryRequestAndDetectsRevocation(t *t
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	calls := 0
 	revoked := false
-	checker := NewAliyunAuthorizationChecker()
+	checker := newAliyunAuthorizationCheckerForTest()
 	checker.now = func() time.Time { return now }
 	checker.verifyDomainFunc = func(context.Context, string, map[string]string) error {
 		calls++
@@ -76,7 +76,7 @@ func TestAliyunAuthorizationCheckerRechecksEveryRequestAndDetectsRevocation(t *t
 
 func TestAliyunAuthorizationCheckerInvalidatesAfterPermissionFailure(t *testing.T) {
 	calls := 0
-	checker := NewAliyunAuthorizationChecker()
+	checker := newAliyunAuthorizationCheckerForTest()
 	checker.verifyDomainFunc = func(context.Context, string, map[string]string) error {
 		calls++
 		return nil
@@ -102,7 +102,7 @@ func TestAliyunAuthorizationCheckerInvalidatesAfterPermissionFailure(t *testing.
 
 func TestAliyunAuthorizationCheckerDoesNotCacheFailedAuthorization(t *testing.T) {
 	calls := 0
-	checker := NewAliyunAuthorizationChecker()
+	checker := newAliyunAuthorizationCheckerForTest()
 	checker.verifyDomainFunc = func(context.Context, string, map[string]string) error {
 		calls++
 		return errors.New("权限不足")
@@ -126,7 +126,7 @@ func TestAliyunAuthorizationCheckerDoesNotCacheFailedAuthorization(t *testing.T)
 }
 
 func TestAliyunAuthorizationCheckerCacheIsSafeForConcurrentUse(t *testing.T) {
-	checker := NewAliyunAuthorizationChecker()
+	checker := newAliyunAuthorizationCheckerForTest()
 	checker.verifyDomainFunc = func(context.Context, string, map[string]string) error {
 		return nil
 	}
@@ -174,6 +174,11 @@ func TestDiagnoseAliyunError(t *testing.T) {
 			err:      errors.New("SDKError: Code: InvalidAccessKeyId.NotFound, Message: Specified access key is not found."),
 			domain:   "solit.cn",
 			expected: "阿里云 AccessKey ID 或 AccessKey Secret 无效，请检查系统 DNS 凭据配置",
+		},
+		{
+			err:      errors.New("无法识别域名 www.example.com 的权威 DNS 托管区，已停止验证：SOA lookup failed"),
+			domain:   "www.example.com",
+			expected: "未能从公开 DNS 的 SOA 记录识别该域名唯一的权威托管区，系统未构造阿里云客户端，也未创建临时 TXT 记录。请检查域名是否已正确委派并可被公网 DNS 查询后重试",
 		},
 		{
 			err:      nil,

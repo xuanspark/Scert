@@ -75,7 +75,7 @@ func (a *authorizationRecordAPI) recordCall(name, id string, ctx context.Context
 }
 
 func newAuthorizationCheckerForTest(api aliyunRecordAPI) *AliyunAuthorizationChecker {
-	checker := NewAliyunAuthorizationChecker()
+	checker := newAliyunAuthorizationCheckerForTest()
 	checker.recordAPI = func(map[string]string) (aliyunRecordAPI, error) {
 		return api, nil
 	}

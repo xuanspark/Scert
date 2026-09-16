@@ -93,8 +93,14 @@ type scopedAliyunProvider struct {
 	newAPI        func(map[string]string) (aliyunRecordAPI, error)
 	api           aliyunRecordAPI
 	mu            sync.Mutex
-	records       map[[32]byte]string
+	records       map[[32]byte]aliyunPendingRecord
 	challengeInfo func(context.Context, string, string) (string, string, string)
+	zoneResolver  AliyunZoneResolver
+}
+
+type aliyunPendingRecord struct {
+	ID   string
+	Zone string
 }
 
 func newScopedAliyunProvider(credentials map[string]string) (*scopedAliyunProvider, error) {
@@ -104,7 +110,9 @@ func newScopedAliyunProvider(credentials map[string]string) (*scopedAliyunProvid
 	}
 	return &scopedAliyunProvider{
 		credentials: cleaned, newAPI: newAliyunRecordAPI,
-		records: make(map[[32]byte]string), challengeInfo: aliyunChallengeInfo,
+		records:       make(map[[32]byte]aliyunPendingRecord),
+		challengeInfo: aliyunChallengeInfo,
+		zoneResolver:  newDefaultAliyunZoneResolver(),
 	}, nil
 }
 
@@ -115,7 +123,13 @@ func aliyunChallengeInfo(ctx context.Context, domainName, keyAuth string) (strin
 
 func (p *scopedAliyunProvider) Present(ctx context.Context, name, token, keyAuth string) error {
 	name = normalizeAuthorizationDomain(name)
-	zone, err := ResolveAliyunTargetDomain(name)
+	if p == nil {
+		return errors.New("阿里云 DNS Provider 未初始化")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	zone, err := resolveAliyunTargetDomain(ctx, name, p.zoneResolver)
 	if err != nil {
 		return err
 	}
@@ -152,18 +166,21 @@ func (p *scopedAliyunProvider) Present(ctx context.Context, name, token, keyAuth
 	if err != nil {
 		return err
 	}
-	p.records[key] = id
+	p.records[key] = aliyunPendingRecord{ID: id, Zone: zone}
 	return nil
 }
 
 func (p *scopedAliyunProvider) CleanUp(ctx context.Context, name, token, keyAuth string) error {
-	if _, err := ResolveAliyunTargetDomain(name); err != nil {
-		return err
+	if p == nil {
+		return errors.New("阿里云 DNS Provider 未初始化")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	key := sha256.Sum256([]byte(normalizeAuthorizationDomain(name) + "\x00" + token + "\x00" + keyAuth))
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	id, ok := p.records[key]
+	record, ok := p.records[key]
 	if !ok {
 		return nil
 	}
@@ -172,7 +189,7 @@ func (p *scopedAliyunProvider) CleanUp(ctx context.Context, name, token, keyAuth
 	}
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), aliyunAuthorizationTimeout)
 	defer cancel()
-	if err := p.api.Delete(cleanupCtx, id); err != nil {
+	if err := p.api.Delete(cleanupCtx, record.ID); err != nil {
 		return err
 	}
 	delete(p.records, key)

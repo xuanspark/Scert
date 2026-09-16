@@ -49,78 +49,86 @@ type AliyunAuthorizationChecker struct {
 	now              func() time.Time
 	verifyDomainFunc func(context.Context, string, map[string]string) error
 	recordAPI        func(map[string]string) (aliyunRecordAPI, error)
+	zoneResolver     AliyunZoneResolver
 }
 
 func NewAliyunAuthorizationChecker() *AliyunAuthorizationChecker {
-	return &AliyunAuthorizationChecker{now: time.Now, recordAPI: newAliyunAuthorizationRecordAPI}
+	return &AliyunAuthorizationChecker{
+		now:          time.Now,
+		recordAPI:    newAliyunAuthorizationRecordAPI,
+		zoneResolver: newDefaultAliyunZoneResolver(),
+	}
 }
 
 func (c *AliyunAuthorizationChecker) Supports(providerID string) bool {
 	return strings.EqualFold(strings.TrimSpace(providerID), Aliyun)
 }
 
-// Verify 仅针对本次输入所推导的唯一注册根域执行一次写入和精确清理。
+// Verify 仅针对本次 SOA 识别出的唯一权威托管区执行一次写入和精确清理。
 func (c *AliyunAuthorizationChecker) Verify(ctx context.Context, requestedDomain string, credentials map[string]string) (report AuthorizationReport, resultErr error) {
 	requestedDomain = normalizeAuthorizationDomain(requestedDomain)
 	report = AuthorizationReport{Provider: Aliyun, RequestedDomain: requestedDomain, CheckedAt: c.currentTime().UTC()}
-	zone, err := ResolveAliyunTargetDomain(requestedDomain)
+	if c == nil {
+		return report, errors.New("阿里云权限探测器未初始化")
+	}
+	verificationCtx, cancel := permissionVerificationContext(ctx)
+	defer cancel()
+	zone, err := c.resolveTargetDomain(verificationCtx, requestedDomain)
 	if err != nil {
 		return report, err
 	}
+	return c.verifyResolved(verificationCtx, requestedDomain, zone, credentials, report)
+}
+
+func (c *AliyunAuthorizationChecker) verifyResolved(ctx context.Context, requestedDomain, zone string, credentials map[string]string, report AuthorizationReport) (result AuthorizationReport, resultErr error) {
+	result = report
 	if err := ctx.Err(); err != nil {
-		return report, err
+		return result, err
 	}
-	verificationCtx, cancel := context.WithTimeout(ctx, PermissionVerificationTimeoutFor(Aliyun))
-	defer cancel()
-	report.Domains = []AuthorizationDomain{{Domain: zone, Status: "待验证"}}
+	result.Domains = []AuthorizationDomain{{Domain: zone, Status: "待验证"}}
 	if c == nil || c.recordAPI == nil {
-		return report, errors.New("阿里云权限探测器未初始化")
+		return result, errors.New("阿里云权限探测器未初始化")
 	}
 	cleaned, err := ValidateCredentials(Aliyun, credentials)
 	if err != nil {
-		return report, err
+		return result, err
 	}
 	api, err := c.recordAPI(cleaned)
 	if err != nil {
-		return report, err
+		return result, err
 	}
 	suffix, err := randomAuthorizationValue(18)
 	if err != nil {
-		return report, err
+		return result, err
 	}
 	value, err := randomAuthorizationValue(32)
 	if err != nil {
-		return report, err
+		return result, err
 	}
 	rr := "_scert-authorization-" + suffix
 	base := strings.TrimPrefix(requestedDomain, "*.")
 	if base != zone {
 		rr += "." + strings.TrimSuffix(base, "."+zone)
 	}
-	report.RecordName = rr + "." + zone + "."
-	addCtx, addCancel := context.WithTimeout(verificationCtx, aliyunAPICallTimeout)
+	result.RecordName = rr + "." + zone + "."
+	addCtx, addCancel := context.WithTimeout(ctx, aliyunAPICallTimeout)
 	recordID, err := api.Add(addCtx, zone, rr, value)
 	addCancel()
 	if err != nil {
-		markAuthorizationFailure(&report, zone, err)
-		report.Diagnosis = DiagnoseAliyunError(err, zone)
-		return report, err
+		markAuthorizationFailure(&result, zone, err)
+		result.Diagnosis = DiagnoseAliyunError(err, zone)
+		return result, err
 	}
-	report.Domains[0].Writable = true
-	report.MatchedDomain = zone
+	result.Domains[0].Writable = true
+	result.MatchedDomain = zone
 	defer func() {
-		cleanupBase := context.WithoutCancel(verificationCtx)
-		if deadline, ok := verificationCtx.Deadline(); ok {
-			var cleanupDeadlineCancel context.CancelFunc
-			cleanupBase, cleanupDeadlineCancel = context.WithDeadline(cleanupBase, deadline)
-			defer cleanupDeadlineCancel()
-		}
+		cleanupBase := context.WithoutCancel(ctx)
 		cleanupContext, cleanupCancel := context.WithTimeout(cleanupBase, aliyunAPICallTimeout)
 		defer cleanupCancel()
 		if cleanupErr := api.Delete(cleanupContext, recordID); cleanupErr != nil {
 			cleanupErr = fmt.Errorf("清理授权探测 TXT 记录失败：%w", cleanupErr)
-			markAuthorizationFailure(&report, zone, cleanupErr)
-			report.Verified = false
+			markAuthorizationFailure(&result, zone, cleanupErr)
+			result.Verified = false
 			if resultErr == nil {
 				resultErr = cleanupErr
 			} else {
@@ -128,26 +136,26 @@ func (c *AliyunAuthorizationChecker) Verify(ctx context.Context, requestedDomain
 			}
 			return
 		}
-		report.Domains[0].Cleanup = true
+		result.Domains[0].Cleanup = true
 	}()
-	describeCtx, describeCancel := context.WithTimeout(verificationCtx, aliyunAPICallTimeout)
+	describeCtx, describeCancel := context.WithTimeout(ctx, aliyunAPICallTimeout)
 	info, err := api.Describe(describeCtx, recordID)
 	describeCancel()
 	if err != nil {
 		resultErr = fmt.Errorf("查询授权探测 TXT 记录失败：%w", err)
-		markAuthorizationFailure(&report, zone, resultErr)
-		report.Diagnosis = DiagnoseAliyunError(err, zone)
-		return report, resultErr
+		markAuthorizationFailure(&result, zone, resultErr)
+		result.Diagnosis = DiagnoseAliyunError(err, zone)
+		return result, resultErr
 	}
 	if !matchesAliyunAuthorizationRecord(info, recordID, zone, rr, value) {
 		resultErr = errors.New("阿里云返回的临时 TXT 记录与本次验证不一致")
-		markAuthorizationFailure(&report, zone, resultErr)
-		return report, resultErr
+		markAuthorizationFailure(&result, zone, resultErr)
+		return result, resultErr
 	}
-	report.Domains[0].Readable = true
-	report.Domains[0].Status = "可操作"
-	report.Verified = true
-	return report, nil
+	result.Domains[0].Readable = true
+	result.Domains[0].Status = "可操作"
+	result.Verified = true
+	return result, nil
 }
 
 func matchesAliyunAuthorizationRecord(info aliyunRecordInfo, recordID, zone, rr, value string) bool {
@@ -166,20 +174,24 @@ func (c *AliyunAuthorizationChecker) VerifyDomain(ctx context.Context, providerI
 	if c == nil {
 		return errors.New("阿里云权限探测器未初始化")
 	}
-	if err := ctx.Err(); err != nil {
+	verificationCtx, cancel := permissionVerificationContext(ctx)
+	defer cancel()
+	if err := verificationCtx.Err(); err != nil {
 		return err
 	}
 	requestedDomain = normalizeAuthorizationDomain(requestedDomain)
-	if _, err := ResolveAliyunTargetDomain(requestedDomain); err != nil {
+	zone, err := c.resolveTargetDomain(verificationCtx, requestedDomain)
+	if err != nil {
 		return err
 	}
 	if _, err := ValidateCredentials(Aliyun, credentials); err != nil {
 		return err
 	}
 	if c.verifyDomainFunc != nil {
-		return c.verifyDomainFunc(ctx, requestedDomain, credentials)
+		return c.verifyDomainFunc(verificationCtx, requestedDomain, credentials)
 	}
-	report, err := c.Verify(ctx, requestedDomain, credentials)
+	report := AuthorizationReport{Provider: Aliyun, RequestedDomain: requestedDomain, CheckedAt: c.currentTime().UTC()}
+	report, err = c.verifyResolved(verificationCtx, requestedDomain, zone, credentials, report)
 	if err != nil {
 		return err
 	}
@@ -187,6 +199,20 @@ func (c *AliyunAuthorizationChecker) VerifyDomain(ctx context.Context, providerI
 		return errors.New("阿里云 DNS 域名授权未通过")
 	}
 	return nil
+}
+
+func (c *AliyunAuthorizationChecker) resolveTargetDomain(ctx context.Context, requestedDomain string) (string, error) {
+	if c == nil {
+		return "", errors.New("阿里云权限探测器未初始化")
+	}
+	return resolveAliyunTargetDomain(ctx, requestedDomain, c.zoneResolver)
+}
+
+func permissionVerificationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, PermissionVerificationTimeoutFor(Aliyun))
 }
 
 // InvalidateDomain 保留旧调用方接口；授权检查已不再缓存，无需额外失效操作。
@@ -277,6 +303,9 @@ func DiagnoseAliyunError(err error, domainName string) string {
 	}
 	msg := err.Error()
 	lowered := strings.ToLower(msg)
+	if strings.Contains(msg, "权威 DNS 托管区") || strings.Contains(lowered, "soa lookup") {
+		return "未能从公开 DNS 的 SOA 记录识别该域名唯一的权威托管区，系统未构造阿里云客户端，也未创建临时 TXT 记录。请检查域名是否已正确委派并可被公网 DNS 查询后重试"
+	}
 	if strings.Contains(lowered, "forbidden.nopermission") || strings.Contains(lowered, "forbidden.ram") || strings.Contains(lowered, "accessdenied") || strings.Contains(lowered, "not authorized") {
 		return fmt.Sprintf("当前阿里云 RAM 账号未获得域名 %s 所需的 DNS 操作权限。请管理员核对实际托管区资源 acs:alidns:*:*:domain/%s，按失败操作补充必要的读取、新增或删除权限；不要直接扩大为全部操作或全部域名权限", domainName, domainName)
 	}
