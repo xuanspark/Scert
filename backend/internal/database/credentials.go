@@ -57,13 +57,30 @@ func ValidateConfig(cfg config.DatabaseConfig) error {
 		if err != nil {
 			return fmt.Errorf("解析 MySQL 连接信息失败：%w", err)
 		}
-		if strings.TrimSpace(parsed.User) == "" {
-			return fmt.Errorf("MySQL 连接信息必须包含用户名")
+		if strings.TrimSpace(parsed.User) != "" {
+			return fmt.Errorf("MySQL 用户名只能保存到加密凭据中")
 		}
 		return nil
 	}
-	if _, err := normalizePostgresDSN(dsn); err != nil {
+	if err := validatePersistedPostgresDSN(dsn); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validatePersistedPostgresDSN(dsn string) error {
+	parsed, err := url.Parse(strings.TrimSpace(dsn))
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
+		return fmt.Errorf("PostgreSQL 数据库连接信息必须使用不含账号密码的 postgres:// URL")
+	}
+	if strings.TrimSpace(parsed.Hostname()) == "" || strings.Trim(strings.TrimSpace(parsed.Path), "/") == "" {
+		return fmt.Errorf("PostgreSQL 连接信息必须包含主机和数据库")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("PostgreSQL 用户名和密码只能保存到加密凭据中")
+	}
+	if postgresSSLMode(dsn) != "verify-full" {
+		return fmt.Errorf("PostgreSQL 连接必须使用 sslmode=verify-full")
 	}
 	return nil
 }

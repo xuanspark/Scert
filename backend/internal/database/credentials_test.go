@@ -46,12 +46,12 @@ func TestResolveConfigBuildsRuntimeDSNWithoutChangingPersistedConfig(t *testing.
 	}{
 		{
 			name:       "MySQL",
-			cfg:        config.DatabaseConfig{Driver: "mysql", DSN: "user@tcp(db.example.test:3306)/scert?charset=utf8mb4", CredentialRef: "secret://database/mysql"},
+			cfg:        config.DatabaseConfig{Driver: "mysql", DSN: "tcp(db.example.test:3306)/scert?charset=utf8mb4&tls=true", CredentialRef: "secret://database/mysql"},
 			wantSecret: "mysql-password",
 		},
 		{
 			name:       "PostgreSQL",
-			cfg:        config.DatabaseConfig{Driver: "postgres", DSN: "postgres://user@db.example.test:5432/scert?sslmode=verify-full", CredentialRef: "secret://database/postgres"},
+			cfg:        config.DatabaseConfig{Driver: "postgres", DSN: "postgres://db.example.test:5432/scert?sslmode=verify-full", CredentialRef: "secret://database/postgres"},
 			wantSecret: "postgres-password",
 		},
 	}
@@ -71,6 +71,17 @@ func TestResolveConfigBuildsRuntimeDSNWithoutChangingPersistedConfig(t *testing.
 				t.Fatalf("持久化配置被改写或包含密码：%+v", item.cfg)
 			}
 		})
+	}
+}
+
+func TestValidateConfigKeepsExternalDatabaseUsernameOutOfPersistedDSN(t *testing.T) {
+	for _, cfg := range []config.DatabaseConfig{
+		{Driver: "mysql", DSN: "user@tcp(db.example.test:3306)/scert?tls=true", CredentialRef: "secret://database/mysql"},
+		{Driver: "postgres", DSN: "postgres://user@db.example.test:5432/scert?sslmode=verify-full", CredentialRef: "secret://database/postgres"},
+	} {
+		if err := ValidateConfig(cfg); err == nil {
+			t.Fatalf("持久化配置中的数据库用户名未被拒绝：%s", cfg.Driver)
+		}
 	}
 }
 
