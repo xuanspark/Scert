@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
@@ -11,13 +12,21 @@ import (
 
 func validateBackupDriver(driver string) error {
 	switch driver {
-	case "sqlite", "mysql":
+	case "sqlite", "mysql", "postgres":
 		return nil
-	case "postgres":
-		return errors.New("PostgreSQL 完整备份与恢复尚未实现，拒绝生成或恢复不含数据库的备份；请使用数据库原生工具并单独保护配置、加密凭据和证书")
 	default:
 		return errors.New("当前数据库类型不支持备份与恢复")
 	}
+}
+
+// 原请求取消后仍需尝试恢复旧数据，但不能让回滚无限等待。
+func runDatabaseRollback(ctx context.Context, restore func(context.Context) error) error {
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+	defer cancel()
+	if err := restore(rollbackCtx); err != nil {
+		return errors.Join(errors.New("数据库自动回滚失败，请保留恢复前快照并停止服务，联系管理员手动恢复"), err)
+	}
+	return nil
 }
 
 // 返回值仅供本次维护操作连接数据库，禁止写入配置、备份清单或日志。

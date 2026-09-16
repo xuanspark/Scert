@@ -38,8 +38,28 @@ type backupManifestFile struct {
 }
 
 func createBackup(ctx context.Context, cfg config.Config, configPath, output string) error {
+	return createBackupWithPostgresTools(ctx, cfg, configPath, output, loadPostgresTools)
+}
+
+func createBackupWithPostgresTools(ctx context.Context, cfg config.Config, configPath, output string, factory postgresToolsFactory) error {
 	if err := validateBackupDriver(cfg.Database.Driver); err != nil {
 		return err
+	}
+	var tools *postgresTools
+	var postgresConnection config.DatabaseConfig
+	if cfg.Database.Driver == "postgres" {
+		var err error
+		tools, err = factory(ctx)
+		if err != nil {
+			return err
+		}
+		postgresConnection, err = resolveMaintenanceDatabase(ctx, cfg.Database, cfg.Paths.Config)
+		if err != nil {
+			return err
+		}
+		if _, _, err := postgresToolConnection(postgresConnection); err != nil {
+			return err
+		}
 	}
 	output = filepath.Clean(output)
 	if err := ensureBackupDestination(output); err != nil {
@@ -112,6 +132,11 @@ func createBackup(ctx context.Context, cfg config.Config, configPath, output str
 			return err
 		}
 	}
+	if cfg.Database.Driver == "postgres" {
+		if err := tools.backup(ctx, postgresConnection, filepath.Join(staging, "scert.pgdump")); err != nil {
+			return err
+		}
+	}
 
 	if info, err := os.Lstat(cfg.Paths.Certificate); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
@@ -127,11 +152,17 @@ func createBackup(ctx context.Context, cfg config.Config, configPath, output str
 		return fmt.Errorf("检查证书根目录失败：%w", err)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := writeBackupManifest(staging); err != nil {
 		return err
 	}
 	if err := syncDirectory(staging); err != nil {
 		return fmt.Errorf("同步备份暂存目录失败：%w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := os.Rename(staging, output); err != nil {
 		return fmt.Errorf("发布备份目录失败：%w", err)
@@ -241,6 +272,9 @@ func validateRestoreCompatibility(current, backup config.Config) error {
 	}
 	if backup.Database.Driver == "mysql" && strings.TrimSpace(current.Database.DSN) != strings.TrimSpace(backup.Database.DSN) {
 		return errors.New("备份 MySQL 连接配置与当前配置不一致，拒绝跨数据库恢复")
+	}
+	if backup.Database.Driver == "postgres" && strings.TrimSpace(current.Database.DSN) != strings.TrimSpace(backup.Database.DSN) {
+		return errors.New("备份 PostgreSQL 连接配置与当前配置不一致，拒绝跨数据库恢复")
 	}
 	return nil
 }

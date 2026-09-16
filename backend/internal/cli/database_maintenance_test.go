@@ -2,10 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 
@@ -14,7 +16,7 @@ import (
 )
 
 func TestUnsupportedBackupDriverFailsBeforeFilesystemChanges(t *testing.T) {
-	for _, driver := range []string{"postgres", "unknown", ""} {
+	for _, driver := range []string{"unknown", ""} {
 		t.Run(driver, func(t *testing.T) {
 			root := t.TempDir()
 			cfg := config.Config{Database: config.DatabaseConfig{Driver: driver}}
@@ -30,7 +32,7 @@ func TestUnsupportedBackupDriverFailsBeforeFilesystemChanges(t *testing.T) {
 	}
 }
 
-func TestPostgresRestoreFailsBeforeReplacingExistingConfig(t *testing.T) {
+func TestPostgresRestoreWithoutSecretsFailsBeforeReplacingExistingConfig(t *testing.T) {
 	root := t.TempDir()
 	input := filepath.Join(root, "input")
 	if err := os.Mkdir(input, 0o700); err != nil {
@@ -66,8 +68,8 @@ func TestPostgresRestoreFailsBeforeReplacingExistingConfig(t *testing.T) {
 	command.SetOut(&output)
 	command.SetErr(&output)
 	command.SetArgs([]string{"--input", input})
-	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "PostgreSQL 完整备份与恢复尚未实现") {
-		t.Fatal("未支持的 PostgreSQL 恢复没有明确拒绝")
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "master.key") {
+		t.Fatal("缺少数据库凭据的 PostgreSQL 恢复没有明确拒绝")
 	}
 	content, err := os.ReadFile(currentPath)
 	if err != nil || string(content) != original {
@@ -75,6 +77,32 @@ func TestPostgresRestoreFailsBeforeReplacingExistingConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg.Paths.Data); !os.IsNotExist(err) {
 		t.Fatal("拒绝恢复前不应创建锁目录或数据库")
+	}
+}
+
+func TestPostgresBackupDriverSupported(t *testing.T) {
+	if err := validateBackupDriver("postgres"); err != nil {
+		t.Fatalf("PostgreSQL 应支持完整备份恢复：%v", err)
+	}
+}
+
+func TestDatabaseRollbackSurvivesCanceledRequestWithDeadline(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	called := false
+	err := runDatabaseRollback(ctx, func(rollbackCtx context.Context) error {
+		called = true
+		if rollbackCtx.Err() != nil {
+			t.Fatal("原请求取消不应立即取消数据库回滚")
+		}
+		deadline, ok := rollbackCtx.Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Minute {
+			t.Fatal("回滚必须使用独立且有界的超时")
+		}
+		return nil
+	})
+	if err != nil || !called {
+		t.Fatal("取消后仍应执行回滚")
 	}
 }
 

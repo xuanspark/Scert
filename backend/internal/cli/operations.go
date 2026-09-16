@@ -352,6 +352,10 @@ func newBackupCommand() *cobra.Command {
 }
 
 func newRestoreCommand() *cobra.Command {
+	return newRestoreCommandWithPostgresTools(loadPostgresTools)
+}
+
+func newRestoreCommandWithPostgresTools(factory postgresToolsFactory) *cobra.Command {
 	var input string
 	command := &cobra.Command{
 		Use:   "restore",
@@ -374,6 +378,17 @@ func newRestoreCommand() *cobra.Command {
 			}
 			if err := validateBackupSecretStore(cmd.Context(), input, cfg); err != nil {
 				return err
+			}
+			var tools *postgresTools
+			postgresSource := filepath.Join(input, "scert.pgdump")
+			if cfg.Database.Driver == "postgres" {
+				tools, err = factory(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if err := tools.validateArchive(cmd.Context(), postgresSource); err != nil {
+					return err
+				}
 			}
 
 			currentPath := filepath.Clean(resolveConfigPath())
@@ -449,14 +464,24 @@ func newRestoreCommand() *cobra.Command {
 
 			// 当前账号用于恢复前快照、导入和回滚，不能因替换配置或主密钥而丢失。
 			// 无当前配置时才使用已校验的备份凭据；连接信息始终仅保留在内存。
-			var mysqlConnection config.DatabaseConfig
-			if cfg.Database.Driver == "mysql" {
+			var maintenanceConnection config.DatabaseConfig
+			if cfg.Database.Driver == "mysql" || cfg.Database.Driver == "postgres" {
 				connectionConfig, secretDirectory := cfg.Database, input
 				if currentConfigErr == nil {
 					connectionConfig, secretDirectory = currentConfig.Database, currentConfig.Paths.Config
 				}
-				mysqlConnection, err = resolveMaintenanceDatabase(cmd.Context(), connectionConfig, secretDirectory)
+				maintenanceConnection, err = resolveMaintenanceDatabase(cmd.Context(), connectionConfig, secretDirectory)
 				if err != nil {
+					return err
+				}
+			}
+			postgresBackupPath := ""
+			if cfg.Database.Driver == "postgres" {
+				postgresBackupPath, err = tools.createRestoreSnapshot(cmd.Context(), cfg, maintenanceConnection)
+				if err != nil {
+					return err
+				}
+				if err := tools.validateRestoreInventory(cmd.Context(), postgresSource, postgresBackupPath); err != nil {
 					return err
 				}
 			}
@@ -479,7 +504,7 @@ func newRestoreCommand() *cobra.Command {
 
 			mysqlBackupPath := ""
 			if cfg.Database.Driver == "mysql" {
-				mysqlBackupPath, err = createMySQLRestoreBackup(cmd.Context(), cfg, mysqlConnection)
+				mysqlBackupPath, err = createMySQLRestoreBackup(cmd.Context(), cfg, maintenanceConnection)
 				if err != nil {
 					return err
 				}
@@ -488,10 +513,18 @@ func newRestoreCommand() *cobra.Command {
 			configRestoreAttempted := false
 			sqliteRestoreAttempted := false
 			mysqlRestoreAttempted := false
+			postgresRestoreAttempted := false
 			rollbackCore := func() error {
 				var rollbackErr error
 				if mysqlRestoreAttempted && mysqlBackupPath != "" {
-					rollbackErr = errors.Join(rollbackErr, restoreMySQL(cmd.Context(), mysqlConnection, mysqlBackupPath))
+					rollbackErr = errors.Join(rollbackErr, runDatabaseRollback(cmd.Context(), func(ctx context.Context) error {
+						return restoreMySQL(ctx, maintenanceConnection, mysqlBackupPath)
+					}))
+				}
+				if postgresRestoreAttempted && postgresBackupPath != "" {
+					rollbackErr = errors.Join(rollbackErr, runDatabaseRollback(cmd.Context(), func(ctx context.Context) error {
+						return tools.restore(ctx, maintenanceConnection, postgresBackupPath)
+					}))
 				}
 				if sqliteRestoreAttempted {
 					if databaseBackupPath != "" {
@@ -510,6 +543,9 @@ func newRestoreCommand() *cobra.Command {
 				return rollbackErr
 			}
 
+			if err := cmd.Context().Err(); err != nil {
+				return err
+			}
 			configRestoreAttempted = true
 			if err := copyFileAtomic(configFile, currentPath, 0o600); err != nil {
 				return errors.Join(err, rollbackCore())
@@ -522,9 +558,18 @@ func newRestoreCommand() *cobra.Command {
 			}
 			if cfg.Database.Driver == "mysql" {
 				mysqlRestoreAttempted = true
-				if err := restoreMySQL(cmd.Context(), mysqlConnection, mysqlSource); err != nil {
+				if err := restoreMySQL(cmd.Context(), maintenanceConnection, mysqlSource); err != nil {
 					return errors.Join(fmt.Errorf("恢复 MySQL 数据库失败：%w", err), rollbackCore())
 				}
+			}
+			if cfg.Database.Driver == "postgres" {
+				postgresRestoreAttempted = true
+				if err := tools.restore(cmd.Context(), maintenanceConnection, postgresSource); err != nil {
+					return errors.Join(err, rollbackCore())
+				}
+			}
+			if err := cmd.Context().Err(); err != nil {
+				return errors.Join(err, rollbackCore())
 			}
 			if err := restoreAdditionalAssets(cfg, input); err != nil {
 				return errors.Join(fmt.Errorf("恢复敏感配置或证书失败：%w", err), rollbackCore())
