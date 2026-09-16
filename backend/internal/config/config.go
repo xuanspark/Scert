@@ -479,6 +479,11 @@ func (c Config) Validate() error {
 		if databaseDSNContainsPassword(c.Database.Driver, c.Database.DSN) {
 			return fmt.Errorf("数据库连接信息不能包含密码，请使用加密凭据引用")
 		}
+		if c.Database.Driver == "postgres" {
+			if err := ValidatePostgresDSN(c.Database.DSN); err != nil {
+				return err
+			}
+		}
 	}
 	if c.Database.MaxOpenConns < 1 || c.Database.MaxIdleConns < 0 || c.Database.MaxIdleConns > c.Database.MaxOpenConns {
 		return fmt.Errorf("数据库连接池配置无效")

@@ -69,20 +69,7 @@ func ValidateConfig(cfg config.DatabaseConfig) error {
 }
 
 func validatePersistedPostgresDSN(dsn string) error {
-	parsed, err := url.Parse(strings.TrimSpace(dsn))
-	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
-		return fmt.Errorf("PostgreSQL 数据库连接信息必须使用不含账号密码的 postgres:// URL")
-	}
-	if strings.TrimSpace(parsed.Hostname()) == "" || strings.Trim(strings.TrimSpace(parsed.Path), "/") == "" {
-		return fmt.Errorf("PostgreSQL 连接信息必须包含主机和数据库")
-	}
-	if parsed.User != nil {
-		return fmt.Errorf("PostgreSQL 用户名和密码只能保存到加密凭据中")
-	}
-	if postgresSSLMode(dsn) != "verify-full" {
-		return fmt.Errorf("PostgreSQL 连接必须使用 sslmode=verify-full")
-	}
-	return nil
+	return config.ValidatePostgresDSN(dsn)
 }
 
 // ResolveConfig 从凭据存储中读取外部数据库账号，在内存中构造连接配置。

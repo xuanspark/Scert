@@ -121,9 +121,17 @@ func normalizeMySQLDSN(dsn string) (string, error) {
 }
 
 func normalizePostgresDSN(dsn string) (string, error) {
+	// 运行时账号位于 URL 的用户信息中，其他参数仍必须满足持久化安全边界。
+	if raw, err := url.Parse(dsn); err == nil && (raw.Scheme == "postgres" || raw.Scheme == "postgresql") {
+		raw.User = nil
+		if err := config.ValidatePostgresDSN(raw.String()); err != nil {
+			return "", err
+		}
+	}
 	parsed, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		return "", fmt.Errorf("解析 PostgreSQL 连接信息失败：%w", err)
+		// 驱动错误可能包含原始连接串，不能把尚未脱敏的输入带到日志或终端。
+		return "", fmt.Errorf("解析 PostgreSQL 连接信息失败，请检查连接参数和证书文件")
 	}
 	if strings.TrimSpace(parsed.Host) == "" || strings.TrimSpace(parsed.Database) == "" || strings.TrimSpace(parsed.User) == "" {
 		return "", fmt.Errorf("PostgreSQL 连接信息必须包含主机、数据库和用户名")
@@ -152,7 +160,7 @@ func postgresSSLMode(dsn string) string {
 	return ""
 }
 
-// SanitizeDSN 返回可写入日志的数据库连接信息，不包含 MySQL 密码。
+// SanitizeDSN 返回可写入日志的数据库连接信息，不包含数据库密码。
 func SanitizeDSN(driver, dsn string) string {
 	switch strings.ToLower(strings.TrimSpace(driver)) {
 	case "mysql":
@@ -165,30 +173,11 @@ func SanitizeDSN(driver, dsn string) string {
 		}
 		return cfg.FormatDSN()
 	case "postgres":
-		parsed, err := url.Parse(dsn)
-		if err == nil && (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") {
-			if parsed.User != nil {
-				username := parsed.User.Username()
-				if _, hasPassword := parsed.User.Password(); hasPassword {
-					parsed.User = url.UserPassword(username, "********")
-				}
-			}
-			return parsed.String()
-		}
-		return sanitizePostgresKeywordDSN(dsn)
+		// 关键字串支持空格和转义，URL 查询也可以承载凭据。
+		// 不尝试在任意输入中定位密码，整体隐藏，避免无效编码或新参数导致漏脱敏。
+		return "postgres://[连接信息已隐藏]"
 	}
 	return dsn
-}
-
-func sanitizePostgresKeywordDSN(dsn string) string {
-	fields := strings.Fields(dsn)
-	for index, field := range fields {
-		key, _, found := strings.Cut(field, "=")
-		if found && strings.EqualFold(strings.TrimSpace(key), "password") {
-			fields[index] = key + "=********"
-		}
-	}
-	return strings.Join(fields, " ")
 }
 
 func ensureSQLiteDir(dsn string) error {
