@@ -2,7 +2,9 @@ package setup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -355,5 +357,38 @@ func TestDNSVerificationManagerNormalizesCredentialCopyBeforeTestingAndStoring(t
 	}
 	if inputCredentials[" api_token "] != " secret-token " {
 		t.Fatal("规范化过程不应修改调用方的原始凭据 Map")
+	}
+}
+
+func TestDNSVerificationResolveIsServerOnlyAndDoesNotConsumeToken(t *testing.T) {
+	store := &memorySecretWriter{}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	result, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "aliyun", TestDomain: "www.example.com",
+		Credentials: map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := manager.Resolve(result.VerificationToken)
+	if err != nil {
+		t.Fatalf("按令牌解析 DNS 验证结果失败：%v", err)
+	}
+	if resolved.ProviderID != "aliyun" || resolved.TestDomain != "www.example.com" ||
+		resolved.CredentialRef != result.CredentialRef || resolved.ExpiresAt != result.ExpiresAt {
+		t.Fatalf("解析的 DNS 验证状态不完整：%+v", resolved)
+	}
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), result.CredentialRef) || strings.Contains(string(encoded), resolved.TestDomain) {
+		t.Fatalf("服务端 DNS 验证状态可被意外序列化：%s", encoded)
+	}
+	if err := manager.Consume(result.VerificationToken, resolved.ProviderID, resolved.CredentialRef, resolved.TestDomain); err != nil {
+		t.Fatalf("Resolve 不应消费 DNS 验证令牌：%v", err)
+	}
+	if _, err := manager.Resolve(result.VerificationToken); err == nil {
+		t.Fatal("已消费的 DNS 验证令牌仍可被解析")
 	}
 }

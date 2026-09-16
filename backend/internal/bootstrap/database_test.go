@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -196,5 +197,72 @@ func TestDatabaseVerificationDiscardOnlyRemovesSelectedToken(t *testing.T) {
 	}
 	if err := manager.Discard(first.VerificationToken); err == nil {
 		t.Fatal("数据库验证令牌被重复回收")
+	}
+}
+
+func TestDatabaseVerificationResolveIsServerOnlyAndDoesNotConsumeToken(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+	result, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "scert_user", Password: "database-password", TLSMode: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := manager.Resolve(result.VerificationToken)
+	if err != nil {
+		t.Fatalf("按令牌解析数据库验证结果失败：%v", err)
+	}
+	if resolved.Config.CredentialRef != result.CredentialRef || resolved.CredentialRef != result.CredentialRef || resolved.ExpiresAt != result.ExpiresAt {
+		t.Fatalf("解析的数据库验证状态不完整：%+v", resolved)
+	}
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), result.CredentialRef) || strings.Contains(string(encoded), result.Config.DSN) {
+		t.Fatalf("服务端数据库验证状态可被意外序列化：%s", encoded)
+	}
+	if _, err := manager.Consume(result.VerificationToken, result.CredentialRef); err != nil {
+		t.Fatalf("Resolve 不应消费数据库验证令牌：%v", err)
+	}
+	if _, err := manager.Resolve(result.VerificationToken); err == nil {
+		t.Fatal("已消费的数据库验证令牌仍可被解析")
+	}
+}
+
+func TestDatabaseVerificationConsumesTokenOnlyOnceUnderConcurrency(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+	result, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "scert_user", Password: "database-password", TLSMode: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, consumeErr := manager.Consume(result.VerificationToken, result.CredentialRef)
+			results <- consumeErr
+		}()
+	}
+	close(start)
+	successes := 0
+	for range 2 {
+		if <-results == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("并发消费数据库验证令牌成功次数为 %d，预期为 1", successes)
 	}
 }

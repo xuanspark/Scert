@@ -79,6 +79,15 @@ type dnsVerificationSession struct {
 	ExpiresAt     time.Time
 }
 
+// DNSVerificationSession 仅供服务端完整初始化事务读取验证结果。
+// 所有字段均禁止 JSON 序列化，避免凭据引用被误写入 HTTP 响应。
+type DNSVerificationSession struct {
+	ProviderID    string    `json:"-"`
+	TestDomain    string    `json:"-"`
+	CredentialRef string    `json:"-"`
+	ExpiresAt     time.Time `json:"-"`
+}
+
 type DNSVerificationManager struct {
 	mu       sync.Mutex
 	tester   DNSCredentialTester
@@ -172,6 +181,20 @@ func (m *DNSVerificationManager) Consume(token, providerID, credentialRef, testD
 	return m.validateSession(token, providerID, credentialRef, testDomain, true)
 }
 
+// Resolve 按验证令牌读取完整初始化所需的服务端状态，但不消费令牌。
+func (m *DNSVerificationManager) Resolve(token string) (DNSVerificationSession, error) {
+	session, err := m.resolveSession(token)
+	if err != nil {
+		return DNSVerificationSession{}, err
+	}
+	return DNSVerificationSession{
+		ProviderID:    session.ProviderID,
+		TestDomain:    session.TestDomain,
+		CredentialRef: session.CredentialRef,
+		ExpiresAt:     session.ExpiresAt,
+	}, nil
+}
+
 // Discard 按验证令牌精确回收尚未消费的 DNS 临时凭据，不影响其他初始化会话。
 func (m *DNSVerificationManager) Discard(token string) error {
 	if m == nil {
@@ -247,6 +270,26 @@ func (m *DNSVerificationManager) validateSession(token, providerID, credentialRe
 	m.mu.Unlock()
 	m.deleteCredentials(expiredRefs)
 	return nil
+}
+
+func (m *DNSVerificationManager) resolveSession(token string) (dnsVerificationSession, error) {
+	if m == nil {
+		return dnsVerificationSession{}, errors.New("DNS 在线验证服务未初始化")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return dnsVerificationSession{}, errors.New("必须先完成 DNS API 在线验证")
+	}
+	now := m.now().UTC()
+	m.mu.Lock()
+	expiredRefs := m.clearExpiredLocked(now)
+	session, ok := m.sessions[token]
+	m.mu.Unlock()
+	m.deleteCredentials(expiredRefs)
+	if !ok {
+		return dnsVerificationSession{}, errors.New("DNS 验证令牌无效或已经过期，请重新测试")
+	}
+	return session, nil
 }
 
 func (m *DNSVerificationManager) reserveVerificationSlot() error {
