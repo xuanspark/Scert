@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -59,6 +60,16 @@ func TestMySQLMigrationStatementsRecognizeRecoverableChanges(t *testing.T) {
 			continue
 		}
 		t.Errorf("可恢复的 MySQL 迁移语句未被识别：%q", item.statement)
+	}
+}
+
+func TestPostgresMigrationFilesAreEmbedded(t *testing.T) {
+	for version := 1; version <= latestMigrationVersion; version++ {
+		path := "migrations/postgres/" + fmt.Sprintf("%04d_%s.sql", version, migrationName(version))
+		content, err := migrationFiles.ReadFile(path)
+		if err != nil || len(content) == 0 {
+			t.Fatalf("PostgreSQL 迁移文件不可用：%s: %v", path, err)
+		}
 	}
 }
 func TestSQLiteUpgradeAddsServerValidationCommand(t *testing.T) {

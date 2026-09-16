@@ -83,8 +83,8 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	}
 	dnsTester := dnsprovider.NewTester(dnsprovider.NewLegoFactory())
 	dnsVerification := setup.NewDNSVerificationManager(dnsTester, secretStore)
-	repo := repository.NewSQLDomainRepository(db.DB)
-	serverRepo := repository.NewSQLServerRepository(db.DB)
+	repo := repository.NewSQLDomainRepository(db.DB, cfg.Database.Driver)
+	serverRepo := repository.NewSQLServerRepository(db.DB, cfg.Database.Driver)
 	userRepo := repository.NewSQLUserRepository(db.DB, cfg.Database.Driver)
 	if cfg.SetupReady && cfg.Admin.Username != "" && cfg.Admin.PasswordHash != "" {
 		if err := userRepo.EnsureSuperAdmin(ctx, repository.User{ID: "primary-super-admin", Username: cfg.Admin.Username, Email: cfg.Admin.Email, PasswordHash: cfg.Admin.PasswordHash}); err != nil {
@@ -93,7 +93,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			return nil, fmt.Errorf("初始化超级管理员用户失败：%w", err)
 		}
 	}
-	taskRepo := repository.NewSQLTaskRepository(db.DB)
+	taskRepo := repository.NewSQLTaskRepository(db.DB, cfg.Database.Driver)
 	if recovered, err := taskRepo.RecoverInterruptedTasks(ctx, time.Now().UTC()); err != nil {
 		_ = db.Close()
 		_ = logger.Close()
@@ -101,7 +101,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	} else if recovered > 0 {
 		logger.Warn("\u670d\u52a1\u91cd\u542f\u524d\u672a\u5b8c\u6210\u4efb\u52a1\u5df2\u6807\u8bb0\u4e3a\u5931\u8d25", "count", recovered)
 	}
-	auditRepo := repository.NewSQLAuditRepository(db.DB)
+	auditRepo := repository.NewSQLAuditRepository(db.DB, cfg.Database.Driver)
 	if deleted, err := auditRepo.PruneExpiredAuditLogs(ctx, time.Now().UTC().AddDate(0, 0, -auditLogRetentionDays)); err != nil {
 		logger.Warn("启动时清理过期审计日志失败", "error", err)
 	} else if deleted > 0 {

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,10 +14,42 @@ import (
 
 func TestOpenRejectsUnknownDriver(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
-	cfg.Driver = "postgres"
+	cfg.Driver = "unknown"
 	cfg.DSN = "unused"
 	if _, err := Open(context.Background(), cfg); err == nil {
 		t.Fatal("未知数据库驱动未被拒绝")
+	}
+}
+
+func TestNormalizePostgresDSNRequiresVerifiedTLS(t *testing.T) {
+	cases := []string{
+		"postgres://user:password@db.example.test:5432/scert",
+		"postgres://user:password@db.example.test:5432/scert?sslmode=disable",
+		"host=db.example.test port=5432 user=user password=password dbname=scert sslmode=require",
+	}
+	for _, dsn := range cases {
+		if _, err := normalizePostgresDSN(dsn); err == nil {
+			t.Fatalf("未拒绝不安全 PostgreSQL TLS 配置：%s", dsn)
+		}
+	}
+	valid := "postgres://user:password@db.example.test:5432/scert?sslmode=verify-full"
+	if _, err := normalizePostgresDSN(valid); err != nil {
+		t.Fatalf("有效 PostgreSQL TLS 配置被拒绝：%v", err)
+	}
+}
+
+func TestSanitizeDSNRedactsPostgresPassword(t *testing.T) {
+	for _, item := range []struct {
+		name string
+		dsn  string
+	}{
+		{name: "URL", dsn: "postgres://user:secret@db.example.test:5432/scert?sslmode=verify-full"},
+		{name: "关键字", dsn: "host=db.example.test user=user password=secret dbname=scert sslmode=verify-full"},
+	} {
+		sanitized := SanitizeDSN("postgres", item.dsn)
+		if sanitized == "" || strings.Contains(sanitized, "secret") {
+			t.Fatalf("%s PostgreSQL DSN 未正确脱敏：%s", item.name, sanitized)
+		}
 	}
 }
 
@@ -62,7 +95,7 @@ func TestSQLiteMigrationIsIdempotentAndCreatesBaseTables(t *testing.T) {
 	if tables != 7 {
 		t.Fatalf("基础数据表数量不正确：%d", tables)
 	}
-	if err := Migrate(context.Background(), db.DB, "postgres"); err == nil {
+	if err := Migrate(context.Background(), db.DB, "unknown"); err == nil {
 		t.Fatal("未知迁移驱动未被拒绝")
 	}
 }

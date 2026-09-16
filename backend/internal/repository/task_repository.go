@@ -54,11 +54,16 @@ type TaskRepository interface {
 }
 
 type SQLTaskRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	driver string
 }
 
-func NewSQLTaskRepository(db *sql.DB) *SQLTaskRepository {
-	return &SQLTaskRepository{db: db}
+func NewSQLTaskRepository(db *sql.DB, driver ...string) *SQLTaskRepository {
+	return &SQLTaskRepository{db: db, driver: repositoryDriver(driver)}
+}
+
+func (r *SQLTaskRepository) query(statement string) string {
+	return Rebind(r.driver, statement)
 }
 
 func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
@@ -77,9 +82,9 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
 	if updated.IsZero() {
 		updated = now
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks
+	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO tasks
 		(id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key, started_at, finished_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		item.ID, item.DomainID, item.TaskType, item.Status, item.Stage, item.Message, item.OperatorID,
 		item.CertificateVersionID, item.IdempotencyKey, nullableTime(item.StartedAt), nullableTime(item.FinishedAt), now, updated)
 	if err != nil {
@@ -96,7 +101,7 @@ func (r *SQLTaskRepository) GetTask(ctx context.Context, id string) (Task, error
 	if id == "" {
 		return Task{}, errors.New("任务 ID 不能为空")
 	}
-	return scanTask(r.db.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, id))
+	return scanTask(r.db.QueryRowContext(ctx, r.query(taskSelect+` WHERE id = ?`), id))
 }
 
 func (r *SQLTaskRepository) ListTasks(ctx context.Context, domainID string, limit int) ([]Task, error) {
@@ -113,7 +118,7 @@ func (r *SQLTaskRepository) ListTasks(ctx context.Context, domainID string, limi
 		args = append(args, domainID)
 	}
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", limit)
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.QueryContext(ctx, r.query(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询任务列表失败：%w", err)
 	}
@@ -145,7 +150,7 @@ func (r *SQLTaskRepository) UpdateTask(ctx context.Context, id, status, stage, m
 	if !validTaskStatus(status) || stage == "" {
 		return errors.New("任务状态或阶段无效")
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE tasks SET status = ?, stage = ?, message = ?, started_at = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')`,
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE tasks SET status = ?, stage = ?, message = ?, started_at = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')`),
 		status, stage, message, nullableTime(startedAt), nullableTime(finishedAt), time.Now().UTC(), id)
 	if err != nil {
 		return fmt.Errorf("更新任务失败：%w", err)
@@ -175,7 +180,7 @@ func (r *SQLTaskRepository) CancelTask(ctx context.Context, id, message string, 
 	rollback := func() {
 		_ = tx.Rollback()
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE tasks SET status = 'cancelled', message = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')`, message, nullableTime(finishedAt), time.Now().UTC(), id)
+	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks SET status = 'cancelled', message = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')`), message, nullableTime(finishedAt), time.Now().UTC(), id)
 	if err != nil {
 		rollback()
 		return fmt.Errorf("取消任务失败：%w", err)
@@ -186,7 +191,7 @@ func (r *SQLTaskRepository) CancelTask(ctx context.Context, id, message string, 
 		return fmt.Errorf("读取任务取消结果失败：%w", err)
 	}
 	if count == 0 {
-		item, getErr := scanTask(tx.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, id))
+		item, getErr := scanTask(tx.QueryRowContext(ctx, r.query(taskSelect+` WHERE id = ?`), id))
 		if getErr != nil {
 			rollback()
 			return getErr
@@ -200,7 +205,7 @@ func (r *SQLTaskRepository) CancelTask(ctx context.Context, id, message string, 
 		rollback()
 		return errors.New("任务当前无法取消")
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE task_attempts SET status = 'cancelled', message = ?, finished_at = ? WHERE task_id = ? AND status IN ('queued', 'running')`, message, nullableTime(finishedAt), id); err != nil {
+	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts SET status = 'cancelled', message = ?, finished_at = ? WHERE task_id = ? AND status IN ('queued', 'running')`), message, nullableTime(finishedAt), id); err != nil {
 		rollback()
 		return fmt.Errorf("取消任务尝试失败：%w", err)
 	}
@@ -227,9 +232,9 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 	rollback := func() {
 		_ = tx.Rollback()
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE tasks
+	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks
 		SET status = 'failed', stage = 'service_restart', message = ?, finished_at = ?, updated_at = ?
-		WHERE status IN ('queued', 'running')`, "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt, finishedAt)
+		WHERE status IN ('queued', 'running')`), "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt, finishedAt)
 	if err != nil {
 		rollback()
 		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5931\u8d25\uff1a%w", err)
@@ -239,9 +244,9 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 		rollback()
 		return 0, fmt.Errorf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u6570\u91cf\u5931\u8d25\uff1a%w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE task_attempts
+	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts
 		SET status = 'failed', message = ?, finished_at = ?
-		WHERE status IN ('queued', 'running')`, "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt); err != nil {
+		WHERE status IN ('queued', 'running')`), "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt); err != nil {
 		rollback()
 		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5c1d\u8bd5\u5931\u8d25\uff1a%w", err)
 	}
@@ -260,7 +265,7 @@ func (r *SQLTaskRepository) FindActiveTaskByDomain(ctx context.Context, domainID
 	if domainID == "" || taskType == "" {
 		return Task{}, errors.New("域名 ID 和任务类型不能为空")
 	}
-	return scanTask(r.db.QueryRowContext(ctx, taskSelect+` WHERE domain_id = ? AND task_type = ? AND status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1`, domainID, taskType))
+	return scanTask(r.db.QueryRowContext(ctx, r.query(taskSelect+` WHERE domain_id = ? AND task_type = ? AND status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1`), domainID, taskType))
 }
 
 func (r *SQLTaskRepository) FindTaskByIdempotencyKey(ctx context.Context, domainID, key string) (Task, error) {
@@ -272,7 +277,7 @@ func (r *SQLTaskRepository) FindTaskByIdempotencyKey(ctx context.Context, domain
 	if domainID == "" || key == "" {
 		return Task{}, errors.New("域名 ID 和幂等键不能为空")
 	}
-	return scanTask(r.db.QueryRowContext(ctx, taskSelect+` WHERE domain_id = ? AND idempotency_key = ? ORDER BY created_at DESC LIMIT 1`, domainID, key))
+	return scanTask(r.db.QueryRowContext(ctx, r.query(taskSelect+` WHERE domain_id = ? AND idempotency_key = ? ORDER BY created_at DESC LIMIT 1`), domainID, key))
 }
 
 func (r *SQLTaskRepository) CreateAttempt(ctx context.Context, item TaskAttempt) error {
@@ -292,9 +297,9 @@ func (r *SQLTaskRepository) CreateAttempt(ctx context.Context, item TaskAttempt)
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = time.Now().UTC()
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO task_attempts
+	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO task_attempts
 		(id, task_id, attempt_number, stage, status, message, started_at, finished_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, item.ID, item.TaskID, item.AttemptNumber, item.Stage, item.Status, item.Message,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.TaskID, item.AttemptNumber, item.Stage, item.Status, item.Message,
 		nullableTime(item.StartedAt), nullableTime(item.FinishedAt), item.CreatedAt.UTC())
 	if err != nil {
 		return fmt.Errorf("创建任务尝试失败：%w", err)
@@ -311,7 +316,7 @@ func (r *SQLTaskRepository) FinishAttempt(ctx context.Context, id, status, messa
 	if id == "" || !validTaskStatus(status) {
 		return errors.New("任务尝试 ID 或状态无效")
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE task_attempts SET status = ?, message = ?, finished_at = ? WHERE id = ? AND (status IN ('queued', 'running') OR status = ?)`, status, message, nullableTime(finishedAt), id, status)
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE task_attempts SET status = ?, message = ?, finished_at = ? WHERE id = ? AND (status IN ('queued', 'running') OR status = ?)`), status, message, nullableTime(finishedAt), id, status)
 	if err != nil {
 		return fmt.Errorf("完成任务尝试失败：%w", err)
 	}
@@ -321,7 +326,7 @@ func (r *SQLTaskRepository) FinishAttempt(ctx context.Context, id, status, messa
 	}
 	if count == 0 {
 		var currentStatus string
-		if err := r.db.QueryRowContext(ctx, `SELECT status FROM task_attempts WHERE id = ?`, id).Scan(&currentStatus); err != nil {
+		if err := r.db.QueryRowContext(ctx, r.query(`SELECT status FROM task_attempts WHERE id = ?`), id).Scan(&currentStatus); err != nil {
 			return err
 		}
 		if currentStatus == "cancelled" {
@@ -340,7 +345,7 @@ func (r *SQLTaskRepository) ListAttempts(ctx context.Context, taskID string) ([]
 	if taskID == "" {
 		return nil, errors.New("任务 ID 不能为空")
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, task_id, attempt_number, stage, status, message, started_at, finished_at, created_at FROM task_attempts WHERE task_id = ? ORDER BY attempt_number`, taskID)
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, task_id, attempt_number, stage, status, message, started_at, finished_at, created_at FROM task_attempts WHERE task_id = ? ORDER BY attempt_number`), taskID)
 	if err != nil {
 		return nil, fmt.Errorf("查询任务尝试失败：%w", err)
 	}
