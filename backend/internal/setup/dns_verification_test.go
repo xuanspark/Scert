@@ -123,6 +123,72 @@ func TestDNSVerificationManagerRejectsMismatchedConfiguration(t *testing.T) {
 	}
 }
 
+func TestDNSVerificationDiscardOnlyRemovesSelectedToken(t *testing.T) {
+	store := &memorySecretWriter{}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	first, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "aliyun", TestDomain: "first.example.com",
+		Credentials: map[string]string{"access_key_id": "first-id", "access_key_secret": "first-secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "aliyun", TestDomain: "second.example.com",
+		Credentials: map[string]string{"access_key_id": "second-id", "access_key_secret": "second-secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Discard(first.VerificationToken); err != nil {
+		t.Fatalf("精确回收 DNS 验证令牌失败：%v", err)
+	}
+	if err := manager.Check(first.VerificationToken, "aliyun", first.CredentialRef, "first.example.com"); err == nil {
+		t.Fatal("已回收的 DNS 验证令牌仍然有效")
+	}
+	if err := manager.Check(second.VerificationToken, "aliyun", second.CredentialRef, "second.example.com"); err != nil {
+		t.Fatalf("精确回收影响了其他 DNS 验证令牌：%v", err)
+	}
+	store.mu.Lock()
+	_, firstExists := store.values[first.CredentialRef]
+	_, secondExists := store.values[second.CredentialRef]
+	store.mu.Unlock()
+	if firstExists || !secondExists {
+		t.Fatalf("DNS 凭据回收范围错误：first=%v second=%v", firstExists, secondExists)
+	}
+	if err := manager.Discard(first.VerificationToken); err == nil {
+		t.Fatal("DNS 验证令牌被重复回收")
+	}
+}
+
+func TestDNSVerificationDiscardAllRemovesPendingCredentials(t *testing.T) {
+	store := &memorySecretWriter{}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	results := make([]DNSVerificationResult, 0, 2)
+	for _, testDomain := range []string{"first.example.com", "second.example.com"} {
+		result, err := manager.Verify(t.Context(), DNSVerificationInput{
+			ProviderID: "aliyun", TestDomain: testDomain,
+			Credentials: map[string]string{"access_key_id": "test-id", "access_key_secret": "test-secret"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, result)
+	}
+	manager.DiscardAll()
+	for _, result := range results {
+		if err := manager.Check(result.VerificationToken, "aliyun", result.CredentialRef, "first.example.com"); err == nil {
+			t.Fatal("DiscardAll 后 DNS 验证令牌仍然有效")
+		}
+	}
+	store.mu.Lock()
+	remaining := len(store.values)
+	store.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("DiscardAll 后仍有 DNS 临时凭据：%d", remaining)
+	}
+}
+
 func TestDNSVerificationManagerRejectsExpiredToken(t *testing.T) {
 	store := &memorySecretWriter{}
 	manager := NewDNSVerificationManager(fakeDNSTester{}, store)

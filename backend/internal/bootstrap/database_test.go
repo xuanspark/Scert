@@ -157,3 +157,44 @@ func TestSQLiteRejectsUserControlledPathAndExternalFields(t *testing.T) {
 		t.Fatal("SQLite 用户自定义路径未被拒绝")
 	}
 }
+
+func TestDatabaseVerificationDiscardOnlyRemovesSelectedToken(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+
+	first, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "first_user", Password: "first-password", TLSMode: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "postgres", Host: "db.example.test", Database: "scert",
+		Username: "second_user", Password: "second-password", TLSMode: "verify-full",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Discard(first.VerificationToken); err != nil {
+		t.Fatalf("精确回收数据库验证令牌失败：%v", err)
+	}
+	if _, err := manager.Check(first.VerificationToken, first.CredentialRef); err == nil {
+		t.Fatal("已回收的数据库验证令牌仍然有效")
+	}
+	if _, err := manager.Check(second.VerificationToken, second.CredentialRef); err != nil {
+		t.Fatalf("精确回收影响了其他数据库验证令牌：%v", err)
+	}
+	store.mu.Lock()
+	_, firstExists := store.values[first.CredentialRef]
+	_, secondExists := store.values[second.CredentialRef]
+	store.mu.Unlock()
+	if firstExists || !secondExists {
+		t.Fatalf("数据库凭据回收范围错误：first=%v second=%v", firstExists, secondExists)
+	}
+	if err := manager.Discard(first.VerificationToken); err == nil {
+		t.Fatal("数据库验证令牌被重复回收")
+	}
+}

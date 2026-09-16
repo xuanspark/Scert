@@ -150,6 +150,33 @@ func (m *DatabaseVerificationManager) Consume(token, credentialRef string) (conf
 	return m.session(token, credentialRef, true)
 }
 
+// Discard 按验证令牌精确回收尚未消费的数据库凭据，不影响其他初始化会话。
+func (m *DatabaseVerificationManager) Discard(token string) error {
+	if m == nil {
+		return errors.New("数据库验证服务尚未初始化")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return errors.New("数据库验证令牌不能为空")
+	}
+	now := m.now().UTC()
+	m.mu.Lock()
+	expired := m.clearExpiredLocked(now)
+	session, ok := m.sessions[token]
+	if ok {
+		delete(m.sessions, token)
+	}
+	m.mu.Unlock()
+	m.deleteCredentials(expired)
+	if !ok {
+		return errors.New("数据库验证令牌无效或已经过期")
+	}
+	if err := m.deleteCredential(session.CredentialRef); err != nil {
+		return errors.New("数据库临时凭据回收失败")
+	}
+	return nil
+}
+
 func (m *DatabaseVerificationManager) session(token, credentialRef string, consume bool) (config.DatabaseConfig, error) {
 	if m == nil {
 		return config.DatabaseConfig{}, errors.New("数据库验证服务尚未初始化")
