@@ -174,7 +174,7 @@ func Apply(cfg *config.Config, input Input) error {
 		cfg.Notification.RetryCount = input.EmailRetryCount
 	}
 	if input.EmailRetryIntervalsSecs != nil {
-		cfg.Notification.RetryIntervalsSecs = append([]int(nil), input.EmailRetryIntervalsSecs...)
+		cfg.Notification.RetryIntervalsSecs = append([]int{}, input.EmailRetryIntervalsSecs...)
 	}
 	cfg.Notification.Recipients = cleanRecipients(input.EmailRecipients)
 	if len(cfg.Notification.Recipients) == 0 {

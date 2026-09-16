@@ -62,6 +62,7 @@ func TestBootstrapCompleteRejectsInvalidBodiesBeforeSideEffects(t *testing.T) {
 		name, body, contentType string
 	}{
 		{"unknown", `{"extra":true}`, "application/json"},
+		{"credential_reference", `{"notification":{"http_credential_ref":"secret://notification/other"}}`, "application/json"},
 		{"trailing", `{} {}`, "application/json"},
 		{"trailing_null", `{} null`, "application/json"},
 		{"null", `null`, "application/json"},
@@ -134,6 +135,7 @@ func TestBootstrapCompleteUnavailableAndInvalidResult(t *testing.T) {
 func TestBootstrapCompleteCommitsAndClearsCookie(t *testing.T) {
 	fixture := newCompletionFixture(t, "admin.example.test")
 	request := fixture.request("admin.example.test")
+	request.Notification = completionNotificationInput()
 	body, err := json.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +151,7 @@ func TestBootstrapCompleteCommitsAndClearsCookie(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || !result.Completed || result.ManagementURL != "https://admin.example.test:8443/" {
 		t.Fatalf("管理入口响应不正确：%+v，%v", result, err)
 	}
-	assertResponseExcludes(t, response, request.AdminPassword, request.DatabaseVerificationToken, request.DNSVerificationToken, "secret://", "test-secret")
+	assertResponseExcludes(t, response, request.AdminPassword, request.DatabaseVerificationToken, request.DNSVerificationToken, "secret://", "test-secret", "private-http-password", "private-smtp-password")
 	cookies := response.Result().Cookies()
 	if len(cookies) != 1 || cookies[0].Name != SessionCookieName || cookies[0].Value != "" || cookies[0].MaxAge != -1 ||
 		!cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].Path != "/api/v1/bootstrap" || cookies[0].SameSite != http.SameSiteStrictMode {

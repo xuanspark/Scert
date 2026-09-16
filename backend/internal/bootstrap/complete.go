@@ -60,19 +60,20 @@ func (err *CompleteError) Unwrap() error {
 }
 
 type CompleteRequest struct {
-	DatabaseVerificationToken      string `json:"database_verification_token"`
-	DNSVerificationToken           string `json:"dns_verification_token"`
-	AdminUsername                  string `json:"admin_username"`
-	AdminEmail                     string `json:"admin_email"`
-	AdminPassword                  string `json:"admin_password"`
-	ServerPort                     int    `json:"server_port"`
-	WebHostname                    string `json:"web_hostname"`
-	WebPublicIP                    string `json:"web_public_ip"`
-	WebEnabled                     bool   `json:"web_enabled"`
-	HTTPSMode                      string `json:"https_mode"`
-	ACMEEnvironment                string `json:"acme_environment"`
-	PropagationTimeoutSecs         int    `json:"propagation_timeout_secs"`
-	PropagationPollingIntervalSecs int    `json:"propagation_polling_interval_secs"`
+	DatabaseVerificationToken      string             `json:"database_verification_token"`
+	DNSVerificationToken           string             `json:"dns_verification_token"`
+	AdminUsername                  string             `json:"admin_username"`
+	AdminEmail                     string             `json:"admin_email"`
+	AdminPassword                  string             `json:"admin_password"`
+	ServerPort                     int                `json:"server_port"`
+	WebHostname                    string             `json:"web_hostname"`
+	WebPublicIP                    string             `json:"web_public_ip"`
+	WebEnabled                     bool               `json:"web_enabled"`
+	HTTPSMode                      string             `json:"https_mode"`
+	ACMEEnvironment                string             `json:"acme_environment"`
+	PropagationTimeoutSecs         int                `json:"propagation_timeout_secs"`
+	PropagationPollingIntervalSecs int                `json:"propagation_polling_interval_secs"`
+	Notification                   *NotificationInput `json:"notification,omitempty"`
 }
 
 type CompleteResult struct {
@@ -245,7 +246,17 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 	candidate := completer.base
 	candidate.Normalize()
 	candidate.ACME.Environment = request.ACMEEnvironment
-	if err := setup.Apply(&candidate, setup.Input{
+	notification, discardNotification, err := completer.prepareNotification(ctx, candidate.Notification, request.Notification)
+	defer func() {
+		if !committed && discardNotification != nil {
+			completer.cleanupCredential(discardNotification, "失败初始化的通知临时凭据回收未确认")
+		}
+	}()
+	if err != nil {
+		return result, err
+	}
+	candidate.Notification = notification
+	input := setup.Input{
 		AdminUsername: request.AdminUsername, AdminEmail: request.AdminEmail, AdminPassword: request.AdminPassword,
 		ServerPort: request.ServerPort, DNSProvider: dnsSession.ProviderID,
 		DNSCredentialRef: dnsSession.CredentialRef, DNSVerified: true,
@@ -254,7 +265,9 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 		CertificateRoot:                candidate.Paths.Certificate,
 		WebHostname:                    request.WebHostname, WebPublicIP: request.WebPublicIP,
 		WebEnabled: request.WebEnabled, HTTPSMode: request.HTTPSMode,
-	}); err != nil {
+	}
+	applyNotificationInput(&input, notification)
+	if err := setup.Apply(&candidate, input); err != nil {
 		return result, completeError(CompleteErrorInput, "初始化参数校验失败", err)
 	}
 	candidate.Database = databaseSession.Config
@@ -489,11 +502,8 @@ func managementURL(candidate config.Config) string {
 	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil && ip.To4() == nil {
 		host = "[" + ip.String() + "]"
 	}
-	if candidate.Server.Port != 443 {
+	if candidate.Server.HTTPSMode != "proxy" && candidate.Server.Port != 443 {
 		host = net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(candidate.Server.Port))
-		if strings.HasPrefix(host, "[") && candidate.Server.Port == 443 {
-			host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-		}
 	}
 	return (&url.URL{Scheme: "https", Host: host, Path: "/"}).String()
 }

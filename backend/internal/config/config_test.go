@@ -347,3 +347,26 @@ func TestLoadWithEnvRejectsInvalidInteger(t *testing.T) {
 		t.Fatal("无效端口环境变量未被拒绝")
 	}
 }
+
+func TestSaveAndLoadPreservesDisabledNotificationRetries(t *testing.T) {
+	directory := t.TempDir()
+	cfg := Default(directory)
+	cfg.Notification.RetryCount = 0
+	cfg.Notification.RetryIntervalsSecs = []int{}
+	path := filepath.Join(directory, "scert.json")
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Notification.RetryCount != 0 || len(loaded.Notification.RetryIntervalsSecs) != 0 {
+		t.Fatal("显式关闭通知重试不得在重启时恢复默认重试次数")
+	}
+	cfg.Notification.RetryIntervalsSecs = nil
+	cfg.Normalize()
+	if cfg.Notification.RetryCount != 3 || len(cfg.Notification.RetryIntervalsSecs) != 3 {
+		t.Fatal("缺失通知重试配置的历史配置仍需补齐默认值")
+	}
+}

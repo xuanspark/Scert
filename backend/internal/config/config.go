@@ -382,10 +382,11 @@ func (c *Config) Normalize() {
 	if c.Notification.TimeoutSecs == 0 {
 		c.Notification.TimeoutSecs = 10
 	}
-	if c.Notification.RetryCount == 0 {
+	// 空数组表示明确关闭重试，只有旧配置未提供间隔字段时才补默认值。
+	if c.Notification.RetryCount == 0 && c.Notification.RetryIntervalsSecs == nil {
 		c.Notification.RetryCount = 3
 	}
-	if len(c.Notification.RetryIntervalsSecs) == 0 {
+	if c.Notification.RetryIntervalsSecs == nil {
 		c.Notification.RetryIntervalsSecs = []int{30, 120, 600}
 	}
 	if c.Notification.HTTPHeaders == nil {
