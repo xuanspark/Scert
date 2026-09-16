@@ -248,20 +248,37 @@ func (m *DatabaseVerificationManager) resolveSession(token string) (databaseVeri
 	return session, nil
 }
 
+// DiscardAll 回收所有尚未消费的数据库验证令牌及其临时凭据。
 func (m *DatabaseVerificationManager) DiscardAll() {
+	m.DiscardAllExcept()
+}
+
+// DiscardAllExcept 回收全部尚未消费的数据库验证令牌，但保留已经成为正式配置依赖的凭据。
+func (m *DatabaseVerificationManager) DiscardAllExcept(protectedReferences ...string) {
 	if m == nil {
 		return
 	}
+	protected := protectedCredentialReferences(protectedReferences)
 	m.mu.Lock()
 	references := make([]string, 0, len(m.sessions))
 	for token, session := range m.sessions {
 		delete(m.sessions, token)
-		if session.CredentialRef != "" {
-			references = append(references, session.CredentialRef)
+		if reference := strings.TrimSpace(session.CredentialRef); reference != "" && !protected[reference] {
+			references = append(references, reference)
 		}
 	}
 	m.mu.Unlock()
 	m.deleteCredentials(references)
+}
+
+func protectedCredentialReferences(references []string) map[string]bool {
+	protected := make(map[string]bool, len(references))
+	for _, reference := range references {
+		if reference = strings.TrimSpace(reference); reference != "" {
+			protected[reference] = true
+		}
+	}
+	return protected
 }
 
 func (m *DatabaseVerificationManager) reserve() error {

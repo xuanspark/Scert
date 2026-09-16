@@ -225,15 +225,26 @@ func (m *DNSVerificationManager) Discard(token string) error {
 
 // DiscardAll 回收所有尚未消费的 DNS 验证令牌及其临时凭据。
 func (m *DNSVerificationManager) DiscardAll() {
+	m.DiscardAllExcept()
+}
+
+// DiscardAllExcept 回收全部尚未消费的 DNS 验证令牌，但保留已经成为正式配置依赖的凭据。
+func (m *DNSVerificationManager) DiscardAllExcept(protectedReferences ...string) {
 	if m == nil {
 		return
+	}
+	protected := make(map[string]bool, len(protectedReferences))
+	for _, reference := range protectedReferences {
+		if reference = strings.TrimSpace(reference); reference != "" {
+			protected[reference] = true
+		}
 	}
 	m.mu.Lock()
 	references := make([]string, 0, len(m.sessions))
 	for token, session := range m.sessions {
 		delete(m.sessions, token)
-		if strings.TrimSpace(session.CredentialRef) != "" {
-			references = append(references, session.CredentialRef)
+		if reference := strings.TrimSpace(session.CredentialRef); reference != "" && !protected[reference] {
+			references = append(references, reference)
 		}
 	}
 	m.mu.Unlock()

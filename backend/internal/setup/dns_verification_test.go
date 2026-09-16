@@ -191,6 +191,41 @@ func TestDNSVerificationDiscardAllRemovesPendingCredentials(t *testing.T) {
 	}
 }
 
+func TestDNSVerificationDiscardAllExceptProtectsFormalCredential(t *testing.T) {
+	store := &memorySecretWriter{}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	protected, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "aliyun", TestDomain: "formal.example.com",
+		Credentials: map[string]string{"access_key_id": "formal-id", "access_key_secret": "formal-secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "aliyun", TestDomain: "pending.example.com",
+		Credentials: map[string]string{"access_key_id": "pending-id", "access_key_secret": "pending-secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager.DiscardAllExcept("  " + protected.CredentialRef + "  ")
+
+	if _, err := manager.Resolve(protected.VerificationToken); err == nil {
+		t.Fatal("批量清理后受保护凭据对应的验证令牌仍然有效")
+	}
+	if _, err := manager.Resolve(pending.VerificationToken); err == nil {
+		t.Fatal("批量清理后待处理凭据对应的验证令牌仍然有效")
+	}
+	store.mu.Lock()
+	_, protectedExists := store.values[protected.CredentialRef]
+	_, pendingExists := store.values[pending.CredentialRef]
+	store.mu.Unlock()
+	if !protectedExists || pendingExists {
+		t.Fatalf("DNS 凭据保护范围错误：protected=%v pending=%v", protectedExists, pendingExists)
+	}
+}
+
 func TestDNSVerificationManagerRejectsExpiredToken(t *testing.T) {
 	store := &memorySecretWriter{}
 	manager := NewDNSVerificationManager(fakeDNSTester{}, store)

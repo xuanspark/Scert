@@ -200,6 +200,44 @@ func TestDatabaseVerificationDiscardOnlyRemovesSelectedToken(t *testing.T) {
 	}
 }
 
+func TestDatabaseVerificationDiscardAllExceptProtectsFormalCredential(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+
+	protected, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "formal_user", Password: "formal-password", TLSMode: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "postgres", Host: "db.example.test", Database: "scert",
+		Username: "pending_user", Password: "pending-password", TLSMode: "verify-full",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager.DiscardAllExcept("  " + protected.CredentialRef + "  ")
+
+	if _, err := manager.Resolve(protected.VerificationToken); err == nil {
+		t.Fatal("批量清理后受保护凭据对应的验证令牌仍然有效")
+	}
+	if _, err := manager.Resolve(pending.VerificationToken); err == nil {
+		t.Fatal("批量清理后待处理凭据对应的验证令牌仍然有效")
+	}
+	store.mu.Lock()
+	_, protectedExists := store.values[protected.CredentialRef]
+	_, pendingExists := store.values[pending.CredentialRef]
+	store.mu.Unlock()
+	if !protectedExists || pendingExists {
+		t.Fatalf("数据库凭据保护范围错误：protected=%v pending=%v", protectedExists, pendingExists)
+	}
+}
+
 func TestDatabaseVerificationResolveIsServerOnlyAndDoesNotConsumeToken(t *testing.T) {
 	base := config.Default(t.TempDir())
 	store := &memoryDatabaseStore{}
