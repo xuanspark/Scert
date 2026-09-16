@@ -289,6 +289,9 @@ func TestBootstrapRunCancellationRemovesURLWithoutCreatingBusinessDatabase(t *te
 	if parsed.Fragment == "" || strings.Contains(output.String(), parsed.Fragment) {
 		t.Fatal("一次性令牌缺失或泄露到日志")
 	}
+	if !strings.Contains(output.String(), "Bootstrap 临时证书 SHA-256 指纹：") {
+		t.Fatal("初始化启动日志缺少可通过可信运维通道核对的证书指纹")
+	}
 	for _, path := range []string{fixture.urlPath, fixture.configPath, filepath.Join(fixture.base.Paths.Data, "scert.db")} {
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("取消后不应保留初始化地址或提前产生正式文件：%s", path)

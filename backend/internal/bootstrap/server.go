@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -92,10 +93,16 @@ func Run(ctx context.Context, options ServerOptions) (bool, error) {
 		}
 	}()
 	if options.Output != nil {
-		// 一次性令牌只能写入受保护文件，不进入终端日志或 systemd journal。
-		fmt.Fprintf(options.Output, "首次初始化 HTTPS 服务已启动，端口 %d。请读取 %s 获取一次性访问地址；临时自签名证书需人工核对。\n", options.Config.Server.Port, options.URLPath)
+		writeBootstrapNotice(options.Output, options.Config.Server.Port, options.URLPath, material)
 	}
 	return serveTemporaryHTTPS(ctx, listener, material, handler, router.Completed())
+}
+
+func writeBootstrapNotice(output io.Writer, port int, path string, material TLSMaterial) {
+	// 指纹是公开证书摘要；一次性令牌和私钥仍只能留在受保护文件或内存中。
+	fingerprint := sha256.Sum256(material.Certificate.Certificate[0])
+	fmt.Fprintf(output, "首次初始化 HTTPS 服务已启动，端口 %d。请读取 %s 获取一次性访问地址。\n", port, path)
+	fmt.Fprintf(output, "Bootstrap 临时证书 SHA-256 指纹：%X\n请通过可信运维通道与浏览器证书详情核对；指纹不一致时不要输入初始化令牌、密码或 RAM 凭据。\n", fingerprint)
 }
 
 func serveTemporaryHTTPS(ctx context.Context, listener net.Listener, material TLSMaterial, handler http.Handler, completed <-chan struct{}) (bool, error) {
