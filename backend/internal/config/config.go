@@ -410,21 +410,7 @@ func (c Config) Save(path string) error {
 		return fmt.Errorf("编码配置失败：%w", err)
 	}
 	data = append(data, '\n')
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
-		return fmt.Errorf("写入临时配置文件失败：%w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("替换配置文件失败：%w", err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("设置配置文件权限失败：%w", err)
-	}
-	if err := applyLinuxServiceOwnership(filepath.Dir(path), path); err != nil {
-		return fmt.Errorf("设置配置文件归属失败：%w", err)
-	}
-	return nil
+	return saveConfigFile(path, data, defaultConfigSaveOperations())
 }
 
 // applyLinuxServiceOwnership 在 root 初始化配置时，将配置目录和文件交给 Scert 服务用户管理。
