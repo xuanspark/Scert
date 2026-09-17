@@ -15,7 +15,7 @@ import (
 
 type aliyunRecordAPI interface {
 	Add(context.Context, string, string, string) (string, error)
-	Describe(context.Context, string) (aliyunRecordInfo, error)
+	Describe(context.Context, string, string, string) (aliyunRecordInfo, error)
 	Delete(context.Context, string) error
 }
 
@@ -44,26 +44,40 @@ func (a aliyunRecords) Add(ctx context.Context, zone, rr, value string) (string,
 	return strings.TrimSpace(*response.Body.RecordId), nil
 }
 
-func (a aliyunRecords) Describe(ctx context.Context, recordID string) (aliyunRecordInfo, error) {
-	response, err := client.DescribeDomainRecordInfoWithContext(
+func (a aliyunRecords) Describe(ctx context.Context, zone, rr, recordID string) (aliyunRecordInfo, error) {
+	zone = normalizeAuthorizationDomain(zone)
+	rr = strings.TrimSpace(rr)
+	recordID = strings.TrimSpace(recordID)
+	if zone == "" || rr == "" || recordID == "" {
+		return aliyunRecordInfo{}, errors.New("精确查询临时记录缺少托管区、主机记录或记录 ID")
+	}
+	// 按唯一托管区查询，兼容仅授予域名资源权限的 RAM 策略，不扩大账号可见范围。
+	response, err := client.DescribeDomainRecordsWithContext(
 		ctx,
 		a.client,
-		new(client.DescribeDomainRecordInfoRequest).SetRecordId(recordID),
+		new(client.DescribeDomainRecordsRequest).SetDomainName(zone).SetRRKeyWord(rr).
+			SetTypeKeyWord("TXT").SetSearchMode("EXACT").SetPageNumber(1).SetPageSize(100),
 		&dara.RuntimeOptions{},
 	)
 	if err != nil {
 		return aliyunRecordInfo{}, err
 	}
-	if response == nil || response.Body == nil {
+	if response == nil || response.Body == nil || response.Body.DomainRecords == nil {
 		return aliyunRecordInfo{}, errors.New("阿里云未返回临时 TXT 记录详情")
 	}
-	return aliyunRecordInfo{
-		RecordID:   strings.TrimSpace(dereferenceString(response.Body.RecordId)),
-		DomainName: normalizeAuthorizationDomain(dereferenceString(response.Body.DomainName)),
-		RR:         strings.TrimSpace(dereferenceString(response.Body.RR)),
-		Type:       strings.TrimSpace(dereferenceString(response.Body.Type)),
-		Value:      dereferenceString(response.Body.Value),
-	}, nil
+	for _, record := range response.Body.DomainRecords.Record {
+		if record == nil || strings.TrimSpace(dereferenceString(record.RecordId)) != recordID {
+			continue
+		}
+		return aliyunRecordInfo{
+			RecordID:   recordID,
+			DomainName: normalizeAuthorizationDomain(dereferenceString(record.DomainName)),
+			RR:         strings.TrimSpace(dereferenceString(record.RR)),
+			Type:       strings.TrimSpace(dereferenceString(record.Type)),
+			Value:      dereferenceString(record.Value),
+		}, nil
+	}
+	return aliyunRecordInfo{}, errors.New("限定托管区查询未返回本次创建的临时 TXT 记录")
 }
 
 func (a aliyunRecords) Delete(ctx context.Context, id string) error {

@@ -139,7 +139,7 @@ func (c *AliyunAuthorizationChecker) verifyResolved(ctx context.Context, request
 		result.Domains[0].Cleanup = true
 	}()
 	describeCtx, describeCancel := context.WithTimeout(ctx, aliyunAPICallTimeout)
-	info, err := api.Describe(describeCtx, recordID)
+	info, err := api.Describe(describeCtx, zone, rr, recordID)
 	describeCancel()
 	if err != nil {
 		resultErr = fmt.Errorf("查询授权探测 TXT 记录失败：%w", err)
@@ -161,7 +161,7 @@ func (c *AliyunAuthorizationChecker) verifyResolved(ctx context.Context, request
 func matchesAliyunAuthorizationRecord(info aliyunRecordInfo, recordID, zone, rr, value string) bool {
 	return strings.TrimSpace(info.RecordID) == strings.TrimSpace(recordID) &&
 		normalizeAuthorizationDomain(info.DomainName) == normalizeAuthorizationDomain(zone) &&
-		strings.TrimSpace(info.RR) == strings.TrimSpace(rr) &&
+		strings.EqualFold(strings.TrimSpace(info.RR), strings.TrimSpace(rr)) &&
 		strings.EqualFold(strings.TrimSpace(info.Type), "TXT") &&
 		info.Value == value
 }

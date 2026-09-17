@@ -39,7 +39,10 @@ func (a *authorizationRecordAPI) Add(ctx context.Context, zone, rr, value string
 	return "authorization-record-id", nil
 }
 
-func (a *authorizationRecordAPI) Describe(ctx context.Context, recordID string) (aliyunRecordInfo, error) {
+func (a *authorizationRecordAPI) Describe(ctx context.Context, zone, rr, recordID string) (aliyunRecordInfo, error) {
+	if zone != a.zone || rr != a.rr {
+		return aliyunRecordInfo{}, errors.New("查询必须限定本次创建记录的托管区和主机记录")
+	}
 	a.recordCall("describe", recordID, ctx)
 	if a.describeErr != nil {
 		return aliyunRecordInfo{}, a.describeErr

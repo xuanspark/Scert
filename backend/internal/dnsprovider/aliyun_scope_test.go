@@ -128,7 +128,7 @@ func (f *fakeAliyunRecords) Add(_ context.Context, zone, rr, value string) (stri
 	return "created-record-id", nil
 }
 
-func (f *fakeAliyunRecords) Describe(_ context.Context, id string) (aliyunRecordInfo, error) {
+func (f *fakeAliyunRecords) Describe(_ context.Context, zone, rr, id string) (aliyunRecordInfo, error) {
 	f.described = append(f.described, id)
 	if f.describeErr != nil {
 		return aliyunRecordInfo{}, f.describeErr
