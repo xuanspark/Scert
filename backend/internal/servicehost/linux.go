@@ -202,7 +202,8 @@ func renderUnitFile(options Options) (string, error) {
 		"RestrictSUIDSGID=yes",
 		"RemoveIPC=yes",
 		"SystemCallArchitectures=native",
-		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+		// 初始化证书枚举本机网卡需要 NETLINK_ROUTE，空能力集仍禁止网络管理操作。
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
 	)
 	if len(normalized.ReadWritePaths) > 0 {
 		quotedPaths := make([]string, 0, len(normalized.ReadWritePaths))

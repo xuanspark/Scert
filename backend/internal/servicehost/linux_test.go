@@ -3,6 +3,7 @@
 package servicehost
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,13 +54,37 @@ func TestRenderUnitFileIncludesExecutableConfigurationAndWorkDir(t *testing.T) {
 		"RestrictSUIDSGID=yes",
 		"RemoveIPC=yes",
 		"SystemCallArchitectures=native",
-		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
 		"ReadWritePaths=\"/var/lib/scert\" \"/var/log/scert\"",
 		"[Install]",
 		"WantedBy=multi-user.target",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("systemd unit 缺少 %q：\n%s", expected, content)
+		}
+	}
+}
+
+func TestPackagedUnitAllowsInterfaceDiscoveryWithoutCapabilities(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "systemd", "Scert.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
+		"CapabilityBoundingSet=",
+		"AmbientCapabilities=",
+		"NoNewPrivileges=yes",
+		"User=Scert",
+	} {
+		found := false
+		for _, line := range strings.Split(string(content), "\n") {
+			if strings.TrimSpace(line) == expected {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("发布服务缺少安全配置：%s", expected)
 		}
 	}
 }
