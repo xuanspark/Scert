@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -128,5 +129,50 @@ func TestBootstrapRejectsInvalidFirewallModeBeforeWritingFiles(t *testing.T) {
 	entries, err := os.ReadDir(root)
 	if err != nil || len(entries) != 0 {
 		t.Fatal("防火墙模式校验应发生在创建任何配置或敏感信息文件之前")
+	}
+}
+
+func TestBootstrapHealthProbesDoNotRequireSessionOrBusinessResources(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default(root)
+	handler, closeFiles := bootstrapHandler(NewRouter(nil, nil, nil, nil), cfg)
+	defer closeFiles()
+	for _, scenario := range []struct {
+		path   string
+		code   int
+		status string
+		reason string
+	}{
+		{"/healthz", http.StatusOK, "ok", ""},
+		{"/readyz", http.StatusServiceUnavailable, "not_ready", "setup_incomplete"},
+	} {
+		t.Run(scenario.path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, scenario.path, nil))
+			if response.Code != scenario.code {
+				t.Fatalf("探针状态错误：得到 %d，期望 %d", response.Code, scenario.code)
+			}
+			var payload map[string]string
+			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["service"] != "scert" || payload["status"] != scenario.status || payload["reason"] != scenario.reason {
+				t.Fatalf("探针响应错误：%v", payload)
+			}
+			if response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Set-Cookie") != "" {
+				t.Fatal("探针不得缓存或创建初始化会话")
+			}
+			for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+				rejected := httptest.NewRecorder()
+				handler.ServeHTTP(rejected, httptest.NewRequest(method, scenario.path, nil))
+				if rejected.Code != http.StatusMethodNotAllowed || rejected.Header().Get("Allow") != http.MethodGet {
+					t.Fatalf("探针未拒绝错误方法：%s %d", method, rejected.Code)
+				}
+			}
+		})
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("健康检查不应提前创建数据库或配置文件")
 	}
 }

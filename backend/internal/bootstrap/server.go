@@ -166,6 +166,20 @@ func bootstrapHandler(router *Router, cfg config.Config) (http.Handler, func()) 
 	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		setBootstrapSecurityHeaders(writer)
+		if request.URL.Path == "/healthz" || request.URL.Path == "/readyz" {
+			if !requireBootstrapMethod(writer, request, http.MethodGet) {
+				return
+			}
+			// 初始化期间只报告进程存活，正式应用接管之前始终拒绝就绪。
+			if request.URL.Path == "/readyz" {
+				writeBootstrapJSON(writer, http.StatusServiceUnavailable, map[string]string{
+					"status": "not_ready", "service": "scert", "reason": "setup_incomplete",
+				})
+			} else {
+				writeBootstrapJSON(writer, http.StatusOK, map[string]string{"status": "ok", "service": "scert"})
+			}
+			return
+		}
 		if request.URL.Path == "/api/v1/bootstrap/settings" {
 			if !requireBootstrapMethod(writer, request, http.MethodGet) || !router.authenticate(writer, request) {
 				return
