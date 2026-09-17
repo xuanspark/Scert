@@ -758,6 +758,8 @@ const {
                 <span>DNS 凭据</span>
                 <label class="credential-visibility-control">
                   <input
+                    id="dns-credentials-visible"
+                    name="dns_credentials_visible"
                     v-model="dnsCredentialsVisible"
                     type="checkbox"
                   />

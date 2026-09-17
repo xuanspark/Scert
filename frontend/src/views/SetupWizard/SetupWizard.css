@@ -1249,11 +1249,11 @@ button:disabled {
 }
 
 .smtp-config-row {
-  grid-template-columns: minmax(180px, 1.35fr) minmax(100px, 0.55fr) minmax(160px, 1fr) minmax(180px, 1.2fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
 }
 
 .smtp-options-row {
-  grid-template-columns: minmax(180px, 0.7fr) minmax(260px, 1.3fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   align-items: stretch;
 }
 
