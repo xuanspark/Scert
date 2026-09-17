@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestSettingsAPIUpdatesSafeFieldsWithoutReturningSecrets(t *testing.T) {
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
 	cfg.Database.DSN = "mysql://secret-user:secret-password@localhost/scert"
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -99,7 +100,7 @@ func TestSettingsAPIWebAddressChangeDoesNotRequireRestart(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -141,7 +142,7 @@ func TestSettingsAPIWebEnabledChangeRequiresRestart(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -191,7 +192,7 @@ func TestSettingsAPIReturnsAndUpdatesRenewalPolicy(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -275,7 +276,7 @@ func TestSettingsAPIRejectsInvalidRenewalPolicy(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -316,7 +317,7 @@ func TestSettingsAPIReturnsChineseNotificationCredentialError(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -430,7 +431,7 @@ func TestSettingsAPIRollsBackCredentialsWhenValidationFails(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("save test config: %v", err)
 	}
@@ -468,7 +469,7 @@ func TestSettingsAPICleansReplacedNotificationCredential(t *testing.T) {
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
 	cfg.Notification.HTTPAuthMode = "bearer"
 	cfg.Notification.HTTPCredentialRef = "secret://notification/old"
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("save test config: %v", err)
 	}
@@ -512,7 +513,7 @@ func TestSettingsAPIRollsBackEarlierCredentialWhenLaterCredentialFails(t *testin
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
 	cfg.Notification.SMTPUsername = "smtp-user"
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("save test config: %v", err)
 	}
@@ -552,7 +553,7 @@ func TestSettingsAPIDNSRequiresCompleteVerification(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -588,7 +589,7 @@ func TestSettingsAPIDNSProviderChangeRequiresReverification(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -621,7 +622,7 @@ func TestSettingsAPISavesVerifiedDNSCredentialWithoutReturningSecret(t *testing.
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -686,7 +687,7 @@ func TestSettingsAPIDNSCheckFailureRollsBackCredential(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	configPath := dir + "\\config\\scert.json"
+	configPath := filepath.Join(dir, "config", "scert.json")
 	if err := cfg.Save(configPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
@@ -732,11 +733,11 @@ func TestSettingsAPIDNSSaveFailureRollsBackCredential(t *testing.T) {
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	initialConfigPath := dir + "\\config\\initial.json"
+	initialConfigPath := filepath.Join(dir, "config", "initial.json")
 	if err := cfg.Save(initialConfigPath); err != nil {
 		t.Fatalf("保存测试配置失败：%v", err)
 	}
-	blockedPath := dir + "\\blocked"
+	blockedPath := filepath.Join(dir, "blocked")
 	if err := os.WriteFile(blockedPath, []byte("not a directory"), 0o600); err != nil {
 		t.Fatalf("创建保存失败测试文件失败：%v", err)
 	}
@@ -747,7 +748,7 @@ func TestSettingsAPIDNSSaveFailureRollsBackCredential(t *testing.T) {
 	secrets := &fakeSetupSecretWriter{values: map[string]map[string]string{
 		newCredentialRef: {"api_token": "new-token"},
 	}}
-	server := New(Dependencies{Config: cfg, ConfigPath: blockedPath + "\\scert.json", SetupDNS: verifier, Secrets: secrets})
+	server := New(Dependencies{Config: cfg, ConfigPath: filepath.Join(blockedPath, "scert.json"), SetupDNS: verifier, Secrets: secrets})
 	cookie := loginForSettingsTest(t, server)
 
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
