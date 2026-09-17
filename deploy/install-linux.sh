@@ -264,12 +264,31 @@ finish_install_transaction() {
 }
 
 ensure_services_stopped() {
-    if systemctl is-active --quiet Scert.service; then
-        fail "升级或安装前必须停止 Scert.service"
-    fi
-    if systemctl is-active --quiet Scert-admin.service; then
-        fail "升级或安装前必须停止 Scert-admin.service"
-    fi
+    local unit properties key value
+    local load_state active_state sub_state main_pid control_pid job
+    for unit in Scert.service Scert-admin.service; do
+        if ! properties="$(systemctl show "$unit" -p LoadState -p ActiveState -p SubState -p MainPID -p ControlPID -p Job)"; then
+            fail "无法查询 $unit 的停服状态，拒绝安装"
+        fi
+        load_state="" active_state="" sub_state="" main_pid="" control_pid="" job="unknown"
+        while IFS='=' read -r key value; do
+            case "$key" in
+                LoadState) load_state="$value" ;;
+                ActiveState) active_state="$value" ;;
+                SubState) sub_state="$value" ;;
+                MainPID) main_pid="$value" ;;
+                ControlPID) control_pid="$value" ;;
+                Job) job="$value" ;;
+            esac
+        done <<< "$properties"
+        # 查询失败、过渡状态或排队任务均不能作为已停服的证据。
+        case "$load_state:$active_state:$sub_state" in
+            loaded:inactive:dead|loaded:failed:failed|not-found:inactive:dead) ;;
+            *) fail "升级或安装前必须确认 $unit 已停止，当前状态：$load_state/$active_state/$sub_state" ;;
+        esac
+        [[ "$main_pid" == "0" && "$control_pid" == "0" && -z "$job" ]] || \
+            fail "$unit 仍有进程、排队任务或缺失状态，拒绝安装"
+    done
 }
 
 ensure_service_account() {

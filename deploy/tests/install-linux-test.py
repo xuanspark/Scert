@@ -10,6 +10,32 @@ import sys
 import tempfile
 
 
+SERVICE_STATES = {
+    "service-active": ("loaded", "active", "running", "51", "0", ""),
+    "service-activating": ("loaded", "activating", "start", "0", "52", "7"),
+    "service-deactivating": ("loaded", "deactivating", "stop-sigterm", "51", "0", "8"),
+    "service-reloading": ("loaded", "reloading", "reload", "51", "52", "9"),
+    "service-failed-process": ("loaded", "failed", "failed", "51", "0", ""),
+    "service-pending-job": ("loaded", "inactive", "dead", "0", "0", "10"),
+    "service-masked": ("masked", "inactive", "dead", "0", "0", ""),
+    "service-not-found": ("not-found", "inactive", "dead", "0", "0", ""),
+    "service-failed-stopped": ("loaded", "failed", "failed", "0", "0", ""),
+}
+SERVICE_QUERY_SCENARIOS = [
+    "service-query-failure", "service-empty-output", "service-missing-property",
+    "admin-deactivating", "admin-query-failure",
+]
+SERVICE_GUARDS = [
+    name for name in SERVICE_STATES
+    if name not in ["service-not-found", "service-failed-stopped"]
+] + SERVICE_QUERY_SCENARIOS
+SUCCESS_SCENARIOS = ["success", "fresh-success", "service-not-found", "service-failed-stopped"]
+SCENARIOS = [
+    "web-link", "binary-directory", "unit-failure", "reload-failure",
+    "rollback-reload-failure", "success", "fresh-failure", "fresh-success",
+] + list(SERVICE_STATES) + SERVICE_QUERY_SCENARIOS
+
+
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
@@ -71,11 +97,28 @@ def prepare(base, scenario, certificate_root):
     command_log = str(base / "systemctl.log")
     counter = str(base / "reload-count")
     systemctl = base / "commands/systemctl"
+    properties = ["LoadState", "ActiveState", "SubState", "MainPID", "ControlPID", "Job"]
+    states = SERVICE_STATES.get(scenario, ("loaded", "inactive", "dead", "0", "0", ""))
+    if scenario == "admin-deactivating":
+        states = SERVICE_STATES["service-deactivating"]
+    state_output = "\n".join(key + "=" + value for key, value in zip(properties, states))
+    if scenario == "service-missing-property":
+        state_output = "\n".join(state_output.splitlines()[:-1])
+    service_name = "Scert-admin.service" if scenario.startswith("admin-") else "Scert.service"
+    state_command = "printf '%s\\n' '" + state_output + "'; exit 0\n"
+    if scenario in ["service-query-failure", "admin-query-failure"]:
+        state_command = "exit 1\n"
+    if scenario == "service-empty-output":
+        state_command = "exit 0\n"
     systemctl.write_text(
         '#!/usr/bin/env bash\nset -eu\n'
         f'printf "%s\\n" "$*" >> "{command_log}"\n'
-        'if [[ "$1" == "is-active" ]]; then exit 3; fi\n'
-        '[[ "$*" == "daemon-reload" ]] || exit 97\n'
+        'if [[ "$1" == "is-active" ]]; then '
+        + ('exit 0; fi\n' if scenario == "service-active" else 'exit 3; fi\n')
+        + 'if [[ "$1" == "show" ]]; then\n'
+        + f'if [[ "$2" == "{service_name}" ]]; then\n' + state_command + 'fi\n'
+        + "printf '%s\\n' 'LoadState=loaded' 'ActiveState=inactive' 'SubState=dead' 'MainPID=0' 'ControlPID=0' 'Job='; exit 0\nfi\n"
+        + '[[ "$*" == "daemon-reload" ]] || exit 97\n'
         + (f'if [[ ! -e "{counter}" ]]; then touch "{counter}"; exit 42; fi\n' if scenario == "reload-failure" else "")
         + ('exit 42\n' if scenario == "rollback-reload-failure" else "")
     )
@@ -115,7 +158,7 @@ def parent(args):
     source = Path(args.source).resolve(strict=True)
     failures = []
     for scenario in args.scenarios.split(","):
-        if scenario not in ["web-link", "binary-directory", "unit-failure", "reload-failure", "rollback-reload-failure", "success", "fresh-failure", "fresh-success"]:
+        if scenario not in SCENARIOS:
             raise RuntimeError("未知测试场景")
         base = Path(tempfile.mkdtemp(prefix=scenario + "-", dir=output))
         prepare(base, scenario, args.certificate_root)
@@ -130,13 +173,15 @@ def parent(args):
             "--source", str(source), "--child", str(base), "--certificate-root", args.certificate_root)
         code = json.loads((base / "result.json").read_text())["exit_code"]
         errors = []
-        if (code == 0) != (scenario in ["success", "fresh-success"]):
+        if (code == 0) != (scenario in SUCCESS_SCENARIOS):
             errors.append("退出码不符合预期")
         if {name: digest(base / "install" / name) for name in protected} != before_protected:
             errors.append("业务文件被修改")
         if snapshot(base / "certificates") != before_certificates:
             errors.append("证书文件被修改")
-        if scenario in ["success", "fresh-success"]:
+        if scenario in SERVICE_GUARDS and snapshot(base / "install") != before_install:
+            errors.append("停服检查拒绝前已修改安装目录")
+        if scenario in SUCCESS_SCENARIOS:
             for name in ["scert", "scert-admin", "web/index.html"]:
                 if digest(base / "install" / name) != digest(source / name):
                     errors.append("安装文件内容不正确：" + name)
@@ -168,8 +213,11 @@ def parent(args):
         command_log = base / "systemctl.log"
         calls = command_log.read_text().splitlines() if command_log.exists() else []
         allowed = {"is-active --quiet Scert.service", "is-active --quiet Scert-admin.service", "daemon-reload"}
+        allowed.update("show " + name + " -p LoadState -p ActiveState -p SubState -p MainPID -p ControlPID -p Job" for name in ["Scert.service", "Scert-admin.service"])
         if any(call not in allowed for call in calls):
             errors.append("出现不允许的服务操作")
+        if scenario in SERVICE_GUARDS and "daemon-reload" in calls:
+            errors.append("停服检查失败仍加载服务配置")
         report = {"scenario": scenario, "exit_code": code, "errors": errors, "artifacts": str(base)}
         (base / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
         print(json.dumps(report, ensure_ascii=False), flush=True)
@@ -183,7 +231,7 @@ parser.add_argument("--source", required=True)
 parser.add_argument("--output")
 parser.add_argument("--child")
 parser.add_argument("--certificate-root", required=True)
-parser.add_argument("--scenarios", default="web-link,binary-directory,unit-failure,reload-failure,rollback-reload-failure,success,fresh-failure,fresh-success")
+parser.add_argument("--scenarios", default=",".join(SCENARIOS))
 arguments = parser.parse_args()
 if arguments.child:
     child(arguments)
