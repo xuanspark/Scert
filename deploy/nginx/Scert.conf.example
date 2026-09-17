@@ -1,24 +1,12 @@
 # 部署前替换管理域名、证书路径和端口占位符，不能直接加载本文件。
 # 管理域名由部署环境决定，不在应用代码中固定。
-server {
-    listen __HTTP_PORT__ default_server;
-    listen [::]:__HTTP_PORT__ default_server;
-    server_name _;
-    return 404;
-}
+# 与其他站点共用监听端口，不重复声明 default_server。
 
 server {
     listen __HTTP_PORT__;
     listen [::]:__HTTP_PORT__;
     server_name __MANAGEMENT_HOST__;
-    return 308 https://__MANAGEMENT_HOST__:__HTTPS_PORT__$request_uri;
-}
-
-server {
-    listen __HTTPS_PORT__ ssl default_server;
-    listen [::]:__HTTPS_PORT__ ssl default_server;
-    server_name _;
-    ssl_reject_handshake on;
+    return 308 __MANAGEMENT_ORIGIN__$request_uri;
 }
 
 server {
