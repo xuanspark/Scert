@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -18,17 +19,17 @@ type ManagementCertificateState struct {
 	CertificatePath string
 	PrivateKeyPath  string
 	NotAfter        time.Time
+	HTTPSMode       string
+	ManagementURL   string
+	DNSVerified     bool
+	Request         certificate.SetupCertificateRequest
 }
 
 // ManagementCertificate 返回实际配置的管理证书，不依赖业务域名仓储。
 func (s *Server) ManagementCertificate() (ManagementCertificateState, error) {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
-	state := ManagementCertificateState{
-		Hostname:        strings.TrimSpace(s.config.Web.Hostname),
-		CertificatePath: s.config.Server.TLSCert,
-		PrivateKeyPath:  s.config.Server.TLSKey,
-	}
+	state := s.managementCertificateState()
 	pair, err := tls.LoadX509KeyPair(state.CertificatePath, state.PrivateKeyPath)
 	if err != nil {
 		return state, fmt.Errorf("读取管理证书失败：%w", err)
@@ -41,13 +42,47 @@ func (s *Server) ManagementCertificate() (ManagementCertificateState, error) {
 	return state, nil
 }
 
+// 调用方持有配置锁；只返回续期需要的值，不暴露完整配置或通知凭据。
+func (s *Server) managementCertificateState() ManagementCertificateState {
+	return ManagementCertificateState{
+		Hostname:        strings.TrimSpace(s.config.Web.Hostname),
+		CertificatePath: s.config.Server.TLSCert,
+		PrivateKeyPath:  s.config.Server.TLSKey,
+		HTTPSMode:       s.config.Server.HTTPSMode,
+		ManagementURL:   s.config.ManagementURL(),
+		DNSVerified:     s.config.DNS.VerificationState == "verified",
+		Request: certificate.SetupCertificateRequest{
+			Domains: []string{strings.TrimSpace(s.config.Web.Hostname)}, CertificateType: "single",
+			ProviderID: s.config.DNS.Provider, CredentialRef: s.config.DNS.CredentialRef,
+			AccountEmail: s.config.ACME.AccountEmail, Environment: s.config.ACME.Environment,
+			CertificateRoot: s.config.Paths.Certificate, BackupRoot: s.config.Paths.Backup,
+		},
+	}
+}
+
 // ActivateTLSCertificate 先持久化完整证书路径，再切换不可变快照；失败不影响旧连接。
 // 此方法仅供进程内部续期流程调用，不提供上传或任意路径的 HTTP 接口。
 func (s *Server) ActivateTLSCertificate(certificatePath, privateKeyPath string) error {
+	return s.activateTLSCertificate(certificatePath, privateKeyPath, nil)
+}
+
+// ActivateManagementCertificate 拒绝覆盖签发期间发生的配置或证书变化。
+func (s *Server) ActivateManagementCertificate(expected ManagementCertificateState, saved certificate.SavedResource) error {
+	return s.activateTLSCertificate(saved.FullChainPath, saved.PrivateKeyPath, &expected)
+}
+
+func (s *Server) activateTLSCertificate(certificatePath, privateKeyPath string, expected *ManagementCertificateState) error {
 	s.tlsMu.Lock()
 	defer s.tlsMu.Unlock()
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
+	if expected != nil {
+		previous := *expected
+		previous.NotAfter = time.Time{}
+		if !reflect.DeepEqual(previous, s.managementCertificateState()) {
+			return errors.New("管理证书签发期间配置已变化，已拒绝覆盖")
+		}
+	}
 	if !s.config.SetupReady || strings.TrimSpace(s.configPath) == "" {
 		return errors.New("管理证书热更新需要已初始化的持久化配置")
 	}
@@ -64,6 +99,9 @@ func (s *Server) ActivateTLSCertificate(certificatePath, privateKeyPath string) 
 	now := time.Now()
 	if now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
 		return errors.New("新的管理证书不在有效期内")
+	}
+	if expected != nil && !leaf.NotAfter.After(expected.NotAfter) {
+		return errors.New("新的管理证书未延长实际有效期")
 	}
 	host := strings.TrimSpace(s.config.Web.Hostname)
 	if host == "" {

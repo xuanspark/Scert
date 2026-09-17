@@ -195,6 +195,24 @@ func TestTaskAPIRejectsUnknownTask(t *testing.T) {
 	}
 }
 
+func TestTaskAPICannotCancelManagementTaskWithoutExecutionControl(t *testing.T) {
+	server, tasks, _, closeDB := newTaskAPITestServer(t, nil)
+	defer closeDB()
+	item := repository.Task{ID: "management-task", DomainID: "management-certificate", TaskType: "management_renewal", Status: "running", Stage: "activate"}
+	if err := tasks.CreateTask(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+item.ID, nil))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("不应仅修改管理任务取消状态：%d %s", response.Code, response.Body.String())
+	}
+	stored, err := tasks.GetTask(t.Context(), item.ID)
+	if err != nil || stored.Status != "running" {
+		t.Fatalf("拒绝取消后任务状态变化：%+v %v", stored, err)
+	}
+}
+
 func TestTaskAPICanCancelRunningIssue(t *testing.T) {
 	started := make(chan struct{})
 	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(ctx context.Context, id string) (certificate.IssueResult, deployment.Report, error) {

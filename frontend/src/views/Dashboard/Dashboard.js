@@ -125,6 +125,7 @@ export function useDashboard() {
     cancelled: "已取消",
   };
   const taskTypeLabels = {
+    management_renewal: "管理证书续期",
     certificate_issue: "申请证书",
     certificate_import: "导入证书",
     certificate_deploy: "部署证书",
@@ -134,6 +135,7 @@ export function useDashboard() {
     dns_test: "DNS 在线测试",
   };
   const auditActionLabels = {
+    management_renewal: "管理证书续期",
     certificate_issue: "申请证书",
     certificate_import: "导入证书",
     certificate_deploy: "部署证书",
@@ -152,6 +154,12 @@ export function useDashboard() {
     renewal_run: "执行自动续期",
   };
   const taskStageLabels = {
+    management_renewal: "管理证书续期",
+    preflight: "续期前置检查",
+    issue: "申请管理证书",
+    activate: "激活管理证书",
+    record: "保存任务记录",
+    retry_wait: "等待续期重试",
     service_restart: "服务重启恢复",
     queued: "排队中",
     certificate_issue: "申请证书",

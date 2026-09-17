@@ -467,6 +467,8 @@ func eventTypeName(value string) string {
 		return "证书申请"
 	case "certificate_renewal":
 		return "证书续期"
+	case "management_renewal":
+		return "管理证书续期"
 	case "certificate_import":
 		return "证书导入"
 	default:

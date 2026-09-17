@@ -23,6 +23,14 @@ async function fill(state) {
   await nextTick();
 }
 
+test("管理续期的任务类型、审计和阶段使用中文", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  assert.equal(state.taskTypeLabel("management_renewal"), "管理证书续期");
+  assert.equal(state.auditActionLabel("management_renewal"), "管理证书续期");
+  assert.equal(state.taskStageLabel("activate"), "激活管理证书");
+  assert.equal(state.taskStageLabel("retry_wait"), "等待续期重试");
+});
+
 test("已保存凭据不变可保存，输入新凭据必须重新验证", async (t) => {
   const { state } = await setup(t, () => verifiedResponse());
   assert.equal(state.dnsReadyToSave.value, true);

@@ -231,7 +231,7 @@ const {
                   查看详情
                 </button>
                 <button
-                  v-if="item.status === 'queued' || item.status === 'running'"
+                  v-if="item.task_type !== 'management_renewal' && (item.status === 'queued' || item.status === 'running')"
                   class="text-button"
                   type="button"
                   @click="cancelTask(item)"

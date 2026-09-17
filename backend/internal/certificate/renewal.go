@@ -18,6 +18,11 @@ type CertificateIssuer interface {
 	Issue(ctx context.Context, domainID string) (IssueResult, error)
 }
 
+// ManagementRenewalCheck 独立检查管理入口，不将其伪装为业务域名。
+type ManagementRenewalCheck interface {
+	RunRenewal(context.Context, RenewalPolicy, time.Time) (RenewalReport, error)
+}
+
 type RenewalPolicy struct {
 	CheckInterval       time.Duration
 	NearExpiryThreshold time.Duration
@@ -28,17 +33,18 @@ type RenewalPolicy struct {
 }
 
 type RenewalScheduler struct {
-	lister   DomainLister
-	issuer   CertificateIssuer
-	policy   RenewalPolicy
-	now      func() time.Time
-	mu       sync.Mutex
-	policyMu sync.RWMutex
-	runMu    sync.Mutex
-	running  bool
-	cancel   context.CancelFunc
-	done     chan struct{}
-	wake     chan struct{}
+	lister     DomainLister
+	issuer     CertificateIssuer
+	management ManagementRenewalCheck
+	policy     RenewalPolicy
+	now        func() time.Time
+	mu         sync.Mutex
+	policyMu   sync.RWMutex
+	runMu      sync.Mutex
+	running    bool
+	cancel     context.CancelFunc
+	done       chan struct{}
+	wake       chan struct{}
 }
 
 type RenewalReport struct {
@@ -68,6 +74,12 @@ func NewRenewalScheduler(lister DomainLister, issuer CertificateIssuer, threshol
 func NewRenewalSchedulerWithPolicy(lister DomainLister, issuer CertificateIssuer, policy RenewalPolicy) *RenewalScheduler {
 	policy = normalizeRenewalPolicy(policy)
 	return &RenewalScheduler{lister: lister, issuer: issuer, policy: policy, now: time.Now, wake: make(chan struct{}, 1)}
+}
+
+func NewRenewalSchedulerWithManagement(lister DomainLister, issuer CertificateIssuer, policy RenewalPolicy, management ManagementRenewalCheck) *RenewalScheduler {
+	s := NewRenewalSchedulerWithPolicy(lister, issuer, policy)
+	s.management = management
+	return s
 }
 
 func (s *RenewalScheduler) UpdatePolicy(policy RenewalPolicy) {
@@ -103,14 +115,28 @@ func (s *RenewalScheduler) RunOnce(ctx context.Context) (RenewalReport, error) {
 		return RenewalReport{}, errors.New("自动续期任务正在执行")
 	}
 	defer s.runMu.Unlock()
-	items, err := s.lister.List(ctx)
-	if err != nil {
-		return RenewalReport{}, fmt.Errorf("查询续期域名失败：%w", err)
-	}
-	report := RenewalReport{Checked: len(items)}
 	policy := s.Policy()
 	now := s.now().UTC()
+	var report RenewalReport
+	var managementErr error
+	if s.management != nil {
+		report, managementErr = s.management.RunRenewal(ctx, policy, now)
+		if managementErr != nil {
+			report.Errors = append(report.Errors, "管理证书续期检查失败")
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return report, errors.Join(managementErr, err)
+	}
+	items, err := s.lister.List(ctx)
+	if err != nil {
+		return report, errors.Join(managementErr, fmt.Errorf("查询续期域名失败：%w", err))
+	}
+	report.Checked += len(items)
 	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return report, errors.Join(managementErr, err)
+		}
 		if !item.AutoRenew || item.Status == "issuing" {
 			continue
 		}
@@ -133,7 +159,7 @@ func (s *RenewalScheduler) RunOnce(ctx context.Context) (RenewalReport, error) {
 		}
 		report.Succeeded++
 	}
-	return report, nil
+	return report, managementErr
 }
 
 func (s *RenewalScheduler) Start(ctx context.Context) {
@@ -167,7 +193,7 @@ func (s *RenewalScheduler) Start(ctx context.Context) {
 		report, err := s.RunOnce(runCtx)
 		for {
 			interval := s.Policy().CheckInterval
-			if err == nil && report.NearExpiry > 0 {
+			if (report.NearExpiry > 0 || err != nil) && interval > 24*time.Hour {
 				interval = 24 * time.Hour
 			}
 			timer := time.NewTimer(interval)
@@ -180,6 +206,7 @@ func (s *RenewalScheduler) Start(ctx context.Context) {
 			case <-timer.C:
 			case <-s.wake:
 			}
+			timer.Stop()
 			if runCtx.Err() != nil {
 				return
 			}

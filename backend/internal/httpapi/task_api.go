@@ -201,6 +201,10 @@ func (s *Server) cancelTask(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "任务当前无法取消", "task": item})
 		return
 	}
+	if item.TaskType == "management_renewal" {
+		c.JSON(http.StatusConflict, gin.H{"error": "管理证书任务由续期调度控制，不能单独修改取消状态", "task": item})
+		return
+	}
 	finished := time.Now().UTC()
 	if err := s.tasks.CancelTask(c.Request.Context(), taskID, "任务已由用户取消", &finished); err != nil {
 		s.writeError(c, http.StatusConflict, "取消任务失败", err)

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 )
 
@@ -173,6 +174,75 @@ func TestTLSCertificateRotationPersistsAndServesWithoutRestart(t *testing.T) {
 	stored, err = config.Load(f.server.configPath)
 	if err != nil || stored.Server.TLSCert != f.firstCertificate {
 		t.Fatalf("回退未持久化：%v", err)
+	}
+}
+
+func TestManagementActivationRejectsChangedConfiguration(t *testing.T) {
+	for _, field := range []string{"hostname", "dns", "mode", "certificate", "root"} {
+		t.Run(field, func(t *testing.T) {
+			f := newRotationFixture(t)
+			state, err := f.server.ManagementCertificate()
+			if err != nil {
+				t.Fatal(err)
+			}
+			certificatePath, keyPath := f.issue(t, 3, state.Hostname, time.Now().Add(-time.Hour), time.Now().Add(30*time.Hour))
+			f.server.configMu.Lock()
+			switch field {
+			case "hostname":
+				f.server.config.Web.Hostname = "changed.example.test"
+			case "dns":
+				f.server.config.DNS.CredentialRef = "secret://dns/changed"
+			case "mode":
+				f.server.config.Server.HTTPSMode = "proxy"
+			case "certificate":
+				f.server.config.Server.TLSCert = "changed.pem"
+			case "root":
+				f.server.config.Paths.Certificate = "changed-root"
+			}
+			f.server.configMu.Unlock()
+			if err := f.server.ActivateManagementCertificate(state, certificate.SavedResource{FullChainPath: certificatePath, PrivateKeyPath: keyPath}); err == nil {
+				t.Fatal("签发期间配置变化未阻止覆盖")
+			}
+			if serial, err := f.serial(); err != nil || serial != 2 {
+				t.Fatalf("拒绝更新后旧证书不可用：%d %v", serial, err)
+			}
+		})
+	}
+}
+
+func TestManagementActivationUsesCurrentSnapshot(t *testing.T) {
+	f := newRotationFixture(t)
+	state, err := f.server.ManagementCertificate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.DNSVerified || len(state.Request.Domains) != 1 || state.Request.Domains[0] != state.Hostname {
+		t.Fatalf("管理续期状态不完整：%+v", state)
+	}
+	certificatePath, keyPath := f.issue(t, 3, state.Hostname, time.Now().Add(-time.Hour), time.Now().Add(30*time.Hour))
+	if err := f.server.ActivateManagementCertificate(state, certificate.SavedResource{FullChainPath: certificatePath, PrivateKeyPath: keyPath}); err != nil {
+		t.Fatal(err)
+	}
+	if serial, err := f.serial(); err != nil || serial != 3 {
+		t.Fatalf("管理证书未激活：%d %v", serial, err)
+	}
+}
+
+func TestManagementActivationChecksActualExpiryInsteadOfSavedMetadata(t *testing.T) {
+	f := newRotationFixture(t)
+	state, err := f.server.ManagementCertificate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificatePath, keyPath := f.issue(t, 3, state.Hostname, time.Now().Add(-time.Hour), state.NotAfter.Add(-time.Hour))
+	err = f.server.ActivateManagementCertificate(state, certificate.SavedResource{
+		FullChainPath: certificatePath, PrivateKeyPath: keyPath, NotAfter: state.NotAfter.Add(time.Hour),
+	})
+	if err == nil {
+		t.Fatal("候选元数据不能替代证书实际有效期检查")
+	}
+	if serial, err := f.serial(); err != nil || serial != 2 {
+		t.Fatalf("拒绝短有效期候选后旧证书不可用：%d %v", serial, err)
 	}
 }
 

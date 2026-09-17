@@ -134,15 +134,22 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		NotifyError:        func(err error) { logger.Error("发送邮件通知失败", "error", err) },
 		CurrentCertificate: certificates.Current,
 	}
-	renewal := certificate.NewRenewalSchedulerWithPolicy(repo, workflow, certificate.RenewalPolicy{
+	var server *httpapi.Server
+	management := &managementRenewal{
+		readState: func() (httpapi.ManagementCertificateState, error) { return server.ManagementCertificate() },
+		issue:     certificates.IssueForSetup,
+		tasks:     taskRepo, audit: auditRepo, notifier: notifier,
+		notifyError: func(err error) { logger.Error("管理证书续期或通知失败", "error", err) },
+	}
+	renewal := certificate.NewRenewalSchedulerWithManagement(repo, workflow, certificate.RenewalPolicy{
 		CheckInterval:       time.Duration(cfg.ACME.RenewalCheckIntervalDays) * 24 * time.Hour,
 		NearExpiryThreshold: time.Duration(cfg.ACME.RenewalNearExpiryDays) * 24 * time.Hour,
 		RenewalThreshold:    time.Duration(cfg.ACME.RenewalThresholdDays) * 24 * time.Hour,
 		UrgentThreshold:     time.Duration(cfg.ACME.RenewalUrgentThresholdDays) * 24 * time.Hour,
 		MaxRetries:          cfg.ACME.RenewalMaxRetries,
 		RetryInterval:       time.Duration(cfg.ACME.RenewalRetryIntervalMins) * time.Minute,
-	})
-	server := httpapi.New(httpapi.Dependencies{
+	}, management)
+	server = httpapi.New(httpapi.Dependencies{
 		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, SSHKeys: sshKeys,
 		SetupDNS: dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(), AliyunChecker: aliyunAuthChecker,
 		IssueCertificate: workflow.IssueForHTTP,
@@ -173,6 +180,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		Tasks:               taskRepo,
 		ReadinessCheck:      db.DB.PingContext,
 	})
+	management.activator = directManagementActivator{server: server}
 	application := &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,
 		Servers:     serverRepo,
