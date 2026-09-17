@@ -19,6 +19,40 @@ test("已有初始化服务商选择保持兼容", async (t) => {
   assert.equal(state.form.value.dns_provider, "cloudflare");
 });
 
+test("邮箱定时同步不能清除步骤校验错误，手动编辑仍可清除", async (t) => {
+  const { state, runIntervals } = await mountComposable(t,
+    () => useSetupWizard({ status: { mode: "bootstrap" } }, () => {}),
+    async () => Response.json({ items: [aliyunProvider] }));
+  Object.assign(state.form.value, {
+    admin_username: "test-admin",
+    admin_password: "TestPass123",
+    confirm_password: "TestPass123",
+    web_hostname: "scert.example.test",
+  });
+  state.emailInputElement.value = { value: "admin@example.test" };
+  state.emailAutofillElement.value = { value: "" };
+  state.handleEmailInput("admin@example.test");
+  state.handleSubmit();
+  assert.equal(state.error.value, "请先验证所选数据库的连接和写权限。");
+  for (let i = 0; i < 8; i += 1) runIntervals();
+  assert.equal(state.error.value, "请先验证所选数据库的连接和写权限。");
+  assert.equal(state.currentStep.value, 1);
+  state.handleEmailInput("changed@example.test");
+  assert.equal(state.error.value, "");
+});
+
+test("自动填充同步新邮箱时保留其他字段的错误", async (t) => {
+  const { state, runIntervals } = await mountComposable(t,
+    () => useSetupWizard({ status: {} }, () => {}),
+    async () => Response.json({ items: [aliyunProvider] }));
+  state.emailInputElement.value = { value: "" };
+  state.emailAutofillElement.value = { value: "autofill@example.test" };
+  state.error.value = "两次输入的超级管理员密码不一致。";
+  runIntervals();
+  assert.equal(state.form.value.admin_email, "autofill@example.test");
+  assert.equal(state.error.value, "两次输入的超级管理员密码不一致。");
+});
+
 async function setup(t, request) {
   const mounted = await mountComposable(t, () => useSetupWizard({ status: { dns_provider: "aliyun" } }, () => {}),
     async (path) => path.endsWith("/providers") ? Response.json({ items: [aliyunProvider] }) : request());

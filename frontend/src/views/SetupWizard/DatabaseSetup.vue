@@ -17,7 +17,12 @@ const emit = defineEmits(["test"]);
     <div class="setup-grid two-columns">
       <label>
         <span>数据库类型</span>
-        <select v-model="form.driver" :disabled="testing">
+        <select
+          id="database-driver"
+          name="database_driver"
+          v-model="form.driver"
+          :disabled="testing"
+        >
           <option value="sqlite">SQLite（本机文件，无需额外服务）</option>
           <option value="mysql">MySQL</option>
           <option value="postgres">PostgreSQL</option>
@@ -26,27 +31,61 @@ const emit = defineEmits(["test"]);
       <template v-if="form.driver !== 'sqlite'">
         <label>
           <span>数据库主机</span>
-          <input v-model.trim="form.host" autocomplete="off" placeholder="db.example.com" />
+          <input
+            id="database-host"
+            name="database_host"
+            v-model.trim="form.host"
+            autocomplete="off"
+            placeholder="db.example.com"
+          />
         </label>
         <label>
           <span>数据库端口</span>
-          <input v-model.number="form.port" type="number" min="1" max="65535" />
+          <input
+            id="database-port"
+            name="database_port"
+            v-model.number="form.port"
+            type="number"
+            min="1"
+            max="65535"
+          />
         </label>
         <label>
           <span>数据库名称</span>
-          <input v-model.trim="form.database" autocomplete="off" />
+          <input
+            id="database-name"
+            name="database_name"
+            v-model.trim="form.database"
+            autocomplete="off"
+          />
         </label>
         <label>
           <span>数据库用户名</span>
-          <input v-model.trim="form.username" autocomplete="off" />
+          <input
+            id="database-username"
+            name="database_username"
+            v-model.trim="form.username"
+            autocomplete="off"
+          />
         </label>
         <label>
           <span>数据库密码</span>
-          <input v-model="form.password" type="password" autocomplete="new-password" />
+          <input
+            id="database-password"
+            name="database_password"
+            v-model="form.password"
+            type="password"
+            autocomplete="new-password"
+          />
         </label>
         <label v-if="form.driver === 'postgres'">
           <span>根证书路径（服务器绝对路径，可选）</span>
-          <input v-model.trim="form.root_certificate" placeholder="使用系统信任库时留空" />
+          <input
+            id="database-root-certificate"
+            name="database_root_certificate"
+            v-model.trim="form.root_certificate"
+            placeholder="使用系统信任库时留空"
+          />
         </label>
       </template>
     </div>

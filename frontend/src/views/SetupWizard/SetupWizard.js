@@ -247,9 +247,9 @@ export function useSetupWizard(props, emit) {
     emailAutofillElement.value.value = String(value || "");
   }
 
-  function handleEmailInput(value) {
+  function handleEmailInput(value, clearError = true) {
     emailVisibleEdited = true;
-    error.value = "";
+    if (clearError) error.value = "";
     const rawValue = String(value || "").trim();
 
     if (!rawValue) {
@@ -314,7 +314,8 @@ export function useSetupWizard(props, emit) {
     if (!rawValue) return;
 
     if (rawValue.includes("@") || rawValue !== emailLocalPart.value) {
-      handleEmailInput(rawValue);
+      // 自动同步不应清除数据库、密码等其他字段的校验结果。
+      handleEmailInput(rawValue, false);
       return;
     }
 

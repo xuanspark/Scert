@@ -22,6 +22,22 @@
   gap: 16px;
 }
 
+.warning-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+  line-height: 1.7;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.warning-card strong {
+  font-size: 13px;
+}
+
 .setup-eyebrow {
   margin: 0 0 6px;
   color: #4d76b7;
@@ -188,6 +204,7 @@ legend span {
 .setup-grid {
   min-width: 0;
   display: grid;
+  align-items: start;
   gap: 9px 12px;
 }
 
@@ -202,6 +219,7 @@ legend span {
 label {
   min-width: 0;
   display: grid;
+  align-content: start;
   gap: 5px;
   margin-top: 8px;
   color: #34445f;
