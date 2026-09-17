@@ -44,6 +44,42 @@ async function setup(t, complete = completion, driver = "sqlite") {
   return { ...mounted, submitted, emitted };
 }
 
+test("数据库验证成功清除过时的数据库步骤提示", async (t) => {
+  const { state } = await setup(t);
+  for (const message of [
+    "请先验证所选数据库的连接和写权限。",
+    "数据库验证结果无效或已过期，请重新验证。",
+  ]) {
+    state.invalidateDatabase();
+    state.error.value = message;
+    await state.testDatabase();
+    assert.equal(state.databaseVerified.value, true);
+    assert.equal(state.error.value, "");
+  }
+});
+
+test("数据库验证成功不清除其他字段错误", async (t) => {
+  const { state } = await setup(t);
+  state.invalidateDatabase();
+  state.error.value = "两次输入的超级管理员密码不一致。";
+  await state.testDatabase();
+  assert.equal(state.databaseVerified.value, true);
+  assert.equal(state.error.value, "两次输入的超级管理员密码不一致。");
+});
+
+test("数据库验证失败不清除步骤提示", async (t) => {
+  const { state } = await mountComposable(t,
+    () => useSetupWizard({ status: { mode: "bootstrap" } }, () => {}),
+    async (path) => path.endsWith("/providers")
+      ? Response.json({ items: [aliyunProvider] })
+      : Response.json({ error: "数据库连接失败。" }, { status: 400 }));
+  state.error.value = "请先验证所选数据库的连接和写权限。";
+  await state.testDatabase();
+  assert.equal(state.databaseVerified.value, false);
+  assert.equal(state.error.value, "请先验证所选数据库的连接和写权限。");
+  assert.equal(state.databaseError.value, "数据库连接失败。");
+});
+
 for (const driver of ["sqlite", "mysql", "postgres"]) {
   test(`首次向导 ${driver} 完整流程只提交验证令牌并保留通知配置`, async (t) => {
     const { state, submitted, emitted } = await setup(t, completion, driver);

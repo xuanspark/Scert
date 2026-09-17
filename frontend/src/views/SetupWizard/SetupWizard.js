@@ -4,6 +4,8 @@ import { bootstrapPayload } from "./BootstrapPayload.js";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
 const aliyunDNSVerificationTimeoutSeconds = 6;
+const databaseRequiredMessage = "请先验证所选数据库的连接和写权限。";
+const databaseExpiredMessage = "数据库验证结果无效或已过期，请重新验证。";
 
 function dnsVerificationTimeoutFor(providerID) {
   return String(providerID || "").trim().toLowerCase() === "aliyun"
@@ -49,6 +51,11 @@ export function useSetupWizard(props, emit) {
   const dnsVerification = ref(null);
   const verificationClock = ref(Date.now());
   const database = useDatabaseSetup(verificationClock);
+  watch(database.databaseVerified, (verified) => {
+    if (verified && [databaseRequiredMessage, databaseExpiredMessage].includes(error.value)) {
+      error.value = "";
+    }
+  }, { flush: "sync" });
   const completed = ref(false);
   const currentStep = ref(1);
   const notificationAdvancedVisible = ref(false);
@@ -545,7 +552,7 @@ export function useSetupWizard(props, emit) {
         return false;
       }
       if (isBootstrap && !database.databaseVerified.value) {
-        error.value = "请先验证所选数据库的连接和写权限。";
+        error.value = databaseRequiredMessage;
         return false;
       }
     }
@@ -719,7 +726,7 @@ export function useSetupWizard(props, emit) {
     error.value = "";
     resultMessage.value = "";
     if (isBootstrap && !database.databaseVerified.value) {
-      error.value = "数据库验证结果无效或已过期，请重新验证。";
+      error.value = databaseExpiredMessage;
       return;
     }
     if (!dnsVerificationValid.value) {
