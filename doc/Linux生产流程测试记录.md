@@ -1,6 +1,43 @@
 # Linux 生产流程测试记录
 
-## 当前进展：管理证书热更新
+## 当前进展：管理证书存储隔离
+
+2026-09-18 接续优化，修改前检查点 `6d7972f`、代码提交 `ec432f0` 均已推送。已修复同名业务证书更新可能清理管理入口引用目录的问题；正式程序尚未替换，本节不表示整体验收完成。
+
+### 已验证的存储边界
+
+- [✓] 新申请的管理域名证书存入 `<证书根目录>/management-domain/<域名>/<类型>/<版本>`，管理备份也使用独立的 `management-domain` 子目录；域名来自配置，不写死测试域名。
+- [✓] 单域名、泛域名和 SAN 的管理申请与同名业务签发互不覆盖；业务当前证书读取不会选中管理候选。
+- [✓] 兼容既有配置：通过服务启动配置中的管理证书或私钥路径保护旧业务目录中的引用，不迁移、不删除已部署的管理证书。
+- [✓] 引用保护识别符号链接，不把相同字符串前缀的相邻目录误认为子目录；引用无法解析时，在备份或候选写入之前返回错误。
+- [✓] 既有管理引用经过同名业务签发和导入仍保持全部文件字节不变；无管理引用的业务旧版本继续按原单当前版本规则清理。
+- [✓] 无效管理存储根目录在凭据读取和外部调用之前被拒绝；阿里云保护域名检查仍优先执行。
+
+### 验证证据
+
+Windows 工作区执行以下命令全部通过：
+
+```sh
+go test -p=2 ./...
+go test -race ./internal/certificate -run 'TestManagement|TestFileStore|TestServiceIssuesSetup|TestAliyun' -count=1
+go vet -p=2 ./internal/certificate ./internal/httpapi ./internal/app ./internal/bootstrap
+git diff --cached --check
+```
+
+从提交 `ec432f0` 对应源码交叉编译 Linux 测试程序，本地 `.runtime/certificate-isolation-ec432f0.test` 与远端 `/scert/acceptance-20260917-1044/certificate-isolation-ec432f0.test` 的 SHA-256 均为 `e4828059a3deff60d86e4b39c1bc0f310785e395c185cf5c8b9ebf373f9465c8`。
+
+在真实 Linux 上，以 `Scert` 用户运行独立单元 `scert-isolation-ec432f0.service`：内存上限 128 MiB、禁用 Swap、CPU 50%、最多 48 个任务，开启私有临时目录、隔离网络、只读系统、禁止提权及隐藏用户目录。测试匹配上述定向表达式，包含 Linux 符号链接用例，全部通过且无跳过；单元退出零，运行 1.861 秒，峰值内存 7.8 MiB、Swap 为零。日志可通过 `journalctl -u scert-isolation-ec432f0.service` 查询。所有测试使用新建临时证书与目录，不访问正式数据库、真实 DNS 或 ACME。
+
+结束时隔离单元 `inactive`、PID 为零；正式 Scert PID `579364`、Nginx `578671`、MySQL `549584` 均未变。通过本机回环地址访问 Nginx 的管理域名、严格验证 TLS 后，`/readyz` 返回 200 和 `status=ready`，`nginx -t` 通过。此项是部署机回环复核，不替代上一轮独立 Linux 公网探测，也不代表新程序已正式部署。
+
+### 剩余验收项
+
+- [x] 管理证书存储隔离及旧引用保护已完成本地与 Linux 组件复审，等待包含该提交的正式候选部署验证。
+- [ ] 将管理证书纳入续期调度，补齐持久化任务、审计及通知；当前调度仍只处理业务域名。
+- [ ] 在不扩大 Scert 服务权限的前提下接通 Nginx 证书更新，完成双层 TLS 激活、就绪等待和失败回退。
+- [ ] 最新候选构建与 Linux 部署、真实目标机推送、通知送达、完整灾难恢复及容量验收。
+
+## 前序进展：管理证书热更新
 
 2026-09-18 接续优化，代码提交 `9074d83` 已推送；修改前检查点为 `230cbaa`。本节是续期基础能力的本地和 Linux 隔离验证，不是线上自动续期已完成。
 
