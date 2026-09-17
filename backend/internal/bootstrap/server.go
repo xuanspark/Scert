@@ -187,7 +187,7 @@ func bootstrapHandler(router *Router, cfg config.Config) (http.Handler, func()) 
 			writeBootstrapJSON(writer, http.StatusOK, map[string]any{
 				"mode": "bootstrap", "initialized": false, "server_port": cfg.Server.Port,
 				"web_enabled": true, "web_hostname": cfg.Web.Hostname, "web_public_ip": cfg.Web.PublicIP,
-				"https_mode": cfg.Server.HTTPSMode, "certificate_root": cfg.Paths.Certificate,
+				"https_mode": cfg.Server.HTTPSMode, "proxy_https_port": cfg.Server.ProxyHTTPSPort, "certificate_root": cfg.Paths.Certificate,
 				"dns_provider": dnsprovider.Aliyun, "acme_environment": cfg.ACME.Environment,
 				"propagation_timeout_secs":          cfg.ACME.PropagationTimeoutSecs,
 				"propagation_polling_interval_secs": cfg.ACME.PropagationPollingIntervalSecs,

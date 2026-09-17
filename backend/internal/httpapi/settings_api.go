@@ -24,9 +24,10 @@ type settingsView struct {
 }
 
 type settingsServerView struct {
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	HTTPSMode string `json:"https_mode"`
+	ProxyHTTPSPort int    `json:"proxy_https_port"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	HTTPSMode      string `json:"https_mode"`
 }
 
 type settingsWebView struct {
@@ -96,9 +97,10 @@ type settingsRequest struct {
 }
 
 type settingsServerRequest struct {
-	Host      *string `json:"host"`
-	Port      *int    `json:"port"`
-	HTTPSMode *string `json:"https_mode"`
+	ProxyHTTPSPort *int    `json:"proxy_https_port"`
+	Host           *string `json:"host"`
+	Port           *int    `json:"port"`
+	HTTPSMode      *string `json:"https_mode"`
 }
 
 type settingsWebRequest struct {
@@ -329,7 +331,7 @@ func nonRenewalACMEConfig(cfg config.ACMEConfig) config.ACMEConfig {
 
 func settingsViewFromConfig(cfg config.Config) settingsView {
 	return settingsView{
-		Server: settingsServerView{Host: cfg.Server.Host, Port: cfg.Server.Port, HTTPSMode: cfg.Server.HTTPSMode},
+		Server: settingsServerView{Host: cfg.Server.Host, Port: cfg.Server.Port, HTTPSMode: cfg.Server.HTTPSMode, ProxyHTTPSPort: cfg.Server.ProxyHTTPSPort},
 		Web:    settingsWebView{Enabled: cfg.Web.Enabled, Hostname: cfg.Web.Hostname, PublicIP: cfg.Web.PublicIP},
 		Paths:  settingsPathsView{Certificate: cfg.Paths.Certificate},
 		ACME: settingsACMEView{
@@ -372,6 +374,9 @@ func applySettingsRequest(cfg *config.Config, request settingsRequest) {
 		}
 		if request.Server.HTTPSMode != nil {
 			cfg.Server.HTTPSMode = strings.TrimSpace(*request.Server.HTTPSMode)
+		}
+		if request.Server.ProxyHTTPSPort != nil {
+			cfg.Server.ProxyHTTPSPort = *request.Server.ProxyHTTPSPort
 		}
 	}
 	if request.Web != nil {

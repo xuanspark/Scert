@@ -5,11 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +63,7 @@ type CompleteRequest struct {
 	AdminEmail                     string             `json:"admin_email"`
 	AdminPassword                  string             `json:"admin_password"`
 	ServerPort                     int                `json:"server_port"`
+	ProxyHTTPSPort                 int                `json:"proxy_https_port"`
 	WebHostname                    string             `json:"web_hostname"`
 	WebPublicIP                    string             `json:"web_public_ip"`
 	WebEnabled                     bool               `json:"web_enabled"`
@@ -264,7 +262,7 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 		PropagationPollingIntervalSecs: request.PropagationPollingIntervalSecs,
 		CertificateRoot:                candidate.Paths.Certificate,
 		WebHostname:                    request.WebHostname, WebPublicIP: request.WebPublicIP,
-		WebEnabled: request.WebEnabled, HTTPSMode: request.HTTPSMode,
+		WebEnabled: request.WebEnabled, HTTPSMode: request.HTTPSMode, ProxyHTTPSPort: request.ProxyHTTPSPort,
 	}
 	applyNotificationInput(&input, notification)
 	if err := setup.Apply(&candidate, input); err != nil {
@@ -503,17 +501,7 @@ func (completer *Completer) cleanupCredential(cleanup func() error, message stri
 }
 
 func managementURL(candidate config.Config) string {
-	host := strings.TrimSpace(candidate.Web.Hostname)
-	if host == "" {
-		host = strings.TrimSpace(candidate.Web.PublicIP)
-	}
-	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil && ip.To4() == nil {
-		host = "[" + ip.String() + "]"
-	}
-	if candidate.Server.HTTPSMode != "proxy" && candidate.Server.Port != 443 {
-		host = net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(candidate.Server.Port))
-	}
-	return (&url.URL{Scheme: "https", Host: host, Path: "/"}).String()
+	return candidate.ManagementURL()
 }
 
 func completeError(kind CompleteErrorKind, message string, err error) error {

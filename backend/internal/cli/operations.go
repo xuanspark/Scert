@@ -654,6 +654,12 @@ func setConfigValue(cfg *config.Config, key, value string) error {
 		cfg.Server.Port = parsed
 	case "server.https_mode":
 		cfg.Server.HTTPSMode = value
+	case "server.proxy_https_port":
+		parsed, err := parseInt()
+		if err != nil {
+			return fmt.Errorf("代理 HTTPS 端口格式无效：%w", err)
+		}
+		cfg.Server.ProxyHTTPSPort = parsed
 	case "web.enabled":
 		parsed, err := parseBool()
 		if err != nil {

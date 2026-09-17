@@ -176,22 +176,29 @@ func TestManagementURLHandlesDirectAndProxyEntrypoints(t *testing.T) {
 	for _, item := range []struct {
 		hostname, ip, mode string
 		port               int
+		proxyPort          int
 		want               string
 	}{
-		{"admin.example.test", "", "direct", 443, "https://admin.example.test/"},
-		{"admin.example.test", "", "direct", 8443, "https://admin.example.test:8443/"},
-		{"admin.example.test", "", "proxy", 8080, "https://admin.example.test/"},
-		{"", "203.0.113.70", "direct", 8443, "https://203.0.113.70:8443/"},
-		{"", "2001:db8::70", "direct", 443, "https://[2001:db8::70]/"},
-		{"", "2001:db8::70", "direct", 8443, "https://[2001:db8::70]:8443/"},
-		{"", "2001:db8::70", "proxy", 8080, "https://[2001:db8::70]/"},
+		{"admin.example.test", "", "direct", 443, 8004, "https://admin.example.test/"},
+		{"admin.example.test", "", "direct", 8443, 8004, "https://admin.example.test:8443/"},
+		{"admin.example.test", "", "proxy", 8080, 0, "https://admin.example.test/"},
+		{"admin.example.test", "", "proxy", 9004, 8004, "https://admin.example.test:8004/"},
+		{"other.example.test", "", "proxy", 9004, 443, "https://other.example.test/"},
+		{"", "203.0.113.70", "direct", 8443, 0, "https://203.0.113.70:8443/"},
+		{"", "2001:db8::70", "direct", 443, 0, "https://[2001:db8::70]/"},
+		{"", "2001:db8::70", "direct", 8443, 0, "https://[2001:db8::70]:8443/"},
+		{"", "2001:db8::70", "proxy", 8080, 0, "https://[2001:db8::70]/"},
+		{"", "2001:db8::70", "proxy", 9004, 8004, "https://[2001:db8::70]:8004/"},
 	} {
 		candidate := config.Config{
 			Web:    config.WebConfig{Hostname: item.hostname, PublicIP: item.ip},
-			Server: config.ServerConfig{Port: item.port, HTTPSMode: item.mode},
+			Server: config.ServerConfig{Port: item.port, HTTPSMode: item.mode, ProxyHTTPSPort: item.proxyPort},
 		}
 		if actual := managementURL(candidate); actual != item.want {
 			t.Fatalf("管理入口不正确：实际=%s，预期=%s", actual, item.want)
+		}
+		if actual := candidate.ResetURL(); actual != item.want+"reset" {
+			t.Fatalf("重置入口与管理入口不一致：%s", actual)
 		}
 	}
 }

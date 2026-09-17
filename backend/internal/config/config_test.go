@@ -113,12 +113,12 @@ func TestValidateProtectsExternalDatabasePasswords(t *testing.T) {
 	}
 }
 
-func TestResetURLAlwaysUsesWebHostnameWithoutPort(t *testing.T) {
+func TestResetURLUsesDirectEntrypointPort(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.Server.Port = 8443
-	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
-		t.Fatalf("密码重置地址不得暴露主服务端口：%s", value)
+	if value := cfg.ResetURL(); value != "https://scert.example.test:8443/reset" {
+		t.Fatalf("密码重置地址应使用直接监听端口：%s", value)
 	}
 	cfg.Server.Port = 443
 	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
@@ -126,11 +126,11 @@ func TestResetURLAlwaysUsesWebHostnameWithoutPort(t *testing.T) {
 	}
 }
 
-func TestResetURLSupportsPublicIPv6WithoutPort(t *testing.T) {
+func TestResetURLSupportsPublicIPv6WithPort(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.Web.PublicIP = "2001:db8::10"
 	cfg.Server.Port = 8443
-	if value := cfg.ResetURL(); value != "https://[2001:db8::10]/reset" {
+	if value := cfg.ResetURL(); value != "https://[2001:db8::10]:8443/reset" {
 		t.Fatalf("IPv6 密码重置地址不正确：%s", value)
 	}
 }
@@ -156,6 +156,7 @@ func TestResetURLIgnoresExplicitPortAndURLInput(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.Web.Hostname = "https://scert.example.test:9443"
 	cfg.Server.Port = 5200
+	cfg.Server.HTTPSMode = "proxy"
 	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
 		t.Fatalf("外部地址中的显式端口不得出现在重置地址中：%s", value)
 	}
@@ -165,6 +166,7 @@ func TestResetURLIgnoresPathFromWebHostname(t *testing.T) {
 	cfg := Default(t.TempDir())
 	cfg.Web.Hostname = "scert.example.test/manage"
 	cfg.Server.Port = 8443
+	cfg.Server.HTTPSMode = "proxy"
 	if value := cfg.ResetURL(); value != "https://scert.example.test/reset" {
 		t.Fatalf("管理页面域名附带路径时重置地址不正确：%s", value)
 	}

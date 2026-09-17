@@ -358,7 +358,7 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	if !strings.Contains(response.Body.String(), `"firewall"`) || !strings.Contains(response.Body.String(), `"created":true`) {
 		t.Fatalf("初始化响应应返回本机防火墙结果：%s", response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"reset_url":"https://scert.example.test/reset"`) {
+	if !strings.Contains(response.Body.String(), `"reset_url":"https://scert.example.test:8443/reset"`) {
 		t.Fatalf("初始化响应应返回根据 Web 地址生成的密码重置路径：%s", response.Body.String())
 	}
 

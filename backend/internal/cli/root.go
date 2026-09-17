@@ -128,6 +128,7 @@ func newInitCommandWithDependencies(firewallManager firewall.Manager, issue init
 		recipients, dnsProvider, dnsCredentialRef, certificateRoot                                     string
 		webHostname, webPublicIP, httpsMode, acmeEnvironment                                           string
 		serverPort, emailTimeoutSecs, emailRetryCount, emailSMTPPort                                   int
+		proxyHTTPSPort                                                                                 int
 		emailHTTPEnabled, emailSMTPEnabled, emailSMTPAllowPlaintextAuth, emailIncludeDeploymentDetails bool
 		emailIncludeCertificateSerial, emailIncludeManagementURL                                       bool
 		dnsVerified, webEnabled                                                                        bool
@@ -176,7 +177,7 @@ func newInitCommandWithDependencies(firewallManager firewall.Manager, issue init
 			EmailRetryIntervalsSecs: emailIntervals,
 			EmailRecipients:         splitValues(recipients), DNSProvider: dnsProvider, DNSCredentialRef: dnsCredentialRef,
 			DNSVerified: dnsVerified, CertificateRoot: certificateRoot, WebHostname: webHostname,
-			WebPublicIP: webPublicIP, WebEnabled: webEnabled, HTTPSMode: httpsMode,
+			WebPublicIP: webPublicIP, WebEnabled: webEnabled, HTTPSMode: httpsMode, ProxyHTTPSPort: proxyHTTPSPort,
 		}
 		if !cmd.Flags().Changed("admin-username") {
 			if err := readInteractiveInit(cmd.InOrStdin(), cmd.OutOrStdout(), &input, cfg); err != nil {
@@ -218,6 +219,7 @@ func newInitCommandWithDependencies(firewallManager firewall.Manager, issue init
 	command.Flags().StringVar(&adminEmail, "admin-email", "", "超级管理员绑定邮箱")
 	command.Flags().StringVar(&adminPassword, "admin-password", "", "超级管理员密码（仅建议临时使用参数，优先交互输入）")
 	command.Flags().IntVar(&serverPort, "server-port", 8080, "Scert 主服务端口")
+	command.Flags().IntVar(&proxyHTTPSPort, "proxy-https-port", 0, "代理公开 HTTPS 端口，0 表示默认 443")
 	command.Flags().BoolVar(&emailHTTPEnabled, "email-http-enabled", false, "是否启用 HTTP 邮件通知")
 	command.Flags().BoolVar(&emailSMTPEnabled, "email-smtp-enabled", false, "是否启用 SMTP 邮件通知")
 	command.Flags().StringVar(&emailSMTPHost, "email-smtp-host", "", "SMTP 服务器主机")

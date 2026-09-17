@@ -109,6 +109,7 @@ export function useSetupWizard(props, emit) {
     web_public_ip: props.status.web_public_ip || "",
     web_enabled: props.status.web_enabled !== false,
     https_mode: props.status.https_mode || "direct",
+    proxy_https_port: props.status.proxy_https_port || 443,
     acme_environment: props.status.acme_environment || "staging",
   });
 
@@ -673,6 +674,13 @@ export function useSetupWizard(props, emit) {
     }
 
     if (currentStep.value === 4) {
+      if (form.value.https_mode === "proxy") {
+        const port = Number(form.value.proxy_https_port);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          error.value = "代理公开 HTTPS 端口必须为 1 至 65535 的整数。";
+          return false;
+        }
+      }
       if (!form.value.certificate_root.trim()) {
         error.value = "请填写证书部署根目录。";
         return false;
@@ -804,6 +812,7 @@ export function useSetupWizard(props, emit) {
           web_public_ip: publicIP,
           web_enabled: form.value.web_enabled,
           https_mode: form.value.https_mode,
+          proxy_https_port: form.value.https_mode === "proxy" ? Number(form.value.proxy_https_port) : 0,
         })),
       });
       const result = await response.json().catch(() => ({}));

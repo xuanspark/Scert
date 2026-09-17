@@ -70,6 +70,7 @@ type setupRequest struct {
 	WebPublicIP                    string            `json:"web_public_ip"`
 	WebEnabled                     *bool             `json:"web_enabled"`
 	HTTPSMode                      string            `json:"https_mode"`
+	ProxyHTTPSPort                 int               `json:"proxy_https_port"`
 }
 
 type dnsTestRequest struct {
@@ -122,6 +123,7 @@ func (s *Server) setupStatus(c *gin.Context) {
 		"server_port":                       cfg.Server.Port,
 		"reset_url":                         cfg.ResetURL(),
 		"https_mode":                        cfg.Server.HTTPSMode,
+		"proxy_https_port":                  cfg.Server.ProxyHTTPSPort,
 		"web_enabled":                       cfg.Web.Enabled,
 		"web_hostname":                      cfg.Web.Hostname,
 		"web_public_ip":                     cfg.Web.PublicIP,
@@ -378,6 +380,7 @@ func (s *Server) applySetup(c *gin.Context) {
 		WebPublicIP:                    request.WebPublicIP,
 		WebEnabled:                     webEnabled,
 		HTTPSMode:                      request.HTTPSMode,
+		ProxyHTTPSPort:                 request.ProxyHTTPSPort,
 	})
 	if err != nil {
 		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)

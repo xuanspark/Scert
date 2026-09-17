@@ -913,6 +913,18 @@ const {
                   </option>
                 </select>
               </label>
+              <label v-if="form.https_mode === 'proxy'">
+                <span>代理公开 HTTPS 端口</span>
+                <input
+                  id="proxy-https-port"
+                  name="proxy_https_port"
+                  v-model.number="form.proxy_https_port"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  required
+                />
+              </label>
             </div>
             <label class="confirm-row">
               <input

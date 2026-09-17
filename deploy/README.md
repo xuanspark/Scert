@@ -164,6 +164,60 @@ location / {
 
 ## 开发阶段反向代理部署
 
+### 自定义公开端口
+
+管理域名由部署配置决定，不固定为示例域名。使用非标准 HTTPS 端口时，必须设置 `server.proxy_https_port`，初始化向导和管理设置均提供对应字段。省略该字段或设为 `0` 时，代理公开端口仍为 `443`；直接模式忽略该字段并使用 `server.port`。
+
+例如本次授权测试入口为 `web.apmmk.cn`，HTTP `8003` 跳转至 HTTPS `8004`，核心服务仅监听 `127.0.0.1:9004`：
+
+```json
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9004,
+    "https_mode": "proxy",
+    "proxy_https_port": 8004
+  },
+  "web": {
+    "hostname": "web.apmmk.cn"
+  }
+}
+```
+
+```nginx
+server {
+    listen 8003;
+    server_name web.apmmk.cn;
+    return 308 https://web.apmmk.cn:8004$request_uri;
+}
+
+server {
+    listen 8004 ssl;
+    server_name web.apmmk.cn;
+    ssl_certificate /实际证书目录/fullchain.pem;
+    ssl_certificate_key /实际证书目录/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass https://127.0.0.1:9004;
+        proxy_ssl_server_name on;
+        proxy_ssl_name web.apmmk.cn;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_ssl_verify_depth 3;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+`Host` 必须保留外部端口，否则同源安全检查可能拒绝请求。跳转目标使用明确配置的域名，不直接信任来访 `Host`。证书路径须替换为实际签发路径；证书更新后需要执行配置检查并平滑重载 Nginx。安全组仅开放所需公开端口，不开放内部 `9004`，不改动其他应用占用的 `80/443`。先验证真实证书、DNS、登录、会话和重置链接，再判定部署通过。
+
+### 默认端口示例
+
 开发阶段可以使用测试域名 `web.xuans.com` 验证 Web 页面和反向代理链路。推荐让 Scert 只监听本机端口 `9004`，由 Nginx 监听 `9003` 接收测试访问并转发：
 
 ```text

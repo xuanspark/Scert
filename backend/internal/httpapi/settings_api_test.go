@@ -47,7 +47,7 @@ func TestSettingsAPIUpdatesSafeFieldsWithoutReturningSecrets(t *testing.T) {
 	cookie := loginForSettingsTest(t, server)
 
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{
-        "server": {"port": 5443},
+        "server": {"port": 5443, "proxy_https_port": 8004},
         "web": {"hostname": "admin.example.test"},
         "acme": {"renewal_threshold_days": 10}
     }`))
@@ -84,6 +84,9 @@ func TestSettingsAPIUpdatesSafeFieldsWithoutReturningSecrets(t *testing.T) {
 	}
 	if saved.Admin.PasswordHash != cfg.Admin.PasswordHash || saved.Database.DSN != cfg.Database.DSN {
 		t.Fatal("更新设置不应覆盖管理员密码或数据库 DSN")
+	}
+	if payload.Settings.Server.ProxyHTTPSPort != 8004 || saved.Server.ProxyHTTPSPort != 8004 {
+		t.Fatal("代理公开端口未保存或未返回")
 	}
 }
 

@@ -42,7 +42,7 @@ func TestApplyBuildsPendingConfig(t *testing.T) {
 	if cfg.Admin.PasswordHash == "password123" || cfg.Admin.PasswordHash == "" {
 		t.Fatal("管理员密码不应明文保存")
 	}
-	if cfg.ResetURL() != "https://panel.example.com/reset" {
+	if cfg.ResetURL() != "https://panel.example.com:8080/reset" {
 		t.Fatalf("密码重置地址生成错误：%s", cfg.ResetURL())
 	}
 	if cfg.ACME.PropagationTimeoutSecs != 1200 || cfg.ACME.PropagationPollingIntervalSecs != 15 {

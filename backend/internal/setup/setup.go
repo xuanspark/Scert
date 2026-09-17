@@ -17,6 +17,7 @@ type Input struct {
 	AdminEmail                     string
 	AdminPassword                  string
 	ServerPort                     int
+	ProxyHTTPSPort                 int
 	EmailHTTPEnabled               bool
 	EmailSMTPEnabled               bool
 	EmailSMTPHost                  string
@@ -74,6 +75,9 @@ func Apply(cfg *config.Config, input Input) error {
 	if input.ServerPort < 1 || input.ServerPort > 65535 {
 		return fmt.Errorf("主服务端口无效：%d", input.ServerPort)
 	}
+	if input.ProxyHTTPSPort < 0 || input.ProxyHTTPSPort > 65535 {
+		return fmt.Errorf("代理 HTTPS 端口必须为 1 至 65535，或使用 0 表示默认 443")
+	}
 	if strings.TrimSpace(input.DNSProvider) == "" {
 		return fmt.Errorf("DNS 服务商不能为空")
 	}
@@ -116,6 +120,7 @@ func Apply(cfg *config.Config, input Input) error {
 		cfg.ACME.PropagationPollingIntervalSecs = input.PropagationPollingIntervalSecs
 	}
 	cfg.Server.Port = input.ServerPort
+	cfg.Server.ProxyHTTPSPort = input.ProxyHTTPSPort
 	cfg.Server.HTTPSMode = input.HTTPSMode
 	cfg.Web.Enabled = input.WebEnabled
 	cfg.Web.Hostname = strings.TrimSpace(input.WebHostname)

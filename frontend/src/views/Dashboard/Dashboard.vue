@@ -439,6 +439,10 @@ const {
           </div>
           <div class="form-grid">
             <label class="field"><span>HTTPS 模式</span><select v-model="settingsForm.server.https_mode"><option value="direct">直接终止 HTTPS</option><option value="proxy">反向代理 HTTPS</option></select></label>
+            <label v-if="settingsForm.server.https_mode === 'proxy'" class="field">
+              <span>代理公开 HTTPS 端口（0 为默认 443）</span>
+              <input v-model.number="settingsForm.server.proxy_https_port" type="number" min="0" max="65535" required />
+            </label>
             <label class="field"><span>证书存储路径</span><input v-model="settingsForm.paths.certificate" required /></label>
           </div>
           <div class="form-grid">

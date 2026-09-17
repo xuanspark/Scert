@@ -18,6 +18,7 @@ export function bootstrapPayload(legacy, databaseToken, environment) {
     web_public_ip: legacy.web_public_ip,
     web_enabled: legacy.web_enabled,
     https_mode: legacy.https_mode,
+    proxy_https_port: legacy.proxy_https_port,
     acme_environment: environment,
     propagation_timeout_secs: legacy.propagation_timeout_secs,
     propagation_polling_interval_secs: legacy.propagation_polling_interval_secs,

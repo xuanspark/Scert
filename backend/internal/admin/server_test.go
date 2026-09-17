@@ -69,7 +69,7 @@ func TestControllerActivatesAndStopsResetPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("启用密码重置入口失败：%v", err)
 	}
-	if session.State.ResetURL != "https://scert.example.test/reset" || session.Code == "" {
+	if session.State.ResetURL != "https://scert.example.test:8443/reset" || session.Code == "" {
 		t.Fatalf("密码重置会话内容不正确：%+v", session)
 	}
 	if session.State.CodeHash == session.Code || session.State.CodeHash == "" {

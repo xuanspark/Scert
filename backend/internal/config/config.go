@@ -42,11 +42,12 @@ type AdminConfig struct {
 }
 
 type ServerConfig struct {
-	Host      string `json:"host"`
-	Port      int    `json:"port"`
-	HTTPSMode string `json:"https_mode"`
-	TLSCert   string `json:"tls_cert"`
-	TLSKey    string `json:"tls_key"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	HTTPSMode      string `json:"https_mode"`
+	ProxyHTTPSPort int    `json:"proxy_https_port,omitempty"`
+	TLSCert        string `json:"tls_cert"`
+	TLSKey         string `json:"tls_key"`
 }
 
 type WebConfig struct {
@@ -287,6 +288,7 @@ func (c *Config) ApplyEnvironment() error {
 		target *int
 	}{
 		{"SCERT_SERVER_PORT", &c.Server.Port},
+		{"SCERT_SERVER_PROXY_HTTPS_PORT", &c.Server.ProxyHTTPSPort},
 		{"SCERT_ACME_RENEWAL_CHECK_INTERVAL_DAYS", &c.ACME.RenewalCheckIntervalDays},
 		{"SCERT_ACME_RENEWAL_NEAR_EXPIRY_DAYS", &c.ACME.RenewalNearExpiryDays},
 		{"SCERT_ACME_RENEWAL_THRESHOLD_DAYS", &c.ACME.RenewalThresholdDays},
@@ -458,6 +460,9 @@ func (c Config) Validate() error {
 	}
 	if c.Server.HTTPSMode != "direct" && c.Server.HTTPSMode != "proxy" {
 		return fmt.Errorf("HTTPS 模式无效：%s", c.Server.HTTPSMode)
+	}
+	if c.Server.ProxyHTTPSPort < 0 || c.Server.ProxyHTTPSPort > 65535 {
+		return fmt.Errorf("代理 HTTPS 端口必须为 1 至 65535，或使用 0 表示默认 443")
 	}
 	if c.Database.Driver != "sqlite" && c.Database.Driver != "mysql" && c.Database.Driver != "postgres" {
 		return fmt.Errorf("数据库驱动无效：%s", c.Database.Driver)
@@ -642,8 +647,8 @@ func databaseDSNContainsPassword(driver, dsn string) bool {
 	return false
 }
 
-// ResetURL 返回通过主 Web 服务访问密码重置入口的公开地址。
-func (c Config) ResetURL() string {
+// ManagementURL 使用公开入口端口，代理模式不暴露内部监听端口。
+func (c Config) ManagementURL() string {
 	rawHost := strings.TrimSpace(c.Web.Hostname)
 	if rawHost == "" {
 		rawHost = strings.TrimSpace(c.Web.PublicIP)
@@ -656,7 +661,26 @@ func (c Config) ResetURL() string {
 	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
 		host = "[" + host + "]"
 	}
-	return (&url.URL{Scheme: "https", Host: host, Path: "/reset"}).String()
+	port := c.Server.Port
+	if c.Server.HTTPSMode == "proxy" {
+		port = c.Server.ProxyHTTPSPort
+		if port == 0 {
+			port = 443
+		}
+	}
+	if port != 443 {
+		host = net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
+	}
+	return (&url.URL{Scheme: "https", Host: host, Path: "/"}).String()
+}
+
+// ResetURL 与管理入口共用域名和端口，不增加独立监听服务。
+func (c Config) ResetURL() string {
+	address := c.ManagementURL()
+	if address == "" {
+		return ""
+	}
+	return address + "reset"
 }
 
 func splitResetHost(rawHost string) (string, string) {

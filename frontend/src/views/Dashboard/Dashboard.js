@@ -365,7 +365,7 @@ export function useDashboard() {
 
   function createEmptySettingsForm() {
     return {
-      server: { host: "", port: 5200, https_mode: "direct" },
+      server: { host: "", port: 5200, https_mode: "direct", proxy_https_port: 0 },
       web: { enabled: true, hostname: "", public_ip: "" },
       paths: { certificate: "" },
       acme: {
