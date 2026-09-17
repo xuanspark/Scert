@@ -20,6 +20,7 @@ export function useUserManagement() {
   const notice = ref("");
   const showForm = ref(false);
   const editingId = ref("");
+  const editingRole = ref("");
   const formError = ref("");
   const form = ref(createEmptyForm());
   const isEditing = computed(() => Boolean(editingId.value));
@@ -75,13 +76,16 @@ export function useUserManagement() {
 
   function openCreate() {
     editingId.value = "";
+    editingRole.value = "";
     form.value = createEmptyForm();
     formError.value = "";
     showForm.value = true;
   }
 
   function openEdit(item) {
+    if (isPrimaryAccount(item)) return;
     editingId.value = item.id;
+    editingRole.value = item.role;
     form.value = {
       username: item.username || "",
       email: item.email || "",
@@ -99,7 +103,15 @@ export function useUserManagement() {
 
   async function saveUser() {
     formError.value = "";
+    if (editingId.value === "primary-super-admin") {
+      formError.value = "主超级管理员不能通过用户管理修改";
+      return;
+    }
     const payload = { ...form.value };
+    if (payload.role.trim().toLowerCase() === "super_admin" && editingRole.value !== "super_admin") {
+      formError.value = "不能新增或提升为超级管理员";
+      return;
+    }
     if (!payload.password) delete payload.password;
     if (!payload.username.trim()) {
       formError.value = "请输入用户名";
@@ -131,6 +143,7 @@ export function useUserManagement() {
   }
 
   async function toggleStatus(item) {
+    if (isPrimaryAccount(item)) return;
     const nextStatus = item.status === "active" ? "disabled" : "active";
     if (item.role === "super_admin" && nextStatus === "disabled") {
       notice.value = "最后一个超级管理员不能被禁用";
@@ -156,6 +169,7 @@ export function useUserManagement() {
   }
 
   async function deleteUser(item) {
+    if (isPrimaryAccount(item)) return;
     if (!window.confirm(`确定删除用户“${item.username}”吗？`)) return;
     try {
       const response = await request(`/api/v1/users/${item.id}`, {
@@ -168,6 +182,10 @@ export function useUserManagement() {
     } catch (err) {
       error.value = err.message || "删除用户失败";
     }
+  }
+
+  function isPrimaryAccount(item) {
+    return item.id === "primary-super-admin";
   }
 
   onMounted(loadUsers);
@@ -186,6 +204,7 @@ export function useUserManagement() {
     isEditing,
     roleLabels,
     statusLabels,
+    isPrimaryAccount,
     openCreate,
     openEdit,
     closeForm,

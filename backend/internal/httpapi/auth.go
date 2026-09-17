@@ -142,7 +142,7 @@ func (s *Server) authenticateAccount(ctx context.Context, request authLoginReque
 		return auth.AdminAccount{}, "", "", auth.ErrInvalidCredentials
 	}
 	user, lookupErr := s.users.FindByIdentifier(ctx, request.Identifier)
-	if lookupErr != nil || user.Status != repository.UserStatusActive {
+	if lookupErr != nil || user.Status != repository.UserStatusActive || user.ID == "primary-super-admin" {
 		return auth.AdminAccount{}, "", "", auth.ErrInvalidCredentials
 	}
 	account, err = auth.AuthenticateAccount(request.Identifier, request.Password, user.Username, user.Email, user.PasswordHash, user.Role)

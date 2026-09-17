@@ -93,6 +93,10 @@ func (s *Server) createUser(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "用户参数无效", err)
 		return
 	}
+	if item.Role == repository.UserRoleSuperAdmin {
+		s.writeError(c, http.StatusBadRequest, "系统只允许初始化时创建一个超级管理员", nil)
+		return
+	}
 	if err := s.users.CreateUser(c.Request.Context(), item); err != nil {
 		s.writeError(c, userErrorStatus(err), "创建用户失败", err)
 		return
@@ -107,6 +111,10 @@ func (s *Server) updateUser(c *gin.Context) {
 		return
 	}
 	id := strings.TrimSpace(c.Param("id"))
+	if id == "primary-super-admin" {
+		s.writeError(c, http.StatusBadRequest, "主超级管理员不能通过用户管理修改", nil)
+		return
+	}
 	existing, err := s.users.GetUserByID(c.Request.Context(), id)
 	if err != nil {
 		if repository.IsNotFound(err) {
@@ -134,6 +142,10 @@ func (s *Server) updateUser(c *gin.Context) {
 	}
 	if request.Status == "" {
 		item.Status = existing.Status
+	}
+	if existing.Role != repository.UserRoleSuperAdmin && item.Role == repository.UserRoleSuperAdmin {
+		s.writeError(c, http.StatusBadRequest, "不能将用户提升为超级管理员", nil)
+		return
 	}
 	if existing.Role == repository.UserRoleSuperAdmin && item.Role != repository.UserRoleSuperAdmin {
 		s.writeError(c, http.StatusBadRequest, "不能降低超级管理员权限", nil)

@@ -89,16 +89,12 @@ func TestUserManagementAuthorizationAndCRUD(t *testing.T) {
 	}
 
 	secondSuperAdmin := serveUserRequest(server, adminCookie, http.MethodPost, "/api/v1/users", `{"username":"owner","password":"OwnerPass123","role":"super_admin","status":"active"}`)
-	if secondSuperAdmin.Code != http.StatusCreated {
-		t.Fatalf("创建第二个超级管理员失败：%d %s", secondSuperAdmin.Code, secondSuperAdmin.Body.String())
+	if secondSuperAdmin.Code != http.StatusBadRequest {
+		t.Fatalf("新增第二个超级管理员应被拒绝：%d %s", secondSuperAdmin.Code, secondSuperAdmin.Body.String())
 	}
-	var second repository.User
-	if err := json.Unmarshal(secondSuperAdmin.Body.Bytes(), &second); err != nil || second.ID == "" {
-		t.Fatalf("解析第二个超级管理员响应失败：%v %s", err, secondSuperAdmin.Body.String())
-	}
-	deleted := serveUserRequest(server, adminCookie, http.MethodDelete, "/api/v1/users/"+second.ID, "")
+	deleted := serveUserRequest(server, adminCookie, http.MethodDelete, "/api/v1/users/"+createdUser.ID, "")
 	if deleted.Code != http.StatusNoContent {
-		t.Fatalf("删除第二个超级管理员失败：%d %s", deleted.Code, deleted.Body.String())
+		t.Fatalf("删除普通管理员失败：%d %s", deleted.Code, deleted.Body.String())
 	}
 	protected := serveUserRequest(server, adminCookie, http.MethodDelete, "/api/v1/users/primary-super-admin", "")
 	if protected.Code != http.StatusBadRequest {

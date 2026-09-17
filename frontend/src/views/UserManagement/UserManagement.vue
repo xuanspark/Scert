@@ -15,6 +15,7 @@ const {
   isEditing,
   roleLabels,
   statusLabels,
+  isPrimaryAccount,
   openCreate,
   openEdit,
   closeForm,
@@ -68,7 +69,8 @@ const {
             <td><span class="user-status" :class="item.status">{{ statusLabels[item.status] || item.status }}</span></td>
             <td>{{ new Date(item.created_at).toLocaleString("zh-CN") }}</td>
             <td>
-              <div class="user-row-actions">
+              <span v-if="isPrimaryAccount(item)" class="user-badge">受保护账号</span>
+              <div v-else class="user-row-actions">
                 <button class="text-button" type="button" @click="openEdit(item)">编辑</button>
                 <button class="text-button" type="button" @click="toggleStatus(item)">
                   {{ item.status === "active" ? "禁用" : "启用" }}
@@ -111,7 +113,7 @@ const {
               <select v-model="form.role">
                 <option value="user">普通用户</option>
                 <option value="admin">管理员</option>
-                <option value="super_admin">超级管理员</option>
+                <option v-if="isEditing && form.role === 'super_admin'" value="super_admin" disabled>超级管理员</option>
               </select>
             </label>
             <label class="field">
