@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
@@ -29,10 +30,10 @@ func (e Endpoint) validate() error {
 	host, port, err := net.SplitHostPort(e.Address)
 	number, portErr := strconv.Atoi(port)
 	ip := net.ParseIP(host)
-	if err != nil || portErr != nil || number < 1 || number > 65535 || ip == nil || !ip.IsLoopback() {
+	if err != nil || portErr != nil || number < 1 || number > 65535 || ip == nil || !ip.IsLoopback() || port != strconv.Itoa(number) || host != ip.String() {
 		return errors.New("管理证书探测地址必须是本机回环 IP 和有效端口")
 	}
-	if !domain.IsValidName(e.Hostname) || net.ParseIP(e.Hostname) != nil {
+	if !domain.IsValidName(e.Hostname) || net.ParseIP(e.Hostname) != nil || strings.Contains(e.Hostname, "*") || strings.ToLower(strings.TrimSpace(e.Hostname)) != e.Hostname {
 		return errors.New("管理证书探测域名无效")
 	}
 	return nil

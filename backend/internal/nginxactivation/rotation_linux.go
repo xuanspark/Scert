@@ -5,11 +5,13 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
@@ -72,11 +74,14 @@ func (r Rotation) Stage(ctx context.Context, chain, key []byte) (id string, resu
 	if err != nil || !leaf.NotAfter.After(oldCertificate.NotAfter) {
 		return "", errors.New("候选管理证书没有延长入口实际有效期")
 	}
-	if _, err := r.Upstream.Check(ctx, nil); err != nil {
+	if _, err := r.Upstream.Check(ctx, oldLeaf); err != nil {
 		return "", err
 	}
 	oldInclude, err := readRegular(root, includeName, 4096)
 	if err != nil {
+		return "", err
+	}
+	if err := verifyIncludeMaterial(root, oldInclude, oldLeaf); err != nil {
 		return "", err
 	}
 	if err := r.Reloader.Check(ctx); err != nil {
@@ -105,8 +110,8 @@ func (r Rotation) Stage(ctx context.Context, chain, key []byte) (id string, resu
 	}
 	current := transaction{
 		ID: id, Status: "pending", PreviousInclude: oldInclude, PreviousLeaf: oldLeaf,
-		CandidateLeaf: leaf.Raw,
-		CandidateInclude: []byte(fmt.Sprintf("ssl_certificate %s/%s/fullchain.pem;\nssl_certificate_key %s/%s/key.pem;\n", r.Directory, id, r.Directory, id)),
+		CandidateLeaf:    leaf.Raw,
+		CandidateInclude: renderInclude(r.Directory, id),
 	}
 	if err := saveTransaction(root, current); err != nil {
 		return "", err
@@ -118,16 +123,25 @@ func (r Rotation) Stage(ctx context.Context, chain, key []byte) (id string, resu
 			resultErr = errors.Join(resultErr, r.rollback(rollbackCtx, root, current))
 		}
 	}()
+	if err := requireInclude(root, current.PreviousInclude); err != nil {
+		return id, err
+	}
 	if err := writeAtomic(root, includeName, current.CandidateInclude); err != nil {
 		return id, err
 	}
 	if err := r.Reloader.Check(ctx); err != nil {
 		return id, fmt.Errorf("Nginx 候选配置检查失败：%w", err)
 	}
+	if err := requireInclude(root, current.CandidateInclude); err != nil {
+		return id, err
+	}
 	if err := r.Reloader.Reload(ctx); err != nil {
 		return id, fmt.Errorf("Nginx 重载失败：%w", err)
 	}
 	if err := r.Proxy.Wait(ctx, current.CandidateLeaf); err != nil {
+		return id, err
+	}
+	if err := requireInclude(root, current.CandidateInclude); err != nil {
 		return id, err
 	}
 	current.Status = "staged"
@@ -153,10 +167,16 @@ func (r Rotation) Commit(ctx context.Context, id string) error {
 	if err != nil || !bytes.Equal(include, current.CandidateInclude) {
 		return errors.New("管理证书专用引用已被修改，拒绝提交")
 	}
+	if err := verifyIncludeMaterial(root, include, current.CandidateLeaf); err != nil {
+		return err
+	}
 	if err := r.Upstream.Wait(ctx, current.CandidateLeaf); err != nil {
 		return err
 	}
 	if err := r.Proxy.Wait(ctx, current.CandidateLeaf); err != nil {
+		return err
+	}
+	if err := requireInclude(root, current.CandidateInclude); err != nil {
 		return err
 	}
 	current.Status = "committed"
@@ -206,17 +226,26 @@ func (r Rotation) rollback(ctx context.Context, root *os.Root, current transacti
 	if !bytes.Equal(active, current.CandidateInclude) && !bytes.Equal(active, current.PreviousInclude) {
 		return errors.New("Nginx 证书引用发生外部变化，拒绝回退覆盖")
 	}
+	if err := verifyIncludeMaterial(root, current.PreviousInclude, current.PreviousLeaf); err != nil {
+		return err
+	}
 	if err := writeAtomic(root, includeName, current.PreviousInclude); err != nil {
 		return fmt.Errorf("恢复 Nginx 证书引用失败：%w", err)
 	}
 	if err := r.Reloader.Check(ctx); err != nil {
 		return fmt.Errorf("Nginx 回退配置检查失败：%w", err)
 	}
+	if err := requireInclude(root, current.PreviousInclude); err != nil {
+		return err
+	}
 	if err := r.Reloader.Reload(ctx); err != nil {
 		return fmt.Errorf("Nginx 回退重载失败：%w", err)
 	}
 	if err := r.Proxy.Wait(ctx, current.PreviousLeaf); err != nil {
 		return fmt.Errorf("Nginx 回退就绪检查失败：%w", err)
+	}
+	if err := requireInclude(root, current.PreviousInclude); err != nil {
+		return err
 	}
 	current.Status = "rolled_back"
 	return saveTransaction(root, current)
@@ -234,6 +263,10 @@ func (r Rotation) validateMaterial(ctx context.Context, chain, key []byte) (*x50
 	if _, err := validator.ValidatePEM(ctx, chain, []string{r.Proxy.Hostname}); err != nil {
 		return nil, fmt.Errorf("候选证书未通过可信校验：%w", err)
 	}
+	validator.Roots = r.Upstream.Roots
+	if _, err := validator.ValidatePEM(ctx, chain, []string{r.Upstream.Hostname}); err != nil {
+		return nil, fmt.Errorf("候选证书未通过上游可信校验：%w", err)
+	}
 	if len(pair.Certificate[0]) > 16<<10 {
 		return nil, errors.New("候选叶证书超过大小限制")
 	}
@@ -248,6 +281,13 @@ func (r Rotation) open(ctx context.Context) (*os.Root, *processlock.Lock, error)
 		return nil, nil, errors.New("Nginx 激活策略必须配置独立代理、上游和重载器")
 	}
 	if err := errors.Join(r.Proxy.validate(), r.Upstream.validate(), validateDirectory(r.Directory)); err != nil {
+		return nil, nil, err
+	}
+	if info, err := os.Lstat(filepath.Join(r.Directory, ".activation.lock")); err == nil {
+		if err := validateStateFile(info, 4096); err != nil {
+			return nil, nil, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, nil, err
 	}
 	lock, err := processlock.Acquire(filepath.Join(r.Directory, ".activation.lock"))
@@ -271,8 +311,19 @@ func readTransaction(root *os.Root) (transaction, error) {
 	if err := json.Unmarshal(data, &current); err != nil {
 		return current, err
 	}
-	if current.ID == "" || len(current.PreviousInclude) == 0 || len(current.CandidateInclude) == 0 || len(current.PreviousLeaf) == 0 || len(current.CandidateLeaf) == 0 {
+	if !validID(current.ID) || len(current.PreviousInclude) == 0 || len(current.PreviousInclude) > 4096 || len(current.PreviousLeaf) == 0 || len(current.PreviousLeaf) > 16<<10 || len(current.CandidateLeaf) == 0 || len(current.CandidateLeaf) > 16<<10 {
 		return current, errors.New("管理证书激活记录不完整")
+	}
+	if !bytes.Equal(current.CandidateInclude, renderInclude(root.Name(), current.ID)) {
+		return current, errors.New("管理证书激活记录的候选引用无效")
+	}
+	if _, err := includeVersion(root.Name(), current.PreviousInclude); err != nil {
+		return current, err
+	}
+	for _, leaf := range [][]byte{current.PreviousLeaf, current.CandidateLeaf} {
+		if _, err := x509.ParseCertificate(leaf); err != nil {
+			return current, errors.New("管理证书激活记录包含无效证书")
+		}
 	}
 	switch current.Status {
 	case "pending", "staged", "committed", "rolled_back":
@@ -288,4 +339,59 @@ func saveTransaction(root *os.Root, current transaction) error {
 		return err
 	}
 	return writeAtomic(root, journalName, data)
+}
+
+func validID(id string) bool {
+	decoded, err := hex.DecodeString(id)
+	return err == nil && len(decoded) == 16 && hex.EncodeToString(decoded) == id
+}
+
+func requireInclude(root *os.Root, expected []byte) error {
+	actual, err := readRegular(root, includeName, 4096)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(actual, expected) {
+		return errors.New("管理证书专用引用发生外部变化")
+	}
+	return nil
+}
+
+func renderInclude(directory, id string) []byte {
+	return []byte(fmt.Sprintf("ssl_certificate %s/%s/fullchain.pem;\nssl_certificate_key %s/%s/key.pem;\n", directory, id, directory, id))
+}
+
+func includeVersion(directory string, include []byte) (string, error) {
+	fields := strings.Fields(string(include))
+	if len(fields) != 4 {
+		return "", errors.New("管理证书专用引用格式无效")
+	}
+	id := filepath.Base(filepath.Dir(fields[1]))
+	if !validID(id) || !bytes.Equal(include, renderInclude(directory, id)) {
+		return "", errors.New("管理证书必须引用激活器专用版本目录")
+	}
+	return id, nil
+}
+
+func verifyIncludeMaterial(root *os.Root, include, expected []byte) error {
+	id, err := includeVersion(root.Name(), include)
+	if err != nil {
+		return err
+	}
+	if err := validateDirectory(filepath.Join(root.Name(), id)); err != nil {
+		return err
+	}
+	chain, err := readRegular(root, filepath.Join(id, "fullchain.pem"), 1<<20)
+	if err != nil {
+		return err
+	}
+	key, err := readRegular(root, filepath.Join(id, "key.pem"), 64<<10)
+	if err != nil {
+		return err
+	}
+	pair, err := tls.X509KeyPair(chain, key)
+	if err != nil || !bytes.Equal(pair.Certificate[0], expected) {
+		return errors.New("管理证书磁盘材料与已验证入口不一致")
+	}
+	return nil
 }
