@@ -14,6 +14,9 @@ source_dir="$SCRIPT_DIR"
 certificate_dir="$DEFAULT_CERTIFICATE_DIR"
 certificate_dir_explicit=false
 nologin_shell=""
+transaction_dir=""
+transaction_active=false
+declare -a transaction_targets=()
 
 print_usage() {
     cat <<'USAGE'
@@ -146,13 +149,28 @@ validate_managed_paths() {
         "$SERVICE_DROP_IN_DIR/10-certificate-path.conf"; do
         reject_symlink_path "$managed_path" "Scert 受管路径"
     done
+    for managed_path in "$INSTALL_DIR" "$INSTALL_DIR/conf" "$INSTALL_DIR/data" \
+        "$INSTALL_DIR/log" "$INSTALL_DIR/backups" "$INSTALL_DIR/docs" \
+        "$INSTALL_DIR/web" "$SERVICE_DIR" "$SERVICE_DROP_IN_DIR"; do
+        [[ ! -e "$managed_path" || -d "$managed_path" ]] || fail "Scert 目录路径不是普通目录：$managed_path"
+    done
+    for managed_path in "$INSTALL_DIR/scert" "$INSTALL_DIR/scert-admin" \
+        "$INSTALL_METADATA_FILE" "$INSTALL_DIR/docs/Scert-service-management.md" \
+        "$INSTALL_DIR/docs/Scert-admin-service-management.md" \
+        "$SERVICE_DIR/Scert.service" "$SERVICE_DIR/Scert-admin.service" \
+        "$SERVICE_DROP_IN_DIR/10-certificate-path.conf"; do
+        [[ ! -e "$managed_path" || -f "$managed_path" ]] || fail "Scert 文件路径不是普通文件：$managed_path"
+    done
+    if [[ -d "$INSTALL_DIR/web" ]]; then
+        [[ -z "$(find "$INSTALL_DIR/web" ! -type f ! -type d -print -quit)" ]] || fail "既有 Web 目录包含符号链接或特殊文件，拒绝覆盖"
+    fi
 }
 
 validate_environment() {
     [[ "$(uname -s)" == "Linux" ]] || fail "此安装器只支持 Linux"
     [[ "$(id -u)" -eq 0 ]] || fail "请使用 root 或 sudo 运行安装器"
     local command_name
-    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink find file mv cp rm; do
+    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink find file mv cp mktemp; do
         command -v "$command_name" >/dev/null 2>&1 || fail "找不到系统命令：$command_name"
     done
     nologin_shell="$(command -v nologin || true)"
@@ -165,6 +183,9 @@ validate_environment() {
 validate_artifacts() {
     [[ -d "$source_dir" ]] || fail "安装产物目录不存在：$source_dir"
     source_dir="$(cd -- "$source_dir" && pwd -P)"
+    case "$source_dir/" in
+        "$INSTALL_DIR/"|"$INSTALL_DIR/web/"*) fail "不能从正在替换的安装文件或 Web 目录安装" ;;
+    esac
     local artifact
     for artifact in scert scert-admin; do
         [[ -f "$source_dir/$artifact" && ! -L "$source_dir/$artifact" ]] || fail "安装产物必须是普通文件：$source_dir/$artifact"
@@ -181,6 +202,65 @@ validate_artifacts() {
     [[ -f "$SCRIPT_DIR/systemd/Scert-admin.service" && ! -L "$SCRIPT_DIR/systemd/Scert-admin.service" ]] || fail "缺少普通 Scert-admin systemd unit"
     [[ -f "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" && ! -L "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" ]] || fail "缺少普通 Scert-admin 服务管理说明"
     [[ -f "$SCRIPT_DIR/systemd/Scert服务管理说明.md" && ! -L "$SCRIPT_DIR/systemd/Scert服务管理说明.md" ]] || fail "缺少普通 Scert 服务管理说明"
+}
+
+begin_install_transaction() {
+    install -d -o root -g "$SERVICE_GROUP" -m 0750 "$INSTALL_DIR"
+    transaction_dir="$(mktemp -d "$INSTALL_DIR/.install-XXXXXXXX")"
+    chmod 0700 "$transaction_dir"
+    transaction_targets=(
+        "$INSTALL_METADATA_FILE" "$INSTALL_DIR/scert" "$INSTALL_DIR/scert-admin"
+        "$INSTALL_DIR/web" "$SERVICE_DIR/Scert.service" "$SERVICE_DIR/Scert-admin.service"
+        "$SERVICE_DROP_IN_DIR/10-certificate-path.conf"
+        "$INSTALL_DIR/docs/Scert-service-management.md"
+        "$INSTALL_DIR/docs/Scert-admin-service-management.md"
+    )
+    local index target
+    for index in "${!transaction_targets[@]}"; do
+        target="${transaction_targets[$index]}"
+        printf '%s\n' "$target" >> "$transaction_dir/targets.txt"
+        if [[ -e "$target" ]]; then
+            cp -a -- "$target" "$transaction_dir/before-$index"
+        fi
+    done
+    transaction_active=true
+}
+
+finish_install_transaction() {
+    local status=$?
+    trap - EXIT INT TERM
+    if [[ "$transaction_active" != "true" ]]; then
+        exit "$status"
+    fi
+    set +e
+    local index target
+    local rollback_failed=false
+    for ((index=${#transaction_targets[@]}-1; index>=0; index--)); do
+        target="${transaction_targets[$index]}"
+        if [[ -e "$target" || -L "$target" ]]; then
+            if ! mv -T -- "$target" "$transaction_dir/failed-$index"; then
+                printf '无法保留失败文件，请人工恢复：%s\n' "$target" >&2
+                rollback_failed=true
+                continue
+            fi
+        fi
+        if [[ -e "$transaction_dir/before-$index" ]]; then
+            if ! mv -T -- "$transaction_dir/before-$index" "$target"; then
+                printf '无法恢复升级前文件，请人工恢复：%s\n' "$target" >&2
+                rollback_failed=true
+            fi
+        fi
+    done
+    if ! reload_systemd; then
+        rollback_failed=true
+    fi
+    if [[ "$rollback_failed" == "true" ]]; then
+        printf '安装回退不完整，禁止启动服务。恢复记录：%s\n' "$transaction_dir" >&2
+    else
+        printf '安装失败，已恢复升级前发布文件，服务保持停止。失败现场：%s\n' "$transaction_dir" >&2
+    fi
+    [[ "$status" -ne 0 ]] || status=1
+    exit "$status"
 }
 
 ensure_services_stopped() {
@@ -251,7 +331,7 @@ write_install_metadata() {
     printf '{\n  "certificate_root": "%s"\n}\n' "$certificate_dir" > "$temporary_file"
     chown root:"$SERVICE_GROUP" "$temporary_file"
     chmod 0640 "$temporary_file"
-    mv -f -- "$temporary_file" "$INSTALL_METADATA_FILE"
+    mv -fT -- "$temporary_file" "$INSTALL_METADATA_FILE"
 }
 
 install_binaries() {
@@ -259,16 +339,17 @@ install_binaries() {
     local admin_temporary="$INSTALL_DIR/.scert-admin.new.$$"
     install -o root -g root -m 0755 "$source_dir/scert" "$main_temporary"
     install -o root -g root -m 0755 "$source_dir/scert-admin" "$admin_temporary"
-    mv -f -- "$main_temporary" "$INSTALL_DIR/scert"
-    mv -f -- "$admin_temporary" "$INSTALL_DIR/scert-admin"
+    mv -fT -- "$main_temporary" "$INSTALL_DIR/scert"
+    mv -fT -- "$admin_temporary" "$INSTALL_DIR/scert-admin"
 }
 
 install_web() {
-    [[ -z "$(find "$INSTALL_DIR/web" -type l -print -quit)" ]] || fail "既有 Web 目录包含符号链接，拒绝覆盖"
-    [[ -z "$(find "$INSTALL_DIR/web" ! -type f ! -type d -print -quit)" ]] || fail "既有 Web 目录包含不支持的特殊文件"
-    cp -a "$source_dir/web/." "$INSTALL_DIR/web/"
-    find "$INSTALL_DIR/web" -type d -exec chown root:root {} + -exec chmod 0755 {} +
-    find "$INSTALL_DIR/web" -type f -exec chown root:root {} + -exec chmod 0644 {} +
+    local staged_web="$transaction_dir/web-new"
+    cp -a -- "$source_dir/web" "$staged_web"
+    find "$staged_web" -type d -exec chown root:root {} + -exec chmod 0755 {} +
+    find "$staged_web" -type f -exec chown root:root {} + -exec chmod 0644 {} +
+    mv -T -- "$INSTALL_DIR/web" "$transaction_dir/web-replaced"
+    mv -T -- "$staged_web" "$INSTALL_DIR/web"
 }
 
 install_service_files() {
@@ -321,12 +402,18 @@ main() {
     validate_artifacts
     ensure_services_stopped
     ensure_service_account
+    trap finish_install_transaction EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    begin_install_transaction
     create_directories
     write_install_metadata
     install_binaries
     install_web
     install_service_files
     reload_systemd
+    transaction_active=false
+    printf '升级前发布文件已保留：%s\n' "$transaction_dir"
     print_completion
 }
 
