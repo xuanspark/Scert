@@ -135,3 +135,50 @@
 最终候选在发布 systemd 加固基础上使用私有运行目录、96 MiB 内存上限和 CPU 25% 配额，实际启动通过。严格 TLS 指纹、新构建资源、未登录 401、跨域 403、一次性令牌、安全 Cookie、SQLite 写权限、重启证书及令牌轮换、旧会话拒绝、配置字节不变全部通过。未发起 DNS 或 ACME 操作。辅助脚本为远端 `linux_users_ui_candidate.py` 和 `linux_users_ui_protocol.py`。
 
 12:50 收尾确认：本轮两个 Linux 候选单元已停止，19017 无监听；本地夹具及专用 Chrome MCP 已停止，SSH 已关闭。正式 Scert PID `530794`、重启次数 0，MySQL PID `549584`、重启次数 1，正式程序哈希未变；正式 `/readyz` 仍为 `setup_incomplete`，可用内存约 313 MiB。升级回退、真实 DNS 签发、完整初始化与切流、目标机推送及业务验收仍未完成。原有测试产物全部保留。
+
+## 安装失败回退修复与发布包续测
+
+12:54 至 13:11 审查安装升级流程，修复提交为 `8c3d8786808cd142229af4b1c6422e9d638aa0c0`。修改前检查点 `9d3bd50` 和修复提交均已推送。没有在宿主机直接运行固定路径安装器，没有停止或替换正式服务。
+
+### 缺陷与修复
+
+旧包在真实 Linux 文件系统上复现四类问题：既有 Web 符号链接在二进制已经替换后才拒绝；二进制目标为目录时错误返回安装成功；第二个 unit 写入失败与 daemon-reload 失败均留下新旧发布文件混用。旧包四场景测试整体退出码为 1，不是成功验收。
+
+新安装器提前检查文件和目录类型，保留 root 所有、`0700` 的 `/scert/.install-*` 副本；捕获安装失败后恢复发布文件并重新加载 systemd，不启动服务。Web 改为整目录替换，旧文件和失败现场只移动保留、不删除。回退自身失败时明确提示禁止启动服务。业务目录权限规范化、用户创建、断电和 SIGKILL 不在自动回退保证内，安装成功后的数据库迁移也不由此机制恢复，详见运维说明 4.2。
+
+### 隔离方法与结果
+
+使用仓库 `deploy/tests/install-linux-test.py`，在私有挂载命名空间中将新建测试目录映射到固定的 `/scert`、`/etc/systemd/system` 和本机既有 `/ssl-scert-acceptance`。源码以只读挂载保留，执行前核对挂载 inode。systemctl 被限定为测试桩，只允许状态检查和 daemon-reload，不能操作宿主服务。使用已有 Scert 用户，不创建新的宿主账号。
+
+第一版脚本因宿主 `/ssl` 不存在在预检阶段退出，未执行安装器；随后显式指定已有证书挂载点，并把产物放在被覆盖路径以外的 `/var/tmp/scert-installer-20260917-1303`。所有产物保留。受控单元限制 `MemoryMax=96M`、`MemorySwapMax=0`、`CPUQuota=25%`、`TasksMax=32`、`RuntimeMaxSec=180`，与候选服务顺序执行。
+
+最终发布包八场景均通过，整体退出码 0：
+
+| 场景 | 安装器预期退出码 | 最终产物子目录 |
+| --- | --- | --- |
+| Web 符号链接拒绝 | 1 | `web-link-y4ivfj_n` |
+| 二进制目标目录拒绝 | 1 | `binary-directory-o3gvmqpe` |
+| unit 写入失败后恢复旧版 | 43 | `unit-failure-4c4c8ou_` |
+| reload 失败后恢复旧版 | 42 | `reload-failure-bffej3sp` |
+| 回退 reload 再失败，明确禁止启动 | 42 | `rollback-reload-failure-qrwm_v37` |
+| 升级成功，旧 Web 资源退出生效目录 | 0 | `success-cgz9m71a` |
+| 首次安装失败，发布文件回到缺失状态 | 43 | `fresh-failure-y_2axidy` |
+| 首次安装成功 | 0 | `fresh-success-e7foazs_` |
+
+每场景检查业务文件内容与证书文件不变、旧发布文件恢复、服务文件恢复或缺失状态、升级副本权限及服务操作白名单；各目录包含 `report.json` 和 `output.txt`。这是隔离文件安装与故障注入回归，不能等同于真实 systemd 升级、正式数据库迁移或完整业务回退验收。
+
+### 新包与通用检查
+
+- 独立干净克隆：`C:/Users/ikun/AppData/Local/Temp/scert-installer-20260917-1306`，源码 `8c3d878`，清单 `source_dirty=false`。
+- 发布包：`build/linux-installer-20260917-1306/Scert-20260917-V0.1.0-linux-amd64.tar.gz`。
+- SHA-256：`9c89140467264ee620bcd1ab4ba4fcea6a43430a4ea87fa6c7f91fa3be97c6ea`。
+- 远程：`/scert/acceptance-20260917-1044/installer-8c3d878/release`；归档哈希、包内 12 项校验、安装器语法及版本检查通过。
+- Windows 本地执行 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go mod verify` 全部通过；前端 47 项测试通过。不能将这些表述为 Linux 全量测试。
+- `govulncheck ./...` 及详细扫描退出码 0：调用符号和导入包无已知漏洞，依赖模块包含 `GO-2026-5932`，涉及未维护的 `golang.org/x/crypto/openpgp`，当前代码没有导入或调用该漏洞包，公告没有可用修复版本。不能写成依赖模块零漏洞。
+- 新候选 `scert-installer-8c3d878.service` 使用发布加固、私有运行目录和 96 MiB 限制启动；严格证书指纹、当前资源、未登录 401、跨域兑换 403、令牌不可复用、安全 Cookie、SQLite 验证、重启证书与令牌轮换、旧会话失效和配置字节不变均通过。没有 DNS 或 ACME 操作。本轮不涉及页面修改，未重复浏览器渲染测试。
+
+13:09 收尾检查：候选服务 inactive、PID 0、19017 无监听；正式 Scert PID `530794`、重启次数 0，MySQL PID `549584`、重启次数 1，正式程序 SHA-256 未变。可用内存约 314 MiB。正式回环端口 9004 使用 HTTP，先用 HTTPS 探测返回协议错误，改用实际 HTTP 后 `/readyz` 明确返回 `setup_incomplete`；这不是正式 TLS 验收。SSH 已关闭，所有测试进程结束。
+
+- [✓] 安装器缺陷复现、修复、新发布包八场景复测及受限候选协议检查。
+- [✓] 本地全量测试、race、vet、模块完整性及漏洞调用路径扫描。
+- [!] 真实 systemd 升级与业务回退、DNS 签发、完整初始化、正式切流和目标机推送仍未完成。继续外部签发需要用户明确授权测试域名及 DNS 凭据范围，当前不可宣称具备正式切流条件。
