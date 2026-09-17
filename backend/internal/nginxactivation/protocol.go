@@ -38,6 +38,7 @@ func readFrame(reader io.Reader, value any) error {
 		return errors.New("本地激活消息大小无效")
 	}
 	data := make([]byte, int(length))
+	defer clear(data)
 	if _, err := io.ReadFull(reader, data); err != nil {
 		return err
 	}
@@ -58,6 +59,7 @@ func writeFrame(writer io.Writer, value any) error {
 	if err != nil {
 		return err
 	}
+	defer clear(data)
 	if len(data) == 0 || len(data) > maxFrameSize {
 		return errors.New("本地激活消息超过限制")
 	}

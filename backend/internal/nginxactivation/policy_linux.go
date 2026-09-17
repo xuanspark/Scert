@@ -14,16 +14,16 @@ import (
 
 // Policy 必须由 root 独立维护，不能复用 Scert 可写的应用配置。
 type Policy struct {
-	Version int `json:"version"`
-	AllowedUID *uint32 `json:"allowed_uid"`
-	SocketPath string `json:"socket_path"`
-	Directory string `json:"directory"`
-	Hostname string `json:"hostname"`
-	ProxyAddress string `json:"proxy_address"`
-	UpstreamAddress string `json:"upstream_address"`
-	NginxBinary string `json:"nginx_binary"`
-	NginxConfig string `json:"nginx_config"`
-	NginxPrefix string `json:"nginx_prefix"`
+	Version         int     `json:"version"`
+	AllowedUID      *uint32 `json:"allowed_uid"`
+	SocketPath      string  `json:"socket_path"`
+	Directory       string  `json:"directory"`
+	Hostname        string  `json:"hostname"`
+	ProxyAddress    string  `json:"proxy_address"`
+	UpstreamAddress string  `json:"upstream_address"`
+	NginxBinary     string  `json:"nginx_binary"`
+	NginxConfig     string  `json:"nginx_config"`
+	NginxPrefix     string  `json:"nginx_prefix"`
 }
 
 func LoadPolicy(path string) (Policy, error) {
@@ -50,6 +50,9 @@ func loadPolicy(path string, owner uint32) (Policy, error) {
 	}
 	if !filepath.IsAbs(policy.SocketPath) || filepath.Clean(policy.SocketPath) != policy.SocketPath || policy.SocketPath == "/" || len(policy.SocketPath) > 107 {
 		return policy, errors.New("激活 socket 路径无效")
+	}
+	if err := validateTrustedParents(filepath.Dir(policy.SocketPath), owner); err != nil {
+		return policy, err
 	}
 	if err := validateDirectory(policy.Directory); err != nil {
 		return policy, err
@@ -79,9 +82,9 @@ func loadPolicy(path string, owner uint32) (Policy, error) {
 func (p Policy) Rotation() Rotation {
 	return Rotation{
 		Directory: p.Directory,
-		Proxy: Endpoint{Address: p.ProxyAddress, Hostname: p.Hostname},
-		Upstream: Endpoint{Address: p.UpstreamAddress, Hostname: p.Hostname},
-		Reloader: CommandReloader{Binary: p.NginxBinary, Config: p.NginxConfig, Prefix: p.NginxPrefix},
+		Proxy:     Endpoint{Address: p.ProxyAddress, Hostname: p.Hostname},
+		Upstream:  Endpoint{Address: p.UpstreamAddress, Hostname: p.Hostname},
+		Reloader:  CommandReloader{Binary: p.NginxBinary, Config: p.NginxConfig, Prefix: p.NginxPrefix},
 	}
 }
 

@@ -9,8 +9,8 @@ type State struct {
 }
 
 type ReadyState struct {
-	Hostname     string `json:"hostname"`
-	ProxyAddress string `json:"proxy_address"`
+	Hostname        string `json:"hostname"`
+	ProxyAddress    string `json:"proxy_address"`
 	UpstreamAddress string `json:"upstream_address"`
-	LeafHash     string `json:"leaf_hash"`
+	LeafHash        string `json:"leaf_hash"`
 }

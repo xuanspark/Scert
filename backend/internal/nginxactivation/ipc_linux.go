@@ -59,8 +59,9 @@ func (s LocalService) Serve(ctx context.Context, listener *net.UnixListener) err
 	for {
 		connection, err := listener.AcceptUnix()
 		if err != nil {
+			stopping := ctx.Err() != nil
 			cancel()
-			if errors.Is(err, net.ErrClosed) && ctx.Err() != nil {
+			if errors.Is(err, net.ErrClosed) && stopping {
 				return nil
 			}
 			return err
@@ -89,6 +90,7 @@ func (s LocalService) handle(ctx context.Context, connection *net.UnixConn) {
 	stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	defer stop()
 	var message request
+	defer func() { clear(message.Key) }()
 	if err := readFrame(connection, &message); err != nil || !validRequest(message) {
 		_ = connection.SetWriteDeadline(time.Now().Add(time.Second))
 		_ = writeFrame(connection, response{Version: protocolVersion, Code: "invalid_request"})
@@ -97,8 +99,6 @@ func (s LocalService) handle(ctx context.Context, connection *net.UnixConn) {
 	operationCtx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	result := s.execute(operationCtx, message)
-	// 私钥不写入日志、错误或响应，处理结束后清理请求缓冲。
-	clear(message.Key)
 	_ = connection.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	_ = writeFrame(connection, result)
 }

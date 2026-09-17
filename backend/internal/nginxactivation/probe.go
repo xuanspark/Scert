@@ -99,10 +99,17 @@ func (e Endpoint) Wait(ctx context.Context, expected []byte) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	matched := 0
 	for {
 		_, err := e.Check(ctx, expected)
 		if err == nil {
-			return nil
+			matched++
+			// 平滑重载期间新旧工作进程可能短暂并存，单次命中不足以确认切换。
+			if matched == 3 {
+				return nil
+			}
+		} else {
+			matched = 0
 		}
 		timer := time.NewTimer(100 * time.Millisecond)
 		select {

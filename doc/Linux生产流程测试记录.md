@@ -1,6 +1,52 @@
 # Linux 生产流程测试记录
 
-## 当前进展：Nginx 证书激活事务组件实机验证
+## 当前进展：受限本地激活服务与身份边界验证
+
+2026-09-18 02:20 起接续，修改前检查点 `cc94a61` 已推送。本轮继续验证独立辅助服务，没有替换正式二进制、安装正式 socket、重载正式 Nginx 或清空共享数据库。代理模式续期仍在申请前拒绝，完整生产验收尚未完成。
+
+### 已完成的修改
+
+- [✓] 补齐受限 Unix socket 服务、客户端及独立 root 策略的测试；仅开放 `ready/state/stage/commit/reconcile`，请求不能指定命令或路径。
+- [✓] 修复监听器异常关闭被误报为正常退出；请求校验失败也清理已解析的私钥切片，并清理编码、读取持有的帧缓冲。
+- [✓] 策略加载增加 socket 父目录信任校验，覆盖非法 UID、地址、域名、权限、符号链接、硬链接、FIFO、超限及错误 JSON。
+- [✓] 激活等待改为连续三次新连接的严格 TLS/就绪探测；补测新旧证书交替时需重新累计成功次数。
+- [✓] 实际不同 UID 子进程验证授权与拒绝；伪装服务端即使将 socket inode 改为 root 所有，客户端仍通过内核身份拒绝，不发送请求。
+- [✓] 继承 FD3 的子进程验证合法 Unix socket、错误 PID、错误 FD 数量、错误路径及 TCP 监听器拒绝，关闭不删除托管 socket。
+
+### 验证证据
+
+本地 `go test -p=2 ./...`、`go test -race ./internal/nginxactivation -count=1` 通过；竞态测试仅覆盖 Windows 通用代码。Linux 目标 `go vet ./internal/nginxactivation ./cmd/scert-nginx`、辅助命令构建及两类测试程序交叉编译通过。
+
+远端测试程序位于 `/scert/acceptance-20260917-1044/`，同名本地文件位于 `.runtime/`；上传前后 SHA-256 一致：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `nginx-ipc-20260918-0240.test` | `0c41d5a0f0fd7990bb33377280af651054198529eef076adeedf7d0a3bd5d497` |
+| `nginx-listener-20260918-0230.test` | `c99dc7ef748ec8c6b3219859d7c070935c77312449b4338ce9e8539e28e3ea1e` |
+
+`scert-nginx-ipc-20260918-0240.service` 以 Scert 用户运行，私有网络与临时目录、只读系统、隐藏用户目录、禁止提权，限制 192 MiB 内存、禁用 Swap、CPU 50%、64 个任务。通过 `InaccessiblePaths` 隐藏 `/scert/conf /scert/data /scert/log /scert/backups /ssl-scert-acceptance -/ssl`。显式使用 `/usr/sbin/nginx`，以 `-test.timeout=150s -test.count=10` 连续十轮通过，退出零，运行 111.123 秒、CPU 7.418 秒、峰值内存 21.9 MiB。不同 UID 用例在非 root 单元中按设计跳过，在下列独立 root 单元中执行。
+
+`scert-nginx-listener-20260918-0230.service` 使用同类非特权隔离，继承监听器五个场景连续三轮通过，退出零，运行 170 毫秒、峰值内存 6.1 MiB。
+
+`scert-nginx-identity-20260918-0242.service` 是仅执行身份边界用例的临时 root 隔离单元，保持私有网络、私有临时目录、只读系统和正式数据不可访问，能力限制为 `CAP_CHOWN CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE` 并显式设为环境能力。设置 `SCERT_TEST_ROOT_IPC=1`，以 `-test.run=^TestRootPeerIdentity$ -test.count=3` 验证实际 UID 65534 的授权请求、UID 65533 的拒绝及非 root 服务身份伪装，全部通过，运行 310 毫秒、峰值内存 32.6 MiB。没有向正式 Scert 服务增加能力。
+
+最终留档单元 `scert-nginx-ipc-final-20260918-0244.service` 使用相同最终测试程序再运行一轮，31 项顶层测试通过，仅 root 身份用例按设计跳过；该用例已在上面的独立单元通过。最终单元运行 11.094 秒、峰值内存 20.3 MiB，详细日志保存在 systemd journal，可使用 `journalctl -u scert-nginx-ipc-final-20260918-0244.service` 复核。
+
+2026-09-18 02:42 结束检查：正式 Scert PID `589832`、Nginx PID `578671`、MySQL PID `589785` 均未变化；正式程序 SHA-256 仍为 `f5b08bf0fb88f7b19281e91f942aa2995866f96420e422c015890b841bae6366`，Nginx 主配置及 Scert 站点摘要与本轮开始一致。最终测试与身份测试单元均已退出，PID 为零。`nginx -t` 通过，使用管理域名严格验证回环 TLS 后 `/readyz` 返回 200 和 `ready`。本轮不包含浏览器或新增公网验收。
+
+### 失败与修复记录
+
+初始测试单元因误写不存在的 `/scert/logs` 在执行测试前出现 `226/NAMESPACE`；核实正式日志目录为 `/scert/log` 后修正隔离参数。旧测试程序 `nginx-ipc-20260918-0230.test` 重复运行暴露应答丢失用例的抢锁竞争，以及真实 Nginx 单次探测成功后仍遇到旧工作进程。前者改为先确认暂存已获得锁再模拟应答丢失；后者加强连续探测并增加回归测试，而非简单增加测试超时。旧程序和失败记录均保留。
+
+不同 UID 单元最初只设置能力边界，子进程在执行前报 `operation not permitted`；独立诊断确认有效能力中缺少 `CAP_SETUID`，`setpriv` 同样失败。显式设置所需环境能力后，同一测试程序通过，不将首次未进入校验逻辑的失败计为安全验证。
+
+### 仍需完成
+
+- [ ] 安装 socket/service、专用版本目录和目标站点 include；当前正式站点仍直接引用原证书文件。
+- [ ] 应用持久化双层协调与启动恢复、完整生命周期串行化、应答丢失及中断恢复；目前不能自动处理任意应用崩溃窗口。
+- [ ] 最新完整候选构建部署、管理证书续期闭环、目标机真实推送、通知送达、完整灾难恢复和容量验收。
+
+## 前序进展：Nginx 证书激活事务组件实机验证
 
 2026-09-18 01:45 至 02:03 本轮接续，修改前检查点 `10645ea` 已推送。本节为最新状态；本轮没有替换正式程序、重载正式 Nginx 或清空正式数据库，组件验证通过不代表完整生产验收完成。
 

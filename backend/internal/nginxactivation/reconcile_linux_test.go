@@ -50,9 +50,13 @@ func TestRotationReconcileUsesActualUpstream(t *testing.T) {
 				current := f.assertStatus(t, "staged")
 				current.Status = "pending"
 				root, err := os.OpenRoot(f.rotation.Directory)
-				if err != nil { t.Fatal(err) }
+				if err != nil {
+					t.Fatal(err)
+				}
 				defer root.Close()
-				if err := saveTransaction(root, current); err != nil { t.Fatal(err) }
+				if err := saveTransaction(root, current); err != nil {
+					t.Fatal(err)
+				}
 			case "unrelated":
 				other := f.authority.issue(t, testHostname, time.Now().Add(-time.Hour), time.Now().Add(72*time.Hour))
 				f.upstream.active.Store(&other.pair)
@@ -65,7 +69,9 @@ func TestRotationReconcileUsesActualUpstream(t *testing.T) {
 			}
 			state, err := f.rotation.Reconcile(ctx, id)
 			if scenario == "unrelated" || scenario == "unavailable" || scenario == "external-include" || scenario == "wrong-id" {
-				if err == nil { t.Fatal("无法确认的状态不应完成恢复") }
+				if err == nil {
+					t.Fatal("无法确认的状态不应完成恢复")
+				}
 				f.assertStatus(t, "staged")
 				return
 			}

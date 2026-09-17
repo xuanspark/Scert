@@ -224,3 +224,28 @@ func TestEndpointRejectsUnsafePolicies(t *testing.T) {
 		}
 	}
 }
+
+func TestEndpointWaitRequiresConsecutiveMatches(t *testing.T) {
+	a := newAuthority(t)
+	now := time.Now()
+	old := a.issue(t, testHostname, now.Add(-time.Hour), now.Add(24*time.Hour))
+	candidate := a.issue(t, testHostname, now.Add(-time.Hour), now.Add(48*time.Hour))
+	var requests atomic.Int32
+	var endpoint *testEndpoint
+	endpoint = newTestEndpoint(t, a, candidate, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			endpoint.active.Store(&old.pair)
+		} else {
+			endpoint.active.Store(&candidate.pair)
+		}
+		_, _ = io.WriteString(w, `{"service":"scert","status":"ready"}`)
+	}))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := endpoint.Wait(ctx, candidate.pair.Certificate[0]); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() < 5 {
+		t.Fatal("出现旧证书后未重新累计连续成功探测", requests.Load())
+	}
+}

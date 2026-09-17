@@ -43,7 +43,7 @@ func TestLocalProtocolBoundsAndSchema(t *testing.T) {
 	}
 }
 
-type partialWriter struct { bytes.Buffer }
+type partialWriter struct{ bytes.Buffer }
 
 func (w *partialWriter) Write(data []byte) (int, error) {
 	if len(data) > 2 {
