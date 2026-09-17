@@ -374,7 +374,7 @@ func TestServiceIssuesSetupCertificateWithTypedLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("申请初始化证书失败：%v", err)
 	}
-	wantDirectory := filepath.Join(cfg.Paths.Certificate, "scert.example.com", "single", saved.Version)
+	wantDirectory := filepath.Join(cfg.Paths.Certificate, "management-domain", "scert.example.com", "single", saved.Version)
 	if saved.Directory != wantDirectory {
 		t.Fatalf("初始化证书目录错误：got=%q want=%q", saved.Directory, wantDirectory)
 	}

@@ -99,6 +99,7 @@ func TestAliyunMissingAuthorizationCheckerBlocksIssueAndSetup(t *testing.T) {
 	if _, err := service.IssueForSetup(t.Context(), SetupCertificateRequest{
 		Domains: []string{"example.com"}, CertificateType: "single", ProviderID: "aliyun",
 		CredentialRef: cfg.DNS.CredentialRef, Environment: "staging",
+		CertificateRoot: cfg.Paths.Certificate, BackupRoot: cfg.Paths.Backup,
 	}); err == nil || !strings.Contains(err.Error(), "探测器未初始化") {
 		t.Fatalf("缺失检查器必须阻止初始化证书签发：%v", err)
 	}

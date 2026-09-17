@@ -92,7 +92,10 @@ type SetupCertificateRequest struct {
 func NewService(cfg config.Config, repository DomainStateRepository, credentials CredentialReader, providers ProviderFactory, accounts AccountManager) *Service {
 	return &Service{
 		config: cfg, repository: repository, credentials: credentials, providers: providers, accounts: accounts,
-		store: FileStore{Root: cfg.Paths.Certificate, BackupRoot: cfg.Paths.Backup},
+		store: FileStore{
+			Root: cfg.Paths.Certificate, BackupRoot: cfg.Paths.Backup,
+			ProtectedPaths: []string{cfg.Server.TLSCert, cfg.Server.TLSKey},
+		},
 		newIssuer: func(user *AccountUser, provider challenge.Provider, environment string) Issuer {
 			return &LegoIssuer{
 				User:                user,
@@ -222,6 +225,10 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 	if err := dnsprovider.ValidateAliyunTargetDomains(providerID, domains); err != nil {
 		return SavedResource{}, err
 	}
+	store, err := managementFileStore(request.CertificateRoot, request.BackupRoot)
+	if err != nil {
+		return SavedResource{}, err
+	}
 	environment := strings.ToLower(strings.TrimSpace(request.Environment))
 	if environment == "" {
 		environment = s.config.ACME.Environment
@@ -271,7 +278,6 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 	if err := s.validateACMEResource(ctx, resource, domains, environment); err != nil {
 		return SavedResource{}, err
 	}
-	store := FileStore{Root: request.CertificateRoot, BackupRoot: request.BackupRoot, RetainPrevious: true}
 	saved, err := store.SaveForType(ctx, domains[0], certificateType, resource)
 	if err != nil {
 		return SavedResource{}, fmt.Errorf("保存初始化证书失败：%w", err)

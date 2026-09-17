@@ -64,6 +64,8 @@ type FileStore struct {
 	Now        func() time.Time
 	// 管理入口仍可能引用旧版本，完成双层 TLS 切换前不得清理该目录。
 	RetainPrevious bool
+	// 兼容仍引用业务目录的既有管理入口，禁止清理包含这些文件的旧版本。
+	ProtectedPaths []string
 }
 
 func NormalizeDomains(domains []string) ([]string, error) {
@@ -224,6 +226,13 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 		}
 		currentDirectory = filepath.Join(directory, version)
 	}
+	protected := false
+	if !s.RetainPrevious && certificateType != "" && activeDirectory != "" {
+		protected, err = s.isProtectedDirectory(activeDirectory)
+		if err != nil {
+			return SavedResource{}, fmt.Errorf("检查旧证书引用失败：%w", err)
+		}
+	}
 	backupDirectory := ""
 	if activeDirectory != "" {
 		backupDirectory, err = s.backupExisting(activeDirectory, primary)
@@ -270,7 +279,7 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 		}
 		return SavedResource{}, fmt.Errorf("写入证书元数据失败：%w", err)
 	}
-	if !s.RetainPrevious && certificateType != "" && activeDirectory != "" && activeDirectory != currentDirectory {
+	if !s.RetainPrevious && !protected && certificateType != "" && activeDirectory != "" && activeDirectory != currentDirectory {
 		if err := removeCertificateDirectory(activeDirectory, typeDirectory); err != nil {
 			return SavedResource{}, fmt.Errorf("清理旧当前证书目录失败：%w", err)
 		}
