@@ -76,7 +76,9 @@ func startRealPostgres(t *testing.T) *realPostgres {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	realPostgresWrite(t, filepath.Join(data, "postgresql.conf"), []byte("listen_addresses = '127.0.0.1'\nport = "+f.port+"\nssl = on\nssl_cert_file = 'server.crt'\nssl_key_file = 'server.key'\npassword_encryption = 'scram-sha-256'\nunix_socket_directories = ''\n"))
+	// 隔离集群只处理小规模串行数据，避免默认缓存挤占共享实机内存。
+	settings := "shared_buffers = '16MB'\nwork_mem = '1MB'\nmaintenance_work_mem = '16MB'\nmax_connections = 32\nmax_parallel_workers = 0\nmax_worker_processes = 0\n"
+	realPostgresWrite(t, filepath.Join(data, "postgresql.conf"), []byte(settings+"listen_addresses = '127.0.0.1'\nport = "+f.port+"\nssl = on\nssl_cert_file = 'server.crt'\nssl_key_file = 'server.key'\npassword_encryption = 'scram-sha-256'\nunix_socket_directories = ''\n"))
 	realPostgresWrite(t, filepath.Join(data, "pg_hba.conf"), []byte("hostssl all all 127.0.0.1/32 scram-sha-256\nhost all all 0.0.0.0/0 reject\nhost all all ::0/0 reject\n"))
 	// 在启动前注册停止动作，启动超时也尝试关闭自己的集群；不删除任何产物。
 	t.Cleanup(func() {
