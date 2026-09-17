@@ -56,7 +56,33 @@ scert --config /scert/config/scert.json restore --input /scert/backup/manual-202
 
 - 已有工具协议替身测试，覆盖完整备份、配置/凭据/证书联动、导入与证书失败、取消、回滚失败、对象差异、归档解码失败、既有文件保护等分支。
 - 实际测试子进程验证了执行失败脱敏和超时终止；该子进程不是 PostgreSQL 官方工具。
-- 尚未完成真实 PostgreSQL 服务上的备份、恢复、权限及业务恢复演练，也未完成空库灾难恢复开发。不得仅凭替身测试、Linux 构建或前端测试宣称生产验收通过。
+- 2026-09-17 已在 Windows 隔离 PostgreSQL 16.15 集群完成真实演练：最新编译的 Scert、官方工具、全部数据库迁移、完整备份恢复、权限不足、证书恢复失败、取消后的回滚、对象清单差异、错误密码及不可信 CA 场景通过。连接使用回环地址、SCRAM 和严格 TLS，未连接生产库。
+- 成功与回滚场景核对了业务数据、自增序列、对象所有者、授权、配置、主密钥及加密凭据；成功恢复还逐字节核对证书文件。权限不足时原数据保持不变，但正向和反向导入都缺权限，仍明确提示人工处理，不误报自动回滚成功。
+- 七个真实场景分别完成一轮普通演练及三轮 `-race` 重复演练，全部通过；结束后确认无残留数据库进程。竞态检测覆盖 Go 测试及进程内取消路径，不能检测 PostgreSQL 或非竞态编译 CLI 二进制的内部竞态。
+- 尚未完成 Linux 实机、浏览器及远程部署验收，也未完成空库灾难恢复开发；Windows 隔离演练不能替代这些验收。
+
+## 隔离实机测试入口
+
+真实集成测试为 `TestPostgresRealBackupRestore`，默认跳过。必须显式指定官方工具目录、最新编译的 Scert 可执行文件与隔离产物根目录；不接受业务数据库连接串，不安装系统服务，不修改系统 PATH。
+
+Windows PowerShell 示例（在 `backend` 目录执行，工具路径需按实际安装位置调整）：
+
+```powershell
+go build -p 1 -o ../.runtime/scert-postgres-integration.exe ./cmd/scert
+$env:SCERT_POSTGRES_TEST_BIN = 'D:\Desktop\SSL\.runtime\postgres-tools\pgsql\bin'
+$env:SCERT_POSTGRES_TEST_CLI = 'D:\Desktop\SSL\.runtime\scert-postgres-integration.exe'
+$env:SCERT_POSTGRES_TEST_ROOT = 'D:\Desktop\SSL\.runtime\postgres-integration'
+go test -p 1 -count=1 -timeout=5m -run '^TestPostgresRealBackupRestore$' -v ./internal/cli
+```
+
+- 每轮创建独立集群，各场景使用全新数据库并运行 Scert 全部迁移，避免复用残留数据。不会清空任何既有业务库。
+- 仅监听 `127.0.0.1` 动态端口，启用 SCRAM 密码认证和 `sslmode=verify-full`，生成仅用于本轮测试的证书。
+- 普通备份及恢复场景执行指定的 Scert 可执行文件；取消场景在进程内确定性注入取消时机，但仍执行真实 `pg_dump`、`pg_restore` 和数据库操作。
+- 覆盖成功恢复、证书恢复失败回滚、导入后取消回滚、权限不足、对象清单不一致、密码错误和不可信 CA。
+- 检查配置、主密钥、加密凭据、证书文件、业务数据、自增序列、所有者、授权及恢复前快照，而不仅检查命令退出码。
+- 正常完成或断言失败后停止自己的集群，保留集群与演练产物。整个测试进程被强制终止时，清理回调可能无法运行，须检查该轮目录中的 `postmaster.pid` 和进程状态。
+- 产物包含测试密码、私钥及数据库备份，只能放在可信账号控制的隔离目录，不得提交到 Git；Windows 需由目录 ACL 控制访问，文件模式不是独立的 ACL 保证。
+- 该入口不等于 Linux、浏览器、远程部署、空库灾难恢复或跨版本恢复已经验收。
 
 ## 官方语义参考
 
