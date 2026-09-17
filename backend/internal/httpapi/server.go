@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -115,6 +117,9 @@ type Server struct {
 	httpMu              sync.Mutex
 	httpStopped         bool
 	httpServer          *http.Server
+	tlsMu               sync.Mutex
+	tlsCertificate      atomic.Pointer[tls.Certificate]
+	tlsRoots            *x509.CertPool
 	router              *gin.Engine
 }
 
@@ -220,43 +225,68 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) ListenAndServe() error {
+	server, err := s.prepareHTTPServer()
+	if err != nil {
+		return err
+	}
+	return server.ListenAndServeTLS("", "")
+}
+
+func (s *Server) prepareHTTPServer() (*http.Server, error) {
+	s.tlsMu.Lock()
+	defer s.tlsMu.Unlock()
+	s.httpMu.Lock()
+	stopped, started := s.httpStopped, s.httpServer != nil
+	s.httpMu.Unlock()
+	if stopped {
+		return nil, http.ErrServerClosed
+	}
+	if started {
+		return nil, errors.New("HTTPS 服务已经启动")
+	}
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
 	if !cfg.SetupReady {
-		return errors.New("初始化未完成，请使用独立 HTTPS 初始化服务")
+		return nil, errors.New("初始化未完成，请使用独立 HTTPS 初始化服务")
 	}
 	address, err := listenAddress(cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	certPath := strings.TrimSpace(cfg.Server.TLSCert)
 	keyPath := strings.TrimSpace(cfg.Server.TLSKey)
 	if certPath == "" || keyPath == "" {
-		return fmt.Errorf("初始化已完成，但 HTTPS 证书或私钥路径未配置")
+		return nil, fmt.Errorf("初始化已完成，但 HTTPS 证书或私钥路径未配置")
 	}
 	if _, err := os.Stat(filepath.Clean(certPath)); err != nil {
-		return fmt.Errorf("读取 HTTPS 证书失败：%w", err)
+		return nil, fmt.Errorf("读取 HTTPS 证书失败：%w", err)
 	}
 	if _, err := os.Stat(filepath.Clean(keyPath)); err != nil {
-		return fmt.Errorf("读取 HTTPS 私钥失败：%w", err)
+		return nil, fmt.Errorf("读取 HTTPS 私钥失败：%w", err)
+	}
+	pair, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("加载 HTTPS 证书与私钥失败：%w", err)
 	}
 	server := newHTTPServer(address, s.router)
+	server.TLSConfig.GetCertificate = s.getTLSCertificate
 	s.httpMu.Lock()
 	if s.httpStopped {
 		s.httpMu.Unlock()
-		return http.ErrServerClosed
+		return nil, http.ErrServerClosed
 	}
 	if s.httpServer != nil {
 		s.httpMu.Unlock()
-		return errors.New("HTTPS 服务已经启动")
+		return nil, errors.New("HTTPS 服务已经启动")
 	}
+	s.tlsCertificate.Store(&pair)
 	s.httpServer = server
 	s.httpMu.Unlock()
 	if s.logger != nil {
 		s.logger.Info("HTTPS 服务启动", "address", server.Addr, "https_mode", cfg.Server.HTTPSMode)
 	}
-	return server.ListenAndServeTLS(certPath, keyPath)
+	return server, nil
 }
 
 func newHTTPServer(address string, handler http.Handler) *http.Server {

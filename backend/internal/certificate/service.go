@@ -271,7 +271,7 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 	if err := s.validateACMEResource(ctx, resource, domains, environment); err != nil {
 		return SavedResource{}, err
 	}
-	store := FileStore{Root: request.CertificateRoot, BackupRoot: request.BackupRoot}
+	store := FileStore{Root: request.CertificateRoot, BackupRoot: request.BackupRoot, RetainPrevious: true}
 	saved, err := store.SaveForType(ctx, domains[0], certificateType, resource)
 	if err != nil {
 		return SavedResource{}, fmt.Errorf("保存初始化证书失败：%w", err)
