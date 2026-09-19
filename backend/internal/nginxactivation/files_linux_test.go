@@ -51,6 +51,45 @@ func TestActivationDirectoryTrust(t *testing.T) {
 	}
 }
 
+func TestPrivateDirectoryKeepsTrustWithoutNginxSyntax(t *testing.T) {
+	base := t.TempDir()
+	for _, name := range []string{"管理证书", "application data", "literal;directory"} {
+		directory := filepath.Join(base, name)
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := validatePrivateDirectory(directory); err != nil {
+			t.Fatalf("应用私有状态目录不应套用 Nginx 指令字符限制：%v", err)
+		}
+		if err := validateDirectory(directory); err == nil {
+			t.Fatal("实际写入 Nginx 配置的目录仍须限制字符")
+		}
+		if err := os.Chmod(directory, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := validatePrivateDirectory(directory); err == nil {
+			t.Fatal("应用状态目录仍须保持私有权限")
+		}
+	}
+	parent := filepath.Join(base, "parent")
+	child := filepath.Join(parent, "child")
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(child, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{child, link, "relative", "/", base + "/../escape"} {
+		if err := validatePrivateDirectory(directory); err == nil {
+			t.Fatalf("不应接受不可信应用状态目录：%q", directory)
+		}
+	}
+}
+
 func TestActivationFilesRejectLinksAndSpecialFiles(t *testing.T) {
 	base := t.TempDir()
 	root, err := os.OpenRoot(base)

@@ -222,7 +222,7 @@ func (c Coordinator) withSession(ctx context.Context, operation func(*os.Root, M
 	if c.Proxy == nil || c.Upstream == nil {
 		return errors.New("管理证书协调器尚未配置")
 	}
-	if err := validateDirectory(c.Directory); err != nil {
+	if err := validatePrivateDirectory(c.Directory); err != nil {
 		return err
 	}
 	lockPath := filepath.Join(c.Directory, ".coordination.lock")

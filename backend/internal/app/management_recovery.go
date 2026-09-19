@@ -14,6 +14,13 @@ func (a *App) startManagementRecovery(recover func(context.Context) error) {
 	a.managementDone = make(chan struct{})
 	go func() {
 		defer close(a.managementDone)
+		if a.HTTP != nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-a.HTTP.Listening():
+			}
+		}
 		for {
 			attempt, stop := context.WithTimeout(ctx, 100*time.Second)
 			err := recover(attempt)

@@ -102,14 +102,18 @@ func newID() (string, error) {
 }
 
 func validateDirectory(directory string) error {
-	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || directory == string(filepath.Separator) {
-		return errors.New("Nginx 激活目录必须是独立的绝对目录")
-	}
 	// 目录来自本地部署策略，仍拒绝可改变 Nginx 指令语义的字符。
 	for _, char := range directory {
 		if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '/' || char == '-' || char == '_' || char == '.') {
 			return errors.New("Nginx 激活目录包含不允许的字符")
 		}
+	}
+	return validatePrivateDirectory(directory)
+}
+
+func validatePrivateDirectory(directory string) error {
+	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || directory == string(filepath.Separator) {
+		return errors.New("激活状态目录必须是独立的规范绝对目录")
 	}
 	for path := directory; ; path = filepath.Dir(path) {
 		info, err := os.Lstat(path)

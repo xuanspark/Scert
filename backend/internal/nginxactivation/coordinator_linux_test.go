@@ -148,6 +148,23 @@ func TestCoordinatorCommitsOverLocalIPC(t *testing.T) {
 	}
 }
 
+func TestCoordinatorUsesLocalizedStateDirectory(t *testing.T) {
+	f := newCoordinatorFixture(t)
+	f.coordinator.Directory = filepath.Join(f.coordinator.Directory, "管理证书 状态")
+	if err := os.Mkdir(f.coordinator.Directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.coordinator.Ready(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.coordinator.Activate(t.Context(), f.candidate.CertificateFiles); err != nil {
+		t.Fatal(err)
+	}
+	if record := f.record(t); record.Phase != "committed" {
+		t.Fatal("中文状态目录中的协调未提交", record.Phase)
+	}
+}
+
 func TestCoordinatorRecoversLostResponses(t *testing.T) {
 	for _, operation := range []string{"stage", "commit"} {
 		t.Run(operation, func(t *testing.T) {

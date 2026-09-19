@@ -117,6 +117,7 @@ type Server struct {
 	httpMu              sync.Mutex
 	httpStopped         bool
 	httpServer          *http.Server
+	httpListening       chan struct{}
 	tlsMu               sync.Mutex
 	tlsCertificate      atomic.Pointer[tls.Certificate]
 	tlsRoots            *x509.CertPool
@@ -132,7 +133,8 @@ func New(deps Dependencies) *Server {
 		frontendDir = filepath.Join(deps.Config.Paths.Install, "web")
 	}
 	server := &Server{
-		config: deps.Config, configPath: deps.ConfigPath, frontendDir: filepath.Clean(frontendDir), logger: deps.Logger,
+		httpListening: make(chan struct{}),
+		config:        deps.Config, configPath: deps.ConfigPath, frontendDir: filepath.Clean(frontendDir), logger: deps.Logger,
 		repository: deps.Repository, setupDNS: deps.SetupDNS, secrets: deps.Secrets, firewall: deps.Firewall, router: router,
 		servers:                  deps.Servers,
 		users:                    deps.Users,
@@ -229,7 +231,28 @@ func (s *Server) ListenAndServe() error {
 	if err != nil {
 		return err
 	}
-	return server.ListenAndServeTLS("", "")
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+	return server.ServeTLS(&servingListener{Listener: listener, ready: s.httpListening}, "", "")
+}
+
+// Listening 仅在 TLS 服务进入接收循环后关闭，不代表数据库或代理入口已经就绪。
+func (s *Server) Listening() <-chan struct{} {
+	return s.httpListening
+}
+
+type servingListener struct {
+	net.Listener
+	once  sync.Once
+	ready chan struct{}
+}
+
+func (l *servingListener) Accept() (net.Conn, error) {
+	l.once.Do(func() { close(l.ready) })
+	return l.Listener.Accept()
 }
 
 func (s *Server) prepareHTTPServer() (*http.Server, error) {
