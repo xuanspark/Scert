@@ -1,5 +1,67 @@
 # Linux 生产流程测试记录
 
+## 当前进展：辅助服务初始化、真实监听回归与干净源码路径复验
+
+2026-09-20 02:25 至 02:47 接续。本节为最新状态，后续各节保留为历史证据；不把旧服务器记录当作当前环境。本轮仅完成本地修改、交叉构建和测试，没有登录服务器、部署程序、修改 Nginx 或清空数据库。
+
+### 需求与完成状态
+
+- [✓] 路径裁剪提交 `a212401` 已推送；本轮再次复审发布入口与扫描器，确认 Go/Wails 使用 `-trimpath`，前端关闭源码映射，归档前检查构建信息及本机构建路径。
+- [✓] 修改前检查点 `aa5d669` 与辅助服务提交 `d8b4850` 已推送。补齐 root 策略、安全初始化入口、systemd socket/service、中文部署说明与打包接线。
+- [✓] 新增真实监听回归提交 `549d6a832eec0cbc8dfeb01a43eea2eecfdba2fc` 已推送，远程 main 已核对一致；该提交也是更新本节前的检查点。
+- [✓] 使用独立干净克隆重新构建三个 Linux 程序与 Web，全部通过路径扫描，构建标记为 `vcs.modified=false`。
+- [!] 完整 PowerShell 发布脚本仍受有效执行策略 `Restricted` 限制，本轮未改变或绕过执行策略；直接工具构建不等于发布脚本已验收。
+- [!] SSH 主机身份变化仍未获可信确认，不能发送 root 密码或继续远端部署。完整生产部署验收尚未通过。
+
+### 辅助服务与真实监听测试
+
+`scert-nginx --initialize` 验证输入文件、可信路径、权限、证书链、两层实际 TLS 证书、就绪响应与 `nginx -t`，只在专用目录生成私有版本及引用。已有状态、链接、不可信路径或宽权限私钥均拒绝；初始化不覆盖、不重载，也不安装服务。普通安装器仍不启用该 root 辅助服务。
+
+新增 socket/service 保持本地 Unix IPC 与唯一允许 UID，不给应用进程增加权限；辅助单元仅保留 `CAP_DAC_OVERRIDE CAP_CHOWN`，并依赖、跟随 `nginx.service`。模板与初始化已完成源码和交叉构建检查，尚无本轮目标 Linux/systemd 执行证据。
+
+`backend/internal/httpapi/management_session_integration_test.go` 通过真实 `Server.ListenAndServe()`、临时 SQLite 及迁移、受保护凭据存储和严格 HTTPS 就绪探测覆盖三项：
+
+1. 独占会话中切换证书，只修改配置中的证书路径；监听器重建后保留新证书与数据库内容。
+2. 模拟证书配置已落盘而内存快照尚旧的中断窗口，拒绝继续协调；服务重建后从持久化配置恢复候选。
+3. 数据库关闭后，即使 HTTPS 仍可连接，就绪探测也必须失败。
+
+三项首跑及连续 20 轮通过。HTTP API 全包竞态测试 `go test -race -trimpath -count=1 -p=1 ./internal/httpapi` 完成并通过，包内用时 67.667 秒。这是 Windows 真实上游监听测试，不是完整 Nginx 双层协调、进程强杀或 systemd 重启验收。
+
+### 干净源码与产物证据
+
+独立克隆 `.runtime/clean-path-20260920-0243/` 对应提交 `549d6a8`，构建前后 Git 状态均干净。执行以下检查全部通过：
+
+```text
+go test -trimpath -count=1 -p=2 ./...
+go vet -p=2 ./...
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go vet -p=2 ./internal/app ./internal/nginxactivation ./cmd/scert-nginx
+npm test
+npm run build -- --outDir <独立新建目录>/web --emptyOutDir false
+```
+
+前两项为 Windows 本地执行；第三项仅为 Linux 目标静态检查。前端 54 项测试通过，生产构建无 `.map` 文件；本轮未修改页面，也未重复浏览器渲染验收。
+
+`.runtime/clean-path-artifacts-20260920-0243/` 保留三个 Linux 程序、Web、安装器、服务模板、Nginx 模板和说明，共 18 个文件。三个程序均由 Go 1.26.6 构建，`-trimpath=true`、`CGO_ENABLED=0`、`GOOS=linux`，内嵌提交为 `549d6a8`、`vcs.modified=false`。整目录扫描覆盖当前与旧工作区、干净克隆、产物目录、用户目录、Go/Node 安装目录、Go 缓存和临时目录，结果通过。
+
+| 程序 | SHA-256 |
+| --- | --- |
+| `scert` | `aadc2c3d08fc1ab0e466ac7f332dbe024bb17009553901bdb5d91f108d65c038` |
+| `scert-admin` | `f41cdc58721231512656bf1a41bc25faa671d7aef6d05955e0553111ff4604f0` |
+| `scert-nginx` | `42d957f5f0263419d8c3b0a935b5882b80b6be1ec81e11d2d82c6bdb83c5fca8` |
+
+该目录没有正式发布脚本生成的 `manifest.json` 和 `SHA256SUMS`，仅用于核验，禁止当作正式安装包。路径扫描不会删除模块导入路径、相对源码文件名或运行时必需部署路径，也不保证识别源码中手写的任意其他机器路径。
+
+三类 Linux 测试程序从同一干净克隆以 `go test -trimpath -c` 生成，保留在 `.runtime/clean-tests-20260920-0246/`：`httpapi.test`、`nginxactivation.test`、`scert-nginx.test`。仅交叉编译通过，尚未在 Linux 运行。前轮 `.runtime/path-audit-20260920-0236/` 及其他旧产物全部保留，其 `vcs.modified=true` 标记不再作为新干净产物的证据。
+
+### 连接边界与待验收项目
+
+02:47 左右，无认证 SSH 握手取得 `45.136.13.241` 的 Ed25519 指纹 `SHA256:cVoSXsYmhALjAdN2Gso3JvbnvYQCQBFuRv3IZjFvzsE`，与历史可信值 `SHA256:XN9mJ75b4CJsFPZ7fbkAmU1yFxKZ4Tw01z8TN2EJMlk` 不同。Windows 自带 `ssh-keyscan` 因不支持服务器选择的 KEX 未取得公钥，随后使用 Paramiko 只完成握手与公钥摘要读取；没有认证、写入 `known_hosts` 或传送业务数据。网络上读取到的公钥不能自证可信，仍须在服务商可信控制台执行 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 核对。
+
+- [ ] 获准执行完整发布脚本，生成带清单和校验文件的正式候选；不得以核验目录替代。
+- [ ] 确认主机身份后只读检查现场服务、域名、端口、数据库及容量，不沿用历史部署参数。
+- [ ] 在隔离 Linux 环境执行应用适配器、真实 Nginx 双层协调、root IPC、systemd、应答丢失及中断恢复测试。
+- [ ] 完成最新候选部署、真实管理证书续期、目标机推送、通知送达、重启、升级与业务回退及容量验收。
+
 ## 当前进展：路径裁剪与本地发布检查
 
 2026-09-20 接续。本节为最新状态，后文为各阶段历史记录。实际仓库位于 `D:\Desktop\Scert`，原 `D:\Desktop\SSL` 已不存在。本次修改前检查点 `ba6c6d1` 已推送；本节产物来自修改中的工作区，仅用于构建验证，不是正式可部署发布包。
