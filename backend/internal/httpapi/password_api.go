@@ -41,18 +41,22 @@ func (s *Server) changePassword(c *gin.Context) {
 		s.writeError(c, http.StatusUnauthorized, "登录状态已失效，请重新登录", nil)
 		return
 	}
-	s.configMu.RLock()
-	cfg := s.config
-	s.configMu.RUnlock()
-
 	if session.UserID == "primary-super-admin" {
-		s.changePrimarySuperAdminPassword(c, session, cfg, request)
+		s.changePrimarySuperAdminPassword(c, session, request)
 		return
 	}
 	s.changeDatabaseUserPassword(c, session, request)
 }
 
-func (s *Server) changePrimarySuperAdminPassword(c *gin.Context, session authSession, cfg config.Config, request changePasswordRequest) {
+func (s *Server) changePrimarySuperAdminPassword(c *gin.Context, session authSession, request changePasswordRequest) {
+	if !s.tlsMu.TryLock() {
+		s.writeError(c, http.StatusConflict, "管理证书或配置正在更新，请稍后重试", nil)
+		return
+	}
+	defer s.tlsMu.Unlock()
+	s.configMu.RLock()
+	cfg := s.config
+	s.configMu.RUnlock()
 	if _, err := auth.AuthenticateAdmin(session.Username, request.CurrentPassword, cfg.Admin.Username, cfg.Admin.Email, cfg.Admin.PasswordHash); err != nil {
 		s.writeError(c, http.StatusUnauthorized, "当前密码错误", nil)
 		return

@@ -123,6 +123,11 @@ func (s *Server) resetSubmit(c *gin.Context) {
 	}
 	password := c.Request.PostForm.Get("new_password")
 	confirmation := c.Request.PostForm.Get("confirm_password")
+	if !s.tlsMu.TryLock() {
+		s.writeResetFailure(c, http.StatusConflict, "管理证书或配置正在更新，请稍后重试")
+		return
+	}
+	defer s.tlsMu.Unlock()
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()

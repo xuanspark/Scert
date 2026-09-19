@@ -82,11 +82,11 @@ func runApplication(ctx context.Context, cfg config.Config, path string) (bool, 
 		return false, err
 	}
 	defer service.Close()
+	errorsChannel := make(chan error, 1)
+	go func() { errorsChannel <- service.HTTP.ListenAndServe() }()
 	if service.Renewal != nil {
 		service.Renewal.Start(ctx)
 	}
-	errorsChannel := make(chan error, 1)
-	go func() { errorsChannel <- service.HTTP.ListenAndServe() }()
 	select {
 	case <-ctx.Done():
 		return false, nil

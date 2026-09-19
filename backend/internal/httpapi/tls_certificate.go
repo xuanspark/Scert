@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -74,6 +75,11 @@ func (s *Server) ActivateManagementCertificate(expected ManagementCertificateSta
 func (s *Server) activateTLSCertificate(certificatePath, privateKeyPath string, expected *ManagementCertificateState) error {
 	s.tlsMu.Lock()
 	defer s.tlsMu.Unlock()
+	return s.activateTLSCertificateLocked(certificatePath, privateKeyPath, expected, "")
+}
+
+// 调用者必须持有 tlsMu，保持双层协调与配置写入之间的独占边界。
+func (s *Server) activateTLSCertificateLocked(certificatePath, privateKeyPath string, expected *ManagementCertificateState, expectedHash string) error {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	if expected != nil {
@@ -91,6 +97,9 @@ func (s *Server) activateTLSCertificate(certificatePath, privateKeyPath string, 
 	pair, err := tls.LoadX509KeyPair(certificatePath, privateKeyPath)
 	if err != nil {
 		return fmt.Errorf("加载新的管理证书失败：%w", err)
+	}
+	if expectedHash != "" && fmt.Sprintf("%x", sha256.Sum256(pair.Certificate[0])) != expectedHash {
+		return errors.New("候选管理证书在协调期间发生变化，已拒绝切换")
 	}
 	leaf, err := x509.ParseCertificate(pair.Certificate[0])
 	if err != nil {

@@ -180,6 +180,11 @@ func (s *Server) updateSettings(c *gin.Context) {
 		return
 	}
 
+	if !s.tlsMu.TryLock() {
+		s.writeError(c, http.StatusConflict, "管理证书或配置正在更新，请稍后重试", nil)
+		return
+	}
+	defer s.tlsMu.Unlock()
 	s.configMu.Lock()
 	previous := s.config
 	updated := s.config

@@ -41,6 +41,8 @@ type App struct {
 	HTTP            *httpapi.Server
 	maintenanceStop context.CancelFunc
 	maintenanceDone chan struct{}
+	managementStop  context.CancelFunc
+	managementDone  chan struct{}
 }
 
 const (
@@ -180,7 +182,13 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		Tasks:               taskRepo,
 		ReadinessCheck:      db.DB.PingContext,
 	})
-	management.activator = directManagementActivator{server: server}
+	activator, recoverManagement, err := newManagementActivator(cfg, server)
+	if err != nil {
+		_ = db.Close()
+		_ = logger.Close()
+		return nil, fmt.Errorf("初始化管理证书协调器失败：%w", err)
+	}
+	management.activator = activator
 	application := &App{
 		Config: cfg, Logger: logger, Database: db, Repository: repo,
 		Servers:     serverRepo,
@@ -193,6 +201,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		Renewal:      renewal,
 	}
 	application.startAuditCleanup(auditRepo)
+	application.startManagementRecovery(recoverManagement)
 	return application, nil
 }
 
@@ -228,6 +237,9 @@ func (a *App) Close() error {
 		return nil
 	}
 	var first error
+	if a.managementStop != nil {
+		a.managementStop()
+	}
 	if a.Renewal != nil {
 		a.Renewal.Stop()
 	}
@@ -236,6 +248,9 @@ func (a *App) Close() error {
 	}
 	if a.maintenanceDone != nil {
 		<-a.maintenanceDone
+	}
+	if a.managementDone != nil {
+		<-a.managementDone
 	}
 	if a.HTTP != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -237,6 +237,11 @@ func (s *Server) applySetup(c *gin.Context) {
 		return
 	}
 	defer s.setupMu.Unlock()
+	if !s.tlsMu.TryLock() {
+		s.writeError(c, http.StatusConflict, "管理证书或配置正在更新，请稍后重试", nil)
+		return
+	}
+	defer s.tlsMu.Unlock()
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
