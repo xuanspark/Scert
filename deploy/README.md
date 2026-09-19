@@ -102,12 +102,34 @@ Scert 提供两个用途不同的无认证检查接口：
 - `GET /healthz`：只表示进程和 HTTP 服务仍可响应，不能证明 DNS 凭据、TLS 文件和数据库可用。
 - `GET /readyz`：生产就绪检查，只有初始化完成、已配置的敏感凭据可解密、TLS 证书与私钥为普通文件且数据库可访问时才返回 HTTP `200`。
 
-安装、升级、恢复和配置变更后必须同时检查：
+安装、升级、恢复和配置变更后必须同时检查两个接口，并验证证书名称和可信链。以下示例在部署服务器上执行；域名、上游端口和 CA 文件必须与实际配置一致，不能直接使用示例域名：
 
 ```bash
-curl -k --fail --silent --show-error https://127.0.0.1:9004/healthz
-curl -k --fail --silent --show-error https://127.0.0.1:9004/readyz
+management_domain=scert.example.com
+upstream_port=9004
+ca_bundle=/etc/ssl/certs/ca-certificates.crt
+curl --noproxy '*' --fail --silent --show-error --max-time 15 \
+  --cacert "$ca_bundle" --resolve "${management_domain}:${upstream_port}:127.0.0.1" \
+  "https://${management_domain}:${upstream_port}/healthz"
+curl --noproxy '*' --fail --silent --show-error --max-time 15 \
+  --cacert "$ca_bundle" --resolve "${management_domain}:${upstream_port}:127.0.0.1" \
+  "https://${management_domain}:${upstream_port}/readyz"
 ```
+
+`--resolve` 仅将连接定向到回环地址，仍按 URL 中的配置域名发送 SNI 并验证 TLS。私有 CA 场景应将 `ca_bundle` 改为已通过可信渠道核验、仅管理员可修改的 CA 文件，不得使用 `-k` 或 `--insecure`。这里检查的是上游，不代表 Nginx 或公网 DNS 已通过验收。
+
+反向代理模式还需在独立客户端按正常 DNS 检查公开入口，不使用指定解析或隧道。以下公开端口必须与 `server.proxy_https_port` 一致；直接模式使用实际对外 HTTPS 端口：
+
+```bash
+management_domain=scert.example.com
+public_port=443
+curl --noproxy '*' --fail --silent --show-error --max-time 15 \
+  "https://${management_domain}:${public_port}/healthz"
+curl --noproxy '*' --fail --silent --show-error --max-time 15 \
+  "https://${management_domain}:${public_port}/readyz"
+```
+
+公开入口默认使用客户端系统信任库；私有 CA 环境须显式指定经过核验的 CA 文件。HTTP `200` 之外还应核对 `/readyz` JSON 的 `status` 为 `ready`；TLS 失败、错误响应或域名解析不符都不能算通过。
 
 `/readyz` 失败时返回 HTTP `503` 和不包含敏感引用的原因码：
 
@@ -170,7 +192,7 @@ location / {
 
 管理域名由部署配置决定，不固定为示例域名。使用非标准 HTTPS 端口时，必须设置 `server.proxy_https_port`，初始化向导和管理设置均提供对应字段。省略该字段或设为 `0` 时，代理公开端口仍为 `443`；直接模式忽略该字段并使用 `server.port`。
 
-例如本次授权测试入口为 `web.apmmk.cn`，HTTP `8003` 跳转至 HTTPS `8004`，核心服务仅监听 `127.0.0.1:9004`：
+例如自定义端口方案可以使用 `web.apmmk.cn`，HTTP `8003` 跳转至 HTTPS `8004`，核心服务仅监听 `127.0.0.1:9004`。以下仅为配置示例，不代表当前测试环境或生产环境的实际域名、端口：
 
 ```json
 {
@@ -218,12 +240,12 @@ server {
 
 `Host` 必须保留外部端口，否则同源安全检查可能拒绝请求。跳转目标使用明确配置的域名，不直接信任来访 `Host`。证书路径须替换为实际签发路径；证书更新后需要执行配置检查并平滑重载 Nginx。安全组仅开放所需公开端口，不开放内部 `9004`，不改动其他应用占用的 `80/443`。先验证真实证书、DNS、登录、会话和重置链接，再判定部署通过。
 
-### 默认端口示例
+### 标准公开端口示例
 
-开发阶段可以使用测试域名 `web.xuans.com` 验证 Web 页面和反向代理链路。推荐让 Scert 只监听本机端口 `9004`，由 Nginx 监听 `9003` 接收测试访问并转发：
+使用标准公开端口时，让 Scert 只监听本机端口 `9004`，由 Nginx 在共享 `443` 上按域名接收访问并转发。下面的 `scert.example.com` 必须替换为实际配置域名：
 
 ```text
-测试访问 HTTPS 9003
+公开访问 HTTPS 443
     ↓
 Nginx
     ↓ https://127.0.0.1:9004
@@ -237,7 +259,11 @@ Scert
   "server": {
     "host": "127.0.0.1",
     "port": 9004,
-    "https_mode": "proxy"
+    "https_mode": "proxy",
+    "proxy_https_port": 443
+  },
+  "web": {
+    "hostname": "scert.example.com"
   }
 }
 ```
@@ -247,15 +273,15 @@ Nginx 示例：
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name web.xuans.com;
+    server_name scert.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/web.xuans.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/web.xuans.com/privkey.pem;
+    ssl_certificate /实际证书目录/fullchain.pem;
+    ssl_certificate_key /实际证书目录/privkey.pem;
 
     location / {
         proxy_pass https://127.0.0.1:9004;
         proxy_ssl_server_name on;
-        proxy_ssl_name web.xuans.com;
+        proxy_ssl_name scert.example.com;
         proxy_ssl_verify on;
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
         proxy_ssl_verify_depth 3;
@@ -268,17 +294,19 @@ server {
 }
 ```
 
-如果需要 HTTP 自动跳转，再配置并开放 `80`；正式公网访问通常使用 `443`，开发测试访问使用 Nginx 的 `9003`。Scert 内部端口 `9004` 和 Nginx 测试端口 `9003` 都不应加入公网防火墙规则。端口可以在配置文件的 `server.port` 修改，修改后需要重启 Scert；如果改为直接对外监听，则还需要同步调整防火墙和安全组规则。
+如果需要 HTTP 自动跳转，再为实际管理域名配置 `80` 到 `443` 的跳转。共享 Nginx 时仅增加该域名的命名虚拟主机，不修改其他站点或增加冲突的默认站点。Scert 内部端口 `9004` 不应加入公网防火墙规则；修改 `server.port` 后需要同步调整 Nginx 上游并重启 Scert。
 
-`web.xuans.com` 仅用于开发阶段测试，不能作为生产环境证书、DNS、ACME 或最终 HTTPS 验收依据。
+示例域名与配置不能作为生产环境证书、DNS、ACME 或最终 HTTPS 验收依据。
 
 开发环境使用自签名证书时，应优先将测试 CA 加入独立信任文件。只有在隔离的临时开发环境中，才允许短时使用 `proxy_ssl_verify off`；该设置禁止复制到生产配置。
 
 ## 备份与恢复
 
-完整备份包含配置、主密钥、加密敏感配置、SQLite 一致性快照或 MySQL 导出、证书目录以及带 SHA-256 的 `manifest.json`。备份目录必须由 `Scert` 用户控制并保持 `0700`，不得放入 Web 根目录或公开共享目录。
+完整备份包含配置、主密钥、加密敏感配置、SQLite 一致性快照、MySQL 导出或 PostgreSQL 自定义格式归档、证书目录以及带 SHA-256 的 `manifest.json`。备份目录必须由 `Scert` 用户控制并保持 `0700`，不得放入 Web 根目录或公开共享目录。
 
-PostgreSQL 的内置完整备份恢复尚未实现，`backup`、`restore` 会明确拒绝，不会遗漏数据库却报告成功。三库初始化可用不等于三库运维能力已完整验收；选择 PostgreSQL 时仍须补齐原生数据库备份、配置/凭据/证书保护及恢复演练，当前不能声明这一能力已具备生产准入。
+PostgreSQL 的 `backup`、`restore` 已接入官方 `pg_dump`、`pg_restore`。两个工具必须具有相同主版本且至少为 16，`pg_dump` 主版本不得低于数据库服务端主版本；连接必须保持 `sslmode=verify-full`。工具缺失、版本不兼容或 TLS 校验失败都会中止，不会发布遗漏数据库的备份。
+
+PostgreSQL 自动恢复仅支持原目标数据库、对象清单及所有者一致的场景，不支持空库灾难恢复、跨数据库或跨结构迁移。集群角色、角色密码、表空间定义、服务端配置及外置数据库 CA/客户端证书须另行保护；本机维护锁也不能阻止其他主机写入，恢复前必须停止所有相关实例和外部结构变更任务。归档可能包含可执行 SQL，只能恢复可信来源的备份。已有隔离测试不替代当前部署环境的恢复演练，不能据此声明生产验收通过。
 
 备份和恢复都会获取跨进程维护锁；如果主服务仍在运行会直接拒绝。运维时仍必须显式停服，避免外部工具或尚未纳入锁协议的操作修改证书目录：
 

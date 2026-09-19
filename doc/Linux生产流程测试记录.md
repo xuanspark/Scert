@@ -1,5 +1,65 @@
 # Linux 生产流程测试记录
 
+## 当前进展：发布说明修正与入口、依赖审计
+
+2026-09-20 03:12 起接续，03:22 完成本节所列检查。本节为最新状态，下文按各自时间保留历史证据。实际仓库仍为 `D:\Desktop\Scert`，目标为 `45.136.13.241`，本次管理域名为 `odacm.cn`；这些测试参数不硬编码进产品，也不构成验收依据。本轮未登录服务器、上传产物、修改 DNS/Nginx、修改系统信任库或清空共享数据库，完整生产部署验收尚未通过。
+
+### 需求与任务状态
+
+- [✓] 接回 Windows 与 Linux 目标的两项 `govulncheck`，均已正常退出；没有重复启动未结束任务。
+- [✓] 修改前检查点 `71fe48c` 已推送，暂存区事先为空；旧补丁、二进制、脚本及历史构建目录全部保留。
+- [✓] 修正 `deploy/README.md`：生产探测不再跳过 TLS，分别说明回环上游和正常 DNS 公开入口验证；统一标准 `443` 示例，旧 `8003/8004` 仅保留为自定义端口示例。
+- [✓] 按当前实现修正 PostgreSQL 备份恢复说明，注明官方工具、版本、严格 TLS、同目标同对象清单限制及独立保护的集群资源，不扩大为灾难恢复已验收。
+- [✓] 复核 Go/Wails 的 `-trimpath` 和前端禁用源码映射，发布检查及 CLI 定向回归通过，已有 Linux 产物路径扫描再次通过。
+- [!] SSH 新指纹尚未通过可信控制台核对；没有发送密码、更新 `known_hosts` 或接受新主机身份。
+- [!] 两家 HTTPS DNS 查询仍指向旧地址，当前入口 TLS 检查失败；不可用固定解析探测替代域名生产验收。
+- [!] 本机 PowerShell 有效策略仍为 `Restricted`，没有修改或绕过；最新正式发布脚本、Linux 双层集成与部署流程仍未完成。
+
+### 入口与主机身份
+
+本机 `Resolve-DnsName odacm.cn -Type A -DnsOnly` 返回 `198.18.1.249`。严格 HTTPS DoH 查询 Cloudflare 与 Google 均返回 `odacm.cn A 47.108.78.12`、TTL 600，不是本次目标 `45.136.13.241`。这是两个递归解析器的当前观察，不宣称已直接验证权威 DNS；本机普通 DNS 的结果不能替代公共解析结论，也没有据此更改网络或 DNS 设置。
+
+以下三项均已实际执行，无跳过证书验证：
+
+```text
+curl.exe --noproxy "*" --fail --silent --show-error --max-time 15 https://odacm.cn/readyz
+curl.exe --noproxy "*" --fail --silent --show-error --max-time 15 --resolve odacm.cn:443:45.136.13.241 https://odacm.cn/readyz
+curl.exe --noproxy "*" --silent --show-error --max-time 15 --resolve odacm.cn:80:45.136.13.241 -I http://odacm.cn/
+```
+
+前两项返回 curl 错误 35：`schannel: failed to receive handshake, SSL/TLS connection failed`；第三项返回错误 52：`Empty reply from server`。只能说明本机所经网络路径上的请求失败，不能证明目标 Nginx 配置、服务状态或证书根因；透明代理等网络因素仍未排除。
+
+03:21 左右，Paramiko 无认证握手读取到 Ed25519 指纹 `SHA256:cVoSXsYmhALjAdN2Gso3JvbnvYQCQBFuRv3IZjFvzsE`，`authenticated=False`。它与历史可信值 `SHA256:XN9mJ75b4CJsFPZ7fbkAmU1yFxKZ4Tw01z8TN2EJMlk` 不同；网络上反复读到同一新公钥不构成可信确认。须在服务商可信控制台执行 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 后核对，再决定是否认证。
+
+### 依赖与回归证据
+
+```text
+go mod verify
+govulncheck ./...
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 govulncheck ./...
+govulncheck -show verbose ./...
+npm.cmd audit --omit=dev --json
+go test -trimpath -count=1 -p=2 ./internal/releasearchive ./internal/cli
+git diff --check
+```
+
+Go 命令在 `backend` 执行，npm 命令在 `frontend` 执行；Linux 环境变量一行是目标配置的简写，实际通过 PowerShell 子进程环境设置。`go mod verify` 返回 `all modules verified`。两平台漏洞扫描均报告调用路径零项、导入包零项、依赖模块一项；Windows 详细报告将其定位为 `GO-2026-5932`，涉及 `golang.org/x/crypto@v0.56.0` 中不再维护的 `openpgp` 包，无修复版本，当前代码未导入受影响包或调用其符号。没有为消除模块提示而移除仍需要的加密依赖，也不能将本结果描述成所有依赖完全没有已知风险。
+
+前端生产依赖审计报告零漏洞，不包含开发依赖，也不代表未来漏洞保证。发布检查包与 CLI 回归均通过；真实 PostgreSQL 集成入口未提供官方工具和隔离环境参数，本轮不算新增真实数据库演练。部署说明的两个 JSON 配置块通过解析检查，差异检查无错误；没有在 Linux 上执行新文档中的 Nginx 配置或健康探测示例。
+
+### 本地路径要求与产物边界
+
+重新调用 `scert-release --verify-only`，对 `.runtime/clean-path-artifacts-20260920-0243/` 的三个 Linux 程序与整个资源目录，以及 `.runtime/app-integration-20260920-0307/app.test` 执行构建标记和路径扫描，均通过。扫描参数包含当前与旧工作区、用户目录、实际 Go 工具链及缓存、Go/Node 安装目录与临时目录；这些参数不写入产物。已有 Web 产物未找到 `.map` 文件。
+
+这两处是前序已生成的核验产物，本轮没有重新编译完整发布包，也没有把新部署说明复制到旧产物中；此前记录的摘要及源码版本边界继续适用。正式候选必须从最终提交重新运行完整发布脚本，生成清单和校验文件并通过同样检查后再部署。模块导入路径、相对文件名和运行时部署路径不等于本机构建绝对路径，裁剪要求不删除这些运行所需信息。
+
+### 待解除的验收阻塞
+
+- [ ] 通过可信控制台确认当前 SSH 主机身份；确认后先只读检查现场，不能沿用旧服务器 PID、端口或配置结论。
+- [ ] 核对 `odacm.cn` 的实际 DNS 配置与迁移范围，使其指向授权目标；分别验证权威/公共解析、本机解析及正常 DNS 的严格 HTTPS 入口。
+- [ ] 在获准的构建环境运行完整发布脚本，并在隔离 Linux 单元执行五个应用与 Nginx 双层场景，确认没有跳过。
+- [ ] 完成 root 辅助服务/systemd、中断恢复、最新候选部署、管理证书续期、目标推送、通知送达、升级回退与容量验收；未完成前不能宣告生产部署通过。
+
 ## 当前进展：真实应用与 Nginx 双层切换集成用例
 
 2026-09-20 02:54 起接续。本节为最新状态，后续章节保留为历史证据。本轮没有登录服务器、部署程序、修改系统信任库、修改正式 Nginx 或清空共享数据库。完整生产部署验收尚未通过。
