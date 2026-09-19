@@ -1,5 +1,63 @@
 # Linux 生产流程测试记录
 
+## 当前进展：真实应用与 Nginx 双层切换集成用例
+
+2026-09-20 02:54 起接续。本节为最新状态，后续章节保留为历史证据。本轮没有登录服务器、部署程序、修改系统信任库、修改正式 Nginx 或清空共享数据库。完整生产部署验收尚未通过。
+
+### 需求与任务状态
+
+- [✓] 核对实际仓库 `D:\Desktop\Scert`，保留旧补丁、未跟踪二进制及历史产物；修改前中文检查点 `53ed3d6` 已推送。
+- [✓] 延续用户要求，所有本轮 Go 测试及交叉编译均使用 `-trimpath`；最新 Linux 测试程序通过构建标记及本机构建路径扫描。
+- [✓] 新增真实应用重建回归，验证 HTTPS、SQLite 和凭据存储重建后的就绪状态与数据库内容保留。
+- [x] 新增五个真实应用与 Nginx 双层集成场景，源码复审、交叉编译及 Linux 目标静态检查通过，等待 Linux 实际运行复审。
+- [✓] 测试提交 `c7d5344` 已推送；本节更新前已检查暂存区，仅包含三个新增测试文件。
+- [!] SSH 主机身份变化仍未获得可信确认，没有发送密码或接受新指纹；远端部署继续等待身份核对。
+- [!] 本机无可用 WSL、Docker 或 Podman；PowerShell 有效执行策略仍为 `Restricted`，没有修改或绕过策略，完整发布脚本仍待执行。
+
+### 集成范围与边界
+
+`backend/internal/app/management_integration_test.go` 复用正式 `NewWithConfigPath`、`HTTP.ListenAndServe`、SQLite 迁移和敏感信息存储，使用独立临时目录、随机回环端口和测试证书。跨平台用例关闭并重建应用，严格 TLS 探测 `/readyz`，同时检查预置数据库记录保留；没有访问真实 DNS 或申请证书。
+
+`management_nginx_linux_test.go` 与 `management_nginx_fixture_linux_test.go` 通过正式应用适配器和 Unix IPC 连接独立 Nginx，覆盖以下场景：
+
+1. 正常双层切换，证书路径持久化，应用重建后保持已提交候选。
+2. 暂存已完成但应答丢失，回退代理，应用保持旧证书。
+3. 提交已完成但应答丢失，通过事务与实际双层证书核验确认成功。
+4. 暂存后恢复查询不可达，保留 `prepared` 与代理 `staged`，重建应用后恢复旧证书。
+5. 上游配置持久化并切换后，提交与恢复查询不可达，保留 `upstream`，重建后完成提交。
+
+故障通过客户端包装层注入，不是真正丢弃网络帧或杀死辅助进程。应用关闭后由配置重建，使用实际恢复工作循环处理持久化事务；不等同于进程强杀、断电、固定生产 socket 或 systemd 服务重启验收。测试辅助服务与应用使用同一隔离 UID，不替代此前不同 UID/root IPC 边界用例。
+
+每个 Linux 场景在独立子进程中通过 `SSL_CERT_FILE` 加载测试 CA，避免系统根证书缓存影响；没有给生产 API 增加信任注入接口，也没有关闭证书验证。独立 Nginx 开启上游可信链验证，只使用本轮配置、PID、版本目录和回环端口。重建前后均检查真实两层叶证书、协调记录、配置未被无关修改及数据库内容。
+
+### 本轮执行证据
+
+以下 Windows 本地命令已执行通过：
+
+```text
+go test -trimpath -count=1 -p=2 ./...
+go vet -p=2 ./...
+go test -race -trimpath -count=10 -p=1 -run '^TestApplicationManagementListenerRestartsWithPersistentReadiness$' ./internal/app
+go test -race -trimpath -count=1 -p=1 ./internal/app
+```
+
+新增真实应用重建测试首跑通过；连续 10 轮竞态测试包内用时 10.034 秒，应用包全量竞态测试包内用时 19.710 秒。Windows 全量测试不包含 Linux 专用用例。本轮未修改前端，未重复浏览器或前端构建验收。
+
+Linux 目标 `go vet -p=2 ./internal/app ./internal/nginxactivation ./cmd/scert-nginx` 通过；最终测试源码调整后再次运行应用包 Linux 目标 vet 与交叉编译，均通过。最新测试程序为 `.runtime/app-integration-20260920-0307/app.test`，Go 1.26.6、`GOOS=linux`、`CGO_ENABLED=0`、`-trimpath=true`，SHA-256：
+
+```text
+ce3a89d9450c88ffcdb0802234a757bbe0d8888e88f737a21e9427d5f19fca77
+```
+
+扫描覆盖当前与旧工作区、用户目录（包含实际 Go 工具链、模块缓存、构建缓存与用户临时目录）、常见 Go/Node 安装目录及系统临时目录，结果通过。该文件是测试程序，不是正式安装包，也没有 Linux 执行通过的证据；旧 `.runtime/app-nginx-20260920-0303.test` 保留，不作为最新用例产物。
+
+### 下一步验收
+
+- [ ] 通过服务商可信控制台核对 `45.136.13.241` 的 SSH 主机公钥，再只读检查实际服务、DNS、端口、数据库和容量。
+- [ ] 在非特权隔离 Linux 单元中显式指定 `SCERT_TEST_NGINX_BINARY`，执行应用双层集成测试，确认五个场景均实际运行、没有跳过，并重复执行检查稳定性。
+- [ ] 验证独立 root 辅助服务初始化与 socket/service 模板，补齐进程强杀及 systemd 恢复证据。
+- [ ] 执行完整发布脚本，生成具备清单、校验和且路径扫描通过的最新正式候选，再完成管理证书续期、目标推送、通知送达、升级回退与容量验收。
+
 ## 当前进展：辅助服务初始化、真实监听回归与干净源码路径复验
 
 2026-09-20 02:25 至 02:47 接续。本节为最新状态，后续各节保留为历史证据；不把旧服务器记录当作当前环境。本轮仅完成本地修改、交叉构建和测试，没有登录服务器、部署程序、修改 Nginx 或清空数据库。
