@@ -48,6 +48,25 @@ func (c Client) Stage(ctx context.Context, chain, key []byte) (string, error) {
 	return result.ID, err
 }
 
+func (c Client) StageRequest(ctx context.Context, id string, chain, key []byte) (string, error) {
+	result, err := c.call(ctx, request{Action: "stage_request", ID: id, Chain: chain, Key: key})
+	if err == nil && result.ID != id {
+		return "", errors.New("本地激活服务返回的编号与请求不一致")
+	}
+	return result.ID, err
+}
+
+func (c Client) ResolveRequest(ctx context.Context, id string) (State, error) {
+	result, err := c.call(ctx, request{Action: "resolve_request", ID: id})
+	if err != nil {
+		return State{}, err
+	}
+	if result.State == nil || result.State.ID != id {
+		return State{}, errors.New("本地激活服务没有返回对应请求状态")
+	}
+	return *result.State, nil
+}
+
 func (c Client) Commit(ctx context.Context, id string) error {
 	_, err := c.call(ctx, request{Action: "commit", ID: id})
 	return err

@@ -114,3 +114,20 @@ func TestManagementRecoveryWaitsForHTTPS(t *testing.T) {
 	default:
 	}
 }
+
+func TestManagementActivationRequiresHTTPSListener(t *testing.T) {
+	for _, server := range []*httpapi.Server{nil, httpapi.New(httpapi.Dependencies{})} {
+		if err := requireManagementListener(t.Context(), server); err == nil {
+			t.Fatal("没有监听器的桌面或嵌入式运行时不能申请管理证书")
+		}
+		activator := directManagementActivator{server: server}
+		if err := activator.Ready(t.Context(), httpapi.ManagementCertificateState{HTTPSMode: "direct"}); err == nil {
+			t.Fatal("直接模式不能绕过监听检查")
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := requireManagementListener(ctx, nil); !errors.Is(err, context.Canceled) {
+		t.Fatal("监听检查应保留取消原因", err)
+	}
+}

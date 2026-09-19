@@ -112,7 +112,9 @@ func validRequest(message request) bool {
 		return message.ID == "" && len(message.Chain) == 0 && len(message.Key) == 0
 	case "stage":
 		return message.ID == "" && len(message.Chain) > 0 && len(message.Chain) <= 1<<20 && len(message.Key) > 0 && len(message.Key) <= 64<<10
-	case "commit", "reconcile":
+	case "stage_request":
+		return validID(message.ID) && len(message.Chain) > 0 && len(message.Chain) <= 1<<20 && len(message.Key) > 0 && len(message.Key) <= 64<<10
+	case "commit", "reconcile", "resolve_request":
 		return validID(message.ID) && len(message.Chain) == 0 && len(message.Key) == 0
 	default:
 		return false
@@ -137,6 +139,14 @@ func (s LocalService) execute(ctx context.Context, message request) response {
 		}
 	case "stage":
 		result.ID, err = s.Rotation.Stage(ctx, message.Chain, message.Key)
+	case "stage_request":
+		result.ID, err = s.Rotation.StageRequest(ctx, message.ID, message.Chain, message.Key)
+	case "resolve_request":
+		value, resolveErr := s.Rotation.ResolveRequest(ctx, message.ID)
+		err = resolveErr
+		if err == nil {
+			result.State = &value
+		}
 	case "commit":
 		err = s.Rotation.Commit(ctx, message.ID)
 	case "reconcile":

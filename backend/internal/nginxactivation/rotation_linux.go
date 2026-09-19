@@ -55,6 +55,10 @@ func (r Rotation) Stage(ctx context.Context, chain, key []byte) (id string, resu
 	}
 	defer root.Close()
 	defer lock.Close()
+	return r.stage(ctx, root, "", chain, key)
+}
+
+func (r Rotation) stage(ctx context.Context, root *os.Root, id string, chain, key []byte) (_ string, resultErr error) {
 	previous, err := readTransaction(root)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
@@ -87,9 +91,11 @@ func (r Rotation) Stage(ctx context.Context, chain, key []byte) (id string, resu
 	if err := r.Reloader.Check(ctx); err != nil {
 		return "", fmt.Errorf("Nginx 原配置检查失败：%w", err)
 	}
-	id, err = newID()
-	if err != nil {
-		return "", err
+	if id == "" {
+		id, err = newID()
+		if err != nil {
+			return "", err
+		}
 	}
 	if err := root.Mkdir(id, 0o700); err != nil {
 		return "", err

@@ -156,13 +156,15 @@ func TestManagementRenewalSkipsFreshAndIPCertificates(t *testing.T) {
 }
 
 func TestManagementRenewalPreflightRejectsBeforeIssuance(t *testing.T) {
-	for _, name := range []string{"dns", "proxy"} {
+	for _, name := range []string{"dns", "proxy", "no_listener"} {
 		t.Run(name, func(t *testing.T) {
 			f := newManagementFixture(t)
 			if name == "dns" {
 				f.state.DNSVerified = false
 			} else {
-				f.state.HTTPSMode = "proxy"
+				if name == "proxy" {
+					f.state.HTTPSMode = "proxy"
+				}
 				f.m.activator = directManagementActivator{server: f.app.HTTP}
 			}
 			report, err := f.m.RunRenewal(t.Context(), f.policy, f.now)

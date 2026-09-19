@@ -15,6 +15,36 @@ import (
 
 // 实机验收显式指定 Nginx 路径；仅启动独立进程，不使用系统站点、PID 或服务单元。
 func TestRotationWithRealNginx(t *testing.T) {
+	f := newRotationFixture(t)
+	useRealNginx(t, f)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	id, err := f.rotation.Stage(ctx, f.candidate.chain, f.candidate.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.upstream.active.Store(&f.candidate.pair)
+	if err := f.rotation.Commit(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	f.assertStatus(t, "committed")
+	next := f.authority.issue(t, testHostname, time.Now().Add(-time.Hour), time.Now().Add(72*time.Hour))
+	if _, err := f.rotation.Stage(ctx, next.chain, next.key); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟调用方退出后由新组件恢复，真实入口必须重新提供上一张已提交证书。
+	restarted := f.rotation
+	if err := restarted.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	f.assertStatus(t, "rolled_back")
+	if _, err := restarted.Proxy.Check(ctx, f.candidate.pair.Certificate[0]); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func useRealNginx(t *testing.T, f *rotationFixture) {
+	t.Helper()
 	binary := os.Getenv("SCERT_TEST_NGINX_BINARY")
 	if binary == "" {
 		t.Skip("未指定隔离验收使用的 Nginx 可执行文件")
@@ -22,7 +52,6 @@ func TestRotationWithRealNginx(t *testing.T) {
 	if !filepath.IsAbs(binary) {
 		t.Fatal("测试 Nginx 路径必须是绝对路径")
 	}
-	f := newRotationFixture(t)
 	prefix := t.TempDir()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -106,27 +135,62 @@ http {
 	if err := f.rotation.Proxy.Wait(ctx, f.old.pair.Certificate[0]); err != nil {
 		t.Fatal(err)
 	}
-	id, err := f.rotation.Stage(ctx, f.candidate.chain, f.candidate.key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.upstream.active.Store(&f.candidate.pair)
-	if err := f.rotation.Commit(ctx, id); err != nil {
-		t.Fatal(err)
-	}
-	f.assertStatus(t, "committed")
-	next := f.authority.issue(t, testHostname, time.Now().Add(-time.Hour), time.Now().Add(72*time.Hour))
-	if _, err := f.rotation.Stage(ctx, next.chain, next.key); err != nil {
-		t.Fatal(err)
-	}
-	// 模拟调用方退出后由新组件恢复，真实入口必须重新提供上一张已提交证书。
-	restarted := f.rotation
-	if err := restarted.Recover(ctx); err != nil {
-		t.Fatal(err)
-	}
-	f.assertStatus(t, "rolled_back")
-	if _, err := restarted.Proxy.Check(ctx, f.candidate.pair.Certificate[0]); err != nil {
-		t.Fatal(err)
+}
+
+func TestCoordinatorWithRealNginxAndIPC(t *testing.T) {
+	for _, failure := range []string{"none", "stage_response", "commit_response"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newCoordinatorFixture(t)
+			useRealNginx(t, f.rotationFixture)
+			f.previous.ProxyAddress = f.rotation.Proxy.Address
+			f.candidate.ProxyAddress = f.rotation.Proxy.Address
+			f.session.current = f.previous
+			client, cancel, done := startLocalService(t, f.rotation, uint32(os.Geteuid()))
+			defer stopLocalService(t, cancel, done)
+			proxy := coordinatedTestProxy{ProxyClient: client}
+			if failure == "stage_response" {
+				proxy.stage = func(ctx context.Context, id string, chain, key []byte) (string, error) {
+					if _, err := client.StageRequest(ctx, id, chain, key); err != nil {
+						return "", err
+					}
+					return "", fmt.Errorf("注入暂存应答丢失")
+				}
+			}
+			if failure == "commit_response" {
+				proxy.commit = func(ctx context.Context, id string) error {
+					if err := client.Commit(ctx, id); err != nil {
+						return err
+					}
+					return fmt.Errorf("注入提交应答丢失")
+				}
+			}
+			f.coordinator.Proxy = proxy
+			ctx, stop := context.WithTimeout(t.Context(), 20*time.Second)
+			defer stop()
+			err := f.coordinator.Activate(ctx, f.candidate.CertificateFiles)
+			want := "committed"
+			leaf := f.rotationFixture.candidate.pair.Certificate[0]
+			if failure == "stage_response" {
+				want, leaf = "rolled_back", f.old.pair.Certificate[0]
+				if err == nil {
+					t.Fatal("暂存应答丢失应回退并报告失败")
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if record := f.record(t); record.Phase != want || record.RequestID != record.ProxyID {
+				t.Fatal("真实 Nginx 协调终态错误", record)
+			}
+			if _, err := f.rotation.Proxy.Check(ctx, leaf); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.rotation.Upstream.Check(ctx, leaf); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.coordinator.Ready(ctx); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

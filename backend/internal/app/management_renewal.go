@@ -240,8 +240,22 @@ type directManagementActivator struct {
 	server *httpapi.Server
 }
 
-func (a directManagementActivator) Ready(ctx context.Context, state httpapi.ManagementCertificateState) error {
+func requireManagementListener(ctx context.Context, server *httpapi.Server) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if server != nil {
+		select {
+		case <-server.Listening():
+			return nil
+		default:
+		}
+	}
+	return errors.New("当前进程尚未启动管理 HTTPS 监听，已阻止申请管理证书")
+}
+
+func (a directManagementActivator) Ready(ctx context.Context, state httpapi.ManagementCertificateState) error {
+	if err := requireManagementListener(ctx, a.server); err != nil {
 		return err
 	}
 	if state.HTTPSMode != "direct" {

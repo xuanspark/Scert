@@ -38,15 +38,31 @@ func (u *coordinatedTestUpstream) Activate(files CertificateFiles, hash string) 
 
 type coordinatedTestProxy struct {
 	ProxyClient
-	stage  func(context.Context, []byte, []byte) (string, error)
-	commit func(context.Context, string) error
+	stage   func(context.Context, string, []byte, []byte) (string, error)
+	commit  func(context.Context, string) error
+	ready   func(context.Context) (ReadyState, error)
+	resolve func(context.Context, string) (State, error)
 }
 
-func (p coordinatedTestProxy) Stage(ctx context.Context, chain, key []byte) (string, error) {
-	if p.stage != nil {
-		return p.stage(ctx, chain, key)
+func (p coordinatedTestProxy) ResolveRequest(ctx context.Context, id string) (State, error) {
+	if p.resolve != nil {
+		return p.resolve(ctx, id)
 	}
-	return p.ProxyClient.Stage(ctx, chain, key)
+	return p.ProxyClient.ResolveRequest(ctx, id)
+}
+
+func (p coordinatedTestProxy) Ready(ctx context.Context) (ReadyState, error) {
+	if p.ready != nil {
+		return p.ready(ctx)
+	}
+	return p.ProxyClient.Ready(ctx)
+}
+
+func (p coordinatedTestProxy) StageRequest(ctx context.Context, id string, chain, key []byte) (string, error) {
+	if p.stage != nil {
+		return p.stage(ctx, id, chain, key)
+	}
+	return p.ProxyClient.StageRequest(ctx, id, chain, key)
 }
 
 func (p coordinatedTestProxy) Commit(ctx context.Context, id string) error {
@@ -171,8 +187,8 @@ func TestCoordinatorRecoversLostResponses(t *testing.T) {
 			f := newCoordinatorFixture(t)
 			proxy := coordinatedTestProxy{ProxyClient: f.rotation}
 			if operation == "stage" {
-				proxy.stage = func(ctx context.Context, chain, key []byte) (string, error) {
-					if _, err := f.rotation.Stage(ctx, chain, key); err != nil {
+				proxy.stage = func(ctx context.Context, id string, chain, key []byte) (string, error) {
+					if _, err := f.rotation.StageRequest(ctx, id, chain, key); err != nil {
 						return "", err
 					}
 					return "", errors.New("注入暂存应答丢失")
@@ -256,13 +272,12 @@ func TestCoordinatorRecoversRestartWindows(t *testing.T) {
 func TestCoordinatorKeepsUnobservedStagePending(t *testing.T) {
 	f := newCoordinatorFixture(t)
 	calls := 0
-	f.coordinator.Proxy = coordinatedTestProxy{ProxyClient: f.rotation, stage: func(context.Context, []byte, []byte) (string, error) {
+	f.coordinator.Proxy = coordinatedTestProxy{ProxyClient: f.rotation, stage: func(context.Context, string, []byte, []byte) (string, error) {
 		calls++
 		return "", errors.New("暂存请求是否到达尚不可知")
 	}}
-	if err := f.coordinator.Activate(t.Context(), f.candidate.CertificateFiles); !errors.Is(err, ErrCoordinationPending) {
-		t.Fatal(err)
-	}
+	// 旧版本没有请求编号，不能追溯创建栅栏并假定旧请求不会到达。
+	f.save(t, coordinationRecord{Version: 1, Phase: "prepared", Previous: f.previous, Candidate: f.candidate})
 	for range 2 {
 		if err := f.coordinator.Ready(t.Context()); !errors.Is(err, ErrCoordinationPending) {
 			t.Fatal("未观测到事务不能允许再次申请", err)
@@ -271,7 +286,7 @@ func TestCoordinatorKeepsUnobservedStagePending(t *testing.T) {
 			t.Fatal("未观测到事务不能重放暂存", err)
 		}
 	}
-	if calls != 1 || f.record(t).Phase != "prepared" {
+	if calls != 0 || f.record(t).Phase != "prepared" {
 		t.Fatal("不能重放请求或清除不确定意图")
 	}
 	if _, err := f.rotation.Stage(t.Context(), f.rotationFixture.candidate.chain, f.rotationFixture.candidate.key); err != nil {
@@ -282,6 +297,157 @@ func TestCoordinatorKeepsUnobservedStagePending(t *testing.T) {
 	}
 	if f.record(t).Phase != "rolled_back" {
 		t.Fatal("迟到暂存没有回退")
+	}
+}
+
+func TestCoordinatorFencesUndeliveredRequestOverIPC(t *testing.T) {
+	f := newCoordinatorFixture(t)
+	client, cancel, done := startLocalService(t, f.rotation, uint32(os.Geteuid()))
+	defer stopLocalService(t, cancel, done)
+	var delayedID string
+	f.coordinator.Proxy = coordinatedTestProxy{ProxyClient: client, stage: func(_ context.Context, id string, _, _ []byte) (string, error) {
+		delayedID = id
+		return "", errors.New("注入请求未送达")
+	}}
+	if err := f.coordinator.Activate(t.Context(), f.candidate.CertificateFiles); err == nil || errors.Is(err, ErrCoordinationPending) {
+		t.Fatal("失败应返回，但已确认取消后不应永久未决", err)
+	}
+	if record := f.record(t); record.Phase != "canceled" || record.RequestID != delayedID || record.ProxyID != "" {
+		t.Fatal("未送达请求没有持久化取消终态", record)
+	}
+	if f.reloader.reloadCount != 0 || f.session.current != f.previous {
+		t.Fatal("取消未送达请求不能切换证书")
+	}
+	f.coordinator.Proxy = client
+	if err := f.coordinator.Ready(t.Context()); err != nil {
+		t.Fatal("栅栏确认后应允许下一次申请", err)
+	}
+	if err := f.coordinator.Activate(t.Context(), f.candidate.CertificateFiles); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.StageRequest(t.Context(), delayedID, f.rotationFixture.candidate.chain, f.rotationFixture.candidate.key); err == nil {
+		t.Fatal("旧请求迟到不能重新执行")
+	}
+	if f.reloader.reloadCount != 1 || f.record(t).Phase != "committed" {
+		t.Fatal("迟到请求不能影响新事务")
+	}
+}
+
+func TestCoordinatorRequestRecoveryAfterRestart(t *testing.T) {
+	for _, phase := range []string{"unsent", "reserved", "staged", "upstream", "committed"} {
+		t.Run(phase, func(t *testing.T) {
+			f := newCoordinatorFixture(t)
+			id, err := newID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.save(t, coordinationRecord{Version: 1, Phase: "prepared", RequestID: id, Previous: f.previous, Candidate: f.candidate})
+			want := "canceled"
+			if phase == "reserved" {
+				if _, err := f.rotation.StageRequest(t.Context(), id, []byte("invalid"), []byte("invalid")); err == nil {
+					t.Fatal("无效证书必须拒绝")
+				}
+			}
+			if phase == "staged" || phase == "upstream" || phase == "committed" {
+				if _, err := f.rotation.StageRequest(t.Context(), id, f.rotationFixture.candidate.chain, f.rotationFixture.candidate.key); err != nil {
+					t.Fatal(err)
+				}
+				want = "rolled_back"
+			}
+			if phase == "upstream" || phase == "committed" {
+				if err := f.session.Activate(f.candidate.CertificateFiles, f.candidate.LeafHash); err != nil {
+					t.Fatal(err)
+				}
+				want = "committed"
+			}
+			if phase == "committed" {
+				if err := f.rotation.Commit(t.Context(), id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			restarted := Coordinator{Directory: f.coordinator.Directory, Proxy: f.rotation, Upstream: f.session}
+			if err := restarted.Recover(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if record := f.record(t); record.Phase != want || record.RequestID != id {
+				t.Fatal("重启后请求恢复终态错误", record)
+			}
+		})
+	}
+}
+
+func TestCoordinatorRejectsHelperWithoutRequestFencing(t *testing.T) {
+	f := newCoordinatorFixture(t)
+	f.coordinator.Proxy = coordinatedTestProxy{ProxyClient: f.rotation, ready: func(ctx context.Context) (ReadyState, error) {
+		state, err := f.rotation.Ready(ctx)
+		state.RequestFencing = false
+		return state, err
+	}}
+	if err := f.coordinator.Ready(t.Context()); err == nil {
+		t.Fatal("旧激活器不能通过签发前检查")
+	}
+	if err := f.coordinator.Activate(t.Context(), f.candidate.CertificateFiles); err == nil {
+		t.Fatal("旧激活器不能开始协调")
+	}
+	if _, err := os.Stat(filepath.Join(f.coordinator.Directory, coordinationName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("不支持栅栏时不能保存新的协调意图", err)
+	}
+}
+
+func TestCoordinatorRecoversLostFenceResponse(t *testing.T) {
+	f := newCoordinatorFixture(t)
+	var id string
+	f.coordinator.Proxy = coordinatedTestProxy{
+		ProxyClient: f.rotation,
+		stage: func(_ context.Context, requestID string, _, _ []byte) (string, error) {
+			id = requestID
+			return "", errors.New("注入请求未送达")
+		},
+		resolve: func(ctx context.Context, requestID string) (State, error) {
+			if _, err := f.rotation.ResolveRequest(ctx, requestID); err != nil {
+				return State{}, err
+			}
+			return State{}, errors.New("注入取消栅栏应答丢失")
+		},
+	}
+	if err := f.coordinator.Activate(t.Context(), f.candidate.CertificateFiles); !errors.Is(err, ErrCoordinationPending) {
+		t.Fatal("栅栏应答丢失时必须保留未决意图", err)
+	}
+	if f.record(t).Phase != "prepared" {
+		t.Fatal("未确认栅栏前不能标记取消")
+	}
+	if _, err := f.rotation.StageRequest(t.Context(), id, f.rotationFixture.candidate.chain, f.rotationFixture.candidate.key); err == nil {
+		t.Fatal("应答丢失不应撤销已持久化的栅栏")
+	}
+	restarted := Coordinator{Directory: f.coordinator.Directory, Proxy: f.rotation, Upstream: f.session}
+	if err := restarted.Recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if f.record(t).Phase != "canceled" {
+		t.Fatal("重启后应确认同一请求的取消结果")
+	}
+}
+
+func TestCoordinatorRejectsBrokenIntentBeforeStage(t *testing.T) {
+	for _, failure := range []string{"corrupt", "directory"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newCoordinatorFixture(t)
+			path := filepath.Join(f.coordinator.Directory, coordinationName)
+			if failure == "corrupt" {
+				writeTestFile(t, path, []byte(`{"version":1,"phase":"prepared"}`))
+			} else if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.coordinator.Activate(t.Context(), f.candidate.CertificateFiles); err == nil {
+				t.Fatal("无法可信保存协调意图时不能暂存")
+			}
+			if state, err := f.rotation.State(t.Context()); err != nil || state.Status != "idle" {
+				t.Fatal("协调记录损坏不应改变代理", state, err)
+			}
+			if f.reloader.reloadCount != 0 || f.session.current != f.previous {
+				t.Fatal("协调记录损坏不应改变双层证书")
+			}
+		})
 	}
 }
 

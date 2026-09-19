@@ -13,4 +13,5 @@ type ReadyState struct {
 	ProxyAddress    string `json:"proxy_address"`
 	UpstreamAddress string `json:"upstream_address"`
 	LeafHash        string `json:"leaf_hash"`
+	RequestFencing  bool   `json:"request_fencing"`
 }

@@ -41,7 +41,8 @@ type ManagedUpstream interface {
 type ProxyClient interface {
 	Ready(context.Context) (ReadyState, error)
 	State(context.Context) (State, error)
-	Stage(context.Context, []byte, []byte) (string, error)
+	StageRequest(context.Context, string, []byte, []byte) (string, error)
+	ResolveRequest(context.Context, string) (State, error)
 	Commit(context.Context, string) error
 	Reconcile(context.Context, string) (State, error)
 }
@@ -104,7 +105,11 @@ func (c Coordinator) Activate(ctx context.Context, files CertificateFiles) error
 		if err != nil {
 			return err
 		}
-		record := coordinationRecord{Version: 1, Phase: "prepared", BaselineID: baseline.ID, Previous: previous, Candidate: candidate}
+		requestID, err := newID()
+		if err != nil {
+			return err
+		}
+		record := coordinationRecord{Version: 1, Phase: "prepared", BaselineID: baseline.ID, RequestID: requestID, Previous: previous, Candidate: candidate}
 		if err := record.validate(); err != nil {
 			return err
 		}
@@ -120,11 +125,11 @@ func (c Coordinator) Activate(ctx context.Context, files CertificateFiles) error
 				resultErr = errors.Join(resultErr, recoveryErr)
 			}
 		}()
-		id, err := c.Proxy.Stage(ctx, chain, key)
+		id, err := c.Proxy.StageRequest(ctx, requestID, chain, key)
 		if err != nil {
 			return err
 		}
-		if !validID(id) || id == record.BaselineID {
+		if id != requestID {
 			return errors.New("代理返回的暂存事务编号无效")
 		}
 		record.ProxyID, record.Phase = id, "staged"
@@ -161,7 +166,7 @@ func (c Coordinator) recover(ctx context.Context, root *os.Root, session Managed
 	if err != nil {
 		return record, err
 	}
-	if record.Phase == "committed" || record.Phase == "rolled_back" {
+	if record.Phase == "committed" || record.Phase == "rolled_back" || record.Phase == "canceled" {
 		return record, nil
 	}
 	current, err := session.Snapshot()
@@ -171,11 +176,27 @@ func (c Coordinator) recover(ctx context.Context, root *os.Root, session Managed
 	if current != record.Previous && current != record.Candidate {
 		return record, errors.Join(ErrCoordinationPending, errors.New("当前上游不属于持久化协调记录，拒绝覆盖"))
 	}
-	state, err := c.Proxy.State(ctx)
+	var state State
+	if record.RequestID != "" {
+		state, err = c.Proxy.ResolveRequest(ctx, record.RequestID)
+	} else {
+		state, err = c.Proxy.State(ctx)
+	}
 	if err != nil {
 		return record, errors.Join(ErrCoordinationPending, err)
 	}
+	if record.RequestID != "" && state.ID == record.RequestID && state.Status == "canceled" {
+		if record.Phase != "prepared" || record.ProxyID != "" || current != record.Previous {
+			return record, errors.Join(ErrCoordinationPending, errors.New("取消栅栏与已保存的协调阶段不一致"))
+		}
+		if err := c.ready(ctx, current); err != nil {
+			return record, errors.Join(ErrCoordinationPending, err)
+		}
+		record.Phase = "canceled"
+		return record, saveCoordination(root, record)
+	}
 	if !validID(state.ID) || state.ID == record.BaselineID ||
+		(record.RequestID != "" && state.ID != record.RequestID) ||
 		(record.ProxyID != "" && state.ID != record.ProxyID) ||
 		state.PreviousHash != record.Previous.LeafHash || state.CandidateHash != record.Candidate.LeafHash {
 		// 尚未观测到对应事务时保留意图；延迟到达的暂存请求仍可能执行，不能清除或重放。
@@ -208,6 +229,9 @@ func (c Coordinator) ready(ctx context.Context, expected ManagedCertificate) err
 	ready, err := c.Proxy.Ready(ctx)
 	if err != nil {
 		return err
+	}
+	if !ready.RequestFencing {
+		return errors.New("本地激活服务不支持请求取消栅栏，请先升级激活器")
 	}
 	if ready.Hostname != expected.Hostname || ready.LeafHash != expected.LeafHash || ready.ProxyAddress != expected.ProxyAddress || ready.UpstreamAddress != expected.UpstreamAddress {
 		return errors.New("本地激活策略或双层入口与应用管理配置不一致")

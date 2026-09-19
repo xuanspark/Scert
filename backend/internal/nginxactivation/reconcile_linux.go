@@ -70,7 +70,7 @@ func (r Rotation) Ready(ctx context.Context) (ReadyState, error) {
 	if err := requireInclude(root, include); err != nil {
 		return ReadyState{}, err
 	}
-	return ReadyState{Hostname: r.Proxy.Hostname, ProxyAddress: r.Proxy.Address, UpstreamAddress: r.Upstream.Address, LeafHash: leafHash(leaf)}, nil
+	return ReadyState{Hostname: r.Proxy.Hostname, ProxyAddress: r.Proxy.Address, UpstreamAddress: r.Upstream.Address, LeafHash: leafHash(leaf), RequestFencing: true}, nil
 }
 
 // Reconcile 仅根据严格验证的实际上游完成未决事务，不推断配置保存是否成功。

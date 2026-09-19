@@ -42,6 +42,9 @@ func (a coordinatedManagementActivator) coordinator(expected *httpapi.Management
 }
 
 func (a coordinatedManagementActivator) Ready(ctx context.Context, state httpapi.ManagementCertificateState) error {
+	if err := requireManagementListener(ctx, a.server); err != nil {
+		return err
+	}
 	if state.HTTPSMode == "direct" {
 		if err := a.coordinator(nil).Recover(ctx); err != nil {
 			return err
@@ -52,6 +55,9 @@ func (a coordinatedManagementActivator) Ready(ctx context.Context, state httpapi
 }
 
 func (a coordinatedManagementActivator) Activate(ctx context.Context, state httpapi.ManagementCertificateState, saved certificate.SavedResource) error {
+	if err := requireManagementListener(ctx, a.server); err != nil {
+		return err
+	}
 	if state.HTTPSMode == "direct" {
 		if err := a.Ready(ctx, state); err != nil {
 			return err

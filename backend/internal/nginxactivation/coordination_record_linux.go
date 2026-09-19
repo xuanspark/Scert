@@ -16,6 +16,7 @@ type coordinationRecord struct {
 	Version    int                `json:"version"`
 	Phase      string             `json:"phase"`
 	BaselineID string             `json:"baseline_id,omitempty"`
+	RequestID  string             `json:"request_id,omitempty"`
 	ProxyID    string             `json:"proxy_id,omitempty"`
 	Previous   ManagedCertificate `json:"previous"`
 	Candidate  ManagedCertificate `json:"candidate"`
@@ -44,8 +45,15 @@ func (record coordinationRecord) validate() error {
 	if record.Version != 1 || (record.BaselineID != "" && !validID(record.BaselineID)) || (record.ProxyID != "" && !validID(record.ProxyID)) {
 		return errors.New("管理证书协调记录版本或编号无效")
 	}
+	if record.RequestID != "" && (!validID(record.RequestID) || record.RequestID == record.BaselineID || (record.ProxyID != "" && record.ProxyID != record.RequestID)) {
+		return errors.New("管理证书协调请求编号不一致")
+	}
 	switch record.Phase {
 	case "prepared":
+	case "canceled":
+		if record.RequestID == "" || record.ProxyID != "" {
+			return errors.New("取消的管理证书协调必须保留未执行请求编号")
+		}
 	case "staged", "upstream", "committed", "rolled_back":
 		if record.ProxyID == "" {
 			return errors.New("管理证书协调记录缺少代理事务编号")
