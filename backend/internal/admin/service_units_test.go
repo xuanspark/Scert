@@ -3,17 +3,12 @@ package admin
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestScertSystemdUnitPolicy(t *testing.T) {
-	_, sourceFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源文件")
-	}
-	unitPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "deploy", "systemd", "Scert.service")
+	unitPath := filepath.Join("..", "..", "..", "deploy", "systemd", "Scert.service")
 	data, err := os.ReadFile(unitPath)
 	if err != nil {
 		t.Fatalf("读取 Scert systemd unit 失败：%v", err)

@@ -107,7 +107,7 @@ function Invoke-DesktopBuild {
         if ($TargetName.StartsWith("linux-")) {
             $env:CGO_ENABLED = "1"
         }
-        & wails build -nopackage -platform ($TargetName.Replace("-", "/")) -o "ScertDesktop"
+        & wails build -trimpath -nopackage -platform ($TargetName.Replace("-", "/")) -o "ScertDesktop"
         if ($LASTEXITCODE -ne 0) {
             throw "构建 $TargetName 的 Scert 桌面版失败。"
         }
@@ -194,6 +194,7 @@ function Invoke-ReleaseArchive {
 
     $arguments = @(
         "run",
+        "-trimpath",
         "./cmd/scert-release",
         "--source", $Source,
         "--output", $Destination,
@@ -219,6 +220,42 @@ function Invoke-ReleaseArchive {
         $env:GOOS = $archiveGoOS
         $env:GOARCH = $archiveGoArch
         $env:CGO_ENABLED = $archiveCGOEnabled
+    }
+}
+
+function Test-ReleasePaths {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Binaries,
+        [Parameter(Mandatory = $true)]
+        [string[]]$ForbiddenPaths
+    )
+
+    $arguments = @("run", "-trimpath", "./cmd/scert-release", "--verify-only", "--source", $Source)
+    foreach ($binary in $Binaries) {
+        $arguments += @("--binary", $binary)
+    }
+    foreach ($path in ($ForbiddenPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)) {
+        $arguments += @("--forbid-path", $path)
+    }
+    $checkGoOS = $env:GOOS
+    $checkGoArch = $env:GOARCH
+    $checkCGOEnabled = $env:CGO_ENABLED
+    try {
+        $env:GOOS = ""
+        $env:GOARCH = ""
+        $env:CGO_ENABLED = "0"
+        & go @arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "发布路径检查未通过，停止归档。"
+        }
+    }
+    finally {
+        $env:GOOS = $checkGoOS
+        $env:GOARCH = $checkGoArch
+        $env:CGO_ENABLED = $checkCGOEnabled
     }
 }
 
@@ -313,6 +350,22 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "无法取得实际构建使用的 Go 工具链版本。"
     }
+    $goEnvironmentJSON = (& go env -json GOROOT GOPATH GOMODCACHE GOCACHE GOTMPDIR)
+    if ($LASTEXITCODE -ne 0) {
+        throw "无法取得本机构建路径，拒绝发布。"
+    }
+    $goEnvironment = ($goEnvironmentJSON -join "`n") | ConvertFrom-Json
+    $forbiddenPaths = @(
+        (Split-Path -Parent $scriptDirectory), $backend, $desktop, $frontend, $deploy, $output,
+        $env:USERPROFILE, $env:HOME, [System.IO.Path]::GetTempPath(),
+        $goEnvironment.GOROOT, $goEnvironment.GOMODCACHE, $goEnvironment.GOCACHE, $goEnvironment.GOTMPDIR
+    ) + $goEnvironment.GOPATH.Split([System.IO.Path]::PathSeparator)
+    if ($env:OS -eq "Windows_NT") {
+        $forbiddenPaths += @(
+            (Split-Path -Parent (Get-Command go).Source),
+            (Split-Path -Parent (Get-Command node).Source)
+        )
+    }
     foreach ($item in $Target) {
         $parts = $item.Split("-", 2)
         $goos = $parts[0]
@@ -323,10 +376,15 @@ try {
         $extension = if ($goos -eq "windows") { ".exe" } else { "" }
         $scertPath = Join-Path $targetDirectory ("scert" + $extension)
         $adminPath = Join-Path $targetDirectory ("scert-admin" + $extension)
+        $binaries = @(("scert" + $extension), ("scert-admin" + $extension))
 
         Write-Host "正在构建 $goos/$goarch 的 Scert……"
         Invoke-GoBuild -OperatingSystem $goos -Architecture $goarch -Destination $scertPath -Package "./cmd/scert"
         Invoke-GoBuild -OperatingSystem $goos -Architecture $goarch -Destination $adminPath -Package "./cmd/scert-admin"
+        if ($goos -eq "linux") {
+            Invoke-GoBuild -OperatingSystem $goos -Architecture $goarch -Destination (Join-Path $targetDirectory "scert-nginx") -Package "./cmd/scert-nginx"
+            $binaries += "scert-nginx"
+        }
 
         $webPath = Join-Path $targetDirectory "web"
         New-Item -ItemType Directory -Path $webPath -Force | Out-Null
@@ -346,6 +404,7 @@ try {
                 $desktopExtension = if ($goos -eq "windows") { ".exe" } else { "" }
                 $desktopPath = Join-Path $targetDirectory ("ScertDesktop" + $desktopExtension)
                 Invoke-DesktopBuild -ProjectDirectory $desktop -TargetName $item -Destination $desktopPath
+                $binaries += ("ScertDesktop" + $desktopExtension)
                 $file = Get-Item -LiteralPath $desktopPath
                 $hash = Get-FileHash -LiteralPath $desktopPath -Algorithm SHA256
                 $manifestArtifacts.Add([ordered]@{
@@ -361,6 +420,7 @@ try {
             }
         }
 
+        Test-ReleasePaths -Source $targetDirectory -Binaries $binaries -ForbiddenPaths $forbiddenPaths
         Write-TargetChecksums -TargetDirectory $targetDirectory | Out-Null
         foreach ($file in (Get-ChildItem -LiteralPath $targetDirectory -Recurse -File | Sort-Object FullName)) {
             $hash = Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256
@@ -375,9 +435,7 @@ try {
 
         if ($goos -eq "linux") {
             $archivePath = Join-Path $output "$releaseName-$item.tar.gz"
-            Invoke-ReleaseArchive -Source $targetDirectory -Destination $archivePath -Format "tar.gz" -Executable @(
-                "install-linux.sh", "scert", "scert-admin"
-            )
+            Invoke-ReleaseArchive -Source $targetDirectory -Destination $archivePath -Format "tar.gz" -Executable (@("install-linux.sh") + $binaries)
         }
         else {
             $archivePath = Join-Path $output "$releaseName-$item.zip"
@@ -408,6 +466,8 @@ $manifest = [ordered]@{
     source_commit = $sourceCommit.Trim()
     source_dirty = $sourceDirty
     go_toolchain = $goVersion.Trim()
+    trimpath = $true
+    local_path_check = "passed"
     targets = @($Target)
     desktop_requested = -not [bool]$SkipDesktop
     generated_at = [DateTimeOffset]::UtcNow.ToString("o")

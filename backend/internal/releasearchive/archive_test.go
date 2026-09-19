@@ -17,7 +17,7 @@ func TestCreateTarGzPreservesReleaseModes(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "Scert-test.tar.gz")
 	if err := Create(Options{
 		Source: source, Destination: destination, Format: FormatTarGz,
-		Executables: []string{"install-linux.sh", "scert", "scert-admin"},
+		Executables: []string{"install-linux.sh", "scert", "scert-admin", "scert-nginx", "ScertDesktop"},
 	}); err != nil {
 		t.Fatalf("创建 Linux 发布归档失败：%v", err)
 	}
@@ -47,6 +47,8 @@ func TestCreateTarGzPreservesReleaseModes(t *testing.T) {
 	assertMode(t, modes, "install-linux.sh", 0o755)
 	assertMode(t, modes, "scert", 0o755)
 	assertMode(t, modes, "scert-admin", 0o755)
+	assertMode(t, modes, "scert-nginx", 0o755)
+	assertMode(t, modes, "ScertDesktop", 0o755)
 	assertMode(t, modes, "web/index.html", 0o644)
 	assertMode(t, modes, "web", 0o755)
 }
@@ -123,7 +125,7 @@ func createFixture(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(source, "web"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"install-linux.sh", "scert", "scert-admin"} {
+	for _, name := range []string{"install-linux.sh", "scert", "scert-admin", "scert-nginx", "ScertDesktop"} {
 		if err := os.WriteFile(filepath.Join(source, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)
 		}

@@ -83,7 +83,7 @@ SCERT_SERVER_HTTPS_MODE=proxy
 ```powershell
 go fmt ./...
 go test ./...
-go build -o dist/scert.exe ./cmd/scert
+go build -trimpath -o dist/scert.exe ./cmd/scert
 ```
 
 Linux amd64 交叉编译：
@@ -91,7 +91,7 @@ Linux amd64 交叉编译：
 ```powershell
 $env:GOOS = 'linux'
 $env:GOARCH = 'amd64'
-go build -o dist/scert-linux-amd64 ./cmd/scert
+go build -trimpath -o dist/scert-linux-amd64 ./cmd/scert
 Remove-Item Env:GOOS
 Remove-Item Env:GOARCH
 ```

@@ -5,17 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestLinuxInstallerPolicy(t *testing.T) {
-	_, sourceFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("无法定位测试源文件")
-	}
-	installerPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "deploy", "install-linux.sh")
+	installerPath := filepath.Join("..", "..", "..", "deploy", "install-linux.sh")
 	data, err := os.ReadFile(installerPath)
 	if err != nil {
 		t.Fatalf("读取 Linux 安装器失败：%v", err)

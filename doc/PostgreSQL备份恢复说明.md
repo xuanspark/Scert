@@ -69,7 +69,7 @@ scert --config /scert/config/scert.json restore --input /scert/backup/manual-202
 Windows PowerShell 示例（在 `backend` 目录执行，工具路径需按实际安装位置调整）：
 
 ```powershell
-go build -p 1 -o ../.runtime/scert-postgres-integration.exe ./cmd/scert
+go build -trimpath -p 1 -o ../.runtime/scert-postgres-integration.exe ./cmd/scert
 $env:SCERT_POSTGRES_TEST_BIN = 'D:\Desktop\SSL\.runtime\postgres-tools\pgsql\bin'
 $env:SCERT_POSTGRES_TEST_CLI = 'D:\Desktop\SSL\.runtime\scert-postgres-integration.exe'
 $env:SCERT_POSTGRES_TEST_ROOT = 'D:\Desktop\SSL\.runtime\postgres-integration'
