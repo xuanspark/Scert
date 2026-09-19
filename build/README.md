@@ -67,6 +67,6 @@ powershell -ExecutionPolicy Bypass -File .\build\build-release.ps1 -OutputDirect
 powershell -ExecutionPolicy Bypass -File .\build\build-release.ps1 -Target linux-amd64 -SkipDesktop -OutputDirectory .\build\release-candidate-20260915
 ```
 
-此命令不构建 Windows 或 Wails 桌面端，不代表跨平台发布验收。归档包含 `scert`、`scert-admin`、`scert-nginx`、Web 静态资源、安装器、systemd 模板和部署说明。解压后先运行 `sha256sum -c SHA256SUMS`，再按部署说明操作。`scert-nginx` 仅随包提供，普通安装器不会安装或启用它；启用前仍需单独完成 root 策略、本地 socket、Nginx 接线和实机验收。
+此命令不构建 Windows 或 Wails 桌面端，不代表跨平台发布验收。归档包含 `scert`、`scert-admin`、`scert-nginx`、Web 静态资源、安装器、systemd 模板、`nginx/` 策略模板和部署说明。解压后先运行 `sha256sum -c SHA256SUMS`，再按部署说明操作。`scert-nginx` 仅随包提供，普通安装器不会安装或启用它；启用前按 `nginx/Nginx辅助服务部署说明.md` 单独完成 root 策略、安全初始化、本地 socket、Nginx 接线和实机验收。
 
 构建通过不等于生产验收通过；真实 DNS、ACME、SSH、Windows Service、systemd、WebView2 和 HTTPS 仍需在授权环境复核。

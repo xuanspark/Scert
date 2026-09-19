@@ -284,6 +284,10 @@ foreach ($requiredDeploymentFile in @(
     "README.md",
     "systemd\Scert.service",
     "systemd\Scert-admin.service",
+    "systemd\scert-nginx.socket",
+    "systemd\scert-nginx.service",
+    "nginx\policy.json.example",
+    "nginx\Nginx辅助服务部署说明.md",
     "systemd\Scert服务管理说明.md",
     "systemd\Scert-admin服务管理说明.md"
 )) {
@@ -394,6 +398,7 @@ try {
         if ($goos -eq "linux") {
             Copy-Item -LiteralPath (Join-Path $deploy "install-linux.sh") -Destination (Join-Path $targetDirectory "install-linux.sh")
             Copy-Item -LiteralPath (Join-Path $deploy "systemd") -Destination (Join-Path $targetDirectory "systemd") -Recurse
+            Copy-Item -LiteralPath (Join-Path $deploy "nginx") -Destination (Join-Path $targetDirectory "nginx") -Recurse
         }
         else {
             Copy-Item -LiteralPath (Join-Path $deploy "install-windows.ps1") -Destination (Join-Path $targetDirectory "install-windows.ps1")

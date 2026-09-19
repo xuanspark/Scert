@@ -1,0 +1,15 @@
+[Unit]
+Description=Scert Nginx 本地激活通道
+
+[Socket]
+ListenStream=/run/scert-nginx/activation.sock
+Accept=no
+SocketUser=root
+SocketGroup=Scert
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=no
+Service=scert-nginx.service
+
+[Install]
+WantedBy=sockets.target

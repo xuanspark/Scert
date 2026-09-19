@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "allowed_uid": null,
+  "socket_path": "/run/scert-nginx/activation.sock",
+  "directory": "/var/lib/scert-nginx",
+  "hostname": "__MANAGEMENT_HOST__",
+  "proxy_address": "127.0.0.1:443",
+  "upstream_address": "127.0.0.1:9004",
+  "nginx_binary": "/usr/sbin/nginx",
+  "nginx_config": "/etc/nginx/nginx.conf",
+  "nginx_prefix": "/etc/nginx"
+}

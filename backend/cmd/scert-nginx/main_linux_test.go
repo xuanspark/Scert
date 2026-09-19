@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -10,6 +11,18 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestExecuteRejectsInvalidInitializationArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"--initialize"}, {"--initialize", "--certificate", "/no-certificate"},
+		{"--initialize", "--private-key", "/no-key"}, {"--certificate", "/no-certificate"},
+		{"--private-key", "/no-key"}, {"--policy", ""}, {"unexpected"},
+	} {
+		if err := execute(context.Background(), args); err == nil {
+			t.Fatalf("无效初始化参数被接受：%v", args)
+		}
+	}
+}
 
 func TestInheritedListener(t *testing.T) {
 	if mode := os.Getenv("SCERT_LISTENER_TEST_CHILD"); mode != "" {

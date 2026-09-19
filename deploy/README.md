@@ -21,6 +21,8 @@ deploy/
 
 二进制文件应针对目标平台构建为 Linux amd64，并且具有可执行权限。
 
+Linux 发布包还包含 `scert-nginx`、`systemd/scert-nginx.socket`、`systemd/scert-nginx.service` 和 `nginx/` 下的策略模板与中文说明。它们是独立、显式安装的管理证书激活组件，普通安装器不安装、不启用、不修改共享 Nginx。接线流程见 [Nginx 辅助服务部署说明](nginx/Nginx辅助服务部署说明.md)，需要单独完成实机验证。
+
 ## 安装命令
 
 ```bash
