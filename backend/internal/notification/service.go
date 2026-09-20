@@ -129,6 +129,10 @@ func (s *Service) sendHTTP(ctx context.Context, event Event) error {
 	if err != nil {
 		return err
 	}
+	return s.sendHTTPPayload(ctx, payload)
+}
+
+func (s *Service) sendHTTPPayload(ctx context.Context, payload mailPayload) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("编码邮件通知失败：%w", err)
