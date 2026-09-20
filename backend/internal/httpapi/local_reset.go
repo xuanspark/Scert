@@ -164,7 +164,7 @@ func (r *localResetSession) Reset(ctx context.Context, password string) error {
 		r.audit("failed", "本机密码重置同步账户失败")
 		return localreset.ErrUnavailable
 	}
-	if err := persisted.Save(s.configPath); err != nil {
+	if err := r.save(ctx, persisted); err != nil {
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		rollbackErr := s.syncPrimarySuperAdmin(rollbackCtx, previous)
 		cancel()
@@ -202,4 +202,11 @@ func (r *localResetSession) audit(status, message string) {
 	if err != nil && r.server.logger != nil {
 		r.server.logger.Warn("本机密码重置审计写入失败")
 	}
+}
+
+func (r *localResetSession) save(ctx context.Context, cfg config.Config) error {
+	if !r.current(ctx) {
+		return localreset.ErrProtocol
+	}
+	return cfg.Save(r.server.configPath)
 }
