@@ -241,3 +241,20 @@ test("首次向导拒绝畸形成功响应而不是误报完成", async (t) => {
     assert.equal(state.dnsVerification.value, null);
   }
 });
+
+
+test("bootstrap service port defaults to 80 independently of listener port", async (t) => {
+  const { state, submitted } = await setup(t);
+  assert.equal(state.form.value.server_port, 80);
+  state.currentStep.value = 4;
+  await state.handleSubmit();
+  assert.equal(submitted[0].server_port, 80);
+});
+
+test("bootstrap service port accepts a custom port", async (t) => {
+  const { state, submitted } = await setup(t);
+  state.form.value.server_port = 8443;
+  state.currentStep.value = 4;
+  await state.handleSubmit();
+  assert.equal(submitted[0].server_port, 8443);
+});

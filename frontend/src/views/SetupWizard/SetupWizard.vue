@@ -221,7 +221,7 @@ const {
               <strong>服务访问配置</strong>
               <span>先确定 Scert 主服务和管理页面的访问方式，后续步骤会使用这里的配置。</span>
             </div>
-            <div class="setup-grid two-columns">
+            <div class="setup-grid service-access-grid" :class="{ 'has-database': isBootstrap }">
               <div class="access-target-field">
                 <span>管理页面访问方式</span>
                 <div class="target-switch" role="group" aria-label="管理页面访问方式">
@@ -276,15 +276,15 @@ const {
                 />
                 <small>管理页面和 API 对外提供服务使用的端口。</small>
               </label>
+              <DatabaseSetup
+                v-if="isBootstrap"
+                :form="databaseForm"
+                :testing="databaseTesting"
+                :verified="databaseVerified"
+                :error="databaseError"
+                @test="testDatabase"
+              />
             </div>
-            <DatabaseSetup
-              v-if="isBootstrap"
-              :form="databaseForm"
-              :testing="databaseTesting"
-              :verified="databaseVerified"
-              :error="databaseError"
-              @test="testDatabase"
-            />
             <div class="provider-description reset-preview">
               <strong>密码重置地址预览</strong>
               <span>{{ resetURLPreview }}</span>

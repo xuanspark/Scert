@@ -97,6 +97,13 @@
     margin: 10px 0 4px;
   }
 
+  .access-shell--setup .setup-step-card > .setup-section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+  }
+
   .access-shell--setup .setup-section-heading strong,
   .access-shell--setup .notification-section-heading strong,
   .access-shell--setup .notification-advanced-toggle strong,
@@ -109,47 +116,69 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .access-shell--setup .setup-step-card > .setup-section-heading + .setup-grid {
-    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr);
-  }
-
   .access-shell--setup .email-input-group {
     grid-template-columns: minmax(0, 1fr) 96px;
   }
 
-  .access-shell--setup .database-setup {
+  .access-shell--setup .service-access-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .access-shell--setup .service-access-grid.has-database {
+    grid-template-columns: minmax(168px, 0.85fr) minmax(160px, 1.1fr) minmax(140px, 0.8fr) minmax(310px, 1.8fr);
+  }
+
+  .access-shell--setup .service-access-grid > .database-setup {
+    display: contents;
+  }
+
+  .access-shell--setup .database-type-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
     gap: 8px;
-    margin-top: 12px;
-    padding-top: 10px;
+    min-width: 0;
   }
 
-  .access-shell--setup .database-setup .setup-section-heading {
-    margin: 0;
+  .access-shell--setup .database-type-field .dns-test-actions {
+    display: contents;
   }
 
-  .access-shell--setup .database-setup > .setup-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .access-shell--setup .database-type-field .dns-test-button {
+    width: 92px;
+    height: auto;
+    min-height: 36px;
+    margin-top: calc(8px + 1.35 * 12px);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: 6px 10px;
+    font-size: 12px;
   }
 
-  .access-shell--setup .database-setup:not(:has(#database-host)) {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
-    align-items: center;
-  }
-
-  .access-shell--setup .database-setup:not(:has(#database-host)) > .setup-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .access-shell--setup .database-setup:not(:has(#database-host)) > .inline-error {
+  .access-shell--setup .database-type-field [role="status"] {
     grid-column: 1 / -1;
   }
 
-  .access-shell--setup .database-setup .dns-test-actions {
-    margin-top: 0;
+  .access-shell--setup .database-setup > .setup-section-heading,
+  .access-shell--setup .database-setup > .database-connection-grid,
+  .access-shell--setup .database-setup > p {
+    grid-column: 1 / -1;
+    margin: 0;
   }
 
-  .access-shell--setup .database-setup:not(:has(#database-host)) .dns-test-actions {
-    max-width: 200px;
+  .access-shell--setup .database-setup > .setup-section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding-top: 8px;
+    border-top: 1px solid #e4ebf5;
+  }
+
+  .access-shell--setup .database-connection-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    align-items: end;
   }
 
   .access-shell--setup .reset-preview,
@@ -293,5 +322,15 @@
     width: 64px;
     height: 64px;
     margin-bottom: 16px;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1279px) {
+  .access-shell--setup .service-access-grid.has-database {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .access-shell--setup .database-connection-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
