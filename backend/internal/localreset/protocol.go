@@ -184,7 +184,13 @@ func (s *Server) handle(parent context.Context, conn net.Conn, factory Factory) 
 	if conn.SetDeadline(deadline) != nil {
 		return
 	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
 	peer, err := s.authorize(conn)
+	s.mu.Unlock()
 	if err != nil {
 		_ = writeFrame(conn, Response{Version: Version, Code: "UNAUTHORIZED"})
 		return
