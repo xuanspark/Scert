@@ -66,14 +66,14 @@ func TestHealthAndDomainAPI(t *testing.T) {
 	}
 }
 
-func TestResetPathRequiresScertAdminActivation(t *testing.T) {
+func TestLegacyResetPathRequiresScertAdminActivation(t *testing.T) {
 	dir := t.TempDir()
 	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.Server.Port = 8443
 	statePath := admin.StatePath(cfg.Paths.Data)
-	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, ResetStatePath: statePath})
+	server := newLegacyResetServer(Dependencies{Config: cfg, Repository: &stubDomainRepository{}, ResetStatePath: statePath})
 
 	inactive := httptest.NewRecorder()
 	serveAdminHTTP(server, inactive, httptest.NewRequest(http.MethodGet, "/reset", nil))
@@ -103,7 +103,7 @@ func TestResetPathRequiresScertAdminActivation(t *testing.T) {
 	}
 }
 
-func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
+func TestLegacyResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	dir := t.TempDir()
 	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
@@ -125,7 +125,7 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("启动测试重置会话失败：%v", err)
 	}
-	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
+	server := newLegacyResetServer(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
 	get := httptest.NewRecorder()
 	serveAdminHTTP(server, get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
 	if get.Code != http.StatusOK {
@@ -174,7 +174,7 @@ func TestResetPasswordUpdatesConfigAndConsumesSession(t *testing.T) {
 	}
 }
 
-func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
+func TestLegacyResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
 	dir := t.TempDir()
 	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
@@ -211,7 +211,7 @@ func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("启动测试重置会话失败：%v", err)
 	}
-	server := New(Dependencies{
+	server := newLegacyResetServer(Dependencies{
 		Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, Users: users,
 		ResetStatePath: admin.StatePath(cfg.Paths.Data),
 	})
@@ -243,7 +243,7 @@ func TestResetPasswordSynchronizesPrimarySuperAdminUser(t *testing.T) {
 	}
 }
 
-func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
+func TestLegacyResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 	dir := t.TempDir()
 	cfg := readyTestConfig(dir)
 	cfg.SetupReady = true
@@ -257,7 +257,7 @@ func TestResetRejectsCrossSiteAndLimitsFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("启动测试重置会话失败：%v", err)
 	}
-	server := New(Dependencies{Config: cfg, ConfigPath: filepath.Join(dir, "config", "scert.json"), Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
+	server := newLegacyResetServer(Dependencies{Config: cfg, ConfigPath: filepath.Join(dir, "config", "scert.json"), Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
 	get := httptest.NewRecorder()
 	serveAdminHTTP(server, get, httptest.NewRequest(http.MethodGet, "http://scert.example.test/reset", nil))
 	cookie := get.Result().Cookies()[0]
@@ -376,7 +376,7 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 		t.Fatalf("服务器删除后域名关联未清理：%d %s", listResponse.Code, listResponse.Body.String())
 	}
 }
-func TestResetConfigSaveFailureKeepsSessionAndPassword(t *testing.T) {
+func TestLegacyResetConfigSaveFailureKeepsSessionAndPassword(t *testing.T) {
 	fixture := newResetTestFixture(t)
 	blockedPath := filepath.Join(t.TempDir(), "config-target")
 	if err := os.MkdirAll(blockedPath, 0o700); err != nil {
@@ -415,7 +415,7 @@ func TestResetConfigSaveFailureKeepsSessionAndPassword(t *testing.T) {
 	}
 }
 
-func TestResetRejectsOversizedRequestBody(t *testing.T) {
+func TestLegacyResetRejectsOversizedRequestBody(t *testing.T) {
 	fixture := newResetTestFixture(t)
 	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPass1234")
 	form.Set("padding", strings.Repeat("x", resetMaxBodyBytes))
@@ -437,7 +437,7 @@ func TestResetRejectsOversizedRequestBody(t *testing.T) {
 	}
 }
 
-func TestResetCSRFCookieHasRestrictedAttributes(t *testing.T) {
+func TestLegacyResetCSRFCookieHasRestrictedAttributes(t *testing.T) {
 	fixture := newResetTestFixture(t)
 	cookie := fixture.cookie
 	if !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
@@ -451,7 +451,7 @@ func TestResetCSRFCookieHasRestrictedAttributes(t *testing.T) {
 	}
 }
 
-func TestResetConcurrentSubmissionsAllowOnlyOneSuccess(t *testing.T) {
+func TestLegacyResetConcurrentSubmissionsAllowOnlyOneSuccess(t *testing.T) {
 	fixture := newResetTestFixture(t)
 	form := resetForm(fixture.session.Code, fixture.cookie.Value, "NewPass1234")
 	start := make(chan struct{})
@@ -536,7 +536,7 @@ func newResetTestFixture(t *testing.T) resetTestFixture {
 	if err != nil {
 		t.Fatalf("启动测试重置会话失败：%v", err)
 	}
-	server := New(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
+	server := newLegacyResetServer(Dependencies{Config: cfg, ConfigPath: configPath, Repository: &stubDomainRepository{}, ResetStatePath: admin.StatePath(cfg.Paths.Data)})
 	get := httptest.NewRecorder()
 	serveAdminHTTP(server, get, httptest.NewRequest(http.MethodGet, "https://scert.example.test/reset", nil))
 	if get.Code != http.StatusOK {

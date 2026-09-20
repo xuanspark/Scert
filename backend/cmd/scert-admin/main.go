@@ -22,7 +22,7 @@ func writeSessionInfo(writer io.Writer, session admin.Session) {
 	fmt.Fprintln(writer, "请使用 root 或 Scert 用户读取该文件；密码重置完成后文件会自动销毁。")
 	fmt.Fprintln(writer, "停止 Scert-admin 后入口将立即关闭；异常退出时入口会在租约过期后自动关闭。")
 }
-func main() {
+func legacyMain() {
 	baseDir := flag.String("base-dir", "", "Windows 默认安装根目录")
 	configPath := flag.String("config", "", "配置文件路径")
 	codeOutput := flag.String("code-output", "", "一次性校验码文件路径")

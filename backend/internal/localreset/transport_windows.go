@@ -130,3 +130,13 @@ func Dial(ctx context.Context, path string, expectedUID uint32) (net.Conn, error
 	}
 	return conn, nil
 }
+
+func AuthorizeCurrentProcess() error {
+	token, err := windows.OpenCurrentProcessToken()
+	if err != nil {
+		return ErrUnauthorized
+	}
+	defer token.Close()
+	_, err = tokenPeer(token)
+	return err
+}

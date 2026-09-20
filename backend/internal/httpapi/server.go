@@ -19,7 +19,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"git.pcux.cn/xuans/Scert/backend/internal/admin"
 	"git.pcux.cn/xuans/Scert/backend/internal/buildinfo"
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -171,8 +170,6 @@ func (s *Server) registerRoutes() {
 	// 主路由保持独立，初始化路由由专用模块注册。
 	s.router.GET("/healthz", s.health)
 	s.router.GET("/readyz", s.ready)
-	s.router.GET(admin.ResetPath, s.resetPage)
-	s.router.POST(admin.ResetPath, s.resetSubmit)
 	s.router.GET("/api/v1/status", s.status)
 	s.router.GET("/api/v1/auth/session", s.authSession)
 	s.router.POST("/api/v1/auth/login", s.requireSameOrigin, s.authLogin)
@@ -500,7 +497,7 @@ func (s *Server) status(c *gin.Context) {
 	if _, authenticated := s.currentAuthSession(c); authenticated {
 		payload["https_mode"] = cfg.Server.HTTPSMode
 		payload["database_driver"] = cfg.Database.Driver
-		payload["reset_url"] = cfg.ResetURL()
+		payload["reset_method"] = "local_admin_command"
 	}
 	c.JSON(http.StatusOK, payload)
 }
