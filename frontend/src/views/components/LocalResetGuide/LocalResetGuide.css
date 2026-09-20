@@ -1,0 +1,38 @@
+.local-reset-guide {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.local-reset-guide__heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.local-reset-guide__commands {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.local-reset-guide__commands > div {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+}
+
+.local-reset-guide__commands dt,
+.local-reset-guide__commands dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.local-reset-guide__commands code {
+  overflow-wrap: anywhere;
+  font-family: Consolas, monospace;
+}

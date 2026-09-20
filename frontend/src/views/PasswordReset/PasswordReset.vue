@@ -1,5 +1,6 @@
 <script setup>
 import AccessShell from "../components/AccessShell/AccessShell.vue";
+import LocalResetGuide from "../components/LocalResetGuide/LocalResetGuide.vue";
 import { usePasswordReset } from "./PasswordReset.js";
 
 const {
@@ -47,13 +48,14 @@ const {
           />
         </label>
 
-        <p v-if="message" class="access-message">{{ message }}</p>
+        <p v-if="message && !resolution" class="access-message">{{ message }}</p>
         <p v-if="error" class="access-error">{{ error }}</p>
 
         <div v-if="resolution" class="reset-resolution" aria-live="polite">
           <span class="reset-resolution-label">处理方式</span>
           <strong>{{ resolution.title }}</strong>
           <p>{{ resolution.description }}</p>
+          <LocalResetGuide v-if="resolution.action === 'local_admin_command'" />
           <a
             v-if="resolution.reset_path"
             class="access-submit reset-entry-link"

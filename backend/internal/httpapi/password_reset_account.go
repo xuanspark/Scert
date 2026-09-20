@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"git.pcux.cn/xuans/Scert/backend/internal/admin"
 	"git.pcux.cn/xuans/Scert/backend/internal/auth"
 )
 
@@ -21,7 +20,6 @@ type passwordResetResolution struct {
 	Title        string `json:"title"`
 	Description  string `json:"description"`
 	Action       string `json:"action"`
-	ResetPath    string `json:"reset_path,omitempty"`
 }
 
 // resolvePasswordResetAccount 根据账户标识返回对应的密码处理内容。
@@ -52,8 +50,7 @@ func (s *Server) resolvePasswordResetAccount(c *gin.Context) {
 			AccountLabel: "超级管理员",
 			Title:        "超级管理员密码重置",
 			Description:  "已识别为超级管理员账户。超级管理员不能通过普通重置页面修改密码，请使用 Scert-admin 开启的一次性重置入口。",
-			Action:       "use_super_admin_entry",
-			ResetPath:    admin.ResetPath,
+			Action:       "local_admin_command",
 		})
 		return
 	}
