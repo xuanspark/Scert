@@ -222,19 +222,6 @@ const {
               <span>先确定 Scert 主服务和管理页面的访问方式，后续步骤会使用这里的配置。</span>
             </div>
             <div class="setup-grid two-columns">
-              <label>
-                <span>Scert 主服务端口</span>
-                <input
-                  id="server-port"
-                  name="server_port"
-                  v-model.number="form.server_port"
-                  required
-                  min="1"
-                  max="65535"
-                  type="number"
-                />
-                <small>管理页面和 API 对外提供服务使用的端口。</small>
-              </label>
               <div class="access-target-field">
                 <span>管理页面访问方式</span>
                 <div class="target-switch" role="group" aria-label="管理页面访问方式">
@@ -275,6 +262,19 @@ const {
                   required
                   placeholder="203.0.113.10"
                 />
+              </label>
+              <label>
+                <span>Scert 主服务端口</span>
+                <input
+                  id="server-port"
+                  name="server_port"
+                  v-model.number="form.server_port"
+                  required
+                  min="1"
+                  max="65535"
+                  type="number"
+                />
+                <small>管理页面和 API 对外提供服务使用的端口。</small>
               </label>
             </div>
             <DatabaseSetup

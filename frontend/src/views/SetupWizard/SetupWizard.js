@@ -74,7 +74,7 @@ export function useSetupWizard(props, emit) {
     admin_email: "",
     admin_password: "",
     confirm_password: "",
-    server_port: props.status.server_port || 8080,
+    server_port: props.status.mode === "bootstrap" ? 80 : (props.status.server_port || 80),
     email_http_enabled: false,
     email_smtp_enabled: false,
     email_smtp_host: "",
