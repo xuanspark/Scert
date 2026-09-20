@@ -53,3 +53,19 @@ test("database heading precedes selection, verification and connection fields", 
   assert.ok(find(section.children[selection], (node) => node.tag === "button"));
   assert.ok(find(section.children[heading], (node) => node.tag === "HelpTip"));
 });
+
+test("database connection fields retain their two-row desktop order", () => {
+  const grid = find(template("./DatabaseSetup.vue"), hasClass("database-connection-grid"));
+  const fields = grid.children.filter((node) => node.tag === "label").map((label) => {
+    const input = find(label, (node) => node.tag === "input");
+    return input.props.find((prop) => prop.name === "id").value.content;
+  });
+  assert.deepEqual(fields, [
+    "database-host", "database-port", "database-name",
+    "database-username", "database-password", "database-root-certificate",
+  ]);
+  const css = readFileSync(new URL("./SetupWizardLayout.css", import.meta.url), "utf8");
+  const rules = [...css.matchAll(/\.access-shell--setup \.database-connection-grid\s*\{([^}]+)\}/g)];
+  assert.equal(rules.length, 1);
+  assert.match(rules[0][1], /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+});
