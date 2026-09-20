@@ -425,7 +425,8 @@ try {
             }
         }
 
-        Test-ReleasePaths -Source $targetDirectory -Binaries $binaries -ForbiddenPaths $forbiddenPaths
+        $checkedPaths = @($forbiddenPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+        Test-ReleasePaths -Source $targetDirectory -Binaries $binaries -ForbiddenPaths $checkedPaths
         Write-TargetChecksums -TargetDirectory $targetDirectory | Out-Null
         foreach ($file in (Get-ChildItem -LiteralPath $targetDirectory -Recurse -File | Sort-Object FullName)) {
             $hash = Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256

@@ -143,6 +143,8 @@ func TestReleaseScriptUsesPathChecksAndIncludesLinuxHelper(t *testing.T) {
 	}
 	for _, required := range []string{
 		"go build -trimpath", "wails build -trimpath", "Test-ReleasePaths -Source $targetDirectory",
+		`$checkedPaths = @($forbiddenPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)`,
+		`-ForbiddenPaths $checkedPaths`,
 		`-Package "./cmd/scert-nginx"`, `$binaries += "scert-nginx"`,
 		`-Executable (@("install-linux.sh") + $binaries)`,
 		`trimpath = $true`, `local_path_check = "passed"`,
