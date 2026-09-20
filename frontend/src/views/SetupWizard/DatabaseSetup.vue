@@ -11,6 +11,14 @@ const emit = defineEmits(["test"]);
 
 <template>
   <section class="database-setup" aria-label="数据库存储配置">
+    <div class="setup-section-heading">
+      <strong>
+        数据库存储
+        <HelpTip>
+          选择一种存储方式，验证连接和写权限后继续。不会清空已有数据。
+        </HelpTip>
+      </strong>
+    </div>
     <div class="database-type-field">
       <label>
         <span>数据库类型</span>
@@ -31,14 +39,6 @@ const emit = defineEmits(["test"]);
         </button>
         <span v-if="verified" role="status">数据库连接及写权限已验证。</span>
       </div>
-    </div>
-    <div class="setup-section-heading">
-      <strong>
-        数据库存储
-        <HelpTip>
-          选择一种存储方式，验证连接和写权限后继续。不会清空已有数据。
-        </HelpTip>
-      </strong>
     </div>
     <div v-if="form.driver !== 'sqlite'" class="setup-grid two-columns database-connection-grid">
       <label>

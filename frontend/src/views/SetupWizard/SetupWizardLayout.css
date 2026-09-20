@@ -120,8 +120,39 @@
     white-space: normal;
   }
 
-  .access-shell--setup .setup-step-card:has(#admin-username) > .setup-grid:first-of-type {
+  .access-shell--setup .admin-account-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .access-shell--setup .admin-account-heading {
+    margin-top: 0;
+  }
+
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) label,
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) .access-target-field {
+    margin-top: 2px;
+    gap: 2px;
+  }
+
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) label > span,
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) .access-target-field > span {
+    min-height: 18px;
+    line-height: 18px;
+  }
+
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) input,
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) select {
+    height: 32px;
+    min-height: 32px;
+    padding-block: 4px;
+  }
+
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) .setup-grid {
+    row-gap: 4px;
+  }
+
+  .access-shell--setup .setup-step-card:has(.admin-account-grid) .setup-section-heading {
+    margin-bottom: 2px;
   }
 
   .access-shell--setup .email-input-group {
@@ -133,17 +164,16 @@
     align-items: start;
   }
 
-  .access-shell--setup .service-access-grid.has-database {
-    grid-template-columns: minmax(168px, 0.85fr) minmax(160px, 1.1fr) minmax(140px, 0.8fr) minmax(310px, 1.8fr);
-  }
-
-  .access-shell--setup .service-access-grid > .database-setup {
-    display: contents;
+  .access-shell--setup .database-setup {
+    gap: 4px;
+    margin-top: 6px;
+    padding-top: 6px;
   }
 
   .access-shell--setup .database-type-field {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 420px) auto;
+    justify-content: start;
     align-items: start;
     gap: 8px;
     min-width: 0;
@@ -156,8 +186,8 @@
   .access-shell--setup .database-type-field .dns-test-button {
     width: 92px;
     height: auto;
-    min-height: 36px;
-    margin-top: 28px;
+    min-height: 32px;
+    margin-top: 22px;
     white-space: normal;
     overflow-wrap: anywhere;
     padding: 6px 10px;
@@ -180,8 +210,6 @@
     flex-wrap: wrap;
     align-items: baseline;
     gap: 4px 10px;
-    padding-top: 8px;
-    border-top: 1px solid #e4ebf5;
   }
 
   .access-shell--setup .database-connection-grid {
@@ -334,10 +362,6 @@
 }
 
 @media (min-width: 901px) and (max-width: 1279px) {
-  .access-shell--setup .service-access-grid.has-database {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .access-shell--setup .database-connection-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

@@ -131,7 +131,10 @@ const {
         <div class="setup-step-grid">
           <fieldset v-if="currentStep === 1" class="setup-step-card" :disabled="submitting || completed">
             <legend><span>01</span>超级管理员</legend>
-            <div class="setup-grid two-columns">
+            <div class="setup-section-heading admin-account-heading">
+              <strong>用户信息</strong>
+            </div>
+            <div class="setup-grid two-columns admin-account-grid">
               <label
                 ><span>用户名</span
                 ><input
@@ -229,7 +232,7 @@ const {
                 </HelpTip>
               </strong>
             </div>
-            <div class="setup-grid service-access-grid" :class="{ 'has-database': isBootstrap }">
+            <div class="setup-grid service-access-grid">
               <div class="access-target-field">
                 <span>管理页面访问方式</span>
                 <div class="target-switch" role="group" aria-label="管理页面访问方式">
@@ -288,15 +291,15 @@ const {
                   type="number"
                 />
               </label>
-              <DatabaseSetup
-                v-if="isBootstrap"
-                :form="databaseForm"
-                :testing="databaseTesting"
-                :verified="databaseVerified"
-                :error="databaseError"
-                @test="testDatabase"
-              />
             </div>
+            <DatabaseSetup
+              v-if="isBootstrap"
+              :form="databaseForm"
+              :testing="databaseTesting"
+              :verified="databaseVerified"
+              :error="databaseError"
+              @test="testDatabase"
+            />
             <div class="provider-description reset-preview">
               <strong>密码重置地址预览</strong>
               <span>{{ resetURLPreview }}</span>
