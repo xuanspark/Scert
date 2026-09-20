@@ -1,4 +1,5 @@
 <script setup>
+import HelpTip from "../components/HelpTip/HelpTip.vue";
 import { useSetupWizard } from "./SetupWizard.js";
 import AccessShell from "../components/AccessShell/AccessShell.vue";
 import DatabaseSetup from "./DatabaseSetup.vue";
@@ -142,8 +143,12 @@ const {
                   placeholder="例如 scert-admin"
               /></label>
               <label class="email-field"
-                ><span>绑定邮箱</span
-                ><div class="email-input-group">
+                ><span>
+                  绑定邮箱
+                  <HelpTip>
+                    可直接输入完整邮箱，也可先输入邮箱名称再选择常用邮箱。
+                  </HelpTip>
+                </span><div class="email-input-group">
                   <input
                     ref="emailAutofillElement"
                     class="email-autofill-probe"
@@ -188,7 +193,6 @@ const {
                     </option>
                   </select>
                 </div>
-                <small>可直接输入完整邮箱，也可先输入邮箱名称再选择常用邮箱。</small>
               </label>
               <label
                 ><span>密码</span
@@ -218,8 +222,12 @@ const {
               /></label>
             </div>
             <div class="setup-section-heading">
-              <strong>服务访问配置</strong>
-              <span>先确定 Scert 主服务和管理页面的访问方式，后续步骤会使用这里的配置。</span>
+              <strong>
+                服务访问配置
+                <HelpTip>
+                  先确定 Scert 主服务和管理页面的访问方式，后续步骤会使用这里的配置。
+                </HelpTip>
+              </strong>
             </div>
             <div class="setup-grid service-access-grid" :class="{ 'has-database': isBootstrap }">
               <div class="access-target-field">
@@ -264,7 +272,12 @@ const {
                 />
               </label>
               <label>
-                <span>Scert 主服务端口</span>
+                <span>
+                  Scert 主服务端口
+                  <HelpTip>
+                    管理页面和 API 对外提供服务使用的端口。
+                  </HelpTip>
+                </span>
                 <input
                   id="server-port"
                   name="server_port"
@@ -274,7 +287,6 @@ const {
                   max="65535"
                   type="number"
                 />
-                <small>管理页面和 API 对外提供服务使用的端口。</small>
               </label>
               <DatabaseSetup
                 v-if="isBootstrap"
@@ -300,8 +312,12 @@ const {
 
             <div class="notification-layout">
               <div class="notification-guide">
-                <strong>先完成基础配置</strong>
-                <span>填写邮件服务地址即可继续，其他项目已经提供合理默认值。</span>
+                <strong>
+                  先完成基础配置
+                  <HelpTip>
+                    填写邮件服务地址即可继续，其他项目已经提供合理默认值。
+                  </HelpTip>
+                </strong>
               </div>
 
               <div class="notification-row notification-service-row">
@@ -312,8 +328,12 @@ const {
                     type="checkbox"
                   />
                   <span>
-                    <strong>启用 HTTP 邮件通知</strong>
-                    <small>通过第三方邮件 API 发送任务通知。</small>
+                    <strong>
+                      启用 HTTP 邮件通知
+                      <HelpTip>
+                        通过第三方邮件 API 发送任务通知。
+                      </HelpTip>
+                    </strong>
                   </span>
                 </label>
                 <label class="confirm-row compact-row">
@@ -323,8 +343,12 @@ const {
                     type="checkbox"
                   />
                   <span>
-                    <strong>启用 SMTP 通知</strong>
-                    <small>通过 SMTP 出站客户端发送任务通知。</small>
+                    <strong>
+                      启用 SMTP 通知
+                      <HelpTip>
+                        通过 SMTP 出站客户端发送任务通知。
+                      </HelpTip>
+                    </strong>
                   </span>
                 </label>
               </div>
@@ -332,8 +356,12 @@ const {
               <div v-if="form.email_smtp_enabled" class="notification-basic-panel smtp-basic-panel">
                 <div class="notification-section-heading">
                   <div>
-                    <strong>SMTP 通知配置</strong>
-                    <span>Scert 只作为 SMTP 出站客户端，不提供 SMTP、IMAP 或 POP3 服务端。</span>
+                    <strong>
+                      SMTP 通知配置
+                      <HelpTip>
+                        Scert 只作为 SMTP 出站客户端，不提供 SMTP、IMAP 或 POP3 服务端。
+                      </HelpTip>
+                    </strong>
                   </div>
                   <span class="notification-recommended-badge">推荐 STARTTLS</span>
                 </div>
@@ -414,15 +442,24 @@ const {
               <div v-if="form.email_http_enabled" class="notification-basic-panel">
                 <div class="notification-section-heading">
                   <div>
-                    <strong>邮件通知基础配置</strong>
-                    <span>填写服务地址、发件人和收件人即可，技术参数无需修改。</span>
+                    <strong>
+                      邮件通知基础配置
+                      <HelpTip>
+                        填写服务地址、发件人和收件人即可，技术参数无需修改。
+                      </HelpTip>
+                    </strong>
                   </div>
                   <span class="notification-recommended-badge">推荐配置</span>
                 </div>
 
                 <div class="notification-row notification-basic-row">
                   <label>
-                    <span>邮件服务地址</span>
+                    <span>
+                      邮件服务地址
+                      <HelpTip>
+                        填写邮件服务提供的地址，不需要自行拼接接口路径。
+                      </HelpTip>
+                    </span>
                     <input
                       id="email-endpoint"
                       name="email_endpoint"
@@ -430,17 +467,20 @@ const {
                       type="url"
                       placeholder="https://mail.example.com"
                     />
-                    <small>填写邮件服务提供的地址，不需要自行拼接接口路径。</small>
                   </label>
                   <label>
-                    <span>邮件服务名称（可选）</span>
+                    <span>
+                      邮件服务名称（可选）
+                      <HelpTip>
+                        仅用于日志和通知内容中的识别。
+                      </HelpTip>
+                    </span>
                     <input
                       id="email-provider"
                       name="email_provider"
                       v-model.trim="form.email_provider"
                       placeholder="例如：Smail"
                     />
-                    <small>仅用于日志和通知内容中的识别。</small>
                   </label>
                 </div>
 
@@ -463,14 +503,18 @@ const {
                     />
                   </label>
                   <label>
-                    <span>通知收件人</span>
+                    <span>
+                      通知收件人
+                      <HelpTip>
+                        续期、部署和错误通知将发送到这些地址。
+                      </HelpTip>
+                    </span>
                     <input
                       id="recipients"
                       name="recipients"
                       v-model="form.recipients"
                       placeholder="多个地址使用逗号分隔"
                     />
-                    <small>续期、部署和错误通知将发送到这些地址。</small>
                   </label>
                 </div>
               </div>
@@ -689,22 +733,29 @@ const {
                 </select></label
               >
               <label
-                ><span>DNS 权限测试域名</span
-                ><input
+                ><span>
+                  DNS 权限测试域名
+                  <HelpTip>
+                    使用域名时可填写管理页面域名；使用公网 IP
+                    时必须另填一个由当前 DNS 账号管理的域名。
+                  </HelpTip>
+                </span><input
                   id="dns-test-domain"
                   name="dns_test_domain"
                   v-model.trim="dnsTestDomain"
                   required
                   placeholder="例如 example.com"
-                /><small
-                  >使用域名时可填写管理页面域名；使用公网 IP
-                  时必须另填一个由当前 DNS 账号管理的域名。</small
-                ></label
+                /></label
               >
             </div>
             <div class="setup-grid two-columns propagation-grid">
               <label>
-                <span>DNS 传播最大等待时间（秒）</span>
+                <span>
+                  DNS 传播最大等待时间（秒）
+                  <HelpTip>
+                    默认 300 秒，最长允许等待 86400 秒。
+                  </HelpTip>
+                </span>
                 <input
                   id="propagation-timeout-secs"
                   name="propagation_timeout_secs"
@@ -714,10 +765,14 @@ const {
                   max="86400"
                   required
                 />
-                <small>默认 300 秒，最长允许等待 86400 秒。</small>
               </label>
               <label>
-                <span>DNS 传播检测间隔（秒）</span>
+                <span>
+                  DNS 传播检测间隔（秒）
+                  <HelpTip>
+                    默认 5 秒，不能大于最大等待时间。
+                  </HelpTip>
+                </span>
                 <input
                   id="propagation-polling-interval-secs"
                   name="propagation_polling_interval_secs"
@@ -727,7 +782,6 @@ const {
                   :max="form.propagation_timeout_secs"
                   required
                 />
-                <small>默认 5 秒，不能大于最大等待时间。</small>
               </label>
             </div>
             <p class="field-hint">
@@ -935,8 +989,12 @@ const {
                 type="checkbox"
               />
               <span>
-                <strong>初始化完成后开启管理页面</strong>
-                <small>桌面端可通过此开关决定是否启用浏览器管理页面。</small>
+                <strong>
+                  初始化完成后开启管理页面
+                  <HelpTip>
+                    桌面端可通过此开关决定是否启用浏览器管理页面。
+                  </HelpTip>
+                </strong>
               </span>
             </label>
           </fieldset>

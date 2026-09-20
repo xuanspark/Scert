@@ -68,6 +68,14 @@
     line-height: 1.35;
   }
 
+  .access-shell--setup label:not(.confirm-row) > span,
+  .access-shell--setup .access-target-field > span {
+    display: flex;
+    align-items: center;
+    min-height: 20px;
+    line-height: 20px;
+  }
+
   .access-shell--setup input:not([type="checkbox"]),
   .access-shell--setup select {
     height: 36px;
@@ -149,7 +157,7 @@
     width: 92px;
     height: auto;
     min-height: 36px;
-    margin-top: calc(8px + 1.35 * 12px);
+    margin-top: 28px;
     white-space: normal;
     overflow-wrap: anywhere;
     padding: 6px 10px;

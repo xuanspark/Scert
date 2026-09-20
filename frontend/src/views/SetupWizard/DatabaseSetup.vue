@@ -1,4 +1,5 @@
 <script setup>
+import HelpTip from "../components/HelpTip/HelpTip.vue";
 defineProps({
   form: { type: Object, required: true },
   testing: Boolean,
@@ -32,8 +33,12 @@ const emit = defineEmits(["test"]);
       </div>
     </div>
     <div class="setup-section-heading">
-      <strong>数据库存储</strong>
-      <span>选择一种存储方式，验证连接和写权限后继续。不会清空已有数据。</span>
+      <strong>
+        数据库存储
+        <HelpTip>
+          选择一种存储方式，验证连接和写权限后继续。不会清空已有数据。
+        </HelpTip>
+      </strong>
     </div>
     <div v-if="form.driver !== 'sqlite'" class="setup-grid two-columns database-connection-grid">
       <label>
