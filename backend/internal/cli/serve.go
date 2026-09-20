@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/localreset"
 	"github.com/spf13/cobra"
 )
 
@@ -77,35 +77,21 @@ func bootstrapFirewallMode(command *cobra.Command, value string) string {
 }
 
 func runApplication(ctx context.Context, cfg config.Config, path string) (bool, error) {
+	if !cfg.SetupReady {
+		return false, localreset.ErrUnavailable
+	}
 	service, err := app.NewWithConfigPath(ctx, cfg, path)
 	if err != nil {
 		return false, err
 	}
 	defer service.Close()
-	errorsChannel := make(chan error, 1)
-	go func() { errorsChannel <- service.HTTP.ListenAndServe() }()
-	select {
-	case <-ctx.Done():
-		return false, nil
-	case err := <-errorsChannel:
-		if errors.Is(err, http.ErrServerClosed) {
-			return false, nil
-		}
-		return false, err
-	case <-service.HTTP.Listening():
-	}
+	var startRenewal func(context.Context)
 	if service.Renewal != nil {
-		service.Renewal.Start(ctx)
+		startRenewal = service.Renewal.Start
 	}
-	select {
-	case <-ctx.Done():
-		return false, nil
-	case err := <-errorsChannel:
-		if errors.Is(err, http.ErrServerClosed) {
-			return false, nil
-		}
-		return false, err
-	}
+	return runApplicationServices(ctx, service.HTTP, startRenewal, service.HTTP.LocalResetFactory(), func() (applicationControl, error) {
+		return localreset.Listen("")
+	})
 }
 
 func bootstrapURLPath(cfg config.Config) string {
