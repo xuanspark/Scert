@@ -974,3 +974,4 @@ const {
 </template>
 
 <style scoped src="./SetupWizard.css"></style>
+<style src="./SetupWizardLayout.css"></style>

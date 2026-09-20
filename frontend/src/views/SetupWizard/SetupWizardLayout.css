@@ -1,0 +1,297 @@
+@media (min-width: 901px) {
+  .access-shell.access-shell--setup {
+    width: min(1720px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+    height: min(1040px, calc(100dvh - 32px));
+    max-height: calc(100dvh - 32px);
+    grid-template-columns: clamp(210px, 19vw, 280px) minmax(0, 1fr);
+  }
+
+  .access-shell--setup .access-brand-content {
+    padding: 24px;
+  }
+
+  .access-shell--setup .access-brand-title {
+    font-size: 23px;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  .access-shell--setup .access-panel-inner {
+    padding: 20px 24px;
+  }
+
+  .access-shell--setup .setup-card {
+    padding: 0;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .access-shell--setup .setup-card h2 {
+    font-size: 26px;
+  }
+
+  .access-shell--setup .setup-eyebrow {
+    margin-bottom: 4px;
+  }
+
+  .access-shell--setup .setup-progress {
+    padding: 10px 14px;
+  }
+
+  .access-shell--setup .setup-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .access-shell--setup .setup-step-grid {
+    flex: 1 1 auto;
+    scrollbar-gutter: auto;
+  }
+
+  .access-shell--setup .setup-step-card {
+    min-height: 100%;
+    padding: 14px 16px;
+    box-shadow: none;
+  }
+
+  .access-shell--setup .setup-grid {
+    gap: 8px 12px;
+  }
+
+  .access-shell--setup label,
+  .access-shell--setup .access-target-field {
+    margin-top: 4px;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .access-shell--setup input:not([type="checkbox"]),
+  .access-shell--setup select {
+    height: 36px;
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  .access-shell--setup textarea {
+    min-height: 48px;
+    font-size: 12px;
+  }
+
+  .access-shell--setup label > small,
+  .access-shell--setup .setup-section-heading span,
+  .access-shell--setup .notification-section-heading span,
+  .access-shell--setup .notification-credential-field > small,
+  .access-shell--setup .notification-advanced-toggle small,
+  .access-shell--setup .confirm-row small {
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .access-shell--setup .setup-section-heading {
+    margin: 10px 0 4px;
+  }
+
+  .access-shell--setup .setup-section-heading strong,
+  .access-shell--setup .notification-section-heading strong,
+  .access-shell--setup .notification-advanced-toggle strong,
+  .access-shell--setup .confirm-row strong {
+    font-size: 12px;
+    white-space: normal;
+  }
+
+  .access-shell--setup .setup-step-card:has(#admin-username) > .setup-grid:first-of-type {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .access-shell--setup .setup-step-card > .setup-section-heading + .setup-grid {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+
+  .access-shell--setup .email-input-group {
+    grid-template-columns: minmax(0, 1fr) 96px;
+  }
+
+  .access-shell--setup .database-setup {
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 10px;
+  }
+
+  .access-shell--setup .database-setup .setup-section-heading {
+    margin: 0;
+  }
+
+  .access-shell--setup .database-setup > .setup-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .access-shell--setup .database-setup:not(:has(#database-host)) {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .access-shell--setup .database-setup:not(:has(#database-host)) > .setup-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .access-shell--setup .database-setup:not(:has(#database-host)) > .inline-error {
+    grid-column: 1 / -1;
+  }
+
+  .access-shell--setup .database-setup .dns-test-actions {
+    margin-top: 0;
+  }
+
+  .access-shell--setup .database-setup:not(:has(#database-host)) .dns-test-actions {
+    max-width: 200px;
+  }
+
+  .access-shell--setup .reset-preview,
+  .access-shell--setup .provider-description span,
+  .access-shell--setup .dns-verification-success span,
+  .access-shell--setup .dns-verification-stage small,
+  .access-shell--setup .dns-report-heading span,
+  .access-shell--setup .compact-row > span {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .access-shell--setup .reset-preview {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 10px;
+    font-size: 11px;
+  }
+
+  .access-shell--setup .reset-preview span {
+    flex: 0 1 auto;
+    white-space: normal;
+  }
+
+  .access-shell--setup .notification-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 10px;
+  }
+
+  .access-shell--setup .notification-guide,
+  .access-shell--setup .notification-service-row,
+  .access-shell--setup .notification-layout > .reset-preview {
+    grid-column: 1 / -1;
+  }
+
+  .access-shell--setup .notification-layout > .reset-preview {
+    order: 1;
+    margin-top: 0;
+  }
+
+  .access-shell--setup .notification-basic-panel {
+    padding: 10px;
+  }
+
+  .access-shell--setup .notification-basic-panel .notification-sender-row,
+  .access-shell--setup .smtp-config-row,
+  .access-shell--setup .smtp-options-row,
+  .access-shell--setup .notification-auth-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .access-shell--setup .notification-basic-panel .notification-sender-row > label:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .access-shell--setup .notification-api-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .access-shell--setup .notification-bottom-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .access-shell--setup .notification-advanced-content {
+    gap: 7px;
+    padding: 8px 10px;
+  }
+
+  .access-shell--setup .notification-advanced-tip,
+  .access-shell--setup .notification-guide,
+  .access-shell--setup .notification-smtp-tip {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .access-shell--setup .notification-layout:has(.smtp-basic-panel):has(.notification-advanced-content) {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 0.95fr) minmax(0, 1.3fr);
+  }
+
+  .access-shell--setup .notification-layout:has(.smtp-basic-panel):has(.notification-advanced-content) .notification-basic-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .access-shell--setup .notification-layout:has(.smtp-basic-panel):has(.notification-advanced-content) .notification-section-heading {
+    flex-wrap: wrap;
+  }
+
+  .access-shell--setup .notification-layout:has(.smtp-basic-panel):has(.notification-advanced-content) .smtp-options-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .access-shell--setup .setup-error,
+  .access-shell--setup .setup-success {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 8px 10px;
+  }
+
+  .access-shell--setup footer {
+    flex: 0 0 auto;
+    gap: 12px;
+    font-size: 11px;
+  }
+
+  .access-shell--setup footer > span {
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .access-shell--setup footer button {
+    min-height: 38px;
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 901px) and (max-height: 820px) {
+  .access-shell--setup .access-panel-inner {
+    padding: 14px 18px;
+  }
+
+  .access-shell--setup .setup-card {
+    gap: 8px;
+  }
+
+  .access-shell--setup .setup-step-card {
+    padding: 10px 12px;
+  }
+
+  .access-shell--setup .setup-progress {
+    padding: 8px 12px;
+  }
+
+  .access-shell--setup .setup-eyebrow {
+    margin-bottom: 2px;
+  }
+
+  .access-shell--setup .access-logo {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 16px;
+  }
+}
