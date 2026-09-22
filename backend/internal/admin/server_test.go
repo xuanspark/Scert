@@ -27,7 +27,8 @@ func TestScertAdminSystemdUnitKeepsManualOnlyPolicy(t *testing.T) {
 		"RuntimeDirectoryMode=0700",
 		"ExecStart=/scert/scert-admin",
 		"Restart=no",
-		"RuntimeMaxSec=130s",
+		"TimeoutStartSec=130s",
+		"TimeoutStopSec=5s",
 		"Type=oneshot",
 		"Requisite=Scert.service",
 		"KillMode=mixed",
@@ -47,6 +48,7 @@ func TestScertAdminSystemdUnitKeepsManualOnlyPolicy(t *testing.T) {
 		"Restart=always",
 		"Restart=on-failure",
 		"ExecReload=",
+		"RuntimeMaxSec=",
 		"AF_INET",
 		"AF_INET6",
 	} {

@@ -19,7 +19,6 @@ TimeoutStartSec=130s
 TimeoutStopSec=5s
 KillMode=mixed
 Restart=no
-RuntimeMaxSec=130s
 UMask=0077
 NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_SYS_PTRACE CAP_DAC_OVERRIDE
