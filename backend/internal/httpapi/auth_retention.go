@@ -11,7 +11,8 @@ const authStateCapacity = 4096
 const authUserSessionCapacity = 16
 
 func (session authSession) complete() bool {
-	return strings.TrimSpace(session.UserID) != "" && strings.TrimSpace(session.Username) != "" && strings.TrimSpace(session.Email) != "" &&
+	return strings.TrimSpace(session.UserID) != "" && strings.TrimSpace(session.Username) != "" &&
+		(session.Role != repository.UserRoleSuperAdmin || strings.TrimSpace(session.Email) != "") &&
 		strings.TrimSpace(session.PasswordHash) != "" &&
 		(session.Role == repository.UserRoleUser || session.Role == repository.UserRoleAdmin || session.Role == repository.UserRoleSuperAdmin)
 }
