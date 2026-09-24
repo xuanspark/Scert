@@ -433,3 +433,24 @@ test("serverModal.compilesAndPreservesDeploymentFields", async () => {
     assert.ok(html.includes("nginx\n-s\nreload"));
   }
 });
+
+test("changePassword.loadsScopedBaseStylesAndCompiles", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse, compileScript, compileTemplate } = await import("@vue/compiler-sfc");
+  const source = await readFile(new URL("../components/ChangePassword/ChangePassword.vue", import.meta.url), "utf8");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  assert.ok(compileScript(descriptor, { id: "change-password" }));
+  const compiled = compileTemplate({
+    source: descriptor.template.content,
+    filename: "ChangePassword.vue",
+    id: "change-password",
+  });
+  assert.deepEqual(compiled.errors, []);
+  assert.ok(descriptor.styles.some(style => style.scoped && style.src === "../../Dashboard/Dashboard.css"));
+  assert.ok(descriptor.styles.some(style => style.scoped && style.src === "./ChangePassword.css"));
+  assert.match(source, /<HelpTip>/);
+  const base = await readFile(new URL("./Dashboard.css", import.meta.url), "utf8");
+  assert.match(base, /\.modal-backdrop\s*\{[^}]*position:\s*fixed;/);
+  assert.match(base, /\.field\s*\{/);
+});
