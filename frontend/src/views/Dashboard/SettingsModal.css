@@ -1,0 +1,153 @@
+.modal-backdrop {
+  padding: 16px;
+}
+
+.settings-modal {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(100%, 1060px);
+  height: min(660px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  padding: 22px 28px;
+}
+
+.settings-modal .modal-heading {
+  flex: 0 0 auto;
+  margin-bottom: 16px;
+}
+
+.settings-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #dce6f1;
+}
+
+.settings-tabs button {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #526983;
+  background: #f2f6fb;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.settings-tabs button[aria-selected="true"] {
+  border-color: #b7cdec;
+  color: #234f99;
+  background: #e7f0fd;
+}
+
+.settings-tabs button:focus-visible {
+  outline: 2px solid #315faa;
+  outline-offset: 2px;
+}
+
+.settings-modal form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.settings-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 2px 8px;
+  scrollbar-gutter: stable;
+}
+
+.settings-panel > h3 {
+  margin: 0 0 14px;
+  color: #32405a;
+  font-size: 15px;
+}
+
+.settings-panel .form-grid,
+.settings-panel .dns-credentials-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+}
+
+.settings-panel .field {
+  margin-bottom: 12px;
+  gap: 6px;
+}
+
+.settings-panel .field > span {
+  font-size: 12px;
+}
+
+.settings-panel .field input,
+.settings-panel .field select {
+  min-height: 36px;
+  padding: 8px 11px;
+  font-size: 13px;
+}
+
+.settings-panel .switch-field {
+  margin-bottom: 10px;
+}
+
+.settings-panel .switch-field > span {
+  display: flex;
+  align-items: center;
+}
+
+.settings-panel :deep(.help-tip-trigger) {
+  margin-bottom: 6px;
+}
+
+.settings-modal .modal-actions {
+  flex: 0 0 auto;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #dce6f1;
+}
+
+.settings-modal .form-error {
+  flex: 0 0 auto;
+  margin: 6px 0;
+}
+
+.settings-panel .dns-test-actions {
+  margin: 8px 0;
+  padding: 8px 10px;
+}
+
+.settings-panel .dns-test-report {
+  gap: 3px;
+  margin: 8px 0;
+  padding: 8px 12px;
+}
+
+.settings-panel .dns-test-stage {
+  padding: 4px 0;
+}
+
+@media (max-width: 700px) {
+  .settings-modal {
+    padding: 16px;
+  }
+
+  .settings-tabs {
+    flex-wrap: wrap;
+  }
+
+  .settings-tabs button {
+    flex: 1 1 26%;
+  }
+
+  .settings-panel .form-grid,
+  .settings-panel .dns-credentials-grid {
+    grid-template-columns: 1fr;
+  }
+}

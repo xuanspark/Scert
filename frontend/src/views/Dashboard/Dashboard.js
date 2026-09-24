@@ -1183,6 +1183,7 @@ export function useDashboard() {
     dnsVerificationElapsedSeconds,
     dnsVerificationTimeoutSeconds,
     dnsReadyToSave,
+    dnsVerificationRequired,
     handleDNSProviderChange,
     clearDNSCredentials,
     testDNS,

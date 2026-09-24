@@ -163,3 +163,16 @@ test("auditActionLabel", async (t) => {
   assert.equal(state.auditActionLabel(undefined), state.taskTypeLabel(undefined));
   assert.equal(state.auditActionLabel(""), state.taskTypeLabel(""));
 });
+
+test("settings.savedDnsCredentialsRemainOptionalUntilChanged", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  assert.equal(state.dnsVerificationRequired.value, false);
+  state.settingsForm.value.acme.renewal_threshold_days = 91;
+  assert.equal(state.dnsVerificationRequired.value, false);
+  assert.equal(state.dnsReadyToSave.value, true);
+  await fill(state);
+  assert.equal(state.dnsVerificationRequired.value, true);
+  assert.equal(state.dnsReadyToSave.value, false);
+  await state.testDNS();
+  assert.equal(state.dnsReadyToSave.value, true);
+});
