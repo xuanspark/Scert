@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { settingsPayload } from "./SettingsPayload.js";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
 const aliyunDNSVerificationTimeoutSeconds = 6;
@@ -880,18 +881,7 @@ export function useDashboard() {
     }
     settingsSaving.value = true;
     try {
-      const current = settingsForm.value;
-      const payload = {
-        ...current,
-        dns: {
-          provider: current.dns.provider,
-        },
-      };
-      if (current.dns.credential_ref && current.dns.verification_token) {
-        payload.dns.credential_ref = current.dns.credential_ref;
-        payload.dns.verification_token = current.dns.verification_token;
-        payload.dns.test_domain = current.dns.test_domain;
-      }
+      const payload = settingsPayload(settingsForm.value);
       const response = await fetchAdmin("/api/v1/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

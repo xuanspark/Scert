@@ -176,3 +176,84 @@ test("settings.savedDnsCredentialsRemainOptionalUntilChanged", async (t) => {
   await state.testDNS();
   assert.equal(state.dnsReadyToSave.value, true);
 });
+
+
+test("settingsPayloadContract", async (t) => {
+  const { settingsPayload } = await import("./SettingsPayload.js");
+  const { readFile } = await import("node:fs/promises");
+  const contract = await readFile(
+    new URL("../../../../backend/internal/httpapi/settings_api.go", import.meta.url),
+    "utf8",
+  );
+  const { state } = await setup(t, () => verifiedResponse());
+  const form = JSON.parse(JSON.stringify(state.settingsForm.value));
+  form.notification.http_credential_configured = true;
+  form.notification.smtp_credential_configured = true;
+  form.notification.http_credentials = { token: "test-only" };
+  form.notification.recipients = ["owner@example.test"];
+  form.notification.retry_count = 0;
+  form.dns.credentials = { access_key_id: "not-for-settings" };
+  form.dns.credential_ref = "secret://test/new";
+  form.dns.verification_token = "verified-token";
+  form.dns.test_domain = "example.test";
+  const payload = settingsPayload(form);
+  for (const [section, type] of Object.entries({
+    server: "Server", web: "Web", paths: "Paths", acme: "ACME",
+    dns: "DNS", notification: "Notification",
+  })) {
+    const body = contract.split(`type settings${type}Request struct {`)[1].split("\n}")[0];
+    const allowed = [...body.matchAll(/json:"([^"]+)"/g)].map((match) => match[1]);
+    for (const key of Object.keys(payload[section])) {
+      assert.ok(allowed.includes(key), `${section}.${key}`);
+    }
+  }
+  assert.equal("smtp_credential_configured" in payload.notification, false);
+  assert.equal("http_credential_configured" in payload.notification, false);
+  assert.equal("credentials" in payload.dns, false);
+  assert.equal(payload.dns.verification_token, "verified-token");
+  assert.deepEqual(payload.notification.http_credentials, { token: "test-only" });
+  assert.deepEqual(payload.notification.recipients, ["owner@example.test"]);
+  assert.equal(payload.notification.retry_count, 0);
+  assert.equal(payload.web.enabled, true);
+  assert.equal(payload.notification.smtp_enabled, false);
+  assert.equal(form.notification.smtp_credential_configured, true);
+});
+
+test("settingsReadEditSaveContract", async (t) => {
+  const saved = {
+    server: { host: "127.0.0.1", port: 8443, https_mode: "proxy", proxy_https_port: 443 },
+    web: { enabled: true, hostname: "example.test", public_ip: "" },
+    paths: { certificate: "/var/lib/scert/certificates" },
+    acme: { renewal_threshold_days: 6 },
+    dns: { provider: "aliyun", credential_configured: true, verification_state: "verified" },
+    notification: {
+      smtp_credential_configured: true, http_credential_configured: true,
+      recipients: ["owner@example.test"], retry_intervals_secs: [30, 120, 600],
+    },
+    response_only: true,
+  };
+  let submitted;
+  const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
+    if (path.endsWith("/settings")) {
+      if (options.method === "PUT") {
+        submitted = JSON.parse(options.body);
+        return Response.json({ settings: saved });
+      }
+      return Response.json(saved);
+    }
+    return Response.json({ items: [] });
+  });
+  state.openSettings();
+  state.settingsForm.value.acme.renewal_threshold_days = 91;
+  assert.equal(state.dnsReadyToSave.value, true);
+  await state.saveSettings();
+  assert.equal(state.settingsError.value, "");
+  assert.equal(state.showSettings.value, false);
+  assert.equal(submitted.acme.renewal_threshold_days, 91);
+  assert.deepEqual(submitted.dns, { provider: "aliyun" });
+  assert.equal("smtp_credential_configured" in submitted.notification, false);
+  assert.equal("http_credential_configured" in submitted.notification, false);
+  assert.equal("response_only" in submitted, false);
+  assert.deepEqual(submitted.notification.recipients, ["owner@example.test"]);
+  assert.deepEqual(submitted.notification.retry_intervals_secs, [30, 120, 600]);
+});
