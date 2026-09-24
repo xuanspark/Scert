@@ -332,3 +332,57 @@ func TestIssueDomainSanitizesDeploymentReportWithoutTaskRepository(t *testing.T)
 		t.Fatalf("直接证书申请响应未返回稳定部署错误摘要：%s", response.Body.String())
 	}
 }
+
+func TestAuditLogResponseUsesDashboardFieldNames(t *testing.T) {
+	server, _, auditRepo, closeDB := newTaskAPITestServer(t, nil)
+	defer closeDB()
+	ctx := context.Background()
+	createdAt := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	for _, status := range []string{"success", "error"} {
+		if err := auditRepo.CreateAuditLog(ctx, repository.AuditLog{
+			Action: "login", ResourceType: "auth", ResourceID: "admin",
+			Status: status, Message: "login", CreatedAt: createdAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodGet, "/api/v1/audit-logs?limit=2", nil))
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	var payload struct {
+		Items []map[string]json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) != 2 {
+		t.Fatal(response.Body.String())
+	}
+	var previousID int64
+	for i, item := range payload.Items {
+		for _, field := range []string{"id", "action", "resource_type", "resource_id", "status", "message", "created_at"} {
+			if _, ok := item[field]; !ok {
+				t.Fatal(field, response.Body.String())
+			}
+		}
+		if len(item) != 7 {
+			t.Fatal(response.Body.String())
+		}
+		var id int64
+		if err := json.Unmarshal(item["id"], &id); err != nil || id <= 0 || (i > 0 && id >= previousID) {
+			t.Fatal(id, previousID, err)
+		}
+		previousID = id
+		for field, expected := range map[string]string{
+			"action": "login", "resource_type": "auth", "resource_id": "admin",
+			"status": []string{"error", "success"}[i], "message": "login", "created_at": createdAt.Format(time.RFC3339),
+		} {
+			var actual string
+			if err := json.Unmarshal(item[field], &actual); err != nil || actual != expected {
+				t.Fatal(field, actual, expected, err)
+			}
+		}
+	}
+}

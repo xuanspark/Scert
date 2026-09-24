@@ -10,12 +10,13 @@ import (
 )
 
 type AuditLog struct {
-	Action       string
-	ResourceType string
-	ResourceID   string
-	Status       string
-	Message      string
-	CreatedAt    time.Time
+	ID           int64     `json:"id"`
+	Action       string    `json:"action"`
+	ResourceType string    `json:"resource_type"`
+	ResourceID   string    `json:"resource_id"`
+	Status       string    `json:"status"`
+	Message      string    `json:"message"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type AuditRepository interface {
