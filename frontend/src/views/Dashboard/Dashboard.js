@@ -303,6 +303,9 @@ export function useDashboard() {
   }
 
   function auditActionLabel(value) {
+    if (typeof value === "string" && /\p{Script=Han}/u.test(value)) {
+      return value.trim();
+    }
     return displayLabel(auditActionLabels, value);
   }
 

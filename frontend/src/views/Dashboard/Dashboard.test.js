@@ -151,3 +151,15 @@ test("关闭管理设置会停止 DNS 等待计时器", async (t) => {
   pending.resolve(verifiedResponse());
   await task;
 });
+
+test("auditActionLabel", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  const localized = state.auditActionLabels.settings_update;
+  assert.equal(state.auditActionLabel(localized), localized);
+  assert.equal(state.auditActionLabel(` ${localized} `), localized);
+  assert.equal(state.auditActionLabel("settings_update"), localized);
+  assert.equal(state.auditActionLabel("unmapped_action"), state.taskTypeLabel("unmapped_action"));
+  assert.equal(state.auditActionLabel(null), state.taskTypeLabel(null));
+  assert.equal(state.auditActionLabel(undefined), state.taskTypeLabel(undefined));
+  assert.equal(state.auditActionLabel(""), state.taskTypeLabel(""));
+});
