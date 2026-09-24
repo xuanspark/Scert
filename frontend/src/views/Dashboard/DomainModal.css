@@ -1,0 +1,91 @@
+.modal-backdrop.domain-backdrop {
+  padding: 16px;
+}
+
+.domain-modal {
+  box-sizing: border-box;
+  width: min(100%, 1060px);
+  max-height: calc(100dvh - 32px);
+  padding: 22px 28px;
+}
+
+.domain-modal .modal-heading {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+
+.domain-modal form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+}
+
+.domain-modal .domain-sans-field,
+.domain-modal .form-grid,
+.domain-modal .switch-field,
+.domain-modal .server-picker,
+.domain-modal .form-error,
+.domain-modal .modal-actions {
+  grid-column: 1 / -1;
+}
+
+.domain-modal .field {
+  min-width: 0;
+  margin-bottom: 9px;
+  gap: 5px;
+}
+
+.domain-modal .field input,
+.domain-modal .field select,
+.domain-modal .field textarea {
+  min-height: 36px;
+  padding: 8px 11px;
+}
+
+.domain-modal .field textarea {
+  min-height: 72px;
+}
+
+.domain-modal .field > span,
+.domain-modal .switch-field > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.domain-modal .switch-field {
+  align-items: center;
+  margin: 4px 0 10px;
+}
+
+.domain-modal .server-picker {
+  min-width: 0;
+  max-height: 130px;
+  overflow-y: auto;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+}
+
+.domain-modal .server-picker .muted {
+  margin: 8px 0;
+}
+
+.domain-modal .form-error {
+  margin-bottom: 8px;
+}
+
+.domain-modal .modal-actions {
+  padding-top: 10px;
+  border-top: 1px solid #dce6f1;
+}
+
+@media (max-width: 640px) {
+  .domain-modal {
+    padding: 18px;
+  }
+
+  .domain-modal form,
+  .domain-modal .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

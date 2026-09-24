@@ -305,3 +305,62 @@ test("auditStatusRendering", async () => {
     assert.doesNotMatch(html, /danger/);
   }
 });
+
+
+test("domainModal.compilesAndRendersSanFieldsWithoutLiteralNewline", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse, compileScript, compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const Vue = await import("vue");
+  const source = await readFile(new URL("./DomainModal.vue", import.meta.url), "utf8");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  assert.ok(compileScript(descriptor, { id: "domain-modal" }));
+  const compiled = compileTemplate({
+    source: descriptor.template.content,
+    filename: "DomainModal.vue",
+    id: "domain-modal",
+    compilerOptions: { mode: "function" },
+  });
+  assert.deepEqual(compiled.errors, []);
+  const render = new Function("Vue", compiled.code)(Vue);
+  for (const certificateType of ["single", "wildcard", "san"]) {
+    const app = Vue.createSSRApp({
+      render,
+      setup: () => ({
+        showForm: true,
+        formTitle: "test-domain",
+        closeForm: () => {},
+        saveDomain: () => {},
+        form: {
+          name: "example.test",
+          certificate_type: certificateType,
+          sans: "",
+          acme_environment: "staging",
+          dns_provider: "aliyun",
+          auto_renew: true,
+          server_ids: [],
+        },
+        dnsProviders: [],
+        servers: [],
+        displayLabel: (_, value) => value,
+        webServerLabels: {},
+        formError: "",
+        saving: false,
+      }),
+    });
+    app.component("HelpTip", {
+      setup: (_, { slots }) => () => Vue.h("span", { class: "test-help-tip" }, slots.default?.()),
+    });
+    const html = await renderToString(app);
+    assert.match(html, /class="modal-card domain-modal"/);
+    assert.match(html, /type="submit"/);
+    assert.match(html, /class="test-help-tip"/);
+    assert.doesNotMatch(html, /www\.example\.com\\napi/);
+    assert.equal(html.includes('id="domain-sans"'), certificateType === "san");
+    if (certificateType === "san") {
+      assert.match(html, /rows="2"/);
+      assert.ok(html.includes("www.example.com\napi.example.com"));
+    }
+  }
+});
