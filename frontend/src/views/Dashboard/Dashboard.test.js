@@ -454,3 +454,65 @@ test("changePassword.loadsScopedBaseStylesAndCompiles", async () => {
   assert.match(base, /\.modal-backdrop\s*\{[^}]*position:\s*fixed;/);
   assert.match(base, /\.field\s*\{/);
 });
+
+test("sshKeyModal.compilesAndPreservesCredentialFields", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse, compileScript, compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const Vue = await import("vue");
+  const source = await readFile(new URL("./SSHKeyModal.vue", import.meta.url), "utf8");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  assert.ok(compileScript(descriptor, { id: "ssh-key-modal" }));
+  const compiled = compileTemplate({
+    source: descriptor.template.content,
+    filename: "SSHKeyModal.vue",
+    id: "ssh-key-modal",
+    compilerOptions: { mode: "function" },
+  });
+  assert.deepEqual(compiled.errors, []);
+  assert.ok(descriptor.styles.some(style => style.scoped && style.src === "./Dashboard.css"));
+  assert.ok(descriptor.styles.some(style => style.scoped && style.src === "./SSHKeyModal.css"));
+  assert.doesNotMatch(source, /<HelpTip\s+class=/);
+  const render = new Function("Vue", compiled.code)(Vue);
+  for (const platform of ["windows", "linux"]) {
+    const app = Vue.createSSRApp({
+      render,
+      setup: () => ({
+        showSSHKeyForm: true,
+        closeSSHKeyForm: () => {},
+        saveSSHKey: () => {},
+        sshKeyPlatform: platform,
+        sshKeyFileName: "test-key",
+        sshKeyPrivatePath: "/test/private",
+        sshKeyPublicPath: "/test/public",
+        sshKeyCommandUsername: "deploy",
+        sshKeyCommandHost: "example.test",
+        copySSHKeyCommand: () => {},
+        sshKeyCommands: { windows: "generate-windows", linux: "generate-linux" },
+        sshPublicKeyCommands: { windows: "install-windows", linux: "install-linux" },
+        sshKeyForm: { name: "", private_key: "", passphrase: "" },
+        importSSHKeyFile: () => {},
+        sshKeyPassphraseVisible: false,
+        sshKeyFormError: "test-validation-error",
+        sshKeySaving: false,
+      }),
+    });
+    app.component("HelpTip", {
+      setup: (_, { slots }) => () => Vue.h("span", { class: "test-help-tip" }, slots.default?.()),
+    });
+    const html = await renderToString(app);
+    assert.match(html, /class="modal-card ssh-key-modal"/);
+    assert.match(html, /type="submit"/);
+    assert.match(html, /type="file"/);
+    assert.match(html, /type="password"/);
+    assert.match(html, /rows="5"/);
+    assert.match(html, /test-validation-error/);
+    assert.equal((html.match(/ required/g) || []).length, 2);
+    assert.ok(html.includes(`generate-${platform}`));
+    assert.ok(html.includes(`install-${platform}`));
+    assert.ok(html.includes("deploy@example.test"));
+  }
+  const css = await readFile(new URL("./SSHKeyModal.css", import.meta.url), "utf8");
+  assert.match(css, /\.ssh-key-modal\s*\{[^}]*overflow:\s*auto;/);
+});
