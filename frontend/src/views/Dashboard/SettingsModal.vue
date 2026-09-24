@@ -26,7 +26,7 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
 </script>
 
 <template>
-    <div v-if="showSettings" class="modal-backdrop" @click.self="closeSettings">
+    <div v-if="showSettings" class="modal-backdrop settings-backdrop" @click.self="closeSettings">
       <section class="modal-card settings-modal" role="dialog" aria-modal="true" aria-label="系统设置">
         <div class="modal-heading">
           <div>
