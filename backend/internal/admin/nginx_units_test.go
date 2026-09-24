@@ -19,7 +19,7 @@ func TestNginxActivationDeploymentPolicy(t *testing.T) {
 			"Requires=scert-nginx.socket nginx.service", "PartOf=nginx.service", "User=root", "Group=root",
 			"ExecStart=/usr/local/libexec/scert-nginx --policy /etc/scert-nginx/policy.json",
 			"NoNewPrivileges=yes", "ProtectSystem=strict", "ProtectHome=yes", "PrivateTmp=yes",
-			"CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN", "AmbientCapabilities=",
+			"CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN CAP_NET_BIND_SERVICE", "AmbientCapabilities=",
 			"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", "TimeoutStopSec=40",
 		},
 	} {

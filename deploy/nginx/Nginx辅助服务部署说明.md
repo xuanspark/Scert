@@ -79,3 +79,9 @@ systemctl status scert-nginx.socket --no-pager
 升级前等待应用协调与辅助事务均结束，停止相关变更任务，再停止 socket 和辅助服务。检查它们均已停止后才替换 root 所有的辅助程序，保留旧程序及校验摘要；不重复初始化、不清空版本或请求记录，重新启动 socket 后复验。
 
 辅助程序状态与应用协调记录必须成套备份。现有应用完整备份不包含 `/etc/scert-nginx`、`/var/lib/scert-nginx` 和 Nginx 站点配置，不能声称只恢复应用备份就完成双层灾难恢复。停止变更并核对终态后，另行备份这些 root 文件、服务模板与 include 依赖；恢复时核对 UID、策略、应用证书路径、两层实际证书和事务记录一致。任何未决或损坏记录均保持保护，交由维护人员检查，不通过删除记录解除保护。
+
+## 标准低端口部署的能力要求
+
+当现有 Nginx 监听 80 或 443 等特权端口时，配置检查也可能执行端口绑定检查。独立激活服务的能力白名单因此包含 `CAP_NET_BIND_SERVICE`，同时保留 `CAP_DAC_OVERRIDE` 与 `CAP_CHOWN`。不要把该能力添加到 Scert 主服务，也不要取消 `NoNewPrivileges`、只读文件系统或本机 Unix socket 身份校验。
+
+更新已部署的辅助服务模板后，先执行 `systemd-analyze verify`，再执行 `systemctl daemon-reload` 和 `systemctl restart scert-nginx.service`。须通过页面触发实际续期并核对结果，不能把 root 终端中单独执行 `nginx -t` 的成功当作受限服务运行成功。
