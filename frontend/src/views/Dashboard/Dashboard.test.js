@@ -515,4 +515,54 @@ test("sshKeyModal.compilesAndPreservesCredentialFields", async () => {
   }
   const css = await readFile(new URL("./SSHKeyModal.css", import.meta.url), "utf8");
   assert.match(css, /\.ssh-key-modal\s*\{[^}]*overflow:\s*auto;/);
+});test("domainAction.refreshesPersistedFailureWithoutLosingError", async (t) => {
+  let issued = false;
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/issue")) {
+      issued = true;
+      return Response.json({ error: "test-issue-failure" }, { status: 502 });
+    }
+    if (path.startsWith("/api/v1/tasks?")) {
+      return Response.json({ items: issued ? [{ id: "task-1", status: "failed" }] : [] });
+    }
+    return Response.json({ items: [] });
+  });
+  await state.issueDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(state.error.value, "test-issue-failure");
+  assert.equal(state.notice.value, "");
+  assert.deepEqual(state.tasks.value, [{ id: "task-1", status: "failed" }]);
+  assert.equal(state.displayLabel(state.taskStatusLabels, "error"), state.taskStatusLabels.failed);
+});
+
+test("domainAction.preservesOriginalErrorWhenRefreshAlsoFails", async (t) => {
+  let issued = false;
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/issue")) {
+      issued = true;
+      return Response.json({ error: "test-original-failure" }, { status: 502 });
+    }
+    if (issued) return Response.json({ error: "test-refresh-failure" }, { status: 503 });
+    return Response.json({ items: [] });
+  });
+  await state.issueDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(state.error.value, "test-original-failure");
+  assert.equal(state.loading.value, false);
+});
+
+test("domainAction.refreshesSuccessfulResultAndRetainsNotice", async (t) => {
+  let completed = false;
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/certificate/validate")) {
+      completed = true;
+      return Response.json({ valid: true });
+    }
+    if (path.startsWith("/api/v1/tasks?")) {
+      return Response.json({ items: completed ? [{ id: "task-2", status: "success" }] : [] });
+    }
+    return Response.json({ items: [] });
+  });
+  await state.validateDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(state.error.value, "");
+  assert.match(state.notice.value, /example\.test/);
+  assert.deepEqual(state.tasks.value, [{ id: "task-2", status: "success" }]);
 });

@@ -125,6 +125,7 @@ export function useDashboard() {
     failed: "失败",
     cancelled: "已取消",
   };
+  taskStatusLabels.error = taskStatusLabels.failed;
   const taskTypeLabels = {
     management_renewal: "管理证书续期",
     certificate_issue: "申请证书",
@@ -687,9 +688,12 @@ export function useDashboard() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "域名操作失败");
       notice.value = successMessage;
-      await loadData();
     } catch (err) {
       error.value = err.message || "域名操作失败";
+    } finally {
+      const actionError = error.value;
+      await loadData();
+      if (actionError) error.value = actionError;
     }
   }
   function issueDomain(item) {
