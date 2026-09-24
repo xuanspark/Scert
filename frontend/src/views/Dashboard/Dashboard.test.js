@@ -364,3 +364,72 @@ test("domainModal.compilesAndRendersSanFieldsWithoutLiteralNewline", async () =>
     }
   }
 });
+
+test("serverModal.compilesAndPreservesDeploymentFields", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse, compileScript, compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const Vue = await import("vue");
+  const source = await readFile(new URL("./ServerModal.vue", import.meta.url), "utf8");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  assert.ok(compileScript(descriptor, { id: "server-modal" }));
+  const compiled = compileTemplate({
+    source: descriptor.template.content,
+    filename: "ServerModal.vue",
+    id: "server-modal",
+    compilerOptions: { mode: "function" },
+  });
+  assert.deepEqual(compiled.errors, []);
+  const render = new Function("Vue", compiled.code)(Vue);
+  for (const webServer of ["nginx", "caddy", "apache", "custom"]) {
+    const app = Vue.createSSRApp({
+      render,
+      setup: () => ({
+        showServerForm: true,
+        closeServerForm: () => {},
+        serverEditingId: null,
+        serverForm: {
+          name: "test-server",
+          web_server: webServer,
+          address: "example.test",
+          port: 22,
+          username: "deploy",
+          private_key_ref: "key-ref",
+          host_key_fingerprint: "SHA256:test-fingerprint",
+          certificate_path: "/test/cert.pem",
+          certificate_chain_path: "/test/fullchain.pem",
+          private_key_path: "/test/key.pem",
+          validation_command: "nginx\n-t",
+          reload_command: "nginx\n-s\nreload",
+        },
+        sshKeys: [],
+        openSSHKeyCreate: () => {},
+        defaultCertificatePath: "",
+        defaultCertificateChainPath: "",
+        defaultPrivateKeyPath: "",
+        serverFormError: "test-validation-error",
+        serverSaving: false,
+        saveServer: () => {},
+      }),
+    });
+    app.component("HelpTip", {
+      setup: (_, { slots }) => () => Vue.h("span", { class: "test-help-tip" }, slots.default?.()),
+    });
+    const html = await renderToString(app);
+    assert.match(html, /class="modal-card server-modal"/);
+    assert.match(html, /class="server-paths"/);
+    assert.match(html, /type="submit"/);
+    assert.match(html, /SHA256:test-fingerprint/);
+    assert.match(html, /test-validation-error/);
+    assert.match(html, /value="22"/);
+    assert.match(html, /min="1"/);
+    assert.match(html, /max="65535"/);
+    assert.equal((html.match(/class="test-help-tip"/g) || []).length, 4);
+    for (const path of ["/test/cert.pem", "/test/fullchain.pem", "/test/key.pem"]) {
+      assert.ok(html.includes(path));
+    }
+    assert.ok(html.includes("nginx\n-t"));
+    assert.ok(html.includes("nginx\n-s\nreload"));
+  }
+});
