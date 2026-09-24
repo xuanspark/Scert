@@ -257,3 +257,51 @@ test("settingsReadEditSaveContract", async (t) => {
   assert.deepEqual(submitted.notification.recipients, ["owner@example.test"]);
   assert.deepEqual(submitted.notification.retry_intervals_secs, [30, 120, 600]);
 });
+
+
+test("statusClass", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  for (const status of ["active", "success"]) {
+    assert.equal(state.statusClass(status), "success");
+  }
+  for (const status of ["error", "failed"]) {
+    assert.equal(state.statusClass(status), "danger");
+  }
+  for (const status of ["running", "queued", "cancelled", "unknown", null]) {
+    assert.equal(state.statusClass(status), "warning");
+  }
+});
+
+test("auditStatusRendering", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const { createSSRApp } = await import("vue");
+  const source = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const start = source.indexOf('<article v-for="item in auditLogs"');
+  assert.notEqual(start, -1);
+  const end = source.indexOf("</article>", start) + "</article>".length;
+  const compiled = compileTemplate({
+    source: source.slice(start, end),
+    filename: "AuditStatus.vue",
+    id: "audit-status-regression",
+    compilerOptions: { mode: "function" },
+  });
+  assert.deepEqual(compiled.errors, []);
+  const Vue = await import("vue");
+  const render = new Function("Vue", compiled.code)(Vue);
+  for (const status of ["running", "queued", "cancelled", "unknown"]) {
+    const html = await renderToString(createSSRApp({
+      render,
+      setup: () => ({
+        auditLogs: [{ id: status, action: "test", status, message: "test" }],
+        auditActionLabel: (value) => value,
+        statusClass: () => "warning",
+        taskStatusLabels: { [status]: `label-${status}` },
+        displayLabel: (labels, value) => labels[value],
+      }),
+    }));
+    assert.match(html, new RegExp(`label-${status}`));
+    assert.doesNotMatch(html, /danger/);
+  }
+});

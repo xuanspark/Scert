@@ -253,7 +253,10 @@ const {
                 <strong>{{ auditActionLabel(item.action) }}</strong>
                 <span class="muted">{{ item.message || item.resource_type }}</span>
               </div>
-              <span class="tag" :class="item.status === 'success' ? 'success' : 'danger'">{{ item.status === "success" ? "成功" : "失败" }}</span>
+              <span v-if="item.status === 'success' || item.status === 'failed'" class="tag" :class="statusClass(item.status)">{{ item.status === "success" ? "成功" : "失败" }}</span>
+              <span v-else class="tag" :class="statusClass(item.status)">
+                {{ displayLabel(taskStatusLabels, item.status) }}
+              </span>
             </article>
           </div>
         </div>

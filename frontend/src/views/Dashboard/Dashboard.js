@@ -483,9 +483,9 @@ export function useDashboard() {
   }
 
   function statusClass(value) {
-    return value === "active"
+    return value === "active" || value === "success"
       ? "success"
-      : value === "error"
+      : value === "error" || value === "failed"
         ? "danger"
         : "warning";
   }
