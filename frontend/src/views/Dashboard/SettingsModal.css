@@ -7,7 +7,7 @@
   flex-direction: column;
   box-sizing: border-box;
   width: min(100%, 1060px);
-  height: min(660px, calc(100dvh - 32px));
+  height: min(720px, calc(100dvh - 32px));
   max-height: calc(100dvh - 32px);
   overflow: hidden;
   padding: 22px 28px;
@@ -15,7 +15,8 @@
 
 .settings-modal .modal-heading {
   flex: 0 0 auto;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
 }
 
 .settings-tabs {
@@ -61,12 +62,12 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 2px 8px;
+  padding: 10px 2px 8px;
   scrollbar-gutter: stable;
 }
 
 .settings-panel > h3 {
-  margin: 0 0 14px;
+  margin: 0 0 10px;
   color: #32405a;
   font-size: 15px;
 }
@@ -78,8 +79,8 @@
 }
 
 .settings-panel .field {
-  margin-bottom: 12px;
-  gap: 6px;
+  margin-bottom: 9px;
+  gap: 5px;
 }
 
 .settings-panel .field > span {
@@ -94,7 +95,16 @@
 }
 
 .settings-panel .switch-field {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
+}
+
+.settings-panel .settings-web-controls {
+  margin-bottom: 6px;
+  padding: 10px 12px;
+}
+
+.settings-panel .settings-switch-field {
+  margin-bottom: 0;
 }
 
 .settings-panel .switch-field > span {
