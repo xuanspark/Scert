@@ -22,6 +22,15 @@ const {
   settings,
   settingsForm,
   domainServers,
+  domainPage,
+  domainPageSize,
+  domainPageSizeOptions,
+  domainPageCount,
+  paginatedDomains,
+  domainPageStart,
+  domainPageEnd,
+  previousDomainPage,
+  nextDomainPage,
   loading,
   saving,
   error,
@@ -210,37 +219,6 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
           <small>已配置的证书管理对象</small>
         </article>
       </div>
-      <div v-if="loading" class="empty-state compact-empty">正在读取域名状态……</div>
-      <div v-else-if="domains.length === 0" class="empty-state compact-empty">
-        <strong>还没有托管域名</strong>
-        <span>添加第一个域名，开始管理证书申请和自动续期。</span>
-      </div>
-      <div v-else class="overview-domain-list">
-        <article v-for="item in domains" :key="item.id" class="overview-domain-row">
-          <div class="overview-domain-main">
-            <strong>{{ item.name }}</strong>
-            <span class="tag" :class="statusClass(item.status)">
-              {{ displayLabel(domainStatusLabels, item.status) }}
-            </span>
-          </div>
-          <div class="overview-domain-field">
-            <span>到期时间</span>
-            <strong>{{ formatDate(item.expires_at) }}</strong>
-            <small>{{ daysRemaining(item.expires_at) }}</small>
-          </div>
-          <div class="overview-domain-field">
-            <span>部署服务器</span>
-            <strong>
-              {{
-                (domainServers[item.id] || [])
-                  .map((server) => server.name)
-                  .join("、") || "未配置"
-              }}
-            </strong>
-            <small>{{ item.auto_renew ? "自动续期已开启" : "自动续期已关闭" }}</small>
-          </div>
-        </article>
-      </div>
       <div class="overview-details-grid">
         <article class="overview-detail-card">
           <span>服务版本</span>
@@ -263,6 +241,82 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
           <span>托管域名</span>
           <strong>{{ domains.length }} 个</strong>
         </article>
+      </div>
+
+      <div class="overview-domain-heading">
+        <div>
+          <h3>当前托管域名</h3>
+          <span class="muted">证书状态、到期时间和部署服务器</span>
+        </div>
+        <label class="overview-page-size">
+          <span>每页显示</span>
+          <select v-model.number="domainPageSize" aria-label="每页显示条数">
+            <option v-for="size in domainPageSizeOptions" :key="size" :value="size">
+              {{ size }} 条
+            </option>
+          </select>
+        </label>
+      </div>
+      <div v-if="loading" class="empty-state compact-empty">正在读取域名状态……</div>
+      <div v-else-if="domains.length === 0" class="empty-state compact-empty">
+        <strong>还没有托管域名</strong>
+        <span>添加第一个域名，开始管理证书申请和自动续期。</span>
+      </div>
+      <div v-else class="overview-domain-list">
+        <article v-for="item in paginatedDomains" :key="item.id" class="overview-domain-row">
+          <div class="overview-domain-main">
+            <strong>{{ item.name }}</strong>
+            <small>{{ displayLabel(certificateTypeLabels, item.certificate_type) }}</small>
+          </div>
+          <div class="overview-domain-field">
+            <span>证书状态</span>
+            <strong class="overview-certificate-status">
+              <span class="tag" :class="statusClass(item.status)">
+                {{ displayLabel(domainStatusLabels, item.status) }}
+              </span>
+            </strong>
+          </div>
+          <div class="overview-domain-field">
+            <span>到期时间</span>
+            <strong>{{ formatDate(item.expires_at) }}</strong>
+            <small>{{ daysRemaining(item.expires_at) }}</small>
+          </div>
+          <div class="overview-domain-field">
+            <span>部署服务器</span>
+            <strong>
+              {{
+                (domainServers[item.id] || [])
+                  .map((server) => server.name)
+                  .join("、") || "未配置"
+              }}
+            </strong>
+            <small>{{ item.auto_renew ? "自动续期已开启" : "自动续期已关闭" }}</small>
+          </div>
+        </article>
+      </div>
+      <div v-if="domains.length > 0" class="overview-pagination">
+        <span class="overview-pagination-info">
+          显示第 {{ domainPageStart }}-{{ domainPageEnd }} 条，共 {{ domains.length }} 条
+        </span>
+        <div class="overview-pagination-actions">
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="domainPage <= 1"
+            @click="previousDomainPage"
+          >
+            上一页
+          </button>
+          <span>第 {{ domainPage }} / {{ domainPageCount }} 页</span>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="domainPage >= domainPageCount"
+            @click="nextDomainPage"
+          >
+            下一页
+          </button>
+        </div>
       </div>
     </section>
 

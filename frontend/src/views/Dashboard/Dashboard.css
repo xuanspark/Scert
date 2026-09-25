@@ -145,9 +145,40 @@ h2 {
   display: grid;
   gap: 10px;
 }
+.overview-domain-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 24px 0 12px;
+}
+.overview-domain-heading h3 {
+  margin: 0 0 5px;
+  color: #32405a;
+  font-size: 17px;
+}
+.overview-page-size {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #7a879d;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.overview-page-size select {
+  min-width: 86px;
+  padding: 8px 10px;
+  border: 1px solid #bdcde0;
+  border-radius: 9px;
+  color: #32405a;
+  background: #fff;
+  font: inherit;
+  font-weight: 700;
+}
 .overview-domain-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(130px, 0.8fr) minmax(180px, 1fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(115px, 0.7fr) minmax(130px, 0.8fr) minmax(180px, 1fr);
   align-items: center;
   gap: 18px;
   padding: 15px 16px;
@@ -168,8 +199,37 @@ h2 {
 .overview-domain-field strong {
   overflow-wrap: anywhere;
 }
+.overview-domain-main small {
+  color: #7a879d;
+  font-size: 12px;
+}
 .overview-domain-field strong {
   font-size: 14px;
+}
+.overview-certificate-status {
+  display: flex;
+  align-items: center;
+  min-height: 27px;
+}
+.overview-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  color: #7a879d;
+  font-size: 13px;
+}
+.overview-pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #52617a;
+  font-weight: 700;
+}
+.overview-pagination-actions .secondary-button {
+  padding: 8px 12px;
+  font-size: 12px;
 }
 .overview-details-grid {
   display: grid;

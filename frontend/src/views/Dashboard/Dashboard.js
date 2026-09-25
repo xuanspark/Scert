@@ -22,6 +22,9 @@ export function useDashboard() {
   const settings = ref(null);
   const dnsProviderCatalog = ref([]);
   const domainServers = ref({});
+  const domainPage = ref(1);
+  const domainPageSize = ref(5);
+  const domainPageSizeOptions = [5, 10, 15, 30];
   const loading = ref(true);
   const saving = ref(false);
   const error = ref("");
@@ -78,6 +81,30 @@ export function useDashboard() {
       showTaskDetails.value,
   );
   let previousBodyOverflow = "";
+
+  const domainPageCount = computed(() =>
+    Math.max(1, Math.ceil(domains.value.length / domainPageSize.value)),
+  );
+  const paginatedDomains = computed(() => {
+    const start = (domainPage.value - 1) * domainPageSize.value;
+    return domains.value.slice(start, start + domainPageSize.value);
+  });
+  const domainPageStart = computed(() =>
+    domains.value.length === 0 ? 0 : (domainPage.value - 1) * domainPageSize.value + 1,
+  );
+  const domainPageEnd = computed(() =>
+    Math.min(domainPage.value * domainPageSize.value, domains.value.length),
+  );
+
+  watch(domainPageSize, () => {
+    domainPage.value = 1;
+  });
+
+  watch(domains, () => {
+    if (domainPage.value > domainPageCount.value) {
+      domainPage.value = domainPageCount.value;
+    }
+  });
 
   watch(hasOpenModal, (isOpen) => {
     if (isOpen) {
@@ -180,6 +207,7 @@ export function useDashboard() {
   const domainStatusLabels = {
     pending: "等待申请",
     active: "正常",
+    valid: "正常",
     error: "错误",
   };
   const httpsModeLabels = { direct: "核心服务 HTTPS", proxy: "反向代理 HTTPS" };
@@ -486,11 +514,19 @@ export function useDashboard() {
   }
 
   function statusClass(value) {
-    return value === "active" || value === "success"
+    return value === "active" || value === "valid" || value === "success"
       ? "success"
       : value === "error" || value === "failed"
         ? "danger"
         : "warning";
+  }
+
+  function previousDomainPage() {
+    domainPage.value = Math.max(1, domainPage.value - 1);
+  }
+
+  function nextDomainPage() {
+    domainPage.value = Math.min(domainPageCount.value, domainPage.value + 1);
   }
 
   function openCreate() {
@@ -1192,6 +1228,15 @@ export function useDashboard() {
     clearDNSCredentials,
     testDNS,
     domainServers,
+    domainPage,
+    domainPageSize,
+    domainPageSizeOptions,
+    domainPageCount,
+    paginatedDomains,
+    domainPageStart,
+    domainPageEnd,
+    previousDomainPage,
+    nextDomainPage,
     loading,
     saving,
     error,

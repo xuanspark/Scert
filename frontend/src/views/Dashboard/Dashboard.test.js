@@ -701,6 +701,58 @@ test("dashboardLayout.replacesHeroWithBasicInformationSummary", async () => {
   assert.match(stylesheet, /\.overview-domain-row\s*\{[^}]*grid-template-columns:/);
 });
 
+test("dashboardLayout.paginatesHostedDomainsWithConfiguredPageSizes", async (t) => {
+  const { state } = await mountComposable(t, useDashboard, async () => Response.json({ items: [] }));
+  state.domains.value = Array.from({ length: 16 }, (_, index) => ({
+    id: `domain-${index + 1}`,
+    name: `domain-${index + 1}.example.test`,
+  }));
+  await nextTick();
+
+  assert.deepEqual(state.domainPageSizeOptions, [5, 10, 15, 30]);
+  assert.equal(state.domainPageCount.value, 4);
+  assert.equal(state.paginatedDomains.value.length, 5);
+  assert.equal(state.domainPageStart.value, 1);
+  assert.equal(state.domainPageEnd.value, 5);
+
+  state.nextDomainPage();
+  assert.equal(state.domainPage.value, 2);
+  assert.equal(state.paginatedDomains.value[0].id, "domain-6");
+
+  state.domainPageSize.value = 10;
+  await nextTick();
+  assert.equal(state.domainPageCount.value, 2);
+  assert.equal(state.paginatedDomains.value.length, 10);
+
+  state.domainPage.value = 2;
+  state.domainPageSize.value = 5;
+  await nextTick();
+  assert.equal(state.domainPage.value, 1);
+  state.domainPage.value = 2;
+  state.nextDomainPage();
+  state.nextDomainPage();
+  assert.equal(state.domainPage.value, 4);
+  state.nextDomainPage();
+  assert.equal(state.domainPage.value, 4);
+  state.previousDomainPage();
+  assert.equal(state.domainPage.value, 3);
+  assert.equal(state.statusClass("valid"), "success");
+  assert.equal(state.displayLabel(state.domainStatusLabels, "valid"), "正常");
+});
+
+test("dashboardLayout.movesOverviewDetailsAboveHostedDomainList", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const detailsIndex = template.indexOf('class="overview-details-grid"');
+  const listHeadingIndex = template.indexOf('class="overview-domain-heading"');
+  assert.ok(detailsIndex >= 0);
+  assert.ok(listHeadingIndex >= 0);
+  assert.ok(detailsIndex < listHeadingIndex);
+  assert.match(template, /v-model\.number="domainPageSize"/);
+  assert.match(template, /上一页/);
+  assert.match(template, /下一页/);
+});
+
 test("dashboardLayout.usesSharedTooltipForUserManagementDescription", async () => {
   const { readFile } = await import("node:fs/promises");
   const template = await readFile(new URL("../UserManagement/UserManagement.vue", import.meta.url), "utf8");
