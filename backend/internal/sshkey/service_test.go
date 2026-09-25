@@ -42,6 +42,30 @@ func TestServiceCreatesListsValidatesAndDeletesSSHKey(t *testing.T) {
 		t.Fatal("已删除的 SSH 私钥引用不应继续通过校验")
 	}
 }
+func TestServiceListIgnoresSSHPasswordSecrets(t *testing.T) {
+	store, err := secretstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to open secret store: %v", err)
+	}
+	service := NewService(store)
+	if _, err := service.Create(t.Context(), "deployment key", testPrivateKey(t), ""); err != nil {
+		t.Fatalf("failed to create SSH key: %v", err)
+	}
+	if err := store.Put(t.Context(), ReferencePrefix+"password/test-password", map[string]string{
+		"kind":     "ssh_password",
+		"password": "not-for-listing",
+	}); err != nil {
+		t.Fatalf("failed to create password secret: %v", err)
+	}
+
+	items, err := service.List(t.Context())
+	if err != nil {
+		t.Fatalf("failed to list SSH keys: %v", err)
+	}
+	if len(items) != 1 || items[0].Name != "deployment key" {
+		t.Fatalf("password secret leaked into SSH key list: %+v", items)
+	}
+}
 
 func TestServiceRejectsInvalidSSHKeyWithoutLeakingContent(t *testing.T) {
 	store, err := secretstore.Open(t.TempDir())

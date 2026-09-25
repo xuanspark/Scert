@@ -100,6 +100,10 @@ func (s *Service) List(ctx context.Context) ([]Metadata, error) {
 	}
 	result := make([]Metadata, 0, len(items))
 	for _, item := range items {
+		referenceID := strings.TrimPrefix(item.Reference, ReferencePrefix)
+		if strings.Contains(referenceID, "/") {
+			continue
+		}
 		metadata, err := s.metadata(ctx, item.Reference, item.UpdatedAt, false)
 		if err != nil {
 			return nil, err
