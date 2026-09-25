@@ -237,6 +237,9 @@ func (s *RenewalScheduler) Stop() {
 }
 
 func (s *RenewalScheduler) issueWithRetry(ctx context.Context, domainID string, urgent bool, policy RenewalPolicy) error {
+	if executor, ok := s.issuer.(RenewalExecutor); ok {
+		return executor.Renew(ctx, domainID, urgent, policy)
+	}
 	attempts := 1
 	if urgent {
 		attempts = policy.MaxRetries

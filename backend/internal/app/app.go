@@ -143,7 +143,9 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		tasks:     taskRepo, audit: auditRepo, notifier: notifier,
 		notifyError: func(err error) { logger.Error("管理证书续期或通知失败", "error", err) },
 	}
-	renewal := certificate.NewRenewalSchedulerWithManagement(repo, workflow, certificate.RenewalPolicy{
+	trackedWorkflow := &certificateTaskWorkflow{workflow: workflow, tasks: taskRepo, audit: auditRepo}
+	trackedWorkflow.logError = func(err error) { logger.Error("证书续期或部署任务失败", "error", err) }
+	renewal := certificate.NewRenewalSchedulerWithManagement(repo, trackedWorkflow, certificate.RenewalPolicy{
 		CheckInterval:       time.Duration(cfg.ACME.RenewalCheckIntervalDays) * 24 * time.Hour,
 		NearExpiryThreshold: time.Duration(cfg.ACME.RenewalNearExpiryDays) * 24 * time.Hour,
 		RenewalThreshold:    time.Duration(cfg.ACME.RenewalThresholdDays) * 24 * time.Hour,
@@ -166,7 +168,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			return result.Certificate, result.Deployment, err
 		},
 		DeployCertificate: func(ctx context.Context, domainID string) (certificate.IssueResult, deployment.Report, error) {
-			result, err := workflow.DeployCurrent(ctx, domainID)
+			result, err := trackedWorkflow.DeployCurrent(ctx, domainID)
 			return result.Certificate, result.Deployment, err
 		},
 		RestoreCertificateVersion: func(ctx context.Context, domainID, version string) (certificate.IssueResult, error) {

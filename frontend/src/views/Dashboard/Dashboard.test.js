@@ -873,3 +873,43 @@ test("dashboardLayout.usesSharedTooltipForUserManagementDescription", async () =
   assert.match(template, /<HelpTip>[\s\S]*?<\/HelpTip>/);
   assert.doesNotMatch(template, /<p class="user-management-description">/);
 });
+
+
+test("workflowTasks.renderOnlySupportedCancellation", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const Vue = await import("vue");
+  const source = await readFile(new URL("./RuntimeOverview.vue", import.meta.url), "utf8");
+  const start = source.indexOf('<tr v-for="item in visibleTasks"');
+  assert.notEqual(start, -1);
+  const end = source.indexOf("</tr>", start) + "</tr>".length;
+  const compiled = compileTemplate({
+    source: `<table><tbody>${source.slice(start, end)}</tbody></table>`,
+    filename: "RuntimeTaskActions.vue",
+    id: "runtime-task-actions",
+    compilerOptions: { mode: "function" },
+  });
+  assert.deepEqual(compiled.errors, []);
+  const render = new Function("Vue", compiled.code)(Vue);
+  for (const taskType of ["certificate_issue", "renewal_run", "certificate_deploy", "management_renewal", "unknown"]) {
+    for (const status of ["queued", "running", "success", "failed", "cancelled"]) {
+      const html = await renderToString(Vue.createSSRApp({
+        render,
+        setup: () => ({
+          visibleTasks: [{ id: "task", task_type: taskType, status }],
+          taskTypeLabel: (value) => value,
+          taskDomain: () => "example.test",
+          statusClass: () => "warning",
+          displayLabel: (_, value) => value,
+          taskStatusLabels: {},
+          runtimeTime: () => "2026-09-26",
+          openTaskDetails: () => {},
+          cancelTask: () => {},
+        }),
+      }));
+      const canCancel = taskType === "certificate_issue" && ["queued", "running"].includes(status);
+      assert.equal((html.match(/<button\b/g) || []).length, canCancel ? 2 : 1, `${taskType}:${status}`);
+    }
+  }
+});
