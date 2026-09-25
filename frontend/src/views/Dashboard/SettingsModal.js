@@ -1,6 +1,6 @@
 import { nextTick, ref } from "vue";
 
-const sections = ["service", "acme", "dns", "http", "smtp"];
+const sections = ["service", "acme", "dns", "notification"];
 
 export function useSettingsModal(saveSettings) {
   const activeSection = ref(sections[0]);

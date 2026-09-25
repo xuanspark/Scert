@@ -1,6 +1,7 @@
 <script setup>
 import HelpTip from "../components/HelpTip/HelpTip.vue";
 import { useSettingsModal } from "./SettingsModal.js";
+import MailNotificationSettings from "./MailNotificationSettings.vue";
 
 const props = defineProps({ state: { type: Object, required: true } });
 const {
@@ -73,28 +74,16 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
             DNS API 验证
           </button>
           <button
-            id="settings-tab-http"
+            id="settings-tab-notification"
             type="button"
             role="tab"
-            aria-controls="settings-panel-http"
-            :aria-selected="activeSection === 'http'"
-            :tabindex="activeSection === 'http' ? 0 : -1"
-            @click="activeSection = 'http'"
+            aria-controls="settings-panel-notification"
+            :aria-selected="activeSection === 'notification'"
+            :tabindex="activeSection === 'notification' ? 0 : -1"
+            @click="activeSection = 'notification'"
             @keydown="navigateTabs"
           >
-            HTTP 通知
-          </button>
-          <button
-            id="settings-tab-smtp"
-            type="button"
-            role="tab"
-            aria-controls="settings-panel-smtp"
-            :aria-selected="activeSection === 'smtp'"
-            :tabindex="activeSection === 'smtp' ? 0 : -1"
-            @click="activeSection = 'smtp'"
-            @keydown="navigateTabs"
-          >
-            SMTP 通知
+            邮件通知
           </button>
         </div>
         <form novalidate @submit.prevent="submitSettings">
@@ -371,98 +360,15 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
           </HelpTip>
           </section>
           <section
-            v-show="activeSection === 'http'"
-            id="settings-panel-http"
-            data-settings-section="http"
+            v-show="activeSection === 'notification'"
+            id="settings-panel-notification"
+            data-settings-section="notification"
             role="tabpanel"
-            aria-labelledby="settings-tab-http"
+            aria-labelledby="settings-tab-notification"
             class="settings-panel"
           >
-          <h3>HTTP 通知</h3>
-          <div class="form-grid">
-            <label class="switch-field">
-              <input v-model="settingsForm.notification.http_enabled" type="checkbox" />
-              <span>
-              <strong>启用 HTTP 通知</strong>
-              <HelpTip>通过外部邮件或消息服务 API 发送通知</HelpTip>
-              </span>
-            </label>
-            <label class="field">
-              <span>通知服务商</span>
-              <input v-model="settingsForm.notification.provider" placeholder="例如 temporary-mail" />
-              </label>
-          </div>
-          <div class="form-grid">
-            <label class="field">
-              <span>通知接口地址</span>
-              <input v-model="settingsForm.notification.endpoint" placeholder="https://..." />
-              </label>
-            <label class="field">
-              <span>发件人邮箱</span>
-              <input v-model="settingsForm.notification.sender_email" type="email" />
-              </label>
-          </div>
-          <label class="field">
-              <span>收件人</span>
-              <input :value="settingsForm.notification.recipients.join(', ')" @input="settingsForm.notification.recipients = $event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean)" placeholder="多个地址用逗号分隔" />
-              </label>
-          </section>
-          <section
-            v-show="activeSection === 'smtp'"
-            id="settings-panel-smtp"
-            data-settings-section="smtp"
-            role="tabpanel"
-            aria-labelledby="settings-tab-smtp"
-            class="settings-panel"
-          >
-          <h3>SMTP 通知</h3>
-          <label class="switch-field">
-            <input v-model="settingsForm.notification.smtp_enabled" type="checkbox" />
-            <span>
-              <strong>启用 SMTP 通知</strong>
-              <HelpTip>使用外部 SMTP 服务发送证书任务通知，不会实现邮件服务器端</HelpTip>
-              </span>
-          </label>
-          <div class="form-grid">
-            <label class="field">
-              <span>SMTP 主机</span>
-              <input v-model="settingsForm.notification.smtp_host" placeholder="例如 smtp.example.com" />
-              </label>
-            <label class="field">
-              <span>SMTP 端口</span>
-              <input v-model.number="settingsForm.notification.smtp_port" type="number" min="1" max="65535" />
-              </label>
-          </div>
-          <div class="form-grid">
-            <label class="field">
-              <span>SMTP 用户名</span>
-              <input v-model="settingsForm.notification.smtp_username" autocomplete="username" />
-              </label>
-            <label class="field">
-              <span>SMTP 密码</span>
-              <input v-model="settingsForm.notification.smtp_password" type="password" autocomplete="new-password" placeholder="留空表示不更新已保存密码" />
-              </label>
-          </div>
-          <div class="form-grid">
-            <label class="field">
-              <span>连接模式</span>
-              <select v-model="settingsForm.notification.smtp_mode">
-              <option value="plain">明文连接</option>
-              <option value="starttls">STARTTLS</option>
-              <option value="implicit_tls">隐式 TLS</option>
-              </select>
-              </label>
-            <label class="switch-field">
-              <input v-model="settingsForm.notification.smtp_allow_plaintext_auth" type="checkbox" />
-              <span>
-              <strong>允许明文认证</strong>
-              <HelpTip>仅在明确确认 SMTP 网络受保护时开启</HelpTip>
-              </span>
-            </label>
-          </div>
-          <HelpTip>
-            {{ settingsForm.notification.smtp_credential_configured ? "SMTP 凭据已配置；密码不会回显。填写新密码后保存即可更新。" : "SMTP 凭据尚未配置；启用 SMTP 时请填写用户名和密码。" }}
-          </HelpTip>
+            <h3>邮件通知</h3>
+            <MailNotificationSettings :notification="settingsForm.notification" />
           </section>
           <p v-if="settingsError" class="form-error">{{ settingsError }}</p>
           <div class="modal-actions">

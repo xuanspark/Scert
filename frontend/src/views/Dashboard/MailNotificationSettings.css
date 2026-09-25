@@ -1,0 +1,91 @@
+.mail-common-fields,
+.mail-channels,
+.mail-smtp-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.mail-common-fields {
+  margin-bottom: 14px;
+}
+
+.mail-channels {
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+}
+
+.mail-channel {
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #dce6f1;
+  border-radius: 10px;
+}
+
+.mail-channel legend {
+  padding: 0 6px;
+  color: #32405a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: #526983;
+  font-size: 12px;
+}
+
+.mail-channel > .mail-field + .mail-field {
+  margin-top: 12px;
+}
+
+.mail-field > span {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+}
+
+.mail-field input,
+.mail-field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid #cbd8e7;
+  border-radius: 8px;
+  background: #fff;
+  color: #263650;
+  font: inherit;
+  font-size: 13px;
+}
+
+.mail-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: #32405a;
+  font-size: 12px;
+}
+
+.mail-switch input {
+  margin: 0;
+}
+
+.mail-auth-switch {
+  align-self: end;
+  min-height: 36px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 700px) {
+  .mail-common-fields,
+  .mail-channels,
+  .mail-smtp-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
