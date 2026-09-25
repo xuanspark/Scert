@@ -5,6 +5,8 @@ import SettingsModal from "./SettingsModal.vue";
 import DomainModal from "./DomainModal.vue";
 import ServerModal from "./ServerModal.vue";
 import SSHKeyModal from "./SSHKeyModal.vue";
+import DashboardNavigation from "./DashboardNavigation.vue";
+import { useDashboardNavigation } from "./DashboardNavigation.js";
 import { useDashboard } from "./Dashboard.js";
 
 const dashboard = useDashboard();
@@ -59,6 +61,15 @@ const {
   sshKeyPrivatePath,
   sshKeyPublicPath,
   showSettings,
+  showCertificateImport,
+  importDomain,
+  importSaving,
+  importError,
+  importResult,
+  openCertificateImport,
+  closeCertificateImport,
+  selectCertificateImportFile,
+  importCertificate,
   settingsSaving,
   settingsError,
   dnsProviderCatalog,
@@ -113,6 +124,7 @@ const {
   daysRemaining,
   statusClass,
 } = dashboard;
+const { activeSection, activeLabel, sections, selectSection } = useDashboardNavigation(currentUser);
 </script>
 
 <template>
@@ -127,7 +139,7 @@ const {
         <button class="secondary-button" type="button" @click="loadData">
           刷新状态
         </button>
-        <button class="secondary-button" type="button" @click="runRenewalNow">
+        <button v-if="activeSection === 'activity'" class="secondary-button" type="button" @click="runRenewalNow">
           立即检查续期
         </button>
         <button class="secondary-button" type="button" @click="openSettings">
@@ -137,6 +149,7 @@ const {
           class="secondary-button"
           type="button"
           @click="openSSHKeyCreate"
+          v-if="activeSection === 'keys'"
         >
           添加 SSH 私钥
         </button>
@@ -144,17 +157,35 @@ const {
           class="secondary-button"
           type="button"
           @click="openServerCreate"
+          v-if="activeSection === 'servers'"
         >
           添加服务器
         </button>
-        <button class="primary-button" type="button" @click="openCreate">
+        <button v-if="activeSection === 'domains'" class="primary-button" type="button" @click="openCreate">
           添加域名
         </button>
       </div>
     </header>
 
-    <p v-if="error" class="error-banner">{{ error }}</p>
-    <p v-if="notice" class="notice-banner">{{ notice }}</p>
+    <div class="dashboard-messages" aria-live="polite">
+      <p v-if="error" class="error-banner">{{ error }}</p>
+      <p v-if="notice" class="notice-banner">{{ notice }}</p>
+    </div>
+
+    <div class="dashboard-workspace">
+      <DashboardNavigation
+        :active-section="activeSection"
+        :sections="sections"
+        @select="selectSection"
+      />
+      <div
+        :key="activeSection"
+        class="dashboard-content"
+        role="region"
+        :aria-label="activeLabel"
+        tabindex="0"
+      >
+    <div v-if="activeSection === 'overview'" class="overview-section">
 
     <section class="panel overview-panel">
       <div class="panel-heading">
@@ -241,9 +272,11 @@ const {
       </article>
     </section>
 
-    <UserManagement />
+    </div>
 
-    <section class="panel operations-panel">
+    <UserManagement v-if="activeSection === 'users'" />
+
+    <section v-if="activeSection === 'activity'" class="panel operations-panel">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">运行概览</p>
@@ -312,7 +345,7 @@ const {
       </div>
     </section>
 
-    <section class="panel">
+    <section v-if="activeSection === 'domains'" class="panel">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">域名配置</p>
@@ -388,7 +421,7 @@ const {
       </div>
     </section>
 
-    <section class="panel server-panel">
+    <section v-if="activeSection === 'keys'" class="panel server-panel">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">安全凭据</p>
@@ -429,7 +462,7 @@ const {
       </div>
     </section>
 
-    <section class="panel server-panel">
+    <section v-if="activeSection === 'servers'" class="panel server-panel">
       <div class="panel-heading">
         <div>
           <p class="eyebrow">远程部署</p>
@@ -475,6 +508,9 @@ const {
         </article>
       </div>
     </section>
+
+      </div>
+    </div>
 
     <SettingsModal v-if="showSettings" :state="dashboard" />
 
@@ -568,3 +604,4 @@ const {
   </main>
 </template>
 <style scoped src="./Dashboard.css"></style>
+<style scoped src="./DashboardLayout.css"></style>

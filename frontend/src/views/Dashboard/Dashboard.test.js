@@ -1,8 +1,120 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nextTick } from "vue";
+import { nextTick, ref } from "vue";
 import { useDashboard } from "./Dashboard.js";
+import { useDashboardNavigation } from "./DashboardNavigation.js";
 import { aliyunProvider, deferred, mountComposable, verifiedResponse } from "../../test-support/mount.js";
+
+test("板块导航默认只选中基本信息，超级管理员可切换全部板块", () => {
+  const navigation = useDashboardNavigation(ref({ role: "super_admin" }));
+  assert.equal(navigation.activeSection.value, "overview");
+  assert.equal(navigation.sections.value.length, 6);
+  for (const section of navigation.sections.value) {
+    navigation.selectSection(section.id);
+    assert.equal(navigation.activeSection.value, section.id);
+    assert.equal(navigation.activeLabel.value, section.label);
+  }
+  navigation.selectSection("invalid");
+  assert.equal(navigation.activeSection.value, "users");
+});
+
+test("用户管理导航按权限显示，权限变化后回到基本信息", () => {
+  const user = ref(null);
+  const navigation = useDashboardNavigation(user);
+  assert.equal(navigation.sections.value.some((section) => section.id === "users"), false);
+  navigation.selectSection("users");
+  assert.equal(navigation.activeSection.value, "overview");
+  user.value = { role: "super_admin" };
+  navigation.selectSection("users");
+  assert.equal(navigation.activeSection.value, "users");
+  user.value = { role: "admin" };
+  assert.equal(navigation.activeSection.value, "overview");
+  assert.equal(navigation.sections.value.length, 5);
+});
+
+test("单板块布局使用互斥条件，切换重置滚动且保留弹窗入口", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("./DashboardLayout.css", import.meta.url), "utf8");
+  for (const id of ["overview", "activity", "domains", "servers", "keys", "users"]) {
+    assert.ok(template.includes(`v-if="activeSection === '${id}'"`));
+  }
+  assert.match(template, /:key="activeSection"/);
+  assert.match(template, /role="region"\s+:aria-label="activeLabel"\s+tabindex="0"/);
+  for (const modal of ["SettingsModal", "DomainModal", "ServerModal", "SSHKeyModal"]) {
+    assert.ok(template.includes(`<${modal} v-if=`));
+  }
+  assert.match(stylesheet, /height: 100dvh/);
+  assert.match(stylesheet, /\.dashboard-content\s*\{[^}]*overflow: auto/);
+});
+
+test("侧栏支持键盘焦点、当前项标记和悬浮说明", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("./DashboardNavigation.vue", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("./DashboardNavigation.css", import.meta.url), "utf8");
+  assert.match(template, /<button/);
+  assert.match(template, /:aria-current=/);
+  assert.match(template, /:title="section.hint"/);
+  assert.match(stylesheet, /\.navigation-item:focus-visible/);
+});
+
+test("证书导入使用组合式状态导出，避免点击时缺失处理函数", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const script = template.split("</script>")[0];
+  for (const name of ["showCertificateImport", "openCertificateImport", "closeCertificateImport", "importCertificate", "selectCertificateImportFile"]) {
+    assert.ok(script.includes(`  ${name},`));
+  }
+});
+test("完整页面逐个渲染六个板块，每次只有一个内容标题", async (t) => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse, compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const Vue = await import("vue");
+  const source = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  const compiled = compileTemplate({
+    source: descriptor.template.content,
+    filename: "Dashboard.vue",
+    id: "dashboard-panels",
+    compilerOptions: { mode: "function" },
+  });
+  assert.deepEqual(compiled.errors, []);
+  const render = new Function("Vue", compiled.code)(Vue);
+  const { state } = await setup(t, () => verifiedResponse());
+  state.closeSettings();
+  state.currentUser.value = { account: "test-admin", role: "super_admin" };
+  const navigation = useDashboardNavigation(state.currentUser);
+  const headings = {
+    overview: "基本信息",
+    activity: "最近活动",
+    domains: "托管域名",
+    servers: "部署服务器",
+    keys: "SSH 私钥",
+    users: "用户管理",
+  };
+  for (const section of navigation.sections.value) {
+    navigation.selectSection(section.id);
+    const app = Vue.createSSRApp({
+      render,
+      setup: () => ({ ...state, ...navigation, dashboard: state }),
+    });
+    for (const name of ["ChangePassword", "DashboardNavigation", "SettingsModal", "DomainModal", "ServerModal", "SSHKeyModal"]) {
+      app.component(name, { render: () => null });
+    }
+    app.component("UserManagement", { render: () => Vue.h("h2", headings.users) });
+    const warnings = [];
+    app.config.warnHandler = (message) => warnings.push(message);
+    const html = await renderToString(app);
+    assert.deepEqual([...html.matchAll(/<h2>(.*?)<\/h2>/g)].map((match) => match[1]), [headings[section.id]]);
+    assert.deepEqual(warnings, []);
+    if (section.id === "overview") {
+      assert.match(html, /test-admin/);
+      assert.doesNotMatch(html, /立即检查续期/);
+    }
+  }
+});
 
 async function setup(t, request) {
   const mounted = await mountComposable(t, useDashboard, async (path) => {
