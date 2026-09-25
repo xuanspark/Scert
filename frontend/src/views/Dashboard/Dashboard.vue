@@ -173,11 +173,6 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
     </div>
 
     <div class="dashboard-workspace">
-      <DashboardNavigation
-        :active-section="activeSection"
-        :sections="sections"
-        @select="selectSection"
-      />
       <div
         :key="activeSection"
         class="dashboard-content"
@@ -510,6 +505,11 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
     </section>
 
       </div>
+      <DashboardNavigation
+        :active-section="activeSection"
+        :sections="sections"
+        @select="selectSection"
+      />
     </div>
 
     <SettingsModal v-if="showSettings" :state="dashboard" />
