@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { useUserManagement } from "./UserManagement.js";
+import { groupUsers, useUserManagement } from "./UserManagement.js";
+import { useUserGroupEditor } from "./UserGroupEditor.js";
 import { mountComposable } from "../../test-support/mount.js";
 
 async function setup(t) {
   const calls = [];
   const mounted = await mountComposable(t, useUserManagement, async (path, options) => {
     calls.push({ path, options });
-    return Response.json({ items: [] });
+    return Response.json({ items: [], current_role: "super_admin" });
   });
   calls.length = 0;
   return { ...mounted, calls };
@@ -50,4 +51,90 @@ test("管理员和普通用户仍能正常创建及编辑", async (t) => {
   const writes = calls.filter(({ options }) => options.method);
   assert.deepEqual(writes.map(({ options }) => options.method), ["POST", "PUT", "POST", "PUT"]);
   assert.equal(state.formError.value, "");
+});
+
+test("默认分组置顶，多组管理员同时出现在所属分组且不重复", () => {
+  const members = [
+    { id: "multi", groups: ["乙组", "甲组", "甲组"] },
+    { id: "single", groups: ["甲组"] },
+    { id: "default" },
+  ];
+  const result = groupUsers(members);
+  assert.equal(result[0].isDefault, true);
+  assert.deepEqual(result[0].users.map((user) => user.id), ["default"]);
+  assert.equal(result.find((group) => group.name === "甲组").users.length, 2);
+  assert.equal(result.find((group) => group.name === "乙组").users.length, 1);
+});
+
+test("管理员只能读取成员，普通用户不显示分组，未知权限默认关闭写入", async (t) => {
+  for (const role of ["admin", "user", ""]) {
+    const writes = [];
+    const { state } = await mountComposable(t, useUserManagement, async (path, options) => {
+      if (options.method) writes.push(path);
+      return Response.json({ items: [], current_role: role });
+    });
+    assert.equal(state.canManage.value, false);
+    assert.equal(state.showGroups.value, role === "admin");
+    state.openCreate();
+    state.openEdit({ id: "member", role: "user" });
+    assert.equal(state.showForm.value, false);
+    await state.saveUser();
+    await state.toggleStatus({ id: "member", status: "active" });
+    await state.deleteUser({ id: "member" });
+    assert.deepEqual(writes, []);
+  }
+});
+
+test("普通用户不允许多组，降级时保留选择供用户修正", async (t) => {
+  const { state, calls } = await setup(t);
+  state.openEdit({ id: "leader", username: "leader", role: "admin", groups: ["甲组", "乙组"] });
+  state.form.value.role = "user";
+  await state.saveUser();
+  assert.match(state.formError.value, /只能属于一个分组/);
+  assert.deepEqual(state.form.value.groups, ["甲组", "乙组"]);
+  assert.equal(calls.length, 0);
+  state.form.value.groups = ["乙组"];
+  await state.saveUser();
+  assert.deepEqual(JSON.parse(calls.find((call) => call.options.method === "PUT").options.body).groups, ["乙组"]);
+});
+
+test("分组编辑器支持管理员多组并拒绝普通用户多组及保留名称", () => {
+  const props = { modelValue: [], role: "admin" };
+  const editor = useUserGroupEditor(props, (_, value) => { props.modelValue = value; });
+  for (const name of [" 甲组 ", "乙组", "甲组"]) {
+    editor.groupName.value = name;
+    editor.addGroup();
+  }
+  assert.deepEqual(props.modelValue, ["甲组", "乙组"]);
+  props.role = "user";
+  editor.groupName.value = "丙组";
+  editor.addGroup();
+  assert.match(editor.groupError.value, /只能属于一个分组/);
+  editor.removeGroup("乙组");
+  assert.deepEqual(props.modelValue, ["甲组"]);
+  editor.groupName.value = "默认分组";
+  editor.addGroup();
+  assert.match(editor.groupError.value, /默认分组无需添加/);
+});
+
+test("分组页面结构可编译，默认组不折叠，命名组默认关闭，密码入口仅在用户管理", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse, compileScript, compileTemplate } = await import("@vue/compiler-sfc");
+  for (const file of ["UserManagement.vue", "UserTable.vue", "UserGroupEditor.vue", "UserWorkspace.vue"]) {
+    const source = await readFile(new URL(file, import.meta.url), "utf8");
+    const { descriptor, errors } = parse(source);
+    assert.deepEqual(errors, []);
+    assert.ok(compileScript(descriptor, { id: file }));
+    assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: file, id: file }).errors, []);
+  }
+  const source = await readFile(new URL("UserManagement.vue", import.meta.url), "utf8");
+  assert.match(source, /section v-if="group.isDefault"/);
+  assert.match(source, /<details v-else class="user-group">/);
+  assert.match(source, /v-else-if="showGroups"/);
+  assert.match(source, /<ChangePassword/);
+  const dashboard = await readFile(new URL("../Dashboard/Dashboard.vue", import.meta.url), "utf8");
+  const navigation = await readFile(new URL("../Dashboard/DashboardNavigation.vue", import.meta.url), "utf8");
+  assert.doesNotMatch(dashboard, /<ChangePassword/);
+  assert.doesNotMatch(dashboard, /@click="openSettings"/);
+  assert.match(navigation, /\$emit\('settings'\)/);
 });

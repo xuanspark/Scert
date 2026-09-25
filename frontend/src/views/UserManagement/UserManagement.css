@@ -1,5 +1,79 @@
 .user-management {
   margin-top: 18px;
+  padding: 24px;
+  border: 1px solid #e2e8f2;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.86);
+}
+.user-groups {
+  display: grid;
+  gap: 12px;
+}
+.user-group {
+  min-width: 0;
+  border: 1px solid #e2e8f2;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.user-group-heading {
+  margin: 0;
+  padding: 12px 16px;
+  color: #32405a;
+  background: #f7faff;
+  font-size: 14px;
+}
+summary.user-group-heading {
+  cursor: pointer;
+}
+.user-group-heading span {
+  margin-left: 12px;
+  color: #71809a;
+  font-size: 12px;
+  font-weight: 400;
+}
+.user-group-empty {
+  margin: 0;
+  padding: 16px;
+  color: #71809a;
+  font-size: 13px;
+}
+.group-editor {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid #d5ddea;
+  border-radius: 10px;
+}
+.group-editor legend {
+  color: #394963;
+  font-size: 13px;
+}
+.group-selection,
+.group-input-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.group-input-row input {
+  flex: 1;
+  min-width: 120px;
+  padding: 10px;
+  border: 1px solid #d5ddea;
+  border-radius: 8px;
+}
+.group-selection button {
+  border: 1px solid #d5ddea;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #315aaa;
+  background: #edf3ff;
+  cursor: pointer;
+}
+.user-group-heading:focus-visible,
+.user-table-wrap:focus-visible {
+  outline: 2px solid #315aaa;
+  outline-offset: -2px;
 }
 .user-management-heading {
   display: flex;

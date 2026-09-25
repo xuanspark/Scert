@@ -14,11 +14,12 @@ import (
 )
 
 type userRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
-	Status   string `json:"status"`
+	Username string    `json:"username"`
+	Email    string    `json:"email"`
+	Password string    `json:"password"`
+	Role     string    `json:"role"`
+	Status   string    `json:"status"`
+	Groups   *[]string `json:"groups"`
 }
 
 func (s *Server) requireSuperAdmin(c *gin.Context) {
@@ -53,17 +54,31 @@ func (s *Server) listUsers(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "用户管理接口尚未配置", errors.New("用户仓储未配置"))
 		return
 	}
+	viewer, ok := s.userListViewer(c)
+	if !ok {
+		return
+	}
 	items, err := s.users.ListUsers(c.Request.Context())
 	if err != nil {
 		s.writeError(c, http.StatusInternalServerError, "查询用户失败", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	visible := make([]repository.User, 0, len(items))
+	for _, item := range items {
+		if userVisibleTo(viewer, item) {
+			visible = append(visible, scopedUserGroups(viewer, item))
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": visible, "current_user_id": viewer.ID, "current_role": viewer.Role})
 }
 
 func (s *Server) getUser(c *gin.Context) {
 	if s.users == nil {
 		s.writeError(c, http.StatusNotImplemented, "用户管理接口尚未配置", errors.New("用户仓储未配置"))
+		return
+	}
+	viewer, ok := s.userListViewer(c)
+	if !ok {
 		return
 	}
 	item, err := s.users.GetUserByID(c.Request.Context(), c.Param("id"))
@@ -75,7 +90,11 @@ func (s *Server) getUser(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "读取用户失败", err)
 		return
 	}
-	c.JSON(http.StatusOK, item)
+	if !userVisibleTo(viewer, item) {
+		s.writeError(c, http.StatusNotFound, "用户不存在", nil)
+		return
+	}
+	c.JSON(http.StatusOK, scopedUserGroups(viewer, item))
 }
 
 func (s *Server) createUser(c *gin.Context) {
@@ -95,6 +114,9 @@ func (s *Server) createUser(c *gin.Context) {
 	}
 	if item.Role == repository.UserRoleSuperAdmin {
 		s.writeError(c, http.StatusBadRequest, "系统只允许初始化时创建一个超级管理员", nil)
+		return
+	}
+	if !s.applyRequestedUserGroups(c, &item, request.Groups) {
 		return
 	}
 	if err := s.users.CreateUser(c.Request.Context(), item); err != nil {
@@ -142,6 +164,10 @@ func (s *Server) updateUser(c *gin.Context) {
 	}
 	if request.Status == "" {
 		item.Status = existing.Status
+	}
+	item.Groups = existing.Groups
+	if !s.applyRequestedUserGroups(c, &item, request.Groups) {
+		return
 	}
 	if existing.Role != repository.UserRoleSuperAdmin && item.Role == repository.UserRoleSuperAdmin {
 		s.writeError(c, http.StatusBadRequest, "不能将用户提升为超级管理员", nil)

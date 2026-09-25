@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,6 +31,7 @@ type User struct {
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
 	Role         string    `json:"role"`
+	Groups       []string  `json:"groups,omitempty"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -131,16 +133,20 @@ func (r *SQLUserRepository) CreateUser(ctx context.Context, item User) error {
 	if err := validateUser(item, false); err != nil {
 		return err
 	}
+	groups, err := encodeUserGroups(item)
+	if err != nil {
+		return err
+	}
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = time.Now().UTC()
 	}
 	if item.UpdatedAt.IsZero() {
 		item.UpdatedAt = item.CreatedAt
 	}
-	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO users
-		(id, username, email, password_hash, role, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Username, r.emailValue(item.Email), item.PasswordHash,
-		item.Role, item.Status, item.CreatedAt, item.UpdatedAt)
+	_, err = r.db.ExecContext(ctx, r.query(`INSERT INTO users
+		(id, username, email, password_hash, role, status, created_at, updated_at, groups_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Username, r.emailValue(item.Email), item.PasswordHash,
+		item.Role, item.Status, item.CreatedAt, item.UpdatedAt, groups)
 	if err != nil {
 		return fmt.Errorf("保存用户失败：%w", err)
 	}
@@ -155,8 +161,12 @@ func (r *SQLUserRepository) UpdateUser(ctx context.Context, item User) error {
 	if err := validateUser(item, false); err != nil {
 		return err
 	}
-	result, err := r.db.ExecContext(ctx, r.query(`UPDATE users SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`),
-		item.Username, r.emailValue(item.Email), item.PasswordHash, item.Role, item.Status, time.Now().UTC(), item.ID)
+	groups, err := encodeUserGroups(item)
+	if err != nil {
+		return err
+	}
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE users SET username = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ?, groups_json = ? WHERE id = ?`),
+		item.Username, r.emailValue(item.Email), item.PasswordHash, item.Role, item.Status, time.Now().UTC(), groups, item.ID)
 	if err != nil {
 		return fmt.Errorf("更新用户失败：%w", err)
 	}
@@ -283,15 +293,17 @@ func validateUser(item User, allowEmptyID bool) error {
 	if item.Status != UserStatusActive && item.Status != UserStatusDisabled {
 		return fmt.Errorf("用户状态无效：%s", item.Status)
 	}
-	return nil
+	_, err := NormalizeUserGroups(item.Role, item.Groups)
+	return err
 }
 
-const userSelect = `SELECT id, username, email, password_hash, role, status, created_at, updated_at FROM users`
+const userSelect = `SELECT id, username, email, password_hash, role, status, created_at, updated_at, COALESCE(groups_json, '[]') FROM users`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var item User
 	var email sql.NullString
-	if err := row.Scan(&item.ID, &item.Username, &email, &item.PasswordHash, &item.Role, &item.Status, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	var groups string
+	if err := row.Scan(&item.ID, &item.Username, &email, &item.PasswordHash, &item.Role, &item.Status, &item.CreatedAt, &item.UpdatedAt, &groups); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, sql.ErrNoRows
 		}
@@ -299,6 +311,14 @@ func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	}
 	if email.Valid {
 		item.Email = email.String
+	}
+	if err := json.Unmarshal([]byte(groups), &item.Groups); err != nil {
+		return User{}, fmt.Errorf("读取用户分组失败：%w", err)
+	}
+	var err error
+	item.Groups, err = NormalizeUserGroups(item.Role, item.Groups)
+	if err != nil {
+		return User{}, err
 	}
 	return normalizeUser(item), nil
 }

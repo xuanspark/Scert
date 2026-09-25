@@ -1,8 +1,15 @@
 <script setup>
 import HelpTip from "../components/HelpTip/HelpTip.vue";
 import { useUserManagement } from "./UserManagement.js";
+import ChangePassword from "../components/ChangePassword/ChangePassword.vue";
+import UserTable from "./UserTable.vue";
+import UserGroupEditor from "./UserGroupEditor.vue";
 
 const {
+  canManage,
+  showGroups,
+  groupedUsers,
+  availableGroups,
   visible,
   users,
   loading,
@@ -38,10 +45,11 @@ const {
         </HelpTip>
       </div>
       <div class="user-management-actions">
+        <ChangePassword />
         <button class="secondary-button" type="button" :disabled="loading" @click="loadUsers">
           {{ loading ? "读取中……" : "刷新列表" }}
         </button>
-        <button class="primary-button" type="button" @click="openCreate">添加用户</button>
+        <button v-if="canManage" class="primary-button" type="button" @click="openCreate">添加用户</button>
       </div>
     </div>
 
@@ -49,42 +57,37 @@ const {
     <p v-if="notice" class="user-message notice-message">{{ notice }}</p>
 
     <div v-if="loading && users.length === 0" class="user-empty">正在读取用户列表……</div>
-    <div v-else-if="users.length === 0" class="user-empty">暂无数据库用户，配置中的超级管理员仍可登录。</div>
-    <div v-else class="user-table-wrap">
-      <table class="user-table">
-        <thead>
-          <tr>
-            <th>账号</th>
-            <th>邮箱</th>
-            <th>角色</th>
-            <th>状态</th>
-            <th>创建时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in users" :key="item.id">
-            <td><strong>{{ item.username }}</strong></td>
-            <td>{{ item.email || "未绑定" }}</td>
-            <td><span class="user-badge">{{ roleLabels[item.role] || item.role }}</span></td>
-            <td><span class="user-status" :class="item.status">{{ statusLabels[item.status] || item.status }}</span></td>
-            <td>{{ new Date(item.created_at).toLocaleString("zh-CN") }}</td>
-            <td>
-              <span v-if="isPrimaryAccount(item)" class="user-badge">受保护账号</span>
-              <div v-else class="user-row-actions">
-                <button class="text-button" type="button" @click="openEdit(item)">编辑</button>
-                <button class="text-button" type="button" @click="toggleStatus(item)">
-                  {{ item.status === "active" ? "禁用" : "启用" }}
-                </button>
-                <button v-if="item.role !== 'super_admin'" class="text-button danger-text" type="button" @click="deleteUser(item)">删除</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-else-if="showGroups" class="user-groups">
+      <template v-for="group in groupedUsers" :key="group.name">
+        <section v-if="group.isDefault" class="user-group default-group" aria-label="默认分组">
+          <h3 class="user-group-heading">默认分组 <span>{{ group.users.length }} 人</span></h3>
+          <UserTable
+            :users="group.users"
+            :can-manage="canManage"
+            :role-labels="roleLabels"
+            :status-labels="statusLabels"
+            @edit="openEdit"
+            @toggle="toggleStatus"
+            @delete="deleteUser"
+          />
+        </section>
+        <details v-else class="user-group">
+          <summary class="user-group-heading">{{ group.name }} <span>{{ group.users.length }} 人</span></summary>
+          <UserTable
+            :users="group.users"
+            :can-manage="canManage"
+            :role-labels="roleLabels"
+            :status-labels="statusLabels"
+            @edit="openEdit"
+            @toggle="toggleStatus"
+            @delete="deleteUser"
+          />
+        </details>
+      </template>
     </div>
+    <UserTable v-else :users="users" :role-labels="roleLabels" :status-labels="statusLabels" />
 
-    <div v-if="showForm" class="modal-backdrop" @click.self="closeForm">
+    <div v-if="showForm && canManage" class="modal-backdrop" @click.self="closeForm">
       <section class="modal-card user-modal" role="dialog" aria-modal="true" :aria-label="formTitle">
         <div class="modal-heading">
           <div>
@@ -125,6 +128,7 @@ const {
               </select>
             </label>
           </div>
+          <UserGroupEditor v-model="form.groups" :role="form.role" :available-groups="availableGroups" />
           <p v-if="formError" class="form-error">{{ formError }}</p>
           <div class="modal-actions">
             <button class="secondary-button" type="button" :disabled="saving" @click="closeForm">取消</button>

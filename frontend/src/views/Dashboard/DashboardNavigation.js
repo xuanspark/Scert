@@ -12,7 +12,7 @@ export const dashboardSections = [
 export function useDashboardNavigation(currentUser) {
   const selectedSection = ref("overview");
   const sections = computed(() => dashboardSections.filter(
-    (section) => section.id !== "users" || currentUser.value?.role === "super_admin",
+    (section) => section.id !== "users" || ["super_admin", "admin"].includes(currentUser.value?.role),
   ));
   const activeSection = computed(() => sections.value.some(
     (section) => section.id === selectedSection.value,

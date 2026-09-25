@@ -29,6 +29,9 @@ test("用户管理导航按权限显示，权限变化后回到基本信息", ()
   navigation.selectSection("users");
   assert.equal(navigation.activeSection.value, "users");
   user.value = { role: "admin" };
+  assert.equal(navigation.activeSection.value, "users");
+  assert.equal(navigation.sections.value.length, 6);
+  user.value = null;
   assert.equal(navigation.activeSection.value, "overview");
   assert.equal(navigation.sections.value.length, 5);
 });

@@ -1,6 +1,6 @@
 <script setup>
 import { useAppShell } from "./App.js";
-import AccessDenied from "./views/AccessDenied/AccessDenied.vue";
+import UserWorkspace from "./views/UserManagement/UserWorkspace.vue";
 import Dashboard from "./views/Dashboard/Dashboard.vue";
 import Login from "./views/Login/Login.vue";
 import PasswordReset from "./views/PasswordReset/PasswordReset.vue";
@@ -46,7 +46,7 @@ const {
 
   <Login v-else-if="setupState && authenticated === false" />
 
-  <AccessDenied
+  <UserWorkspace
     v-else-if="setupState && authenticated === true && isAdmin === false"
   />
 

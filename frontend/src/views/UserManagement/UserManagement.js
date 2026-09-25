@@ -11,8 +11,27 @@ const statusLabels = {
   disabled: "已禁用",
 };
 
+export function groupUsers(users) {
+  const groups = new Map();
+  const defaults = { name: "默认分组", isDefault: true, users: [] };
+  for (const user of users) {
+    const names = [...new Set(user.groups || [])];
+    if (!names.length) defaults.users.push(user);
+    for (const name of names) {
+      if (!groups.has(name)) groups.set(name, { name, isDefault: false, users: [] });
+      groups.get(name).users.push(user);
+    }
+  }
+  return [defaults, ...[...groups.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))];
+}
+
 export function useUserManagement() {
-  const visible = ref(false);
+  const visible = ref(true);
+  const currentRole = ref("");
+  const canManage = computed(() => currentRole.value === "super_admin");
+  const showGroups = computed(() => ["super_admin", "admin"].includes(currentRole.value));
+  const groupedUsers = computed(() => groupUsers(users.value));
+  const availableGroups = computed(() => groupedUsers.value.filter((group) => !group.isDefault).map((group) => group.name));
   const users = ref([]);
   const loading = ref(false);
   const saving = ref(false);
@@ -54,6 +73,7 @@ export function useUserManagement() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "读取用户列表失败");
       users.value = result.items || [];
+      currentRole.value = result.current_role || "";
       visible.value = true;
     } catch (err) {
       if (err.message !== "登录会话已过期，请重新登录") {
@@ -71,10 +91,12 @@ export function useUserManagement() {
       password: "",
       role: "user",
       status: "active",
+      groups: [],
     };
   }
 
   function openCreate() {
+    if (!canManage.value) return;
     editingId.value = "";
     editingRole.value = "";
     form.value = createEmptyForm();
@@ -83,7 +105,7 @@ export function useUserManagement() {
   }
 
   function openEdit(item) {
-    if (isPrimaryAccount(item)) return;
+    if (!canManage.value || isPrimaryAccount(item)) return;
     editingId.value = item.id;
     editingRole.value = item.role;
     form.value = {
@@ -92,6 +114,7 @@ export function useUserManagement() {
       password: "",
       role: item.role || "user",
       status: item.status || "active",
+      groups: [...(item.groups || [])],
     };
     formError.value = "";
     showForm.value = true;
@@ -103,11 +126,19 @@ export function useUserManagement() {
 
   async function saveUser() {
     formError.value = "";
+    if (!canManage.value) {
+      formError.value = "只有超级管理员可以修改用户";
+      return;
+    }
     if (editingId.value === "primary-super-admin") {
       formError.value = "主超级管理员不能通过用户管理修改";
       return;
     }
     const payload = { ...form.value };
+    if (payload.role.trim().toLowerCase() === "user" && payload.groups.length > 1) {
+      formError.value = "普通用户只能属于一个分组，请保留一个分组或清空为默认分组";
+      return;
+    }
     if (payload.role.trim().toLowerCase() === "super_admin" && editingRole.value !== "super_admin") {
       formError.value = "不能新增或提升为超级管理员";
       return;
@@ -143,7 +174,7 @@ export function useUserManagement() {
   }
 
   async function toggleStatus(item) {
-    if (isPrimaryAccount(item)) return;
+    if (!canManage.value || isPrimaryAccount(item)) return;
     const nextStatus = item.status === "active" ? "disabled" : "active";
     if (item.role === "super_admin" && nextStatus === "disabled") {
       notice.value = "最后一个超级管理员不能被禁用";
@@ -169,6 +200,7 @@ export function useUserManagement() {
   }
 
   async function deleteUser(item) {
+    if (!canManage.value) return;
     if (isPrimaryAccount(item)) return;
     if (!window.confirm(`确定删除用户“${item.username}”吗？`)) return;
     try {
@@ -191,6 +223,11 @@ export function useUserManagement() {
   onMounted(loadUsers);
 
   return {
+    currentRole,
+    canManage,
+    showGroups,
+    groupedUsers,
+    availableGroups,
     visible,
     users,
     loading,

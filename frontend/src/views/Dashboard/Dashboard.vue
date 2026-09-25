@@ -1,5 +1,4 @@
 <script setup>
-import ChangePassword from "../components/ChangePassword/ChangePassword.vue";
 import UserManagement from "../UserManagement/UserManagement.vue";
 import SettingsModal from "./SettingsModal.vue";
 import DomainModal from "./DomainModal.vue";
@@ -145,15 +144,11 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
         <h1>证书管理总览</h1>
       </div>
       <div class="topbar-actions">
-        <ChangePassword />
         <button class="secondary-button" type="button" @click="loadData">
           刷新状态
         </button>
         <button v-if="activeSection === 'activity'" class="secondary-button" type="button" @click="runRenewalNow">
           立即检查续期
-        </button>
-        <button class="secondary-button" type="button" @click="openSettings">
-          系统设置
         </button>
         <button
           class="secondary-button"
@@ -504,6 +499,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
         :active-section="activeSection"
         :sections="sections"
         @select="selectSection"
+        @settings="openSettings"
       />
     </div>
 

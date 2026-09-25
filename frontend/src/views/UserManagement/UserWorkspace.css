@@ -1,0 +1,26 @@
+.user-workspace {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.user-workspace header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.user-workspace h1 {
+  color: #25344d;
+  font-size: 26px;
+}
+
+.user-workspace button {
+  padding: 10px 16px;
+  border: 1px solid #d5ddea;
+  border-radius: 10px;
+  color: #32405a;
+  background: #fff;
+  cursor: pointer;
+}

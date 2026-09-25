@@ -4,7 +4,7 @@ defineProps({
   sections: { type: Array, required: true },
 });
 
-defineEmits(["select"]);
+defineEmits(["select", "settings"]);
 </script>
 
 <template>
@@ -55,6 +55,18 @@ defineEmits(["select"]);
         <i v-if="activeSection === section.id" class="navigation-current" aria-hidden="true"></i>
       </button>
     </template>
+    <button
+      class="navigation-item"
+      type="button"
+      title="配置服务、证书签发和邮件通知"
+      aria-haspopup="dialog"
+      @click="$emit('settings')"
+    >
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
+      </svg>
+      <span>系统设置</span>
+    </button>
     <p class="navigation-footer">SSL 证书管理</p>
   </nav>
 </template>

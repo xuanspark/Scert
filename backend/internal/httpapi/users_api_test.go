@@ -54,8 +54,8 @@ func TestUserManagementAuthorizationAndCRUD(t *testing.T) {
 	}
 	regularCookie := httpUserSessionCookie(server, "user-1", repository.UserRoleUser)
 	forbidden := serveUserRequest(server, regularCookie, http.MethodGet, "/api/v1/users", "")
-	if forbidden.Code != http.StatusForbidden {
-		t.Fatalf("普通用户请求应返回 403：%d %s", forbidden.Code, forbidden.Body.String())
+	if forbidden.Code != http.StatusOK || strings.Contains(forbidden.Body.String(), "primary-super-admin") || strings.Contains(forbidden.Body.String(), `"groups"`) {
+		t.Fatalf("普通用户只能读取自己且不显示分组：%d %s", forbidden.Code, forbidden.Body.String())
 	}
 
 	adminCookie := httpUserSessionCookie(server, "primary-super-admin", repository.UserRoleSuperAdmin)
