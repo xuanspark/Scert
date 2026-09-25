@@ -241,30 +241,29 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
           </div>
         </article>
       </div>
-    </section>
-
-    <section class="metrics-grid">
-      <article class="metric-card">
-        <span>服务版本</span><strong>{{ status?.version || "—" }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>数据库</span
-        ><strong>{{
-          displayLabel(
-            { sqlite: "SQLite", mysql: "MySQL" },
-            status?.database_driver,
-          )
-        }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>HTTPS 模式</span
-        ><strong>{{
-          displayLabel(httpsModeLabels, status?.https_mode)
-        }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>托管域名</span><strong>{{ domains.length }}</strong>
-      </article>
+      <div class="overview-details-grid">
+        <article class="overview-detail-card">
+          <span>服务版本</span>
+          <strong>{{ status?.version || "—" }}</strong>
+        </article>
+        <article class="overview-detail-card">
+          <span>数据库</span>
+          <strong>{{
+            displayLabel(
+              { sqlite: "SQLite", mysql: "MySQL" },
+              status?.database_driver,
+            )
+          }}</strong>
+        </article>
+        <article class="overview-detail-card">
+          <span>HTTPS 模式</span>
+          <strong>{{ displayLabel(httpsModeLabels, status?.https_mode) }}</strong>
+        </article>
+        <article class="overview-detail-card">
+          <span>托管域名</span>
+          <strong>{{ domains.length }} 个</strong>
+        </article>
+      </div>
     </section>
 
     </div>
