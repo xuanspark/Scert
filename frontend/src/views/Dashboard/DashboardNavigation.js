@@ -2,7 +2,7 @@ import { computed, ref } from "vue";
 
 export const dashboardSections = [
   { id: "overview", label: "基本信息", group: "总览", hint: "查看用户、域名状态、证书到期时间和部署服务器" },
-  { id: "activity", label: "运行概览", group: "总览", hint: "查看证书、任务与审计日志" },
+  { id: "activity", label: "运行概览", group: "总览", hint: "查看证书有效期、续期覆盖和任务执行情况" },
   { id: "domains", label: "域名配置", group: "证书与部署", hint: "管理域名、申请证书和执行部署" },
   { id: "servers", label: "部署服务器", group: "证书与部署", hint: "配置部署目标及 SSH 认证方式" },
   { id: "keys", label: "SSH 私钥", group: "证书与部署", hint: "管理加密保存的 SSH 私钥" },

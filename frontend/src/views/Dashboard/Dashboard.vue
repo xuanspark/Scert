@@ -4,6 +4,7 @@ import UserManagement from "../UserManagement/UserManagement.vue";
 import SettingsModal from "./SettingsModal.vue";
 import DomainModal from "./DomainModal.vue";
 import ServerModal from "./ServerModal.vue";
+import RuntimeOverview from "./RuntimeOverview.vue";
 import SSHKeyModal from "./SSHKeyModal.vue";
 import DashboardNavigation from "./DashboardNavigation.vue";
 import { useDashboardNavigation } from "./DashboardNavigation.js";
@@ -327,70 +328,11 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
     <section v-if="activeSection === 'activity'" class="panel operations-panel">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow">运行概览</p>
-          <h2>最近活动</h2>
+          <h2>运行概览</h2>
         </div>
-        <span class="muted">最近 20 条记录</span>
+        <span class="muted">证书有效期 · 自动续期 · 任务执行</span>
       </div>
-      <div class="operation-columns">
-        <div>
-          <h3>证书状态</h3>
-          <div v-if="certificates.length === 0" class="empty-state compact-empty">暂无证书记录</div>
-          <div v-else class="record-list" tabindex="0">
-            <article v-for="item in certificates" :key="item.domain.id" class="record-row">
-              <div>
-                <strong>{{ item.domain.name }}</strong>
-                <span v-if="item.certificate" class="muted">到期：{{ formatDate(item.certificate.saved.not_after) }}</span>
-                <span v-else class="muted">{{ item.certificate_error || "读取失败" }}</span>
-              </div>
-              <span v-if="item.certificate" class="tag success">已保存</span>
-              <span v-else class="tag warning">未保存</span>
-            </article>
-          </div>
-        </div>
-        <div>
-          <h3>任务记录</h3>
-          <div v-if="tasks.length === 0" class="empty-state compact-empty">暂无任务记录</div>
-          <div v-else class="record-list" tabindex="0">
-            <article v-for="item in tasks" :key="item.id" class="record-row">
-              <div>
-                <strong>{{ taskTypeLabel(item.task_type) }}</strong>
-                <span class="muted">{{ item.message || "无附加信息" }}</span>
-              </div>
-              <div class="record-row-actions">
-                <span class="tag" :class="statusClass(item.status)">{{ displayLabel(taskStatusLabels, item.status) }}</span>
-                <button class="text-button" type="button" @click="openTaskDetails(item)">
-                  查看详情
-                </button>
-                <button
-                  v-if="item.task_type !== 'management_renewal' && (item.status === 'queued' || item.status === 'running')"
-                  class="text-button"
-                  type="button"
-                  @click="cancelTask(item)"
-                >
-                  取消任务
-                </button>
-              </div>
-            </article>
-          </div>
-        </div>
-        <div>
-          <h3>审计日志</h3>
-          <div v-if="auditLogs.length === 0" class="empty-state compact-empty">暂无审计日志</div>
-          <div v-else class="record-list" tabindex="0">
-            <article v-for="item in auditLogs" :key="item.id" class="record-row">
-              <div>
-                <strong>{{ auditActionLabel(item.action) }}</strong>
-                <span class="muted">{{ item.message || item.resource_type }}</span>
-              </div>
-              <span v-if="item.status === 'success' || item.status === 'failed'" class="tag" :class="statusClass(item.status)">{{ item.status === "success" ? "成功" : "失败" }}</span>
-              <span v-else class="tag" :class="statusClass(item.status)">
-                {{ displayLabel(taskStatusLabels, item.status) }}
-              </span>
-            </article>
-          </div>
-        </div>
-      </div>
+      <RuntimeOverview :state="dashboard" @navigate="selectSection" />
     </section>
 
     <section v-if="activeSection === 'domains'" class="panel">

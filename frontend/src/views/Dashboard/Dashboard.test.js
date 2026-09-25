@@ -3,6 +3,7 @@ import test from "node:test";
 import { nextTick, ref } from "vue";
 import { useDashboard } from "./Dashboard.js";
 import { useDashboardNavigation } from "./DashboardNavigation.js";
+import { summarizeRuntime, runtimeTime, useRuntimeOverview } from "./RuntimeOverview.js";
 import { aliyunProvider, deferred, mountComposable, verifiedResponse } from "../../test-support/mount.js";
 
 test("板块导航默认只选中基本信息，超级管理员可切换全部板块", () => {
@@ -88,7 +89,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
   const navigation = useDashboardNavigation(state.currentUser);
   const headings = {
     overview: "基本信息",
-    activity: "最近活动",
+    activity: "运行概览",
     domains: "托管域名",
     servers: "部署服务器",
     keys: "SSH 私钥",
@@ -100,7 +101,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
       render,
       setup: () => ({ ...state, ...navigation, dashboard: state }),
     });
-    for (const name of ["ChangePassword", "DashboardNavigation", "SettingsModal", "DomainModal", "ServerModal", "SSHKeyModal"]) {
+    for (const name of ["ChangePassword", "DashboardNavigation", "SettingsModal", "DomainModal", "ServerModal", "SSHKeyModal", "RuntimeOverview"]) {
       app.component(name, { render: () => null });
     }
     app.component("UserManagement", { render: () => Vue.h("h2", headings.users) });
@@ -389,7 +390,7 @@ test("auditStatusRendering", async () => {
   const { compileTemplate } = await import("@vue/compiler-sfc");
   const { renderToString } = await import("@vue/server-renderer");
   const { createSSRApp } = await import("vue");
-  const source = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const source = await readFile(new URL("./RuntimeOverview.vue", import.meta.url), "utf8");
   const start = source.indexOf('<article v-for="item in auditLogs"');
   assert.notEqual(start, -1);
   const end = source.indexOf("</article>", start) + "</article>".length;
@@ -681,11 +682,104 @@ test("domainAction.refreshesSuccessfulResultAndRetainsNotice", async (t) => {
 
 test("dashboardLayout.keepsActivityListsBoundedAndKeyboardAccessible", async () => {
   const { readFile } = await import("node:fs/promises");
-  const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
-  const stylesheet = await readFile(new URL("./Dashboard.css", import.meta.url), "utf8");
-  assert.equal((template.match(/class="record-list" tabindex="0"/g) || []).length, 3);
-  assert.match(stylesheet, /\.record-list\s*\{[^}]*max-height:\s*280px;[^}]*overflow-y:\s*auto;/);
-  assert.match(stylesheet, /\.record-list:focus-visible/);
+  const template = await readFile(new URL("./RuntimeOverview.vue", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("./RuntimeOverview.css", import.meta.url), "utf8");
+  assert.match(template, /class="runtime-table-scroll" tabindex="0"/);
+  assert.match(template, /class="runtime-audit-list" tabindex="0"/);
+  assert.match(stylesheet, /\.runtime-audit-list\s*\{[^}]*max-height:[^;]+;[^}]*overflow:\s*auto;/);
+  assert.match(stylesheet, /\.runtime-table-scroll:focus-visible/);
+  assert.match(stylesheet, /\.runtime-audit-list:focus-visible/);
+});
+
+test("runtimeOverview.summarizesCertificateBoundariesAndConfiguration", () => {
+  const now = Date.parse("2026-09-25T12:00:00Z");
+  const day = 86400000;
+  const domains = ["valid", "near", "expired", "missing", "invalid", "future"].map((id) => ({ id, name: `${id}.test`, auto_renew: id === "valid" }));
+  const certificate = (id, end, start = now - day) => ({ domain: { id }, certificate: { saved: { not_after: end, not_before: new Date(start).toISOString() } } });
+  const result = summarizeRuntime({
+    domains,
+    certificates: [
+      certificate("valid", new Date(now + 11 * day).toISOString()),
+      certificate("near", new Date(now + 10 * day).toISOString()),
+      certificate("expired", new Date(now).toISOString()),
+      certificate("invalid", "invalid"),
+      certificate("future", new Date(now + 30 * day).toISOString(), now + day),
+    ],
+    settings: { acme: { renewal_near_expiry_days: 10 } },
+    servers: [{ id: "server" }],
+    domainServers: { valid: [{ id: "server" }], near: [] },
+  }, now);
+  assert.equal(result.total, 6);
+  assert.equal(result.valid, 2);
+  assert.equal(result.expiring, 1);
+  assert.equal(result.expired, 1);
+  assert.equal(result.missing, 3);
+  assert.equal(result.alerts.length, 5);
+  assert.equal(result.alerts[0].id, "expired");
+  assert.equal(result.autoRenew, 1);
+  assert.equal(result.configuredServers, 1);
+  assert.equal(result.boundDomains, 1);
+});
+
+test("runtimeOverview.handlesEmptyDataThresholdsAndTaskOrdering", () => {
+  const empty = summarizeRuntime({});
+  for (const key of ["total", "valid", "expiring", "expired", "missing", "autoRenew", "configuredServers", "boundDomains", "activeTasks", "failedTasks"]) assert.equal(empty[key], 0);
+  for (const value of [0, -1, "invalid"]) assert.equal(summarizeRuntime({ settings: { acme: { renewal_near_expiry_days: value } } }).threshold, 10);
+  assert.equal(summarizeRuntime({ settings: { acme: { renewal_near_expiry_days: 30 } } }).threshold, 30);
+  const tasks = ["queued", "running", "failed", "error", "success", "cancelled"].map((status, index) => ({ id: index, status, created_at: `2026-09-25T12:0${index}:00Z` }));
+  const original = structuredClone(tasks);
+  const result = summarizeRuntime({ tasks });
+  assert.equal(result.activeTasks, 2);
+  assert.equal(result.failedTasks, 2);
+  assert.deepEqual(result.tasks.map((item) => item.id), [5, 4, 3, 2, 1, 0]);
+  assert.deepEqual(tasks, original);
+  assert.equal(runtimeTime(null), runtimeTime("invalid"));
+  assert.doesNotMatch(runtimeTime("2026-09-25T12:00:00Z"), /Invalid/);
+});
+
+test("runtimeOverview.defaultsToSummaryAndLimitsRecentTasks", async (t) => {
+  const data = {
+    domains: ref([{ id: "domain", name: "example.test" }]), certificates: ref([]),
+    servers: ref([]), domainServers: ref({}), settings: ref({}),
+    tasks: ref(Array.from({ length: 12 }, (_, id) => ({ id, status: "success" }))),
+  };
+  const { state } = await mountComposable(t, () => useRuntimeOverview(data), async () => Response.json({}));
+  assert.equal(state.detailView.value, "");
+  assert.equal(state.visibleTasks.value.length, 5);
+  state.detailView.value = "tasks";
+  assert.equal(state.visibleTasks.value.length, 12);
+  state.detailView.value = "";
+  assert.equal(state.visibleTasks.value.length, 5);
+  assert.equal(state.taskDomain({ domain_id: "domain" }), "example.test");
+  assert.notEqual(state.taskDomain({ task_type: "management_renewal" }), state.taskDomain({}));
+});
+
+test("runtimeOverview.compilesAndKeepsAuditOutOfDefaultView", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parse, compileScript, compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const Vue = await import("vue");
+  const source = await readFile(new URL("./RuntimeOverview.vue", import.meta.url), "utf8");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  assert.ok(compileScript(descriptor, { id: "runtime-overview" }));
+  const compiled = compileTemplate({ source: descriptor.template.content, filename: "RuntimeOverview.vue", id: "runtime-overview", compilerOptions: { mode: "function" } });
+  assert.deepEqual(compiled.errors, []);
+  const render = new Function("Vue", compiled.code)(Vue);
+  for (const detailView of ["", "tasks", "audit"]) {
+    const app = Vue.createSSRApp({ render, setup: () => ({
+      loading: false, error: "", detailView, summary: summarizeRuntime({}),
+      visibleTasks: [], auditLogs: [{ id: "audit", action: "login", status: "success", message: "audit-only-marker" }],
+      auditActionLabel: (value) => value, statusClass: () => "success",
+    }) });
+    app.component("HelpTip", { render: () => null });
+    const warnings = [];
+    app.config.warnHandler = (message) => warnings.push(message);
+    const html = await renderToString(app);
+    assert.equal(html.includes('class="runtime-metrics"'), detailView === "");
+    assert.equal(html.includes("audit-only-marker"), detailView === "audit");
+    assert.deepEqual(warnings, []);
+  }
 });
 
 test("dashboardLayout.replacesHeroWithBasicInformationSummary", async () => {

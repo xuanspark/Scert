@@ -1,0 +1,250 @@
+.runtime-overview {
+  color: #25344d;
+  font-size: 13px;
+}
+
+.runtime-toolbar,
+.runtime-actions,
+.runtime-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.runtime-toolbar {
+  margin-bottom: 10px;
+  color: #687792;
+}
+
+.runtime-overview button {
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #315faa;
+  background: #eff4fb;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.runtime-overview button:focus-visible,
+.runtime-table-scroll:focus-visible,
+.runtime-audit-list:focus-visible {
+  outline: 2px solid #315faa;
+  outline-offset: 2px;
+}
+
+.runtime-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.runtime-metric {
+  padding: 10px 16px;
+  border: 1px solid #e1e9f4;
+  border-radius: 12px;
+  background: #f7faff;
+}
+
+.runtime-metric > span {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  color: #62748f;
+}
+
+.runtime-metric > strong {
+  display: block;
+  margin: 5px 0;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.runtime-metric small {
+  color: #7b8ba3;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.runtime-metric p {
+  margin: 6px 0 0;
+  color: #687792;
+  font-size: 12px;
+}
+
+.runtime-metric.attention {
+  border-color: #f2dcbb;
+  background: #fffbf4;
+}
+
+.runtime-focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+  margin: 12px 0;
+}
+
+.runtime-focus {
+  min-width: 0;
+  padding: 12px 16px;
+  border: 1px solid #e6ecf5;
+  border-radius: 10px;
+}
+
+.runtime-section-heading {
+  margin-bottom: 8px;
+}
+
+.runtime-section-heading h3 {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: 14px;
+}
+
+.runtime-section-heading > span,
+.runtime-empty {
+  color: #7b8ba3;
+  font-size: 12px;
+}
+
+.runtime-clear {
+  color: #248158;
+}
+
+.runtime-alerts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runtime-alerts li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 5px 0;
+  overflow-wrap: anywhere;
+}
+
+.runtime-deployment {
+  display: flex;
+  gap: 28px;
+  margin: 10px 0 4px;
+}
+
+.runtime-deployment dt {
+  color: #687792;
+  font-size: 12px;
+}
+
+.runtime-deployment dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+.runtime-table-scroll,
+.runtime-audit-list {
+  max-height: max(210px, calc(100dvh - 360px));
+  overflow: auto;
+  border: 1px solid #e6ecf5;
+  border-radius: 10px;
+}
+
+.runtime-table-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.runtime-table-scroll th,
+.runtime-table-scroll td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #eef2f7;
+  vertical-align: middle;
+}
+
+.runtime-table-scroll th {
+  position: sticky;
+  top: 0;
+  color: #687792;
+  background: #f7f9fc;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.runtime-table-scroll td:first-child {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+
+.runtime-table-scroll td:not(:first-child) {
+  white-space: nowrap;
+}
+
+.runtime-table-scroll small,
+.runtime-audit-row small {
+  display: block;
+  margin-top: 4px;
+  color: #7b8ba3;
+  font-size: 12px;
+}
+
+.runtime-tag {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 20px;
+  background: #edf1f7;
+  font-size: 12px;
+}
+
+.runtime-tag.success {
+  color: #248158;
+  background: #e7f6ee;
+}
+
+.danger,
+.runtime-stale {
+  color: #c54343;
+}
+
+.runtime-tag.danger {
+  background: #fff0f0;
+}
+
+.warning {
+  color: #a46c13;
+}
+
+.runtime-tag.warning {
+  background: #fff5e3;
+}
+
+.runtime-audit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eef2f7;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1000px) {
+  .runtime-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .runtime-focus-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .runtime-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
