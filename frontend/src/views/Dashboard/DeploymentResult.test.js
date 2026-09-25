@@ -1,0 +1,86 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFile } from "node:fs/promises";
+import { parse, compileTemplate } from "@vue/compiler-sfc";
+import { useDashboard } from "./Dashboard.js";
+import { serverAuthLabel, deploymentSummary } from "./DeploymentFeedback.js";
+import { mountComposable, deferred } from "../../test-support/mount.js";
+
+const report = {
+  total: 1,
+  success: 1,
+  failed: 0,
+  status: "success",
+  results: [{ server_id: "server-1", server: "验收服务器", status: "success", message: "部署完成" }],
+};
+
+test("服务器认证提示区分密码、私钥及缺失配置", () => {
+  assert.equal(serverAuthLabel({ auth_method: "password", password_configured: true }), "SSH 密码已配置");
+  assert.equal(serverAuthLabel({ auth_method: "password", private_key_ref: "secret://test" }), "SSH 密码未配置");
+  assert.equal(serverAuthLabel({ auth_method: "private_key", private_key_ref: "secret://test" }), "SSH 私钥已配置");
+  assert.equal(serverAuthLabel({ auth_method: "private_key" }), "SSH 私钥未配置");
+  assert.equal(serverAuthLabel({}), "认证方式未确认");
+});
+
+test("部署汇总不把空目标、缺失结果或部分失败称为成功", () => {
+  assert.equal(deploymentSummary(report), "证书部署完成：1 台成功");
+  assert.equal(deploymentSummary(null), "未收到有效部署结果");
+  assert.equal(deploymentSummary({ total: 0, results: [] }), "未配置部署目标，未执行推送");
+  assert.match(deploymentSummary({ ...report, results: [] }), /未全部成功/);
+  assert.match(deploymentSummary({ ...report, status: "partial", failed: 1 }), /未全部成功/);
+});
+
+test("手动部署展示真实返回结果并阻止执行期间重复提交", async (t) => {
+  const pending = deferred();
+  let requests = 0;
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/deploy")) {
+      requests++;
+      return pending.promise;
+    }
+    return Response.json({ items: [] });
+  });
+  const action = state.deployDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(state.deploymentResult.value.running, true);
+  await state.deployDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(requests, 1);
+  pending.resolve(Response.json({ deployment: report }));
+  await action;
+  assert.equal(state.deploymentResult.value.running, false);
+  assert.deepEqual(state.deploymentResult.value.report, report);
+  assert.equal(state.notice.value, "证书部署完成：1 台成功");
+});
+
+test("部署失败仍保留各服务器结果，网络失败不会残留执行中状态", async (t) => {
+  let failNetwork = false;
+  const failed = { ...report, status: "failed", success: 0, failed: 1, results: [{ ...report.results[0], status: "failed" }] };
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/deploy")) {
+      if (failNetwork) throw new Error("network-test-failure");
+      return Response.json({ error: "部署失败", deployment: failed }, { status: 502 });
+    }
+    return Response.json({ items: [] });
+  });
+  await state.deployDomain({ id: "domain-1", name: "example.test" });
+  assert.deepEqual(state.deploymentResult.value.report, failed);
+  assert.equal(state.deploymentResult.value.error, "部署失败");
+  assert.equal(state.notice.value, "");
+  failNetwork = true;
+  await state.deployDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(state.deploymentResult.value.running, false);
+  assert.equal(state.deploymentResult.value.report, null);
+  assert.equal(state.deploymentResult.value.error, "network-test-failure");
+});
+
+test("部署结果组件可编译且认证提示绑定真实配置", async () => {
+  const source = await readFile(new URL("./DeploymentResult.vue", import.meta.url), "utf8");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  const compiled = compileTemplate({ source: descriptor.template.content, filename: "DeploymentResult.vue", id: "deployment-result" });
+  assert.deepEqual(compiled.errors, []);
+  assert.match(source, /:disabled="result.running"/);
+  assert.match(source, /role="dialog"/);
+  const dashboard = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  assert.match(dashboard, /serverAuthLabel\(item\)/);
+  assert.match(dashboard, /item.auth_method === 'private_key' && item.private_key_ref/);
+});

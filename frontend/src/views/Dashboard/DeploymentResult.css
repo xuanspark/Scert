@@ -1,0 +1,28 @@
+.deployment-result {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+
+.deployment-summary {
+  font-weight: 600;
+}
+
+.deployment-targets {
+  max-height: 40dvh;
+  overflow: auto;
+}
+
+.deployment-target {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.deployment-target p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}

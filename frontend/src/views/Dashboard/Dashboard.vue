@@ -8,6 +8,7 @@ import SSHKeyModal from "./SSHKeyModal.vue";
 import DashboardNavigation from "./DashboardNavigation.vue";
 import { useDashboardNavigation } from "./DashboardNavigation.js";
 import { useDashboard } from "./Dashboard.js";
+import DeploymentResult from "./DeploymentResult.vue";
 
 const dashboard = useDashboard();
 const {
@@ -128,6 +129,8 @@ const {
   taskAttempts,
   taskDetailsLoading,
   taskDetailsError,
+  deploymentResult,
+  serverAuthLabel,
   displayLabel,
   formatDate,
   daysRemaining,
@@ -471,7 +474,8 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             </div>
             <div class="domain-meta">
               <span>{{ item.username }}@{{ item.address }}:{{ item.port }}</span
-              ><span>私钥引用已配置</span
+              ><span v-if="item.auth_method === 'private_key' && item.private_key_ref">私钥引用已配置</span
+              ><span v-else>{{ serverAuthLabel(item) }}</span
               ><span>指纹：{{ item.host_key_fingerprint }}</span>
             </div>
           </div>
@@ -549,6 +553,12 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
     <ServerModal v-if="showServerForm" :state="dashboard" />
 
     <SSHKeyModal v-if="showSSHKeyForm" :state="dashboard" />
+
+    <DeploymentResult
+      v-if="deploymentResult"
+      :result="deploymentResult"
+      @close="deploymentResult = null"
+    />
 
     <div v-if="showTaskDetails" class="modal-backdrop" @click.self="closeTaskDetails">
       <section class="modal-card task-details-modal" role="dialog" aria-modal="true" aria-label="任务详情">

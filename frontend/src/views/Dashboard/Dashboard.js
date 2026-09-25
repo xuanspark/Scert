@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { settingsPayload } from "./SettingsPayload.js";
+import { deploymentSummary, serverAuthLabel } from "./DeploymentFeedback.js";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
 const aliyunDNSVerificationTimeoutSeconds = 6;
@@ -71,6 +72,8 @@ export function useDashboard() {
   const taskAttempts = ref([]);
   const taskDetailsLoading = ref(false);
   const taskDetailsError = ref("");
+  const deploymentResult = ref(null);
+  const domainActionRunning = ref(false);
   const hasOpenModal = computed(
     () =>
       showForm.value ||
@@ -78,6 +81,7 @@ export function useDashboard() {
       showSSHKeyForm.value ||
       showSettings.value ||
       showCertificateImport.value ||
+      deploymentResult.value !== null ||
       showTaskDetails.value,
   );
   let previousBodyOverflow = "";
@@ -719,6 +723,11 @@ export function useDashboard() {
   }
 
   async function runDomainAction(item, action, successMessage) {
+    if (domainActionRunning.value) return;
+    domainActionRunning.value = true;
+    if (action === "deploy") {
+      deploymentResult.value = { domain: item.name, running: true, report: null, error: "" };
+    }
     error.value = "";
     notice.value = "";
     try {
@@ -729,12 +738,26 @@ export function useDashboard() {
       }
       const response = await fetchAdmin(`/api/v1/domains/${item.id}/${action}`, options);
       const result = await response.json().catch(() => ({}));
+      if (action === "deploy") {
+        deploymentResult.value = {
+          domain: item.name,
+          running: false,
+          report: result.deployment || null,
+          error: response.ok && result.deployment ? "" : result.error || deploymentSummary(null),
+        };
+      }
       if (!response.ok) throw new Error(result.error || "域名操作失败");
       notice.value = successMessage;
+      if (action === "deploy") notice.value = deploymentSummary(result.deployment);
     } catch (err) {
       error.value = err.message || "域名操作失败";
     } finally {
       const actionError = error.value;
+      if (action === "deploy" && deploymentResult.value) {
+        deploymentResult.value.running = false;
+        if (actionError) deploymentResult.value.error = actionError;
+      }
+      domainActionRunning.value = false;
       await loadData();
       if (actionError) error.value = actionError;
     }
@@ -1262,6 +1285,7 @@ export function useDashboard() {
     dnsProviders,
     environmentLabels,
     webServerLabels,
+    serverAuthLabel,
     isEditing,
     formTitle,
     form,
@@ -1319,6 +1343,7 @@ export function useDashboard() {
     taskAttempts,
     taskDetailsLoading,
     taskDetailsError,
+    deploymentResult,
     taskTypeLabel,
     auditActionLabel,
     taskStageLabel,

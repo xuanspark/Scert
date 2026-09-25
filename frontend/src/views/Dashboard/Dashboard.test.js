@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./DeploymentResult.test.js";
 import test from "node:test";
 import { nextTick, ref } from "vue";
 import { useDashboard } from "./Dashboard.js";
@@ -108,6 +109,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
       app.component(name, { render: () => null });
     }
     app.component("UserManagement", { render: () => Vue.h("h2", headings.users) });
+    app.component("DeploymentResult", { render: () => null });
     const warnings = [];
     app.config.warnHandler = (message) => warnings.push(message);
     const html = await renderToString(app);
