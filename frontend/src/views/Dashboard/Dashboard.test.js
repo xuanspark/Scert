@@ -135,6 +135,20 @@ async function setup(t, request) {
   return mounted;
 }
 
+test("编辑服务器正确保留已有密码状态，新建和未配置密码仍要求输入", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  state.openServerEdit({ id: "configured", auth_method: "password", password_configured: true });
+  assert.equal(state.serverForm.value.passwordConfigured, true);
+  assert.equal(state.serverForm.value.password, "");
+  for (const password_configured of [false, undefined]) {
+    state.openServerEdit({ id: "missing", auth_method: "password", password_configured });
+    assert.equal(state.serverForm.value.passwordConfigured, false);
+  }
+  state.openServerCreate();
+  assert.equal(state.serverForm.value.passwordConfigured, false);
+  assert.equal(state.serverEditingId.value, "");
+});
+
 async function fill(state) {
   state.settingsForm.value.dns.credentials = { access_key_id: "fake-key" };
   state.settingsForm.value.dns.test_domain = "example.test";

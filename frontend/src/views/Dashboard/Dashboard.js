@@ -572,6 +572,7 @@ export function useDashboard() {
     serverEditingId.value = item.id;
     serverForm.value = {
       ...item,
+      passwordConfigured: item.password_configured === true,
       password: "",
       validation_command: (item.validation_command || []).join("\n"),
       reload_command: (item.reload_command || []).join("\n"),
