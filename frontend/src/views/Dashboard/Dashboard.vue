@@ -9,8 +9,8 @@ import { useDashboard } from "./Dashboard.js";
 
 const dashboard = useDashboard();
 const {
-  scertLogo,
   status,
+  currentUser,
   domains,
   servers,
   sshKeys,
@@ -153,23 +153,69 @@ const {
       </div>
     </header>
 
-    <section class="hero-card">
-      <div>
-        <span class="status-dot" :class="{ online: status }"></span>
-        <span class="status-label">{{
-          status ? "核心服务运行中" : "等待连接核心服务"
-        }}</span>
-        <h2>让证书续期和部署变得可追踪</h2>
-        <p>
-          统一管理单域名、泛域名和 SAN 证书，当前已接入 lego、DNS
-          验证、自动续期、远程部署与部署后校验流程。
-        </p>
-      </div>
-      <img class="hero-mark" :src="scertLogo" alt="Scert 标志" />
-    </section>
-
     <p v-if="error" class="error-banner">{{ error }}</p>
     <p v-if="notice" class="notice-banner">{{ notice }}</p>
+
+    <section class="panel overview-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">首页概览</p>
+          <h2>基本信息</h2>
+        </div>
+        <span class="muted">当前登录与托管资源</span>
+      </div>
+      <div class="overview-summary-grid">
+        <article class="overview-summary-card">
+          <span>当前用户</span>
+          <strong>{{ currentUser?.account || "—" }}</strong>
+          <small>{{ currentUser?.email || "未绑定邮箱" }}</small>
+        </article>
+        <article class="overview-summary-card">
+          <span>服务状态</span>
+          <strong class="overview-status">
+            <i class="status-dot" :class="{ online: status }"></i>
+            {{ status ? "核心服务运行中" : "等待连接核心服务" }}
+          </strong>
+          <small>版本 {{ status?.version || "—" }}</small>
+        </article>
+        <article class="overview-summary-card">
+          <span>托管域名</span>
+          <strong>{{ domains.length }} 个</strong>
+          <small>已配置的证书管理对象</small>
+        </article>
+      </div>
+      <div v-if="loading" class="empty-state compact-empty">正在读取域名状态……</div>
+      <div v-else-if="domains.length === 0" class="empty-state compact-empty">
+        <strong>还没有托管域名</strong>
+        <span>添加第一个域名，开始管理证书申请和自动续期。</span>
+      </div>
+      <div v-else class="overview-domain-list">
+        <article v-for="item in domains" :key="item.id" class="overview-domain-row">
+          <div class="overview-domain-main">
+            <strong>{{ item.name }}</strong>
+            <span class="tag" :class="statusClass(item.status)">
+              {{ displayLabel(domainStatusLabels, item.status) }}
+            </span>
+          </div>
+          <div class="overview-domain-field">
+            <span>到期时间</span>
+            <strong>{{ formatDate(item.expires_at) }}</strong>
+            <small>{{ daysRemaining(item.expires_at) }}</small>
+          </div>
+          <div class="overview-domain-field">
+            <span>部署服务器</span>
+            <strong>
+              {{
+                (domainServers[item.id] || [])
+                  .map((server) => server.name)
+                  .join("、") || "未配置"
+              }}
+            </strong>
+            <small>{{ item.auto_renew ? "自动续期已开启" : "自动续期已关闭" }}</small>
+          </div>
+        </article>
+      </div>
+    </section>
 
     <section class="metrics-grid">
       <article class="metric-card">

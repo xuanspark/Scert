@@ -11,9 +11,8 @@ function dnsVerificationTimeoutFor(providerID) {
 }
 
 export function useDashboard() {
-  const scertLogo = "/Scert.png";
-
   const status = ref(null);
+  const currentUser = ref(null);
   const domains = ref([]);
   const servers = ref([]);
   const sshKeys = ref([]);
@@ -1079,6 +1078,7 @@ export function useDashboard() {
     try {
       const [
         statusResponse,
+        authResponse,
         domainResponse,
         serverResponse,
         sshKeyResponse,
@@ -1089,6 +1089,7 @@ export function useDashboard() {
         dnsProviderResponse,
       ] = await Promise.all([
         fetchAdmin("/api/v1/status"),
+        fetchAdmin("/api/v1/auth/session"),
         fetchAdmin("/api/v1/domains"),
         fetchAdmin("/api/v1/servers"),
         fetchAdmin("/api/v1/ssh-keys"),
@@ -1113,6 +1114,7 @@ export function useDashboard() {
         throw new Error(await responseError(failedResponse, "读取管理数据失败"));
       }
       status.value = await statusResponse.json();
+      currentUser.value = await authResponse.json();
       domains.value = (await domainResponse.json()).items || [];
       servers.value = (await serverResponse.json()).items || [];
       sshKeys.value = (await sshKeyResponse.json()).items || [];
@@ -1160,8 +1162,8 @@ export function useDashboard() {
   });
 
   return {
-    scertLogo,
     status,
+    currentUser,
     domains,
     servers,
     sshKeys,

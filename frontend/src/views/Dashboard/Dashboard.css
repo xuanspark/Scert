@@ -65,28 +65,6 @@ h2 {
   cursor: wait;
   opacity: 0.6;
 }
-.hero-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 250px;
-  margin: 36px 0 18px;
-  padding: 36px 42px;
-  border-radius: 28px;
-  color: #fff;
-  background: linear-gradient(120deg, #182b5b, #315aaa);
-  box-shadow: 0 20px 45px rgba(42, 75, 145, 0.2);
-}
-.hero-card p {
-  max-width: 650px;
-  margin-bottom: 0;
-  color: #d5e1ff;
-  line-height: 1.8;
-}
-.status-label {
-  font-size: 13px;
-  font-weight: 800;
-}
 .status-dot {
   display: inline-block;
   width: 9px;
@@ -98,13 +76,6 @@ h2 {
 .status-dot.online {
   background: #5ee0a0;
   box-shadow: 0 0 0 5px rgba(94, 224, 160, 0.15);
-}
-.hero-mark {
-  display: block;
-  width: 138px;
-  height: 138px;
-  object-fit: contain;
-  filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.18));
 }
 .error-banner,
 .notice-banner {
@@ -121,6 +92,84 @@ h2 {
   border: 1px solid #bfe7d1;
   color: #24734b;
   background: #effbf4;
+}
+.overview-panel {
+  margin: 28px 0 18px;
+}
+.overview-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.overview-summary-card,
+.overview-domain-row {
+  border: 1px solid #e2e8f2;
+  border-radius: 14px;
+  background: #fbfcfe;
+}
+.overview-summary-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 16px;
+}
+.overview-summary-card > span,
+.overview-domain-field > span,
+.overview-summary-card small,
+.overview-domain-field small {
+  color: #7a879d;
+  font-size: 12px;
+}
+.overview-summary-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 20px;
+}
+.overview-summary-card small,
+.overview-domain-field small {
+  line-height: 1.45;
+}
+.overview-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-size: 17px !important;
+}
+.overview-status .status-dot {
+  flex: 0 0 auto;
+  margin-right: 0;
+}
+.overview-domain-list {
+  display: grid;
+  gap: 10px;
+}
+.overview-domain-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(130px, 0.8fr) minmax(180px, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 15px 16px;
+}
+.overview-domain-main,
+.overview-domain-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.overview-domain-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.overview-domain-main strong,
+.overview-domain-field strong {
+  overflow-wrap: anywhere;
+}
+.overview-domain-field strong {
+  font-size: 14px;
 }
 .metrics-grid {
   display: grid;
@@ -562,12 +611,9 @@ code {
   .topbar-actions button {
     flex: 1 1 calc(50% - 10px);
   }
-  .hero-card {
-    align-items: flex-start;
-    padding: 28px;
-  }
-  .hero-mark {
-    display: none;
+  .overview-summary-grid,
+  .overview-domain-row {
+    grid-template-columns: 1fr;
   }
   .metrics-grid {
     grid-template-columns: repeat(2, 1fr);

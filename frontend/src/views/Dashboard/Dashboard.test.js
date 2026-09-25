@@ -576,6 +576,19 @@ test("dashboardLayout.keepsActivityListsBoundedAndKeyboardAccessible", async () 
   assert.match(stylesheet, /\.record-list:focus-visible/);
 });
 
+test("dashboardLayout.replacesHeroWithBasicInformationSummary", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("./Dashboard.css", import.meta.url), "utf8");
+  assert.doesNotMatch(template, /class="hero-card"/);
+  assert.match(template, /class="panel overview-panel"/);
+  assert.match(template, /当前用户/);
+  assert.match(template, /到期时间/);
+  assert.match(template, /部署服务器/);
+  assert.match(stylesheet, /\.overview-summary-grid\s*\{[^}]*grid-template-columns: repeat\(3/);
+  assert.match(stylesheet, /\.overview-domain-row\s*\{[^}]*grid-template-columns:/);
+});
+
 test("dashboardLayout.usesSharedTooltipForUserManagementDescription", async () => {
   const { readFile } = await import("node:fs/promises");
   const template = await readFile(new URL("../UserManagement/UserManagement.vue", import.meta.url), "utf8");
