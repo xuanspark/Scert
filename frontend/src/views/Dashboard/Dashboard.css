@@ -170,7 +170,15 @@ h2 {
 }
 .record-list {
   display: grid;
+  align-content: start;
   gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.record-list:focus-visible {
+  outline: 2px solid #315aaa;
+  outline-offset: 3px;
 }
 .record-row {
   display: flex;

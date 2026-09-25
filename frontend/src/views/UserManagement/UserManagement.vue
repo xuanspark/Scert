@@ -1,4 +1,5 @@
 <script setup>
+import HelpTip from "../components/HelpTip/HelpTip.vue";
 import { useUserManagement } from "./UserManagement.js";
 
 const {
@@ -32,9 +33,9 @@ const {
       <div>
         <p class="eyebrow">权限与账号</p>
         <h2>用户管理</h2>
-        <p class="user-management-description">
+        <HelpTip>
           管理登录账号、角色和使用状态。密码只在服务端保存摘要。
-        </p>
+        </HelpTip>
       </div>
       <div class="user-management-actions">
         <button class="secondary-button" type="button" :disabled="loading" @click="loadUsers">

@@ -566,3 +566,20 @@ test("domainAction.refreshesSuccessfulResultAndRetainsNotice", async (t) => {
   assert.match(state.notice.value, /example\.test/);
   assert.deepEqual(state.tasks.value, [{ id: "task-2", status: "success" }]);
 });
+
+test("dashboardLayout.keepsActivityListsBoundedAndKeyboardAccessible", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("./Dashboard.css", import.meta.url), "utf8");
+  assert.equal((template.match(/class="record-list" tabindex="0"/g) || []).length, 3);
+  assert.match(stylesheet, /\.record-list\s*\{[^}]*max-height:\s*280px;[^}]*overflow-y:\s*auto;/);
+  assert.match(stylesheet, /\.record-list:focus-visible/);
+});
+
+test("dashboardLayout.usesSharedTooltipForUserManagementDescription", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("../UserManagement/UserManagement.vue", import.meta.url), "utf8");
+  assert.match(template, /import HelpTip from "\.\.\/components\/HelpTip\/HelpTip.vue";/);
+  assert.match(template, /<HelpTip>[\s\S]*?<\/HelpTip>/);
+  assert.doesNotMatch(template, /<p class="user-management-description">/);
+});

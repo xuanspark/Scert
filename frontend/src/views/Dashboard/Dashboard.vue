@@ -209,7 +209,7 @@ const {
         <div>
           <h3>证书状态</h3>
           <div v-if="certificates.length === 0" class="empty-state compact-empty">暂无证书记录</div>
-          <div v-else class="record-list">
+          <div v-else class="record-list" tabindex="0">
             <article v-for="item in certificates" :key="item.domain.id" class="record-row">
               <div>
                 <strong>{{ item.domain.name }}</strong>
@@ -224,7 +224,7 @@ const {
         <div>
           <h3>任务记录</h3>
           <div v-if="tasks.length === 0" class="empty-state compact-empty">暂无任务记录</div>
-          <div v-else class="record-list">
+          <div v-else class="record-list" tabindex="0">
             <article v-for="item in tasks" :key="item.id" class="record-row">
               <div>
                 <strong>{{ taskTypeLabel(item.task_type) }}</strong>
@@ -250,7 +250,7 @@ const {
         <div>
           <h3>审计日志</h3>
           <div v-if="auditLogs.length === 0" class="empty-state compact-empty">暂无审计日志</div>
-          <div v-else class="record-list">
+          <div v-else class="record-list" tabindex="0">
             <article v-for="item in auditLogs" :key="item.id" class="record-row">
               <div>
                 <strong>{{ auditActionLabel(item.action) }}</strong>
