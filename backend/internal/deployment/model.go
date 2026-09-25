@@ -12,6 +12,13 @@ import (
 
 type WebServer string
 
+type SSHAuthMethod string
+
+const (
+	SSHAuthPrivateKey SSHAuthMethod = "private_key"
+	SSHAuthPassword   SSHAuthMethod = "password"
+)
+
 const (
 	WebServerNginx  WebServer = "nginx"
 	WebServerCaddy  WebServer = "caddy"
@@ -28,21 +35,24 @@ const (
 var serverPathPlaceholderPattern = regexp.MustCompile(`\{[^{}]+\}`)
 
 type Server struct {
-	ID                   string    `json:"id"`
-	Name                 string    `json:"name"`
-	Address              string    `json:"address"`
-	Port                 int       `json:"port"`
-	Username             string    `json:"username"`
-	PrivateKeyRef        string    `json:"private_key_ref"`
-	HostKeyFingerprint   string    `json:"host_key_fingerprint"`
-	CertificatePath      string    `json:"certificate_path"`
-	PrivateKeyPath       string    `json:"private_key_path"`
-	CertificateChainPath string    `json:"certificate_chain_path"`
-	WebServer            WebServer `json:"web_server"`
-	ValidationCommand    []string  `json:"validation_command,omitempty"`
-	ReloadCommand        []string  `json:"reload_command,omitempty"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ID                   string        `json:"id"`
+	Name                 string        `json:"name"`
+	Address              string        `json:"address"`
+	Port                 int           `json:"port"`
+	Username             string        `json:"username"`
+	AuthMethod           SSHAuthMethod `json:"auth_method"`
+	PrivateKeyRef        string        `json:"private_key_ref"`
+	PasswordRef          string        `json:"-"`
+	PasswordConfigured   bool          `json:"password_configured"`
+	HostKeyFingerprint   string        `json:"host_key_fingerprint"`
+	CertificatePath      string        `json:"certificate_path"`
+	PrivateKeyPath       string        `json:"private_key_path"`
+	CertificateChainPath string        `json:"certificate_chain_path"`
+	WebServer            WebServer     `json:"web_server"`
+	ValidationCommand    []string      `json:"validation_command,omitempty"`
+	ReloadCommand        []string      `json:"reload_command,omitempty"`
+	CreatedAt            time.Time     `json:"created_at"`
+	UpdatedAt            time.Time     `json:"updated_at"`
 }
 
 func (s Server) Normalize() Server {
@@ -50,7 +60,17 @@ func (s Server) Normalize() Server {
 	s.Name = strings.TrimSpace(s.Name)
 	s.Address = strings.TrimSpace(s.Address)
 	s.Username = strings.TrimSpace(s.Username)
+	s.AuthMethod = SSHAuthMethod(strings.ToLower(strings.TrimSpace(string(s.AuthMethod))))
 	s.PrivateKeyRef = strings.TrimSpace(s.PrivateKeyRef)
+	s.PasswordRef = strings.TrimSpace(s.PasswordRef)
+	s.PasswordConfigured = s.PasswordRef != ""
+	if s.AuthMethod == "" {
+		if s.PasswordRef != "" {
+			s.AuthMethod = SSHAuthPassword
+		} else {
+			s.AuthMethod = SSHAuthPrivateKey
+		}
+	}
 	s.HostKeyFingerprint = strings.TrimSpace(s.HostKeyFingerprint)
 	s.CertificatePath = strings.TrimSpace(s.CertificatePath)
 	s.PrivateKeyPath = strings.TrimSpace(s.PrivateKeyPath)
@@ -164,8 +184,17 @@ func (s Server) Validate() error {
 	if s.Username == "" {
 		return errors.New("SSH 用户不能为空")
 	}
-	if s.PrivateKeyRef == "" {
-		return errors.New("SSH 私钥引用不能为空")
+	switch s.AuthMethod {
+	case SSHAuthPrivateKey:
+		if s.PrivateKeyRef == "" {
+			return errors.New("SSH \u79c1\u94a5\u5f15\u7528\u4e0d\u80fd\u4e3a\u7a7a")
+		}
+	case SSHAuthPassword:
+		if s.PasswordRef == "" {
+			return errors.New("SSH \u5bc6\u7801\u5f15\u7528\u4e0d\u80fd\u4e3a\u7a7a")
+		}
+	default:
+		return fmt.Errorf("SSH \u8ba4\u8bc1\u65b9\u5f0f\u65e0\u6548\uff1a%s", s.AuthMethod)
 	}
 	if s.HostKeyFingerprint == "" {
 		return errors.New("SSH 主机指纹不能为空")

@@ -89,6 +89,25 @@ const {
                 required
                 type="text" /></label
             ><label class="field"
+              ><span>认证方式</span
+              ><select v-model="serverForm.auth_method">
+                <option value="password">SSH 密码</option>
+                <option value="private_key">SSH 私钥</option>
+              </select></label
+            >
+          </div>
+          <label v-if="serverForm.auth_method === 'password'" class="field">
+            <span>SSH 密码</span>
+            <input
+              v-model="serverForm.password"
+              type="password"
+              :required="!serverEditingId || !serverForm.passwordConfigured"
+              autocomplete="new-password"
+              placeholder="编辑时留空表示保留原密码"
+            />
+          </label>
+          <div v-else class="form-grid">
+            <label class="field"
               ><span class="field-label-row"
                 ><span>SSH 私钥</span
                 ><button

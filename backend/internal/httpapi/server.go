@@ -377,7 +377,9 @@ type serverRequest struct {
 	Address              string   `json:"address" binding:"required"`
 	Port                 int      `json:"port"`
 	Username             string   `json:"username" binding:"required"`
-	PrivateKeyRef        string   `json:"private_key_ref" binding:"required"`
+	AuthMethod           string   `json:"auth_method"`
+	PrivateKeyRef        string   `json:"private_key_ref"`
+	Password             string   `json:"password"`
 	HostKeyFingerprint   string   `json:"host_key_fingerprint" binding:"required"`
 	CertificatePath      string   `json:"certificate_path"`
 	PrivateKeyPath       string   `json:"private_key_path"`
@@ -700,11 +702,13 @@ func (s *Server) createServer(c *gin.Context) {
 	now := time.Now().UTC()
 	item.CreatedAt = now
 	item.UpdatedAt = now
-	if err := s.validateSSHKeyReference(c.Request.Context(), item.PrivateKeyRef); err != nil {
-		s.writeError(c, http.StatusBadRequest, "SSH 私钥引用无效", err)
+	item, cleanup, err := s.prepareServerCredential(c.Request.Context(), item, request.Password, nil)
+	if err != nil {
+		s.writeError(c, http.StatusBadRequest, "SSH 认证信息无效", err)
 		return
 	}
 	if err := s.servers.CreateServer(c.Request.Context(), item); err != nil {
+		cleanup()
 		s.writeError(c, serverErrorStatus(err), "保存服务器失败", err)
 		return
 	}
@@ -735,13 +739,20 @@ func (s *Server) updateServer(c *gin.Context) {
 	}
 	item.CreatedAt = existing.CreatedAt
 	item.UpdatedAt = time.Now().UTC()
-	if err := s.validateSSHKeyReference(c.Request.Context(), item.PrivateKeyRef); err != nil {
-		s.writeError(c, http.StatusBadRequest, "SSH 私钥引用无效", err)
+	item, cleanup, err := s.prepareServerCredential(c.Request.Context(), item, request.Password, &existing)
+	if err != nil {
+		s.writeError(c, http.StatusBadRequest, "SSH 认证信息无效", err)
 		return
 	}
 	if err := s.servers.UpdateServer(c.Request.Context(), item); err != nil {
+		cleanup()
 		s.writeError(c, serverErrorStatus(err), "更新服务器失败", err)
 		return
+	}
+	if existing.PasswordRef != "" && existing.PasswordRef != item.PasswordRef && s.secrets != nil {
+		if err := s.secrets.Delete(c.Request.Context(), existing.PasswordRef); err != nil && s.logger != nil {
+			s.logger.Warn("删除旧 SSH 密码失败", "error", err)
+		}
 	}
 	c.JSON(http.StatusOK, item)
 }
@@ -754,9 +765,50 @@ func (s *Server) validateSSHKeyReference(ctx context.Context, reference string) 
 	return err
 }
 
+func (s *Server) prepareServerCredential(ctx context.Context, item deployment.Server, password string, existing *deployment.Server) (deployment.Server, func(), error) {
+	item = item.Normalize()
+	cleanup := func() {}
+	if item.AuthMethod == deployment.SSHAuthPrivateKey {
+		if err := s.validateSSHKeyReference(ctx, item.PrivateKeyRef); err != nil {
+			return deployment.Server{}, cleanup, err
+		}
+		return item, cleanup, nil
+	}
+	if item.AuthMethod != deployment.SSHAuthPassword {
+		return deployment.Server{}, cleanup, errors.New("SSH \u8ba4\u8bc1\u65b9\u5f0f\u65e0\u6548")
+	}
+	if s.secrets == nil {
+		return deployment.Server{}, cleanup, errors.New("SSH \u5bc6\u7801\u5b58\u50a8\u672a\u521d\u59cb\u5316")
+	}
+	if password == "" && existing != nil && existing.PasswordRef != "" {
+		item.PasswordRef = existing.PasswordRef
+		return item, cleanup, nil
+	}
+	if password == "" {
+		return deployment.Server{}, cleanup, errors.New("SSH \u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a")
+	}
+	item.PasswordRef = "secret://ssh/password/" + domain.NewID()
+	if err := s.secrets.Put(ctx, item.PasswordRef, map[string]string{"kind": "ssh_password", "password": password}); err != nil {
+		return deployment.Server{}, cleanup, fmt.Errorf("\u4fdd\u5b58 SSH \u5bc6\u7801\u5931\u8d25\uff1a%w", err)
+	}
+	cleanup = func() {
+		_ = s.secrets.Delete(context.Background(), item.PasswordRef)
+	}
+	return item, cleanup, nil
+}
+
 func (s *Server) deleteServer(c *gin.Context) {
 	if s.servers == nil {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
+		return
+	}
+	item, err := s.servers.GetServerByID(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		if repository.IsNotFound(err) {
+			s.writeError(c, http.StatusNotFound, "服务器不存在", err)
+			return
+		}
+		s.writeError(c, http.StatusInternalServerError, "读取服务器失败", err)
 		return
 	}
 	if err := s.servers.DeleteServer(c.Request.Context(), c.Param("id")); err != nil {
@@ -766,6 +818,11 @@ func (s *Server) deleteServer(c *gin.Context) {
 		}
 		s.writeError(c, http.StatusInternalServerError, "删除服务器失败", err)
 		return
+	}
+	if item.PasswordRef != "" && s.secrets != nil {
+		if err := s.secrets.Delete(c.Request.Context(), item.PasswordRef); err != nil && s.logger != nil {
+			s.logger.Warn("删除 SSH 密码失败", "error", err)
+		}
 	}
 	c.Status(http.StatusNoContent)
 }
@@ -830,7 +887,7 @@ func (s *Server) replaceDomainServers(c *gin.Context) {
 func serverFromRequest(request serverRequest) deployment.Server {
 	return deployment.Server{
 		ID: domain.NewID(), Name: request.Name, Address: request.Address, Port: request.Port,
-		Username: request.Username, PrivateKeyRef: request.PrivateKeyRef, HostKeyFingerprint: request.HostKeyFingerprint,
+		Username: request.Username, AuthMethod: deployment.SSHAuthMethod(request.AuthMethod), PrivateKeyRef: request.PrivateKeyRef, HostKeyFingerprint: request.HostKeyFingerprint,
 		CertificatePath: request.CertificatePath, PrivateKeyPath: request.PrivateKeyPath,
 		CertificateChainPath: request.CertificateChainPath, WebServer: deployment.WebServer(request.WebServer),
 		ValidationCommand: request.ValidationCommand, ReloadCommand: request.ReloadCommand,

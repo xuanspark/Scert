@@ -336,7 +336,10 @@ export function useDashboard() {
       address: "",
       port: 22,
       username: "",
+      auth_method: "password",
       private_key_ref: "",
+      password: "",
+      passwordConfigured: false,
       host_key_fingerprint: "",
       certificate_path: defaultCertificatePath,
       private_key_path: defaultPrivateKeyPath,
@@ -529,6 +532,7 @@ export function useDashboard() {
     serverEditingId.value = item.id;
     serverForm.value = {
       ...item,
+      password: "",
       validation_command: (item.validation_command || []).join("\n"),
       reload_command: (item.reload_command || []).join("\n"),
       server_ids: [],
@@ -643,6 +647,7 @@ export function useDashboard() {
         address: serverForm.value.address,
         port: Number(serverForm.value.port),
         username: serverForm.value.username,
+        auth_method: serverForm.value.auth_method,
         private_key_ref: serverForm.value.private_key_ref,
         host_key_fingerprint: serverForm.value.host_key_fingerprint,
         certificate_path: serverForm.value.certificate_path,
@@ -652,6 +657,9 @@ export function useDashboard() {
         validation_command: parseCommand(serverForm.value.validation_command),
         reload_command: parseCommand(serverForm.value.reload_command),
       };
+      if (serverForm.value.auth_method === "password") {
+        payload.password = serverForm.value.password;
+      }
       const path = serverEditingId.value
         ? `/api/v1/servers/${serverEditingId.value}`
         : "/api/v1/servers";

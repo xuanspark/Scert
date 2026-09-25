@@ -33,23 +33,37 @@ func (f SSHFactory) Connect(ctx context.Context, server Server) (Client, error) 
 	if f.Secrets == nil {
 		return nil, errors.New("SSH 敏感信息存储未初始化")
 	}
-	secrets, err := f.Secrets.Get(ctx, server.PrivateKeyRef)
+	secretReference := server.PrivateKeyRef
+	if server.AuthMethod == SSHAuthPassword {
+		secretReference = server.PasswordRef
+	}
+	secrets, err := f.Secrets.Get(ctx, secretReference)
 	if err != nil {
-		return nil, fmt.Errorf("读取 SSH 私钥失败：%w", err)
+		return nil, fmt.Errorf("读取 SSH 认证信息失败：%w", err)
 	}
-	privateKey := strings.TrimSpace(secrets["private_key"])
-	if privateKey == "" {
-		return nil, errors.New("SSH 私钥内容不能为空")
-	}
-	var signer ssh.Signer
-	passphrase := secrets["passphrase"]
-	if passphrase != "" {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKey), []byte(passphrase))
+	var authMethods []ssh.AuthMethod
+	if server.AuthMethod == SSHAuthPassword {
+		password := secrets["password"]
+		if password == "" {
+			return nil, errors.New("SSH 密码不能为空")
+		}
+		authMethods = []ssh.AuthMethod{ssh.Password(password)}
 	} else {
-		signer, err = ssh.ParsePrivateKey([]byte(privateKey))
-	}
-	if err != nil {
-		return nil, errors.New("解析 SSH 私钥失败：私钥格式或口令无效")
+		privateKey := strings.TrimSpace(secrets["private_key"])
+		if privateKey == "" {
+			return nil, errors.New("SSH 私钥内容不能为空")
+		}
+		var signer ssh.Signer
+		passphrase := secrets["passphrase"]
+		if passphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKey), []byte(passphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey([]byte(privateKey))
+		}
+		if err != nil {
+			return nil, errors.New("解析 SSH 私钥失败：私钥格式或口令无效")
+		}
+		authMethods = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 	}
 	timeout := f.Timeout
 	if timeout <= 0 {
@@ -61,7 +75,7 @@ func (f SSHFactory) Connect(ctx context.Context, server Server) (Client, error) 
 	}
 	timeoutContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	sshClient, err := connectSSHClient(timeoutContext, server, signer, algorithms)
+	sshClient, err := connectSSHClient(timeoutContext, server, authMethods, algorithms)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +122,7 @@ func (f SSHFactory) secureHostKeyAlgorithms() ([]string, error) {
 func connectSSHClient(
 	ctx context.Context,
 	server Server,
-	signer ssh.Signer,
+	authMethods []ssh.AuthMethod,
 	algorithms []string,
 ) (*ssh.Client, error) {
 	address := net.JoinHostPort(server.Address, fmt.Sprintf("%d", server.Port))
@@ -131,7 +145,7 @@ func connectSSHClient(
 		hostKeyMismatch := ""
 		config := &ssh.ClientConfig{
 			User:              server.Username,
-			Auth:              []ssh.AuthMethod{ssh.PublicKeys(signer)},
+			Auth:              authMethods,
 			HostKeyAlgorithms: []string{algorithm},
 			HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 				fingerprint := ssh.FingerprintSHA256(key)
