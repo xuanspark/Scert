@@ -5,7 +5,6 @@ import (
 	"errors"
 	"html"
 	"net/mail"
-	"strings"
 )
 
 // SendSecurityCode 仅向绑定邮箱发送验证码，不使用证书通知的收件人列表。
@@ -24,7 +23,10 @@ func (s *Service) SendSecurityCode(ctx context.Context, recipient, code string) 
 			return errors.New("验证码格式无效")
 		}
 	}
-	from := strings.TrimSpace(s.config.SenderEmail)
+	fromName, from, err := s.config.SenderIdentity()
+	if err != nil {
+		return err
+	}
 	for _, value := range []string{from, recipient} {
 		parsed, err := mail.ParseAddress(value)
 		if err != nil || parsed.Address != value {
@@ -34,7 +36,7 @@ func (s *Service) SendSecurityCode(ctx context.Context, recipient, code string) 
 	text := "有人正在部署服务器上重置 Scert 超级管理员密码。\n验证码：" + code +
 		"\n验证码仅在当前本机重置会话中有效，有效期不超过两分钟。\n如果不是您本人操作，请勿提供此验证码，并检查服务器访问权限。"
 	payload := mailPayload{
-		From:    address{Name: s.config.SenderName, Email: from},
+		From:    address{Name: fromName, Email: from},
 		To:      []address{{Email: recipient}},
 		Subject: "[Scert] 超级管理员密码重置验证",
 		Text:    text, HTML: "<pre>" + html.EscapeString(text) + "</pre>",

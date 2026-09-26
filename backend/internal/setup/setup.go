@@ -170,8 +170,17 @@ func Apply(cfg *config.Config, input Input) error {
 	}
 	if strings.TrimSpace(input.EmailSenderEmail) != "" {
 		cfg.Notification.SenderEmail = strings.ToLower(strings.TrimSpace(input.EmailSenderEmail))
-	} else {
+	} else if !cfg.Notification.SMTPEnabled {
 		cfg.Notification.SenderEmail = adminEmail
+	} else {
+		cfg.Notification.SenderEmail = ""
+	}
+	if cfg.Notification.SMTPEnabled {
+		name, email, err := cfg.Notification.SenderIdentity()
+		if err != nil {
+			return err
+		}
+		cfg.Notification.SenderName, cfg.Notification.SenderEmail = name, email
 	}
 	if input.EmailTimeoutSecs > 0 {
 		cfg.Notification.TimeoutSecs = input.EmailTimeoutSecs

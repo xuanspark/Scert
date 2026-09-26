@@ -112,7 +112,9 @@ for (const driver of ["sqlite", "mysql", "postgres"]) {
       email_http_auth_mode: "bearer",
       email_smtp_enabled: true,
       email_smtp_host: "smtp.example.test",
-      email_smtp_username: "sender@example.test",
+      email_smtp_username: "notify:sender@example.test",
+      email_sender_name: "Ignored sender",
+      email_sender_email: "ignored@example.test",
       email_smtp_password: "smtp-test-only",
       email_retry_count: 0,
       recipients: "first@example.test，second@example.test",
@@ -134,13 +136,13 @@ for (const driver of ["sqlite", "mysql", "postgres"]) {
     assert.equal(submitted[0].notification.http_enabled, false);
     assert.equal(submitted[0].notification.smtp_enabled, true);
     assert.equal(submitted[0].notification.smtp_host, "smtp.example.test");
-    assert.equal(submitted[0].notification.smtp_username, "sender@example.test");
+    assert.equal(submitted[0].notification.smtp_username, "notify:sender@example.test");
     assert.equal(submitted[0].notification.smtp_password, "smtp-test-only");
     assert.equal(submitted[0].notification.smtp_port, 587);
     assert.equal(submitted[0].notification.smtp_mode, "starttls");
     assert.equal(submitted[0].notification.retry_count, 0);
     assert.deepEqual(submitted[0].notification.recipients, ["first@example.test", "second@example.test"]);
-    for (const key of ["endpoint", "http_auth_mode", "http_credentials", "http_path", "http_headers"]) {
+    for (const key of ["endpoint", "http_auth_mode", "http_credentials", "http_path", "http_headers", "sender_name", "sender_email"]) {
       assert.equal(Object.hasOwn(submitted[0].notification, key), false);
     }
     assert.equal(submitted[0].certificate_root, "/srv/scert/ssl");

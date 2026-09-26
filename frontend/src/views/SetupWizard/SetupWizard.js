@@ -84,8 +84,6 @@ export function useSetupWizard(props, emit) {
     email_include_deployment_details: true,
     email_include_certificate_serial: true,
     email_include_management_url: true,
-    email_sender_name: "Scert",
-    email_sender_email: "",
     email_timeout_secs: 10,
     email_retry_count: 3,
     email_retry_intervals_secs: "30,120,600",
@@ -687,8 +685,6 @@ export function useSetupWizard(props, emit) {
           email_include_certificate_serial:
             form.value.email_include_certificate_serial,
           email_include_management_url: form.value.email_include_management_url,
-          email_sender_name: form.value.email_sender_name,
-          email_sender_email: form.value.email_sender_email,
           email_timeout_secs: Number(form.value.email_timeout_secs),
           email_retry_count: Number(form.value.email_retry_count),
           email_retry_intervals_secs: retryIntervals(),

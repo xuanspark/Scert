@@ -28,6 +28,7 @@ type smtpTestServer struct {
 	rejectAuth   bool
 	mu           sync.Mutex
 	messages     [][]byte
+	mailFrom     string
 	connections  int
 }
 
@@ -121,6 +122,7 @@ func (s *smtpTestServer) handle(connection net.Conn, startTLS bool) {
 			}
 		case strings.HasPrefix(upper, "MAIL FROM:"):
 			s.mu.Lock()
+			s.mailFrom = command
 			fail := s.failMailOnce
 			s.failMailOnce = false
 			s.mu.Unlock()
@@ -272,6 +274,42 @@ func TestSMTPSendsUTF8WithAllowedPlainAuthentication(t *testing.T) {
 	message := string(server.message())
 	if !strings.Contains(message, "Subject: =?UTF-8?") || !strings.Contains(message, "example.test") {
 		t.Fatalf("SMTP message was not generated correctly: %q", message)
+	}
+}
+
+func TestSmailSystemSenderUsesSameEnvelopeAndHeader(t *testing.T) {
+	for _, security := range []bool{false, true} {
+		t.Run(map[bool]string{false: "notification", true: "security_code"}[security], func(t *testing.T) {
+			server := newSMTPTestServer(t, false, true)
+			host, port := server.address()
+			cfg := smtpTestConfig(host, port, "starttls")
+			cfg.SMTPUsername = "notify:scert@example.test"
+			cfg.SenderEmail = "admin@other.test"
+			service := New(cfg, credentialReaderStub{values: map[string]string{"password": "test-only-notification-credential"}})
+			service.smtpTLSConfig = server.clientTLSConfig
+			var err error
+			if security {
+				err = service.SendSecurityCode(t.Context(), "bound@example.test", "01234567")
+			} else {
+				err = service.Send(t.Context(), Event{Type: "certificate_issue", Status: "success", Domain: "example.test"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			server.mu.Lock()
+			envelope := server.mailFrom
+			server.mu.Unlock()
+			if !strings.HasPrefix(envelope, "MAIL FROM:<notification+system@example.test>") {
+				t.Fatal("SMTP 信封没有使用系统通知地址")
+			}
+			message := string(server.message())
+			if !strings.Contains(message, formatSMTPAddress(address{Name: "系统通知", Email: "notification+system@example.test"})) || strings.Contains(message, "admin@other.test") {
+				t.Fatal("邮件头没有使用固定系统通知身份，或泄漏旧管理员发件地址")
+			}
+			if security && strings.Contains(message, "receiver@example.com") {
+				t.Fatal("验证码不得发送给普通通知收件人")
+			}
+		})
 	}
 }
 

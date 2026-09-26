@@ -15,7 +15,7 @@ func completionNotificationInput() *NotificationInput {
 	return &NotificationInput{
 		HTTPEnabled: true, Endpoint: "https://mail.example.test", HTTPAuthMode: "session",
 		HTTPCredentials: map[string]string{"account": "mail-owner", "password": "private-http-password"},
-		SMTPEnabled:     true, SMTPHost: "smtp.example.test", SMTPUsername: "smtp-owner", SMTPPassword: "private-smtp-password",
+		SMTPEnabled:     true, SMTPHost: "smtp.example.test", SMTPUsername: "notify:smtp-owner@example.test", SMTPPassword: "private-smtp-password",
 		IncludeManagementURL: true, IncludeCertificateSerial: true,
 		Recipients: []string{"notify@example.test"}, TimeoutSecs: 15, RetryCount: 0, RetryIntervalsSecs: []int{},
 	}
@@ -59,6 +59,9 @@ func TestCompleterStoresNotificationCredentialsWithoutPlaintext(t *testing.T) {
 		t.Fatalf("通知选项未完整保存：%+v", stored.Notification)
 	}
 	httpCredentials, err := fixture.store.Get(t.Context(), stored.Notification.HTTPCredentialRef)
+	if stored.Notification.SenderEmail != "notification+system@example.test" || stored.Notification.SenderName != "系统通知" {
+		t.Fatal("初始化没有保存 Smail 系统通知发件人")
+	}
 	if err != nil || httpCredentials["password"] != "private-http-password" {
 		t.Fatalf("HTTP 通知凭据未进入敏感存储：%v", err)
 	}

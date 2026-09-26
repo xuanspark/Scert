@@ -97,6 +97,13 @@ func (completer *Completer) prepareNotification(ctx context.Context, current con
 		return candidate, nil, completeError(CompleteErrorInput, "SMTP 通知主机、账号、密码或连接安全参数无效", nil)
 	}
 	credentials := make(map[string]map[string]string)
+	if candidate.SMTPEnabled {
+		name, email, err := candidate.SenderIdentity()
+		if err != nil {
+			return candidate, nil, completeError(CompleteErrorInput, "SMTP 发件账号无效，请使用 Smail 系统通知页提供的完整用户名", err)
+		}
+		candidate.SenderName, candidate.SenderEmail = name, email
+	}
 	if candidate.HTTPEnabled && candidate.HTTPAuthMode != "none" {
 		values, err := notificationCredentials(candidate.HTTPAuthMode, input.HTTPCredentials)
 		if err != nil {

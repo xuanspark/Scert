@@ -716,7 +716,7 @@ func TestSetupLateFailureDeletesNewNotificationCredentials(t *testing.T) {
 		"email_smtp_enabled":true,
 		"email_smtp_host":"smtp.example.test",
 		"email_smtp_port":587,
-		"email_smtp_username":"smtp-user",
+		"email_smtp_username":"notify:smtp-user@example.test",
 		"email_smtp_password":"smtp-secret",
 		"email_smtp_mode":"starttls",`, 1)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup", strings.NewReader(payload))

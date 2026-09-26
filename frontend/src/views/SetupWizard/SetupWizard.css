@@ -1108,8 +1108,8 @@ button:disabled {
 
 .notification-service-row,
 .notification-api-row,
-.notification-sender-row {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.notification-recipient-row {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .notification-auth-row {

@@ -235,7 +235,7 @@ func newInitCommandWithDependencies(firewallManager firewall.Manager, issue init
 	command.Flags().StringVar(&emailHTTPHeaders, "email-http-headers", "", "HTTP 自定义请求头 JSON")
 	command.Flags().StringVar(&emailEventMode, "email-event-mode", "detailed", "通知事件模式：detailed、unified")
 	command.Flags().StringVar(&emailSenderName, "email-sender-name", "Scert", "通知发件人名称")
-	command.Flags().StringVar(&emailSenderEmail, "email-sender-email", "", "通知发件人地址，留空使用管理员邮箱")
+	command.Flags().StringVar(&emailSenderEmail, "email-sender-email", "", "兼容通知发件人地址；Smail 系统通知账号自动确定，其他 SMTP 留空使用完整邮箱账号")
 	command.Flags().BoolVar(&emailIncludeDeploymentDetails, "email-include-deployment-details", true, "是否发送服务器部署明细")
 	command.Flags().BoolVar(&emailIncludeCertificateSerial, "email-include-certificate-serial", true, "是否发送证书序列号")
 	command.Flags().BoolVar(&emailIncludeManagementURL, "email-include-management-url", true, "是否发送管理后台链接")

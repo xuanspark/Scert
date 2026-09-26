@@ -365,12 +365,17 @@ const {
                     />
                   </label>
                   <label>
-                    <span>SMTP 用户名</span>
+                    <span>
+                      SMTP 用户名
+                      <HelpTip>
+                        使用 Smail 系统通知页提供的 notify:账号@邮件域名和专用发信凭据，自动使用系统通知发件人，不使用管理员邮箱。
+                      </HelpTip>
+                    </span>
                     <input
                       id="email-smtp-username"
                       name="email_smtp_username"
                       v-model.trim="form.email_smtp_username"
-                      placeholder="发件邮箱或账号"
+                      placeholder="notify:账号@邮件域名"
                       autocomplete="username"
                     />
                   </label>
@@ -381,7 +386,7 @@ const {
                       name="email_smtp_password"
                       v-model="form.email_smtp_password"
                       type="password"
-                      placeholder="请输入 SMTP 密码或授权码"
+                      placeholder="请输入 Smail 系统通知发信凭据"
                       autocomplete="new-password"
                     />
                   </label>
@@ -409,24 +414,7 @@ const {
                   </label>
                 </div>
 
-                <div class="notification-row notification-sender-row">
-                  <label>
-                    <span>发件人名称</span>
-                    <input
-                      id="email-sender-name"
-                      v-model.trim="form.email_sender_name"
-                      placeholder="Scert"
-                    />
-                  </label>
-                  <label>
-                    <span>发件人地址（可选）</span>
-                    <input
-                      id="email-sender-email"
-                      v-model.trim="form.email_sender_email"
-                      type="email"
-                      placeholder="留空使用管理员邮箱"
-                    />
-                  </label>
+                <div class="notification-row notification-recipient-row">
                   <label>
                     <span>
                       通知收件人
@@ -442,12 +430,6 @@ const {
                     />
                   </label>
                 </div>
-              </div>
-
-              <div class="provider-description reset-preview">
-                <strong>密码重置地址</strong>
-                <span>{{ resetURLPreview }}</span>
-                <span>只有手动启动 Scert-admin 后，此地址才会临时可用。</span>
               </div>
 
               <div v-if="form.email_smtp_enabled" class="notification-advanced-panel">

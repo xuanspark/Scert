@@ -371,7 +371,10 @@ func (s *Service) loadCredentials(ctx context.Context) (map[string]string, error
 }
 
 func (s *Service) buildPayload(event Event) (mailPayload, error) {
-	fromEmail := strings.TrimSpace(s.config.SenderEmail)
+	fromName, fromEmail, err := s.config.SenderIdentity()
+	if err != nil {
+		return mailPayload{}, err
+	}
 	if fromEmail == "" {
 		return mailPayload{}, errors.New("通知发件人地址不能为空")
 	}
@@ -410,7 +413,7 @@ func (s *Service) buildPayload(event Event) (mailPayload, error) {
 	}
 	text := buildText(event, title, status, domainName)
 	return mailPayload{
-		From:    address{Name: s.config.SenderName, Email: fromEmail},
+		From:    address{Name: fromName, Email: fromEmail},
 		To:      recipients,
 		Subject: fmt.Sprintf("[Scert] %s：%s（%s）", title, domainName, status),
 		Text:    text,
