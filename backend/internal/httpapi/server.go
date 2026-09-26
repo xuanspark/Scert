@@ -196,6 +196,7 @@ func (s *Server) registerRoutes() {
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.updateSettings)
 	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
+	adminAPI.GET("/dns/accounts", s.listDNSAccounts)
 	adminAPI.POST("/dns/test", s.dnsOperation, s.testAdminDNS)
 	adminAPI.POST("/dns/aliyun/check", s.dnsOperation, s.checkAliyunDNSDomain)
 	adminAPI.POST("/renewal/run", s.longOperation(certificateTaskTimeout), s.runRenewalNow)

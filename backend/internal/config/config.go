@@ -90,6 +90,7 @@ type ACMEConfig struct {
 }
 
 type DNSConfig struct {
+	OwnerUserID       string `json:"owner_user_id,omitempty"`
 	Provider          string `json:"provider"`
 	CredentialRef     string `json:"credential_ref"`
 	VerificationState string `json:"verification_state"`

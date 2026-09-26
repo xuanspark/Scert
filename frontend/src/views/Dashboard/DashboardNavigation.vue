@@ -46,6 +46,11 @@ defineEmits(["select", "settings"]);
             <circle cx="8" cy="8" r="5" />
             <path d="m12 12 9 9m-6-6 3-3m0 6 3-3" />
           </g>
+          <g v-else-if="section.id === 'dns-accounts'">
+            <rect x="3" y="4" width="18" height="16" rx="3" />
+            <circle cx="9" cy="10" r="2" />
+            <path d="M5 17a4 4 0 0 1 8 0m2-8h4m-4 4h4" />
+          </g>
           <g v-else>
             <circle cx="12" cy="8" r="4" />
             <path d="M4 21v-2a8 8 0 0 1 16 0v2" />

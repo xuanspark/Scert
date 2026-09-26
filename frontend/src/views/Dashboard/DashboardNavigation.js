@@ -6,13 +6,14 @@ export const dashboardSections = [
   { id: "domains", label: "域名配置", group: "证书与部署", hint: "管理域名、申请证书和执行部署" },
   { id: "servers", label: "部署服务器", group: "证书与部署", hint: "配置部署目标及 SSH 认证方式" },
   { id: "keys", label: "SSH 私钥", group: "证书与部署", hint: "管理加密保存的 SSH 私钥" },
+  { id: "dns-accounts", label: "DNS 账户管理", group: "证书与部署", hint: "查看已配置的 DNS 账号及归属用户，凭据标识脱敏显示" },
   { id: "users", label: "用户管理", group: "系统管理", hint: "管理登录账号、角色与使用状态" },
 ];
 
 export function useDashboardNavigation(currentUser) {
   const selectedSection = ref("overview");
   const sections = computed(() => dashboardSections.filter(
-    (section) => section.id !== "users" || ["super_admin", "admin"].includes(currentUser.value?.role),
+    (section) => !["users", "dns-accounts"].includes(section.id) || ["super_admin", "admin"].includes(currentUser.value?.role),
   ));
   const activeSection = computed(() => sections.value.some(
     (section) => section.id === selectedSection.value,

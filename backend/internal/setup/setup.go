@@ -130,6 +130,7 @@ func Apply(cfg *config.Config, input Input) error {
 	cfg.Paths.Certificate = strings.TrimSpace(input.CertificateRoot)
 	cfg.DNS.Provider = strings.TrimSpace(input.DNSProvider)
 	cfg.DNS.CredentialRef = strings.TrimSpace(input.DNSCredentialRef)
+	cfg.DNS.OwnerUserID = "primary-super-admin"
 	cfg.DNS.VerificationState = "verified"
 	cfg.Notification.HTTPEnabled = input.EmailHTTPEnabled
 	cfg.Notification.SMTPEnabled = input.EmailSMTPEnabled

@@ -170,6 +170,11 @@ func (s *Server) getSettings(c *gin.Context) {
 }
 
 func (s *Server) updateSettings(c *gin.Context) {
+	session, authenticated := s.currentAuthSession(c)
+	if !authenticated {
+		s.writeError(c, http.StatusUnauthorized, "请先登录管理后台", nil)
+		return
+	}
 	if strings.TrimSpace(s.configPath) == "" {
 		s.writeError(c, http.StatusInternalServerError, "配置文件路径未配置", errors.New("配置文件路径为空"))
 		return
@@ -209,6 +214,12 @@ func (s *Server) updateSettings(c *gin.Context) {
 	}
 	if dnsCredentialRef != "" && dnsCredentialRef != previous.DNS.CredentialRef {
 		createdCredentialRefs = append(createdCredentialRefs, dnsCredentialRef)
+	}
+	// 只有实际更换凭据才记录新归属，修改其他设置不能认领历史账号。
+	if updated.DNS.CredentialRef == "" {
+		updated.DNS.OwnerUserID = ""
+	} else if updated.DNS.CredentialRef != previous.DNS.CredentialRef {
+		updated.DNS.OwnerUserID = session.UserID
 	}
 	if err := updated.Validate(); err != nil {
 		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
