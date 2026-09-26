@@ -43,15 +43,21 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 		VerificationState: cfg.DNS.VerificationState, CredentialState: "available",
 	}
 	var owner repository.User
-	if cfg.DNS.OwnerUserID == "primary-super-admin" {
-		owner = repository.User{ID: cfg.DNS.OwnerUserID, Username: cfg.Admin.Username, Role: repository.UserRoleSuperAdmin}
-	} else if cfg.DNS.OwnerUserID != "" {
+	ownerID := strings.TrimSpace(cfg.DNS.OwnerUserID)
+	if ownerID == "" {
+		// 旧版本只有一个系统 DNS 配置，没有单独的归属字段；迁移时归属初始化超级管理员。
+		ownerID = "primary-super-admin"
+		item.OwnerUserID = ownerID
+	}
+	if ownerID == "primary-super-admin" {
+		owner = repository.User{ID: ownerID, Username: cfg.Admin.Username, Role: repository.UserRoleSuperAdmin}
+	} else {
 		if s.users == nil {
 			s.writeError(c, http.StatusServiceUnavailable, "用户归属查询暂不可用", nil)
 			return
 		}
 		var err error
-		owner, err = s.users.GetUserByID(c.Request.Context(), cfg.DNS.OwnerUserID)
+		owner, err = s.users.GetUserByID(c.Request.Context(), ownerID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			s.writeError(c, http.StatusServiceUnavailable, "用户归属查询暂不可用", nil)
 			return
