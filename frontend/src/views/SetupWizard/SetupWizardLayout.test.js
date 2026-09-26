@@ -52,6 +52,27 @@ test("notification step exposes SMTP only and keeps sender fields in its panel",
   assert.ok(find(advanced, hasClass("email-option-grid")));
 });
 
+test("notification checkboxes stay compact and centered with their labels", () => {
+  const css = readFileSync(new URL("./SetupWizard.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /\.setup-notification-step input\s*[,\{]/);
+  assert.match(css, /\.setup-notification-step input:not\(\[type="checkbox"\]\)/);
+  const rule = (selector) => {
+    const body = css.slice(css.indexOf(`${selector} {`) + selector.length + 2).split("}")[0];
+    assert.ok(css.includes(`${selector} {`), selector);
+    return body;
+  };
+  assert.match(rule(".setup-notification-step .confirm-row"), /align-items:\s*center/);
+  const checkbox = rule('.setup-notification-step .confirm-row > input[type="checkbox"]');
+  for (const property of ["width", "height", "min-height"]) {
+    assert.match(checkbox, new RegExp(`${property}:\\s*16px`));
+  }
+  assert.match(checkbox, /margin:\s*0;/);
+  assert.match(checkbox, /padding:\s*0;/);
+  const title = rule(".setup-notification-step .confirm-row strong");
+  assert.match(title, /display:\s*flex/);
+  assert.match(title, /align-items:\s*center/);
+});
+
 test("account heading precedes the two-column account fields", () => {
   const root = template("./SetupWizard.vue");
   const card = find(root, (node) => node.tag === "fieldset"

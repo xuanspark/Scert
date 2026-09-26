@@ -1134,9 +1134,26 @@ button:disabled {
   line-height: 1.35;
 }
 
-.setup-notification-step input,
+.setup-notification-step input:not([type="checkbox"]),
 .setup-notification-step select {
   height: 34px;
+}
+
+.setup-notification-step .confirm-row {
+  align-items: center;
+}
+
+.setup-notification-step .confirm-row > input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+}
+
+.setup-notification-step .confirm-row strong {
+  display: flex;
+  align-items: center;
 }
 
 .setup-notification-step textarea {
