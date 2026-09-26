@@ -38,6 +38,7 @@ export function useDashboard() {
   const serverSaving = ref(false);
   const serverFormError = ref("");
   const showSSHKeyForm = ref(false);
+  const showEmbeddedSSHKeyGuide = ref(false);
   const sshKeySaving = ref(false);
   const sshKeyFormError = ref("");
   const sshKeyPlatform = ref("windows");
@@ -309,6 +310,15 @@ export function useDashboard() {
   const form = ref(createEmptyForm());
   const serverForm = ref(createEmptyServerForm());
   const sshKeyForm = ref(createEmptySSHKeyForm());
+
+  watch(
+    () => [serverForm.value.username, serverForm.value.address],
+    ([username, address]) => {
+      if (!showEmbeddedSSHKeyGuide.value) return;
+      sshKeyCommandUsername.value = String(username || "").trim() || "用户名";
+      sshKeyCommandHost.value = String(address || "").trim() || "服务器地址";
+    },
+  );
 
   async function fetchAdmin(path, options = {}) {
     const response = await fetch(path, {
@@ -583,10 +593,13 @@ export function useDashboard() {
   }
 
   function closeServerForm() {
-    if (!serverSaving.value) showServerForm.value = false;
+    if (!serverSaving.value) {
+      showEmbeddedSSHKeyGuide.value = false;
+      showServerForm.value = false;
+    }
   }
 
-  function openSSHKeyCreate() {
+  function openSSHKeyCreate(options = {}) {
     sshKeyForm.value = createEmptySSHKeyForm();
     sshKeyFormError.value = "";
     sshKeyPlatform.value = "windows";
@@ -595,7 +608,8 @@ export function useDashboard() {
     sshKeyCommandHost.value = serverForm.value.address.trim() || "服务器地址";
     sshKeyRandomSuffix.value = createSSHKeyRandomSuffix();
     sshKeyForm.value.name = sshKeyFileName.value;
-    showSSHKeyForm.value = true;
+    showEmbeddedSSHKeyGuide.value = options.embedded === true;
+    showSSHKeyForm.value = options.embedded !== true;
   }
 
   function closeSSHKeyForm() {
@@ -603,6 +617,7 @@ export function useDashboard() {
     sshKeyForm.value = createEmptySSHKeyForm();
     sshKeyFormError.value = "";
     sshKeyPassphraseVisible.value = false;
+    showEmbeddedSSHKeyGuide.value = false;
     showSSHKeyForm.value = false;
   }
 
@@ -641,7 +656,11 @@ export function useDashboard() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存 SSH 私钥失败");
+      if (showEmbeddedSSHKeyGuide.value && result.reference) {
+        serverForm.value.private_key_ref = result.reference;
+      }
       sshKeyForm.value = createEmptySSHKeyForm();
+      showEmbeddedSSHKeyGuide.value = false;
       showSSHKeyForm.value = false;
       notice.value = "SSH 私钥已加密保存";
       await loadData();
@@ -1273,6 +1292,7 @@ export function useDashboard() {
     serverSaving,
     serverFormError,
     showSSHKeyForm,
+    showEmbeddedSSHKeyGuide,
     sshKeySaving,
     sshKeyFormError,
     certificateTypeLabels,

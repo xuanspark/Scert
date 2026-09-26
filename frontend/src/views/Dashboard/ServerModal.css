@@ -74,6 +74,161 @@
   border-top: 1px solid #dce6f1;
 }
 
+.server-modal .server-ssh-key-guide {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 2px 0 8px;
+  padding: 14px;
+  border: 1px solid #c7daf1;
+  border-radius: 14px;
+  background: #f5f9ff;
+}
+
+.server-modal .server-ssh-key-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.server-modal .server-ssh-key-heading h3 {
+  margin: 2px 0 4px;
+  color: #214d86;
+  font-size: 18px;
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-steps article {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d1e0f1;
+  border-radius: 10px;
+  background: #fff;
+  color: #294a73;
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-steps b {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #5b91dc;
+  color: #fff;
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-platforms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #e7effa;
+}
+
+.server-modal .server-ssh-key-guide .platform-tab {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #5d7390;
+  cursor: pointer;
+  font: inherit;
+}
+
+.server-modal .server-ssh-key-guide .platform-tab.active {
+  background: #fff;
+  color: #24579a;
+  box-shadow: 0 2px 8px rgb(42 80 125 / 12%);
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-path-line,
+.server-modal .server-ssh-key-guide .ssh-key-path-summary {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid #d1e0f1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-path-line {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-path-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.server-modal .server-ssh-key-guide .ssh-key-path-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.server-modal .server-ssh-key-guide code {
+  overflow-wrap: anywhere;
+  color: #294a73;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+.server-modal .server-ssh-key-guide .ssh-command-card {
+  margin-bottom: 8px;
+  padding: 9px 10px;
+  border: 1px solid #d1e0f1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.server-modal .server-ssh-key-guide .ssh-command-heading,
+.server-modal .server-ssh-key-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.server-modal .server-ssh-key-guide .ssh-command-heading {
+  margin-bottom: 5px;
+  color: #294a73;
+  font-weight: 700;
+}
+
+.server-modal .server-ssh-key-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 14px;
+  padding-top: 2px;
+}
+
+.server-modal .server-ssh-key-fields .field:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.server-modal .server-ssh-key-fields textarea {
+  min-height: 96px;
+}
+
+.server-modal .server-ssh-key-actions {
+  padding-top: 8px;
+  border-top: 1px solid #d1e0f1;
+}
+
 @media (max-width: 900px) {
   .server-modal form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -84,6 +239,10 @@
   }
 
   .server-modal .server-paths {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .server-modal .server-ssh-key-guide .ssh-key-path-summary {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -101,5 +260,24 @@
   .server-modal form > .form-grid,
   .server-modal form > .field {
     grid-column: 1 / -1;
+  }
+
+  .server-modal .server-ssh-key-guide .ssh-key-steps,
+  .server-modal .server-ssh-key-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .server-modal .server-ssh-key-fields .field:nth-child(3) {
+    grid-column: auto;
+  }
+
+  .server-modal .server-ssh-key-guide .ssh-key-path-line {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .server-modal .server-ssh-key-heading,
+  .server-modal .server-ssh-key-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
