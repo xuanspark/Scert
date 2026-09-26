@@ -43,8 +43,6 @@ export function useDashboard() {
   const sshKeyFormError = ref("");
   const sshKeyPlatform = ref("windows");
   const sshKeyPassphraseVisible = ref(false);
-  const sshKeyCommandUsername = ref("用户名");
-  const sshKeyCommandHost = ref("服务器地址");
   const sshKeyRandomSuffix = ref(createSSHKeyRandomSuffix());
   const showSettings = ref(false);
   const settingsSaving = ref(false);
@@ -311,13 +309,11 @@ export function useDashboard() {
   const serverForm = ref(createEmptyServerForm());
   const sshKeyForm = ref(createEmptySSHKeyForm());
 
-  watch(
-    () => [serverForm.value.username, serverForm.value.address],
-    ([username, address]) => {
-      if (!showEmbeddedSSHKeyGuide.value) return;
-      sshKeyCommandUsername.value = String(username || "").trim() || "用户名";
-      sshKeyCommandHost.value = String(address || "").trim() || "服务器地址";
-    },
+  const sshKeyCommandUsername = computed(
+    () => String(serverForm.value.username || "").trim() || "用户名",
+  );
+  const sshKeyCommandHost = computed(
+    () => String(serverForm.value.address || "").trim() || "服务器地址",
   );
 
   async function fetchAdmin(path, options = {}) {
@@ -604,8 +600,6 @@ export function useDashboard() {
     sshKeyFormError.value = "";
     sshKeyPlatform.value = "windows";
     sshKeyPassphraseVisible.value = false;
-    sshKeyCommandUsername.value = serverForm.value.username.trim() || "用户名";
-    sshKeyCommandHost.value = serverForm.value.address.trim() || "服务器地址";
     sshKeyRandomSuffix.value = createSSHKeyRandomSuffix();
     sshKeyForm.value.name = sshKeyFileName.value;
     showEmbeddedSSHKeyGuide.value = options.embedded === true;
