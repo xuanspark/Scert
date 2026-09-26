@@ -22,6 +22,25 @@ function hasClass(name) {
     && prop.value?.content.split(/\s+/).includes(name));
 }
 
+test("notification step exposes SMTP only and keeps sender fields in its panel", () => {
+  const root = template("./SetupWizard.vue");
+  const step = find(root, hasClass("setup-notification-step"));
+  const panel = find(step, hasClass("smtp-basic-panel"));
+  const id = (value) => (node) => node.props?.some((prop) =>
+    prop.name === "id" && prop.value?.content === value);
+  assert.ok(find(step, id("email-smtp-enabled")));
+  for (const value of ["email-http-enabled", "email-endpoint", "email-http-path", "email-http-auth-mode"]) {
+    assert.equal(find(step, id(value)), undefined);
+  }
+  for (const value of ["email-smtp-host", "email-smtp-password", "email-sender-name", "email-sender-email", "recipients"]) {
+    assert.ok(find(panel, id(value)), value);
+  }
+  const advanced = find(step, hasClass("notification-advanced-panel"));
+  assert.equal(advanced.props.find((prop) => prop.name === "if").exp.content, "form.email_smtp_enabled");
+  assert.ok(find(advanced, hasClass("notification-delivery-row")));
+  assert.ok(find(advanced, hasClass("email-option-grid")));
+});
+
 test("account heading precedes the two-column account fields", () => {
   const root = template("./SetupWizard.vue");
   const card = find(root, (node) => node.tag === "fieldset"

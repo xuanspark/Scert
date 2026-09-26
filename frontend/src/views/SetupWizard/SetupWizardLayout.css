@@ -294,7 +294,7 @@
   }
 
   .access-shell--setup .notification-layout:has(.smtp-basic-panel):has(.notification-advanced-content) {
-    grid-template-columns: minmax(0, 0.95fr) minmax(0, 0.95fr) minmax(0, 1.3fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .access-shell--setup .notification-layout:has(.smtp-basic-panel):has(.notification-advanced-content) .notification-basic-row {

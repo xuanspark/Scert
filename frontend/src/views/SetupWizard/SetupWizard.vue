@@ -35,8 +35,6 @@ const {
   dnsCredentials,
   dnsCredentialsVisible,
   maskCredential,
-  emailCredentials,
-  emailCredentialsVisible,
   dnsTestDomain,
   dnsVerification,
   currentStep,
@@ -51,8 +49,6 @@ const {
   handleEmailAutofill,
   targetLabel,
   resetURLPreview,
-  emailCredentialLabel,
-  emailCredentialPlaceholder,
   selectedDNSProvider,
   dnsVerificationValid,
   formatVerificationExpiry,
@@ -314,31 +310,7 @@ const {
             <legend><span>02</span>服务与通知</legend>
 
             <div class="notification-layout">
-              <div class="notification-guide">
-                <strong>
-                  先完成基础配置
-                  <HelpTip>
-                    填写邮件服务地址即可继续，其他项目已经提供合理默认值。
-                  </HelpTip>
-                </strong>
-              </div>
-
               <div class="notification-row notification-service-row">
-                <label class="confirm-row compact-row">
-                  <input
-                    id="email-http-enabled"
-                    v-model="form.email_http_enabled"
-                    type="checkbox"
-                  />
-                  <span>
-                    <strong>
-                      启用 HTTP 邮件通知
-                      <HelpTip>
-                        通过第三方邮件 API 发送任务通知。
-                      </HelpTip>
-                    </strong>
-                  </span>
-                </label>
                 <label class="confirm-row compact-row">
                   <input
                     id="email-smtp-enabled"
@@ -437,56 +409,6 @@ const {
                   </label>
                 </div>
 
-                <div class="notification-smtp-tip">
-                  SMTP 密码只会写入加密敏感信息存储，不会回显到配置文件、接口响应或日志。建议优先使用 STARTTLS 或隐式 TLS。
-                </div>
-              </div>
-
-              <div v-if="form.email_http_enabled" class="notification-basic-panel">
-                <div class="notification-section-heading">
-                  <div>
-                    <strong>
-                      邮件通知基础配置
-                      <HelpTip>
-                        填写服务地址、发件人和收件人即可，技术参数无需修改。
-                      </HelpTip>
-                    </strong>
-                  </div>
-                  <span class="notification-recommended-badge">推荐配置</span>
-                </div>
-
-                <div class="notification-row notification-basic-row">
-                  <label>
-                    <span>
-                      邮件服务地址
-                      <HelpTip>
-                        填写邮件服务提供的地址，不需要自行拼接接口路径。
-                      </HelpTip>
-                    </span>
-                    <input
-                      id="email-endpoint"
-                      name="email_endpoint"
-                      v-model.trim="form.email_endpoint"
-                      type="url"
-                      placeholder="https://mail.example.com"
-                    />
-                  </label>
-                  <label>
-                    <span>
-                      邮件服务名称（可选）
-                      <HelpTip>
-                        仅用于日志和通知内容中的识别。
-                      </HelpTip>
-                    </span>
-                    <input
-                      id="email-provider"
-                      name="email_provider"
-                      v-model.trim="form.email_provider"
-                      placeholder="例如：Smail"
-                    />
-                  </label>
-                </div>
-
                 <div class="notification-row notification-sender-row">
                   <label>
                     <span>发件人名称</span>
@@ -528,7 +450,7 @@ const {
                 <span>只有手动启动 Scert-admin 后，此地址才会临时可用。</span>
               </div>
 
-              <div v-if="form.email_http_enabled" class="notification-advanced-panel">
+              <div v-if="form.email_smtp_enabled" class="notification-advanced-panel">
                 <button
                   class="notification-advanced-toggle"
                   type="button"
@@ -537,7 +459,6 @@ const {
                 >
                   <span>
                     <strong>高级配置</strong>
-                    <small>认证、请求路径、重试策略和通知内容选项</small>
                   </span>
                   <span class="notification-advanced-action">
                     {{ notificationAdvancedVisible ? "收起配置" : "展开配置" }}
@@ -545,101 +466,6 @@ const {
                 </button>
 
                 <div v-if="notificationAdvancedVisible" class="notification-advanced-content">
-                  <div class="notification-advanced-tip">
-                    默认值适用于常见 HTTP 邮件服务。只有服务方提供了特殊要求时，才需要修改这里的内容。
-                  </div>
-
-                  <div class="notification-row notification-api-row">
-                    <label>
-                      <span>HTTP 请求路径</span>
-                      <input
-                        id="email-http-path"
-                        v-model.trim="form.email_http_path"
-                        placeholder="/api/email/send"
-                      />
-                    </label>
-                    <label>
-                      <span>HTTP 认证方式</span>
-                      <select
-                        id="email-http-auth-mode"
-                        v-model="form.email_http_auth_mode"
-                      >
-                        <option value="none">无认证</option>
-                        <option value="bearer">Bearer Token</option>
-                        <option value="hmac_sha256">HMAC-SHA256</option>
-                        <option value="session">账号登录会话</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <div v-if="form.email_http_auth_mode === 'session'" class="notification-row notification-auth-row">
-                    <label>
-                      <span>登录请求路径</span>
-                      <input
-                        id="email-http-login-path"
-                        v-model.trim="form.email_http_login_path"
-                        placeholder="/api/login"
-                      />
-                    </label>
-                    <label v-if="!isBootstrap">
-                      <span>已有凭据引用（可选）</span>
-                      <input
-                        id="email-http-credential-ref"
-                        v-model.trim="form.email_http_credential_ref"
-                        placeholder="已有安全凭据引用"
-                      />
-                    </label>
-                  </div>
-
-                  <div v-else class="notification-row notification-auth-row">
-                    <label v-if="!isBootstrap">
-                      <span>已有凭据引用（可选）</span>
-                      <input
-                        id="email-http-credential-ref"
-                        v-model.trim="form.email_http_credential_ref"
-                        placeholder="已有安全凭据引用"
-                      />
-                    </label>
-                    <div v-if="form.email_http_auth_mode === 'none'" class="notification-auth-note">
-                      当前接口不启用认证，不需要填写凭据。
-                    </div>
-                  </div>
-
-                  <div
-                    v-if="form.email_http_auth_mode !== 'none'"
-                    class="notification-credential-field"
-                  >
-                    <div class="credential-visibility-row">
-                      <span>{{ emailCredentialLabel }}</span>
-                      <label class="credential-visibility-control">
-                        <input
-                          v-model="emailCredentialsVisible"
-                          type="checkbox"
-                        />
-                        <span>显示凭据明文</span>
-                      </label>
-                    </div>
-                    <textarea
-                      v-if="emailCredentialsVisible"
-                      id="email-http-credentials-visible"
-                      v-model="emailCredentials"
-                      rows="3"
-                      autocomplete="off"
-                      :placeholder="emailCredentialPlaceholder"
-                    ></textarea>
-                    <textarea
-                      v-else
-                      id="email-http-credentials-masked"
-                      :value="maskCredential(emailCredentials)"
-                      rows="3"
-                      readonly
-                      autocomplete="off"
-                    ></textarea>
-                    <small>
-                      配置时允许明文显示；提交后仅保存加密凭据引用，普通配置文件不会保存密码或令牌。
-                    </small>
-                  </div>
-
                   <div class="notification-row notification-delivery-row">
                     <label>
                       <span>通知事件模式</span>
@@ -674,14 +500,6 @@ const {
                   </div>
 
                   <div class="notification-bottom-row">
-                    <label class="email-headers-field">
-                      <span>HTTP 自定义请求头（JSON，可选）</span>
-                      <textarea
-                        v-model.trim="form.email_http_headers"
-                        rows="2"
-                        placeholder='例如：{"X-Tenant":"scert"}'
-                      ></textarea>
-                    </label>
                     <div class="setup-grid three-columns compact-options email-option-grid">
                       <label class="confirm-row compact-row">
                         <input

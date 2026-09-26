@@ -110,11 +110,14 @@ for (const driver of ["sqlite", "mysql", "postgres"]) {
       email_http_enabled: true,
       email_endpoint: "https://mail.example.test",
       email_http_auth_mode: "bearer",
+      email_smtp_enabled: true,
+      email_smtp_host: "smtp.example.test",
+      email_smtp_username: "sender@example.test",
+      email_smtp_password: "smtp-test-only",
       email_retry_count: 0,
       recipients: "first@example.test，second@example.test",
       email_http_credential_ref: "secret://client/not-trusted",
     });
-    state.emailCredentials.value = JSON.stringify({ token: "test-notification-token" });
     for (let step = 1; step < 4; step += 1) {
       assert.equal(state.currentStep.value, step);
       await state.handleSubmit();
@@ -128,10 +131,18 @@ for (const driver of ["sqlite", "mysql", "postgres"]) {
     assert.equal(submitted[0].database_verification_token, "database-token");
     assert.equal(submitted[0].dns_verification_token, "dns-token");
     assert.equal(submitted[0].web_public_ip, "203.0.113.20");
-    assert.equal(submitted[0].notification.http_enabled, true);
+    assert.equal(submitted[0].notification.http_enabled, false);
+    assert.equal(submitted[0].notification.smtp_enabled, true);
+    assert.equal(submitted[0].notification.smtp_host, "smtp.example.test");
+    assert.equal(submitted[0].notification.smtp_username, "sender@example.test");
+    assert.equal(submitted[0].notification.smtp_password, "smtp-test-only");
+    assert.equal(submitted[0].notification.smtp_port, 587);
+    assert.equal(submitted[0].notification.smtp_mode, "starttls");
     assert.equal(submitted[0].notification.retry_count, 0);
     assert.deepEqual(submitted[0].notification.recipients, ["first@example.test", "second@example.test"]);
-    assert.deepEqual(submitted[0].notification.http_credentials, { token: "test-notification-token" });
+    for (const key of ["endpoint", "http_auth_mode", "http_credentials", "http_path", "http_headers"]) {
+      assert.equal(Object.hasOwn(submitted[0].notification, key), false);
+    }
     for (const key of ["dns_credential_ref", "certificate_root", "database", "confirm_password"]) {
       assert.equal(Object.hasOwn(submitted[0], key), false);
     }

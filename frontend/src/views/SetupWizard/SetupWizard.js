@@ -45,8 +45,6 @@ export function useSetupWizard(props, emit) {
   const dnsProviders = ref([]);
   const dnsCredentials = ref({});
   const dnsCredentialsVisible = ref(true);
-  const emailCredentials = ref("");
-  const emailCredentialsVisible = ref(true);
   const dnsTestDomain = ref(props.status.web_hostname || "");
   const dnsVerification = ref(null);
   const verificationClock = ref(Date.now());
@@ -75,7 +73,6 @@ export function useSetupWizard(props, emit) {
     admin_password: "",
     confirm_password: "",
     server_port: props.status.mode === "bootstrap" ? 80 : (props.status.server_port || 80),
-    email_http_enabled: false,
     email_smtp_enabled: false,
     email_smtp_host: "",
     email_smtp_port: 587,
@@ -83,13 +80,6 @@ export function useSetupWizard(props, emit) {
     email_smtp_password: "",
     email_smtp_mode: "starttls",
     email_smtp_allow_plaintext_auth: false,
-    email_provider: "",
-    email_endpoint: "",
-    email_http_path: "/api/email/send",
-    email_http_login_path: "/api/login",
-    email_http_auth_mode: "none",
-    email_http_credential_ref: "",
-    email_http_headers: "",
     email_event_mode: "detailed",
     email_include_deployment_details: true,
     email_include_certificate_serial: true,
@@ -116,30 +106,6 @@ export function useSetupWizard(props, emit) {
   const targetLabel = computed(() =>
     targetType.value === "hostname" ? "管理页面域名" : "公网 IP 地址",
   );
-  const emailCredentialLabel = computed(() => {
-    switch (form.value.email_http_auth_mode) {
-      case "bearer":
-        return "Bearer Token 凭据（JSON）";
-      case "hmac_sha256":
-        return "HMAC-SHA256 凭据（JSON）";
-      case "session":
-        return "登录会话凭据（JSON）";
-      default:
-        return "HTTP 通知凭据";
-    }
-  });
-  const emailCredentialPlaceholder = computed(() => {
-    switch (form.value.email_http_auth_mode) {
-      case "bearer":
-        return '{"token":"请输入 Bearer Token"}';
-      case "hmac_sha256":
-        return '{"secret":"请输入签名密钥"}';
-      case "session":
-        return '{"account":"请输入账号","password":"请输入密码"}';
-      default:
-        return "无需填写凭据";
-    }
-  });
   const resetURLPreview = computed(() => {
     const rawHost =
       targetType.value === "hostname"
@@ -428,27 +394,6 @@ export function useSetupWizard(props, emit) {
     return "•".repeat(Math.min(Math.max(text.length, 8), 64));
   }
 
-  function emailCredentialPayload() {
-    if (
-      !form.value.email_http_enabled ||
-      form.value.email_http_auth_mode === "none"
-    ) {
-      return {};
-    }
-    const text = emailCredentials.value.trim();
-    if (!text) return {};
-    const parsed = JSON.parse(text);
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-      throw new Error("HTTP 通知凭据必须是 JSON 对象。");
-    }
-    for (const [key, value] of Object.entries(parsed)) {
-      if (!key.trim() || typeof value !== "string" || !value.trim()) {
-        throw new Error("HTTP 通知凭据的字段和值必须是非空文本。");
-      }
-    }
-    return parsed;
-  }
-
   async function testDNS() {
     dnsTestError.value = "";
     resultMessage.value = "";
@@ -586,42 +531,6 @@ export function useSetupWizard(props, emit) {
           return false;
         }
       }
-      if (form.value.email_http_enabled && !form.value.email_endpoint.trim()) {
-        error.value = "启用 HTTP 邮件通知后必须填写 API 地址。";
-        return false;
-      }
-      if (
-        form.value.email_http_enabled &&
-        form.value.email_http_auth_mode !== "none" &&
-        (isBootstrap || !form.value.email_http_credential_ref.trim()) &&
-        !emailCredentials.value.trim()
-      ) {
-        error.value = "启用 HTTP 通知认证后必须填写有效凭据。";
-        return false;
-      }
-      if (
-        form.value.email_http_enabled &&
-        form.value.email_http_auth_mode !== "none" &&
-        emailCredentials.value.trim()
-      ) {
-        try {
-          emailCredentialPayload();
-        } catch (err) {
-          error.value = err.message || "HTTP 通知凭据格式无效。";
-          return false;
-        }
-      }
-      if (form.value.email_http_headers.trim()) {
-        try {
-          const headers = JSON.parse(form.value.email_http_headers);
-          if (!headers || Array.isArray(headers) || typeof headers !== "object") {
-            throw new Error("not-object");
-          }
-        } catch {
-          error.value = "HTTP 自定义请求头必须是 JSON 对象。";
-          return false;
-        }
-      }
     }
 
     if (currentStep.value === 3) {
@@ -717,11 +626,6 @@ export function useSetupWizard(props, emit) {
       .filter(Boolean);
   }
 
-  function emailHeaders() {
-    if (!form.value.email_http_headers.trim()) return {};
-    return JSON.parse(form.value.email_http_headers);
-  }
-
   function retryIntervals() {
     return form.value.email_retry_intervals_secs
       .split(/[,，]/)
@@ -769,7 +673,7 @@ export function useSetupWizard(props, emit) {
           admin_email: form.value.admin_email,
           admin_password: form.value.admin_password,
           server_port: Number(form.value.server_port),
-          email_http_enabled: form.value.email_http_enabled,
+          email_http_enabled: false,
           email_smtp_enabled: form.value.email_smtp_enabled,
           email_smtp_host: form.value.email_smtp_host,
           email_smtp_port: Number(form.value.email_smtp_port),
@@ -777,14 +681,6 @@ export function useSetupWizard(props, emit) {
           email_smtp_password: form.value.email_smtp_password,
           email_smtp_mode: form.value.email_smtp_mode,
           email_smtp_allow_plaintext_auth: form.value.email_smtp_allow_plaintext_auth,
-          email_provider: form.value.email_provider,
-          email_endpoint: form.value.email_endpoint,
-          email_http_path: form.value.email_http_path,
-          email_http_login_path: form.value.email_http_login_path,
-          email_http_auth_mode: form.value.email_http_auth_mode,
-          email_http_credential_ref: form.value.email_http_credential_ref,
-          email_http_credentials: emailCredentialPayload(),
-          email_http_headers: emailHeaders(),
           email_event_mode: form.value.email_event_mode,
           email_include_deployment_details:
             form.value.email_include_deployment_details,
@@ -898,8 +794,6 @@ export function useSetupWizard(props, emit) {
     dnsCredentials,
     dnsCredentialsVisible,
     maskCredential,
-    emailCredentials,
-    emailCredentialsVisible,
     dnsTestDomain,
     dnsVerification,
     currentStep,
@@ -913,8 +807,6 @@ export function useSetupWizard(props, emit) {
     emailAutofillElement,
     handleEmailAutofill,
     targetLabel,
-    emailCredentialLabel,
-    emailCredentialPlaceholder,
     resetURLPreview,
     selectedDNSProvider,
     dnsVerificationValid,
