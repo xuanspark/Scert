@@ -139,12 +139,19 @@ func (s *Server) importCertificateFiles(c *gin.Context) {
 	defer cleanup()
 	result, report, err := s.importCertificate(c.Request.Context(), request)
 	report = sanitizeDeploymentReport(report)
-	response := gin.H{"certificate": result, "deployment": report}
+	// 导入保存与远端部署是不同阶段；部署失败不能让用户误以为证书尚未保存。
+	imported := err == nil || (result.DomainID == request.DomainID &&
+		result.Saved.CertificatePath != "" && result.Saved.FullChainPath != "" && result.Saved.PrivateKeyPath != "")
+	response := gin.H{"certificate": result, "deployment": report, "imported": imported}
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Error("证书导入失败", "error", err)
+		message := "证书导入失败"
+		if imported {
+			message = "证书已导入，但部署未完成。请修正服务器配置后重试部署，无需重新导入。"
 		}
-		response["error"] = "证书导入失败"
+		if s.logger != nil {
+			s.logger.Error(message, "error", err)
+		}
+		response["error"] = message
 		c.JSON(http.StatusBadGateway, response)
 		return
 	}

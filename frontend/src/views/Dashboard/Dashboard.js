@@ -1013,6 +1013,7 @@ export function useDashboard() {
   }
 
   async function importCertificate() {
+    if (importSaving.value || importResult.value) return;
     importError.value = "";
     importResult.value = null;
     if (!importFiles.value.certificate || !importFiles.value.private_key) {
@@ -1038,11 +1039,21 @@ export function useDashboard() {
         { method: "POST", body },
       );
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      if (!response.ok && result.imported !== true) {
         throw new Error(result.error || "导入证书失败");
       }
       importResult.value = result;
       notice.value = `域名 ${importDomain.value.name} 的证书已导入`;
+      if (!response.ok || result.deployment?.total > 0) {
+        showCertificateImport.value = false;
+        deploymentResult.value = {
+          domain: importDomain.value.name,
+          running: false,
+          certificateImported: true,
+          report: result.deployment || null,
+          error: response.ok ? "" : result.error || "证书已导入，但部署未完成。请重试部署，无需重新导入。",
+        };
+      }
       await loadData();
     } catch (err) {
       importError.value = err.message || "导入证书失败";

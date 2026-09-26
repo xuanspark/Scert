@@ -16,7 +16,7 @@ defineEmits(["close"]);
     >
       <div class="modal-heading">
         <div>
-          <h2 id="deployment-result-title">证书部署结果</h2>
+          <h2 id="deployment-result-title">{{ result.certificateImported ? "证书导入与部署结果" : "证书部署结果" }}</h2>
           <p class="muted">{{ result.domain }}</p>
         </div>
         <button
@@ -29,6 +29,7 @@ defineEmits(["close"]);
       </div>
       <p v-if="result.running" role="status">正在连接服务器、推送证书并校验重载，请稍候……</p>
       <template v-else>
+        <p v-if="result.certificateImported" role="status">证书已导入并保存。</p>
         <p v-if="result.error" class="form-error" role="alert">{{ result.error }}</p>
         <p v-if="result.report" class="deployment-summary" role="status">
           {{ deploymentSummary(result.report) }}

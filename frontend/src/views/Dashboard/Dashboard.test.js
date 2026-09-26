@@ -163,6 +163,83 @@ test("certificateImport.submitsSelectedFilesAndResetsOnReopen", async (t) => {
   assert.ok(state.importError.value);
 });
 
+test("证书已导入但部署失败时展示服务器结果并刷新状态，不能重复导入", async (t) => {
+  let imports = 0;
+  let refreshes = 0;
+  const report = {
+    total: 1, success: 0, failed: 1, status: "failed",
+    results: [{ server_id: "server-1", server: "验收服务器", status: "failed", message: "连接服务器失败" }],
+  };
+  const message = "证书已导入，但部署未完成。请修正服务器配置后重试部署，无需重新导入。";
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/certificate/import")) {
+      imports++;
+      return Response.json({ imported: true, deployment: report, error: message }, { status: 502 });
+    }
+    if (path === "/api/v1/domains") refreshes++;
+    return Response.json({ items: [] });
+  });
+  const before = refreshes;
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key"]) {
+    state.selectCertificateImportFile(kind, { target: { files: [new File([kind], `${kind}.pem`)] } });
+  }
+  await state.importCertificate();
+  assert.equal(state.importResult.value?.imported, true);
+  assert.equal(state.importError.value, "");
+  assert.equal(state.showCertificateImport.value, false);
+  assert.equal(state.deploymentResult.value.certificateImported, true);
+  assert.equal(state.deploymentResult.value.error, message);
+  assert.deepEqual(state.deploymentResult.value.report, report);
+  assert.ok(refreshes > before);
+  assert.match(state.notice.value, /证书已导入/);
+  await state.importCertificate();
+  assert.equal(imports, 1);
+});
+
+test("证书未保存时保留导入表单并显示真正的导入失败", async (t) => {
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/certificate/import")) {
+      return Response.json({ imported: false, error: "证书导入失败" }, { status: 502 });
+    }
+    return Response.json({ items: [] });
+  });
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key"]) {
+    state.selectCertificateImportFile(kind, { target: { files: [new File([kind], `${kind}.pem`)] } });
+  }
+  await state.importCertificate();
+  assert.equal(state.importResult.value, null);
+  assert.equal(state.deploymentResult.value, null);
+  assert.equal(state.showCertificateImport.value, true);
+  assert.equal(state.importError.value, "证书导入失败");
+});
+
+test("导入执行中阻止重复提交，成功后展示实际部署结果", async (t) => {
+  const pending = deferred();
+  let imports = 0;
+  const report = { total: 1, success: 1, failed: 0, status: "success", results: [{ server_id: "server-1", status: "success" }] };
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/certificate/import")) {
+      imports++;
+      return pending.promise;
+    }
+    return Response.json({ items: [] });
+  });
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key"]) {
+    state.selectCertificateImportFile(kind, { target: { files: [new File([kind], `${kind}.pem`)] } });
+  }
+  const action = state.importCertificate();
+  const duplicate = state.importCertificate();
+  assert.equal(imports, 1);
+  pending.resolve(Response.json({ imported: true, deployment: report }));
+  await Promise.all([action, duplicate]);
+  assert.equal(state.showCertificateImport.value, false);
+  assert.equal(state.deploymentResult.value.error, "");
+  assert.deepEqual(state.deploymentResult.value.report, report);
+});
+
 async function setup(t, request) {
   const mounted = await mountComposable(t, useDashboard, async (path) => {
     if (path === "/api/v1/dns/test") return request();

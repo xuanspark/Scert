@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -145,6 +146,51 @@ func TestCertificateImportAPIHidesWorkflowErrors(t *testing.T) {
 		t.Fatalf("certificate import did not include the safe error message: %s", responseBody)
 	}
 }
+func TestCertificateImportAPIReportsSavedCertificateOnDeploymentFailure(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		t.Run(fmt.Sprintf("saved=%t", saved), func(t *testing.T) {
+			server := New(Dependencies{
+				Config: readyTestConfig(t.TempDir()), Repository: &stubDomainRepository{},
+				ImportCertificate: func(_ context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+					result := certificate.IssueResult{}
+					if saved {
+						result = certificate.IssueResult{DomainID: request.DomainID, Saved: certificate.SavedResource{
+							CertificatePath: "/ssl/cert.pem", FullChainPath: "/ssl/fullchain.pem", PrivateKeyPath: "/ssl/key.pem",
+						}}
+					}
+					return result, deployment.Report{Total: 1, Failed: 1, Status: "failed", Results: []deployment.Result{
+						{ServerID: "server-1", Server: "验收服务器", Status: "failed", Message: "secret-diagnostic"},
+					}}, errors.New("secret-diagnostic")
+				},
+			})
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", strings.NewReader(`{"certificate_path":"/ssl/cert.pem","private_key_path":"/ssl/key.pem"}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			serveAdminHTTP(server, response, request)
+			var result struct {
+				Imported   bool              `json:"imported"`
+				Error      string            `json:"error"`
+				Deployment deployment.Report `json:"deployment"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusBadGateway || result.Imported != saved || len(result.Deployment.Results) != 1 {
+				t.Fatalf("导入和部署阶段未正确区分：%d %s", response.Code, response.Body.String())
+			}
+			if saved && (!strings.Contains(result.Error, "证书已导入") || !strings.Contains(result.Error, "无需重新导入")) {
+				t.Fatalf("缺少部署重试提示：%s", result.Error)
+			}
+			if !saved && result.Error != "证书导入失败" {
+				t.Fatalf("未保存证书却报告导入成功：%s", result.Error)
+			}
+			if strings.Contains(response.Body.String(), "secret-diagnostic") {
+				t.Fatal("部署诊断泄露到响应")
+			}
+		})
+	}
+}
+
 func TestCertificateImportAPIAcceptsMultipartFiles(t *testing.T) {
 	var received certificate.ImportRequest
 	importer := func(_ context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {

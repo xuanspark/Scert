@@ -544,7 +544,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
           </div>
           <div class="modal-actions">
             <button class="secondary-button" type="button" :disabled="importSaving" @click="closeCertificateImport">关闭</button>
-            <button class="primary-button" type="submit" :disabled="importSaving">{{ importSaving ? "导入中……" : "导入证书" }}</button>
+            <button class="primary-button" type="submit" :disabled="importSaving || !!importResult">{{ importSaving ? "导入中……" : importResult ? "已导入" : "导入证书" }}</button>
           </div>
         </form>
       </section>
