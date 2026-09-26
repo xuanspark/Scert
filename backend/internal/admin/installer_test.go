@@ -73,6 +73,66 @@ systemctl() {
 	}
 }
 
+func TestLinuxInstallerCertificateOwnership(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip(err)
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "install-linux.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	start := strings.Index(content, "validate_existing_certificate_dir() {")
+	if start < 0 {
+		t.Fatal("validate_existing_certificate_dir")
+	}
+	end := strings.Index(content[start:], "\n}\n")
+	if end < 0 {
+		t.Fatal("validate_existing_certificate_dir")
+	}
+	guard := content[start : start+end+3]
+	base := t.TempDir()
+	file := filepath.Join(base, "keep.pem")
+	if err := os.WriteFile(file, []byte("preserve"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		path    string
+		owner   string
+		allowed bool
+	}{
+		{"new-directory", filepath.Join(base, "new"), "root:root", true},
+		{"owned-directory", base, "Scert:Scert", true},
+		{"shared-directory", base, "root:root", false},
+		{"other-service", base, "nginx:nginx", false},
+		{"wrong-group", base, "Scert:root", false},
+		{"missing-owner", base, "", false},
+		{"existing-file", file, "Scert:Scert", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script := `set -Eeuo pipefail
+SERVICE_USER=Scert
+SERVICE_GROUP=Scert
+certificate_dir="$TEST_PATH"
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+stat() { printf '%s\n' "$TEST_OWNER"; }
+` + guard + "\nvalidate_existing_certificate_dir\n"
+			command := exec.Command(bash, "--noprofile", "--norc", "-c", script)
+			command.Env = append(os.Environ(), "TEST_PATH="+filepath.ToSlash(tc.path), "TEST_OWNER="+tc.owner)
+			output, err := command.CombinedOutput()
+			if (err == nil) != tc.allowed {
+				t.Fatalf("allowed=%t, err=%v, output=%s", tc.allowed, err, output)
+			}
+			preserved, err := os.ReadFile(file)
+			if err != nil || string(preserved) != "preserve" {
+				t.Fatalf("preserved=%q, err=%v", preserved, err)
+			}
+		})
+	}
+}
+
 func TestLinuxInstallerPolicy(t *testing.T) {
 	installerPath := filepath.Join("..", "..", "..", "deploy", "install-linux.sh")
 	data, err := os.ReadFile(installerPath)
@@ -83,7 +143,8 @@ func TestLinuxInstallerPolicy(t *testing.T) {
 
 	required := []string{
 		`readonly INSTALL_DIR="/scert"`,
-		`readonly DEFAULT_CERTIFICATE_DIR="/ssl"`,
+		`readonly DEFAULT_CERTIFICATE_DIR="/ssl/scert"`,
+		`validate_existing_certificate_dir`,
 		`readonly SERVICE_USER="Scert"`,
 		`readonly INSTALL_METADATA_FILE="$INSTALL_DIR/conf/installation.json"`,
 		`useradd --system`,

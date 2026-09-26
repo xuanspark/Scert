@@ -38,7 +38,7 @@ func TestScertSystemdUnitPolicy(t *testing.T) {
 		"RestrictSUIDSGID=yes",
 		"RemoveIPC=yes",
 		"SystemCallArchitectures=native",
-		"ReadWritePaths=/ssl /scert/conf /scert/data /scert/log /scert/backups",
+		"ReadWritePaths=/ssl/scert /scert/conf /scert/data /scert/log /scert/backups",
 		"[Install]",
 		"WantedBy=multi-user.target",
 	} {

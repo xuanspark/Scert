@@ -168,7 +168,7 @@ func Default(baseDir string) Config {
 
 func DefaultPaths(baseDir string) PathsConfig {
 	if runtime.GOOS == "linux" {
-		certificateRoot := "/ssl"
+		certificateRoot := "/ssl/scert"
 		if strings.TrimSpace(baseDir) == "" {
 			if installedRoot, err := readInstalledCertificateRoot(LinuxInstallationMetadataPath); err == nil {
 				certificateRoot = installedRoot

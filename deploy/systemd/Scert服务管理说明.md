@@ -31,7 +31,7 @@ systemctl daemon-reload
 /scert/data         数据目录
 /scert/log          日志目录
 /scert/backups      备份目录
-/ssl                证书根目录
+/ssl/scert          默认证书根目录
 ```
 
 ## 安全要求

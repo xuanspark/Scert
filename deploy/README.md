@@ -158,7 +158,7 @@ SCERT_WEB_ENABLED=true
 ## 参数说明
 
 - `--source-dir`：包含两个 Linux 可执行文件和 `web/index.html` 的目录，默认是安装器所在目录。
-- `--certificate-dir`：证书根目录参数，默认 `/ssl`。安装器会创建该目录，写入 `/scert/conf/installation.json`，并生成对应的 `Scert.service.d/10-certificate-path.conf`。首次初始化会读取该记录作为证书目录默认值。
+- `--certificate-dir`：证书根目录参数，默认 `/ssl/scert`，不接管共用的 `/ssl`。安装器会创建专用目录，写入 `/scert/conf/installation.json`，并生成对应的 `Scert.service.d/10-certificate-path.conf`。首次初始化会读取该记录作为证书目录默认值；既有安装仍沿用安装记录，不自动迁移证书。已存在且不属于 Scert 的目录会被拒绝，不修改其所有者或内容，请选择尚不存在的专用子目录。
 
 Linux 安装目录当前固定为 `/scert`。自定义证书根目录必须是规范化的安全绝对路径，只允许字母、数字、点、下划线、连字符和斜杠，不允许空格、`..` 路径片段、符号链接、受保护系统目录或 `/scert` 下的路径；`/var` 下仅允许 `/var/lib/scert` 专用目录。
 

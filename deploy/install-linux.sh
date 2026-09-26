@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly INSTALL_DIR="/scert"
-readonly DEFAULT_CERTIFICATE_DIR="/ssl"
+readonly DEFAULT_CERTIFICATE_DIR="/ssl/scert"
 readonly SERVICE_USER="Scert"
 readonly SERVICE_GROUP="Scert"
 readonly SERVICE_DIR="/etc/systemd/system"
@@ -27,7 +27,7 @@ Scert Linux 安装器
 
 选项：
   --source-dir DIR       安装产物目录，必须包含 scert 和 scert-admin
-  --certificate-dir DIR  证书根目录，默认 /ssl
+  --certificate-dir DIR  证书根目录，默认 /ssl/scert
   -h, --help             显示帮助
 
 Linux 安装目录固定为 /scert，证书业务目录可在首次初始化时继续配置。
@@ -112,6 +112,15 @@ validate_certificate_dir() {
 
 }
 
+validate_existing_certificate_dir() {
+    if [[ ! -e "$certificate_dir" ]]; then
+        return
+    fi
+    [[ -d "$certificate_dir" ]] || fail "证书路径不是目录：$certificate_dir"
+    [[ "$(stat -c '%U:%G' -- "$certificate_dir")" == "$SERVICE_USER:$SERVICE_GROUP" ]] || \
+        fail "现有证书目录不属于 Scert，拒绝接管；请填写尚不存在的专用子目录：$certificate_dir"
+}
+
 reject_symlink_path() {
     local target_path="$1"
     local description="$2"
@@ -173,13 +182,14 @@ validate_environment() {
     [[ "$(uname -s)" == "Linux" ]] || fail "此安装器只支持 Linux"
     [[ "$(id -u)" -eq 0 ]] || fail "请使用 root 或 sudo 运行安装器"
     local command_name
-    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink find file mv cp mktemp; do
+    for command_name in install systemctl getent groupadd useradd id chmod chown cut grep readlink find file mv cp mktemp stat; do
         command -v "$command_name" >/dev/null 2>&1 || fail "找不到系统命令：$command_name"
     done
     nologin_shell="$(command -v nologin || true)"
     [[ -n "$nologin_shell" ]] || fail "找不到 nologin，无法创建禁止登录的服务用户"
     load_existing_certificate_dir
     validate_certificate_dir
+    validate_existing_certificate_dir
     validate_managed_paths
 }
 
@@ -337,7 +347,7 @@ create_directories() {
         "$INSTALL_DIR/data" \
         "$INSTALL_DIR/log" \
         "$INSTALL_DIR/backups"
-    install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "$certificate_dir"
+    install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 "$certificate_dir"
     chown -R -h "$SERVICE_USER:$SERVICE_GROUP" \
         "$INSTALL_DIR/conf" \
         "$INSTALL_DIR/data" \

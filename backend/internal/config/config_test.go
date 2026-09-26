@@ -11,7 +11,7 @@ import (
 func TestDefaultPaths(t *testing.T) {
 	paths := DefaultPaths(t.TempDir())
 	if runtime.GOOS == "linux" {
-		if paths.Install != "/scert" || paths.Certificate != "/ssl" {
+		if paths.Install != "/scert" || paths.Certificate != "/ssl/scert" {
 			t.Fatalf("Linux 默认路径不正确：%+v", paths)
 		}
 		return

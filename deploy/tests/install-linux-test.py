@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import pwd
 from pathlib import Path
 import subprocess
 import sys
@@ -92,6 +93,9 @@ def prepare(base, scenario, certificate_root):
     for name in ["conf/scert.json", "conf/master.key", "conf/secrets.json", "data/scert.db", "backups/keep"]:
         (base / "install" / name).write_text("preserve:" + name)
     (base / "certificates/keep.pem").write_text("preserve:certificate")
+    account = pwd.getpwnam("Scert")
+    os.chown(base / "certificates", account.pw_uid, account.pw_gid)
+    (base / "certificates").chmod(0o700)
     for name in ["Scert.service", "Scert-admin.service", "Scert.service.d/10-certificate-path.conf"]:
         (base / "units" / name).write_text("old:" + name)
     command_log = str(base / "systemctl.log")
@@ -117,6 +121,8 @@ def prepare(base, scenario, certificate_root):
         + ('exit 0; fi\n' if scenario == "service-active" else 'exit 3; fi\n')
         + 'if [[ "$1" == "show" ]]; then\n'
         + f'if [[ "$2" == "{service_name}" ]]; then\n' + state_command + 'fi\n'
+        + 'if [[ "$2" == "Scert-storage.socket" ]]; then\n'
+        + "printf '%s\\n' 'LoadState=loaded' 'ActiveState=inactive' 'SubState=dead' 'ControlPID=0' 'Job='; exit 0\nfi\n"
         + "printf '%s\\n' 'LoadState=loaded' 'ActiveState=inactive' 'SubState=dead' 'MainPID=0' 'ControlPID=0' 'Job='; exit 0\nfi\n"
         + '[[ "$*" == "daemon-reload" ]] || exit 97\n'
         + (f'if [[ ! -e "{counter}" ]]; then touch "{counter}"; exit 42; fi\n' if scenario == "reload-failure" else "")
@@ -213,7 +219,7 @@ def parent(args):
         command_log = base / "systemctl.log"
         calls = command_log.read_text().splitlines() if command_log.exists() else []
         allowed = {"is-active --quiet Scert.service", "is-active --quiet Scert-admin.service", "daemon-reload"}
-        allowed.update("show " + name + " -p LoadState -p ActiveState -p SubState -p MainPID -p ControlPID -p Job" for name in ["Scert.service", "Scert-admin.service"])
+        allowed.update("show " + name + " -p LoadState -p ActiveState -p SubState -p MainPID -p ControlPID -p Job" for name in ["Scert.service", "Scert-admin.service", "Scert-storage.service", "Scert-storage.socket"])
         if any(call not in allowed for call in calls):
             errors.append("出现不允许的服务操作")
         if scenario in SERVICE_GUARDS and "daemon-reload" in calls:
