@@ -278,10 +278,14 @@ func writeBootstrapCompletionError(writer http.ResponseWriter, err error) {
 	case errors.As(err, &completionErr):
 		// 不转发底层错误或可注入的说明，防止密码、凭据引用及验证令牌泄露。
 		switch completionErr.Kind {
+		case CompleteErrorProxyTrust:
+			writeBootstrapError(writer, http.StatusUnprocessableEntity, "反向代理管理入口需要管理域名和正式环境证书；测试环境证书或 IP 自签名证书不能用于此模式。请使用直接 HTTPS 测试，或改用正式域名证书")
+		case CompleteErrorProxyReadiness:
+			writeBootstrapError(writer, http.StatusUnprocessableEntity, "公开管理入口未通过代理连通验证，初始化未提交。请检查域名解析、代理公开端口、上游端口、上游证书信任及转发规则，修正后重新验证并提交")
 		case CompleteErrorCertificatePath:
 			writeBootstrapError(writer, http.StatusBadRequest, "证书部署根目录必须是服务器上的独立绝对路径，不能使用根目录、符号链接或与配置、数据、日志、备份目录重叠")
 		case CompleteErrorCertificateAccess:
-			writeBootstrapError(writer, http.StatusUnprocessableEntity, "证书部署根目录无法创建或写入，请检查 Scert 运行账户权限及服务的可写目录限制")
+			writeBootstrapError(writer, http.StatusUnprocessableEntity, "证书目录自动准备未完成，请检查目录是否位于安装时批准的范围内，以及目录准备服务是否运行。不会接管其他用户的目录或放开整个系统的写入权限")
 		case CompleteErrorInput:
 			writeBootstrapError(writer, http.StatusBadRequest, "初始化参数无效，请检查管理员、管理入口和服务配置")
 		case CompleteErrorVerification:

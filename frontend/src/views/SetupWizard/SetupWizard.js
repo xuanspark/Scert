@@ -587,6 +587,10 @@ export function useSetupWizard(props, emit) {
           error.value = "代理公开 HTTPS 端口必须为 1 至 65535 的整数。";
           return false;
         }
+        if (isBootstrap && (form.value.acme_environment !== "production" || !form.value.web_hostname.trim())) {
+          error.value = "反向代理管理入口需要管理域名和正式环境证书。测试环境或 IP 自签名证书请使用直接 HTTPS 模式，避免初始化后出现 502。";
+          return false;
+        }
       }
       if (!form.value.certificate_root.trim()) {
         error.value = "请填写证书部署根目录。";

@@ -733,7 +733,7 @@ const {
                 <span>
                   证书部署根目录
                   <HelpTip>
-                    可填写服务器上的绝对路径。Scert 运行账户必须有写入权限；Linux 自定义目录还需位于服务的可写范围内。
+                    填写服务器绝对路径，缺失目录将自动创建。Linux 会通过本机目录服务配置最小写入权限；支持 /ssl、/var/lib/scert/certificates 及安装时批准的存储范围，不接管其他账户或系统目录。
                   </HelpTip>
                 </span>
                 <input
@@ -745,12 +745,11 @@ const {
                 />
               </label>
               <label v-if="isBootstrap">
-                <span>证书签发环境</span>
+                <span>证书签发环境<HelpTip>反向代理管理入口需要正式域名证书。测试证书仅用于直接 HTTPS 测试，浏览器不会公共信任该证书。</HelpTip></span>
                 <select v-model="form.acme_environment">
                   <option value="staging">测试环境（证书不受公共信任）</option>
                   <option value="production">正式环境（实际申请受信任域名证书）</option>
                 </select>
-                <small>IP 管理入口使用自签名证书，不会因选择正式环境而自动受信任。</small>
               </label>
               <label>
                 <span>HTTPS 模式</span>

@@ -1,0 +1,33 @@
+[Unit]
+Description=Scert 受限证书目录准备服务
+Requires=Scert-storage.socket
+After=Scert-storage.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/scert/scert-storage
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER
+AmbientCapabilities=
+ProtectSystem=full
+ReadWritePaths=/etc/systemd/system/Scert.service.d
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+TimeoutStopSec=30

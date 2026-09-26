@@ -11,6 +11,12 @@ test("代理模式提交公开端口并跳转至对应入口", async (t) => {
   const address = "https://admin.example.test:8004/";
   const { state, submitted, emitted } = await setup(t, () => Response.json({ completed: true, management_url: address }));
   state.form.value.https_mode = "proxy";
+  state.form.value.acme_environment = "production";
+  state.form.value.web_hostname = "admin.example.test";
+  state.form.value.web_public_ip = "";
+  state.targetType.value = "hostname";
+  state.dnsTestDomain.value = "admin.example.test";
+  await state.testDNS();
   state.form.value.proxy_https_port = 8004;
   state.currentStep.value = 4;
   await state.handleSubmit();
@@ -29,6 +35,17 @@ for (const port of [0, -1, 65536, 8004.5, ""]) {
     assert.match(state.error.value, /代理公开 HTTPS 端口/);
   });
 }
+
+test("测试环境代理模式在提交前阻止不受信任的管理证书", async (t) => {
+  const { state, submitted } = await setup(t);
+  state.form.value.https_mode = "proxy";
+  state.form.value.proxy_https_port = 443;
+  state.form.value.acme_environment = "staging";
+  state.currentStep.value = 4;
+  await state.handleSubmit();
+  assert.equal(submitted.length, 0);
+  assert.match(state.error.value, /正式环境证书/);
+});
 
 async function setup(t, complete = completion, driver = "sqlite") {
   const submitted = [];

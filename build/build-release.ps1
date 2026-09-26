@@ -284,6 +284,8 @@ foreach ($requiredDeploymentFile in @(
     "README.md",
     "systemd\Scert.service",
     "systemd\Scert-admin.service",
+    "systemd\Scert-storage.service",
+    "systemd\Scert-storage.socket",
     "systemd\scert-nginx.socket",
     "systemd\scert-nginx.service",
     "nginx\policy.json.example",
@@ -388,6 +390,8 @@ try {
         if ($goos -eq "linux") {
             Invoke-GoBuild -OperatingSystem $goos -Architecture $goarch -Destination (Join-Path $targetDirectory "scert-nginx") -Package "./cmd/scert-nginx"
             $binaries += "scert-nginx"
+            Invoke-GoBuild -OperatingSystem $goos -Architecture $goarch -Destination (Join-Path $targetDirectory "scert-storage") -Package "./cmd/scert-storage"
+            $binaries += "scert-storage"
         }
 
         $webPath = Join-Path $targetDirectory "web"

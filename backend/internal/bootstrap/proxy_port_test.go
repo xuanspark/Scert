@@ -11,9 +11,12 @@ func TestCompleterPreservesExternalProxyPort(t *testing.T) {
 	fixture := newCompletionFixture(t, "admin.example.test")
 	request := fixture.request("admin.example.test")
 	request.HTTPSMode = "proxy"
+	request.ACMEEnvironment = "production"
 	request.ServerPort = 9004
 	request.ProxyHTTPSPort = 8004
-	result, err := fixture.completer(nil).Complete(context.Background(), request)
+	result, err := fixture.completer(func(deps *CompleteDependencies) {
+		deps.VerifyProxy = func(context.Context, config.Config) error { return nil }
+	}).Complete(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}

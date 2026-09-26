@@ -140,11 +140,14 @@ validate_managed_paths() {
         "$INSTALL_DIR/web" \
         "$INSTALL_DIR/scert" \
         "$INSTALL_DIR/scert-admin" \
+        "$INSTALL_DIR/scert-storage" \
         "$INSTALL_METADATA_FILE" \
         "$INSTALL_DIR/docs/Scert-service-management.md" \
         "$INSTALL_DIR/docs/Scert-admin-service-management.md" \
         "$SERVICE_DIR/Scert.service" \
         "$SERVICE_DIR/Scert-admin.service" \
+        "$SERVICE_DIR/Scert-storage.service" \
+        "$SERVICE_DIR/Scert-storage.socket" \
         "$SERVICE_DROP_IN_DIR" \
         "$SERVICE_DROP_IN_DIR/10-certificate-path.conf"; do
         reject_symlink_path "$managed_path" "Scert 受管路径"
@@ -154,10 +157,10 @@ validate_managed_paths() {
         "$INSTALL_DIR/web" "$SERVICE_DIR" "$SERVICE_DROP_IN_DIR"; do
         [[ ! -e "$managed_path" || -d "$managed_path" ]] || fail "Scert 目录路径不是普通目录：$managed_path"
     done
-    for managed_path in "$INSTALL_DIR/scert" "$INSTALL_DIR/scert-admin" \
+    for managed_path in "$INSTALL_DIR/scert" "$INSTALL_DIR/scert-admin" "$INSTALL_DIR/scert-storage" \
         "$INSTALL_METADATA_FILE" "$INSTALL_DIR/docs/Scert-service-management.md" \
         "$INSTALL_DIR/docs/Scert-admin-service-management.md" \
-        "$SERVICE_DIR/Scert.service" "$SERVICE_DIR/Scert-admin.service" \
+        "$SERVICE_DIR/Scert.service" "$SERVICE_DIR/Scert-admin.service" "$SERVICE_DIR/Scert-storage.service" "$SERVICE_DIR/Scert-storage.socket" \
         "$SERVICE_DROP_IN_DIR/10-certificate-path.conf"; do
         [[ ! -e "$managed_path" || -f "$managed_path" ]] || fail "Scert 文件路径不是普通文件：$managed_path"
     done
@@ -187,7 +190,7 @@ validate_artifacts() {
         "$INSTALL_DIR/"|"$INSTALL_DIR/web/"*) fail "不能从正在替换的安装文件或 Web 目录安装" ;;
     esac
     local artifact
-    for artifact in scert scert-admin; do
+    for artifact in scert scert-admin scert-storage; do
         [[ -f "$source_dir/$artifact" && ! -L "$source_dir/$artifact" ]] || fail "安装产物必须是普通文件：$source_dir/$artifact"
         [[ -r "$source_dir/$artifact" && -x "$source_dir/$artifact" ]] || fail "安装产物不可读取或执行：$source_dir/$artifact"
         local artifact_description
@@ -200,6 +203,8 @@ validate_artifacts() {
     [[ -z "$(find "$source_dir/web" ! -type f ! -type d -print -quit)" ]] || fail "Web 安装产物包含不支持的特殊文件"
     [[ -f "$SCRIPT_DIR/systemd/Scert.service" && ! -L "$SCRIPT_DIR/systemd/Scert.service" ]] || fail "缺少普通 Scert systemd unit"
     [[ -f "$SCRIPT_DIR/systemd/Scert-admin.service" && ! -L "$SCRIPT_DIR/systemd/Scert-admin.service" ]] || fail "缺少普通 Scert-admin systemd unit"
+    [[ -f "$SCRIPT_DIR/systemd/Scert-storage.service" && ! -L "$SCRIPT_DIR/systemd/Scert-storage.service" ]] || fail "缺少证书目录服务单元"
+    [[ -f "$SCRIPT_DIR/systemd/Scert-storage.socket" && ! -L "$SCRIPT_DIR/systemd/Scert-storage.socket" ]] || fail "缺少证书目录本机通道单元"
     [[ -f "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" && ! -L "$SCRIPT_DIR/systemd/Scert-admin服务管理说明.md" ]] || fail "缺少普通 Scert-admin 服务管理说明"
     [[ -f "$SCRIPT_DIR/systemd/Scert服务管理说明.md" && ! -L "$SCRIPT_DIR/systemd/Scert服务管理说明.md" ]] || fail "缺少普通 Scert 服务管理说明"
 }
@@ -210,6 +215,7 @@ begin_install_transaction() {
     chmod 0700 "$transaction_dir"
     transaction_targets=(
         "$INSTALL_METADATA_FILE" "$INSTALL_DIR/scert" "$INSTALL_DIR/scert-admin"
+        "$INSTALL_DIR/scert-storage" "$SERVICE_DIR/Scert-storage.service" "$SERVICE_DIR/Scert-storage.socket"
         "$INSTALL_DIR/web" "$SERVICE_DIR/Scert.service" "$SERVICE_DIR/Scert-admin.service"
         "$SERVICE_DROP_IN_DIR/10-certificate-path.conf"
         "$INSTALL_DIR/docs/Scert-service-management.md"
@@ -266,7 +272,7 @@ finish_install_transaction() {
 ensure_services_stopped() {
     local unit properties key value
     local load_state active_state sub_state main_pid control_pid job
-    for unit in Scert.service Scert-admin.service; do
+    for unit in Scert.service Scert-admin.service Scert-storage.service Scert-storage.socket; do
         if ! properties="$(systemctl show "$unit" -p LoadState -p ActiveState -p SubState -p MainPID -p ControlPID -p Job)"; then
             fail "无法查询 $unit 的停服状态，拒绝安装"
         fi
@@ -360,6 +366,9 @@ install_binaries() {
     install -o root -g root -m 0755 "$source_dir/scert-admin" "$admin_temporary"
     mv -fT -- "$main_temporary" "$INSTALL_DIR/scert"
     mv -fT -- "$admin_temporary" "$INSTALL_DIR/scert-admin"
+    local storage_temporary="$INSTALL_DIR/.scert-storage.new.$$"
+    install -o root -g root -m 0755 "$source_dir/scert-storage" "$storage_temporary"
+    mv -fT -- "$storage_temporary" "$INSTALL_DIR/scert-storage"
 }
 
 install_web() {
@@ -374,6 +383,10 @@ install_web() {
 install_service_files() {
     install -o root -g root -m 0644 "$SCRIPT_DIR/systemd/Scert.service" "$SERVICE_DIR/Scert.service"
     install -o root -g root -m 0644 "$SCRIPT_DIR/systemd/Scert-admin.service" "$SERVICE_DIR/Scert-admin.service"
+    install -o root -g root -m 0644 "$SCRIPT_DIR/systemd/Scert-storage.socket" "$SERVICE_DIR/Scert-storage.socket"
+    install -o root -g root -m 0644 "$SCRIPT_DIR/systemd/Scert-storage.service" "$SERVICE_DIR/Scert-storage.service"
+    # 路径已通过 ASCII 白名单验证；追加固定命令的单个参数，不执行用户提供的命令。
+    printf '\n[Service]\nExecStart=\nExecStart=/scert/scert-storage --root %s\n' "$certificate_dir" >> "$SERVICE_DIR/Scert-storage.service"
     install -d -o root -g root -m 0755 "$SERVICE_DROP_IN_DIR"
     printf '[Service]\nReadWritePaths=\nReadWritePaths=%s /scert/conf /scert/data /scert/log /scert/backups\n' \
         "$certificate_dir" > "$SERVICE_DROP_IN_DIR/10-certificate-path.conf"

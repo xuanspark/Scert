@@ -35,6 +35,8 @@ const (
 	CompleteErrorInternal          CompleteErrorKind = "internal"
 	CompleteErrorCertificatePath   CompleteErrorKind = "certificate_path"
 	CompleteErrorCertificateAccess CompleteErrorKind = "certificate_access"
+	CompleteErrorProxyTrust        CompleteErrorKind = "proxy_trust"
+	CompleteErrorProxyReadiness    CompleteErrorKind = "proxy_readiness"
 )
 
 // CompleteError 只向 HTTP 层公开安全分类和通用说明，底层错误不得直接返回浏览器。
@@ -120,6 +122,7 @@ type CompleteDependencies struct {
 	IssueIP          completionIPIssuer
 	SaveConfig       completionConfigSaver
 	ValidateFiles    completionCertificateValidator
+	VerifyProxy      func(context.Context, config.Config) error
 	RollbackDomain   func(context.Context, certificate.SavedResource) error
 	RollbackIP       func(context.Context, ManagementCertificate) error
 	RemoveFile       func(string) error
@@ -144,6 +147,7 @@ type Completer struct {
 	issueIP          completionIPIssuer
 	saveConfig       completionConfigSaver
 	validateFiles    completionCertificateValidator
+	verifyProxy      func(context.Context, config.Config) error
 	rollbackDomain   func(context.Context, certificate.SavedResource) error
 	rollbackIP       func(context.Context, ManagementCertificate) error
 	removeFile       func(string) error
@@ -152,6 +156,9 @@ type Completer struct {
 }
 
 func NewCompleter(dependencies CompleteDependencies) *Completer {
+	if dependencies.VerifyProxy == nil {
+		dependencies.VerifyProxy = verifySetupProxy
+	}
 	if dependencies.OpenDatabase == nil {
 		dependencies.OpenDatabase = database.Open
 	}
@@ -193,6 +200,7 @@ func NewCompleter(dependencies CompleteDependencies) *Completer {
 		openDatabase: dependencies.OpenDatabase, migrate: dependencies.Migrate,
 		ensureAdmin: dependencies.EnsureAdmin, issueIP: dependencies.IssueIP,
 		saveConfig: dependencies.SaveConfig, validateFiles: dependencies.ValidateFiles,
+		verifyProxy:    dependencies.VerifyProxy,
 		rollbackDomain: dependencies.RollbackDomain, rollbackIP: dependencies.RollbackIP,
 		removeFile: dependencies.RemoveFile, warn: dependencies.Warn,
 		completed: dependencies.BaseConfig.SetupReady,
@@ -214,6 +222,10 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 		return result, err
 	}
 	request = normalizeCompleteRequest(request)
+	// 在消耗数据库和 DNS 验证令牌、创建目录或申请证书之前拒绝不受支持的信任组合。
+	if request.HTTPSMode == "proxy" && (request.ACMEEnvironment != "production" || request.WebHostname == "") {
+		return result, completeError(CompleteErrorProxyTrust, "代理管理入口必须使用正式域名证书", nil)
+	}
 	if err := validateCompleteRequest(request); err != nil {
 		return result, completeError(CompleteErrorInput, "初始化参数无效", err)
 	}
@@ -246,7 +258,7 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 
 	candidate := completer.base
 	candidate.Normalize()
-	certificateRoot, err := prepareCertificateRoot(candidate.Paths, request.CertificateRoot)
+	certificateRoot, err := prepareCertificateRootContext(ctx, candidate.Paths, request.CertificateRoot)
 	if err != nil {
 		return result, err
 	}
@@ -331,6 +343,11 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 	}
 	candidate.Server.TLSCert = certificateResult.fullChainPath
 	candidate.Server.TLSKey = certificateResult.privateKeyPath
+	if candidate.Server.HTTPSMode == "proxy" {
+		if err := completer.verifyProxy(ctx, candidate); err != nil {
+			return result, completeError(CompleteErrorProxyReadiness, "管理代理入口验证失败，初始化尚未提交", err)
+		}
+	}
 
 	firewallContext, cancelFirewall := context.WithTimeout(ctx, 30*time.Second)
 	firewallResult, err = completer.firewall.OpenTCP(firewallContext, candidate.Server.Port)

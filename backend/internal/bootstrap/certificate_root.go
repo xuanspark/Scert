@@ -1,17 +1,23 @@
 package bootstrap
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/certstorage"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 )
 
 // prepareCertificateRoot 在申请证书前验证路径，并以实际运行身份探测创建、写入和清理权限。
 func prepareCertificateRoot(paths config.PathsConfig, requested string) (string, error) {
+	return prepareCertificateRootContext(context.Background(), paths, requested)
+}
+
+func prepareCertificateRootContext(ctx context.Context, paths config.PathsConfig, requested string) (string, error) {
 	root := strings.TrimSpace(requested)
 	if root == "" {
 		root = paths.Certificate
@@ -48,7 +54,9 @@ func prepareCertificateRoot(paths config.PathsConfig, requested string) (string,
 		}
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
-		return unwritable(err)
+		if prepareErr := certstorage.Prepare(ctx, root); prepareErr != nil {
+			return unwritable(errors.Join(err, prepareErr))
+		}
 	}
 	directory, err := os.OpenRoot(root)
 	if err != nil {
@@ -59,7 +67,20 @@ func prepareCertificateRoot(paths config.PathsConfig, requested string) (string,
 	name := ".scert-write-check-" + rand.Text()
 	probe, err := directory.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return unwritable(err)
+		if prepareErr := certstorage.Prepare(ctx, root); prepareErr != nil {
+			return unwritable(errors.Join(err, prepareErr))
+		}
+		// systemd 已替换该挂载点；必须重新打开目录，不能复用旧的只读描述符。
+		_ = directory.Close()
+		directory, err = os.OpenRoot(root)
+		if err != nil {
+			return unwritable(err)
+		}
+		defer directory.Close()
+		probe, err = directory.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			return unwritable(err)
+		}
 	}
 	_, writeErr := probe.Write([]byte("scert"))
 	syncErr := probe.Sync()
