@@ -28,12 +28,16 @@ export function verifiedResponse(token = "test-token") {
 
 // 运行真实组合式逻辑和生命周期，不加载浏览器，也不连接 DNS 或业务数据库。
 export async function mountComposable(t, factory, fetcher) {
+  const windowEvents = new EventTarget();
   const intervals = new Map();
   let nextIntervalID = 1;
   let currentTime = Date.now();
   const originals = new Map();
   for (const [key, value] of Object.entries({
     window: {
+      addEventListener: windowEvents.addEventListener.bind(windowEvents),
+      removeEventListener: windowEvents.removeEventListener.bind(windowEvents),
+      dispatchEvent: windowEvents.dispatchEvent.bind(windowEvents),
       setInterval(callback) {
         const intervalID = nextIntervalID;
         nextIntervalID += 1;

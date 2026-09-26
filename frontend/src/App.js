@@ -1,4 +1,4 @@
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 
 export function useAppShell() {
   const setupState = ref(null);
@@ -8,9 +8,13 @@ export function useAppShell() {
   const error = ref("");
   const routePath = window.location.pathname.replace(/\/+$/, "") || "/";
   const standalonePaths = ["/login", "/password-reset", "/reset"];
+  let bootstrapVersion = 0;
 
   async function bootstrap() {
+    const version = ++bootstrapVersion;
     bootstrapping.value = true;
+    authenticated.value = null;
+    isAdmin.value = null;
     error.value = "";
     try {
       let response = await fetch("/api/v1/bootstrap/status", { cache: "no-store" });
@@ -37,36 +41,39 @@ export function useAppShell() {
         if (!settings.ok) throw new Error("请使用服务器 bootstrap-url 文件中的完整一次性地址访问，或在原浏览器中继续初始化。");
         result = await settings.json();
       }
+      if (version !== bootstrapVersion) return;
+      const session = result.initialized
+        ? await checkAuth()
+        : { authenticated: false, isAdmin: false };
+      if (version !== bootstrapVersion) return;
       setupState.value = result;
-      if (result.initialized) {
-        await checkAuth();
-      } else {
-        authenticated.value = false;
-        isAdmin.value = false;
-      }
+      authenticated.value = session.authenticated;
+      isAdmin.value = session.isAdmin;
     } catch (err) {
+      if (version !== bootstrapVersion) return;
       setupState.value = null;
       authenticated.value = null;
       isAdmin.value = null;
       error.value = err.message || "无法连接核心服务，请先启动 scert serve";
     } finally {
-      bootstrapping.value = false;
+      if (version === bootstrapVersion) bootstrapping.value = false;
     }
   }
 
   async function checkAuth() {
     const response = await fetch("/api/v1/auth/session", {
       credentials: "include",
+      cache: "no-store",
     });
     if (response.status === 401) {
-      authenticated.value = false;
-      isAdmin.value = false;
-      return;
+      return { authenticated: false, isAdmin: false };
     }
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || "读取登录状态失败");
-    authenticated.value = result.authenticated === true;
-    isAdmin.value = result.is_admin === true || ["super_admin", "admin"].includes(result.role);
+    return {
+      authenticated: result.authenticated === true,
+      isAdmin: result.is_admin === true || ["super_admin", "admin"].includes(result.role),
+    };
   }
 
   function handleInitialized(result) {
@@ -91,12 +98,32 @@ export function useAppShell() {
     isAdmin.value = false;
   }
 
+  function handlePageHide() {
+    // 历史缓存不保留已验证权限，旧请求也不能恢复离开前的登录状态。
+    bootstrapVersion += 1;
+    authenticated.value = null;
+    isAdmin.value = null;
+    bootstrapping.value = true;
+  }
+
+  function handlePageShow(event) {
+    if (event.persisted) bootstrap();
+  }
+
   onMounted(() => {
     if (standalonePaths.includes(routePath)) {
       bootstrapping.value = false;
       return;
     }
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
     bootstrap();
+  });
+
+  onBeforeUnmount(() => {
+    bootstrapVersion += 1;
+    window.removeEventListener("pagehide", handlePageHide);
+    window.removeEventListener("pageshow", handlePageShow);
   });
 
   return {
