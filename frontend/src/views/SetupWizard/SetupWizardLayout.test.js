@@ -22,6 +22,43 @@ function hasClass(name) {
     && prop.value?.content.split(/\s+/).includes(name));
 }
 
+test("email suffix retains enough width in base and compact layouts", () => {
+  for (const name of ["./SetupWizard.css", "./SetupWizardLayout.css"]) {
+    const css = readFileSync(new URL(name, import.meta.url), "utf8");
+    const rules = [...css.matchAll(/\.email-input-group\s*\{([^}]+)\}/g)];
+    assert.ok(rules.length > 0);
+    for (const [, body] of rules) {
+      const width = body.match(/grid-template-columns:\s*minmax\(0, 1fr\)\s+(\d+)px/);
+      assert.ok(width, name);
+      assert.ok(Number(width[1]) >= 140, name);
+    }
+  }
+});
+
+test("DNS settings share a compact grid without removing verification controls", () => {
+  const step = find(template("./SetupWizard.vue"), hasClass("setup-dns-step"));
+  assert.ok(step);
+  const grid = find(step, hasClass("dns-settings-grid"));
+  assert.ok(grid);
+  for (const id of ["dns-provider", "dns-test-domain", "propagation-timeout-secs", "propagation-polling-interval-secs"]) {
+    assert.ok(find(grid, (node) => node.props?.some((prop) =>
+      prop.name === "id" && prop.value?.content === id)), id);
+  }
+  assert.ok(find(step, hasClass("dns-test-button")));
+  assert.ok(find(step, hasClass("dns-verification-report")));
+});
+
+test("DNS stage explanations use tooltips only for successful stages", () => {
+  const stage = find(template("./SetupWizard.vue"), hasClass("dns-verification-stage"));
+  const tip = find(stage, (node) => node.tag === "HelpTip");
+  assert.equal(tip.props.find((prop) => prop.name === "if").exp.content, "stage.status === 'completed'");
+  const message = find(stage, (node) => node.tag === "small");
+  assert.ok(message.props.some((prop) => prop.name === "else"));
+  const css = readFileSync(new URL("./DNSSetup.css", import.meta.url), "utf8");
+  assert.match(css, /\.dns-verification-stage small\s*\{[^}]*white-space:\s*normal/);
+  assert.match(css, /\.dns-verification-stage small\s*\{[^}]*overflow-wrap:\s*anywhere/);
+});
+
 test("certificate root remains editable during bootstrap", () => {
   const root = template("./SetupWizard.vue");
   const input = find(root, (node) => node.props?.some((prop) =>

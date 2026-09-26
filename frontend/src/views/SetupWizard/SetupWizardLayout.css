@@ -156,7 +156,7 @@
   }
 
   .access-shell--setup .email-input-group {
-    grid-template-columns: minmax(0, 1fr) 96px;
+    grid-template-columns: minmax(0, 1fr) 148px;
   }
 
   .access-shell--setup .service-access-grid {

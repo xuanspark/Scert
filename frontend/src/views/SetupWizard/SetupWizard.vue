@@ -510,9 +510,9 @@ const {
               </div>
             </div>
           </fieldset>
-          <fieldset v-if="currentStep === 3" class="setup-step-card">
+          <fieldset v-if="currentStep === 3" class="setup-step-card setup-dns-step">
             <legend><span>03</span>DNS 验证</legend>
-            <div class="setup-grid two-columns">
+            <div class="dns-settings-grid">
               <label
                 ><span>DNS 服务商</span
                 ><select
@@ -550,13 +550,11 @@ const {
                   placeholder="例如 example.com"
                 /></label
               >
-            </div>
-            <div class="setup-grid two-columns propagation-grid">
               <label>
                 <span>
-                  DNS 传播最大等待时间（秒）
+                  DNS 传播等待（秒）
                   <HelpTip>
-                    默认 300 秒，最长允许等待 86400 秒。
+                    实际申请证书时，等待公网 DNS-01 传播的最长时间。默认 300 秒，最多 86400 秒；不影响 DNS API 权限验证的等待时间。
                   </HelpTip>
                 </span>
                 <input
@@ -571,7 +569,7 @@ const {
               </label>
               <label>
                 <span>
-                  DNS 传播检测间隔（秒）
+                  传播检测间隔（秒）
                   <HelpTip>
                     默认 5 秒，不能大于最大等待时间。
                   </HelpTip>
@@ -587,17 +585,12 @@ const {
                 />
               </label>
             </div>
-            <p class="field-hint">
-              阿里云 RAM 权限验证最多等待 6 秒：系统会创建、查询并清理临时 TXT
-              记录。以上 300 秒和 5 秒用于实际申请证书时的公网 DNS-01
-              传播等待与轮询。
-            </p>
             <p v-if="dnsCatalogError" class="inline-error">
               {{ dnsCatalogError }}
             </p>
             <div
               v-if="selectedDNSProvider"
-              class="provider-description"
+              class="dns-provider-status"
               :class="{ unavailable: !selectedDNSProvider.available }"
             >
               <strong>{{
@@ -605,7 +598,7 @@ const {
                   ? "在线验证可用"
                   : "当前仅提供字段模型"
               }}</strong>
-              <span>{{ selectedDNSProvider.description }}</span>
+              <HelpTip>{{ selectedDNSProvider.description }}</HelpTip>
             </div>
             <div
               v-if="selectedDNSProvider"
@@ -675,14 +668,13 @@ const {
               >
                 {{
                   dnsTesting
-                    ? "正在创建、查询并清理测试记录……"
+                    ? "正在验证……"
                     : "测试 DNS API"
                 }}
               </button>
-              <span
-                >测试会临时创建 DNS-01 TXT
-                记录并自动清理，明文凭据不会写入普通配置文件。</span
-              >
+              <HelpTip>
+                测试会创建、查询并清理临时 TXT 记录，验证 DNS API 操作权限，不等待公网传播。阿里云验证最多等待 6 秒；明文凭据不会写入普通配置文件。
+              </HelpTip>
             </div>
             <div
               v-if="dnsTesting"
@@ -695,22 +687,19 @@ const {
                 已等待 {{ dnsVerificationElapsedSeconds }} 秒，最长等待
                 {{ dnsVerificationTimeoutSeconds }} 秒。
               </span>
-              <small v-if="selectedDNSProvider?.id === 'aliyun'">
-                正在通过阿里云 DNS API 创建、查询并清理临时 TXT 记录，不等待公网 DNS 传播，通常数秒即可完成；实际申请证书时，仍可能需要等待公网 DNS-01 记录传播。
-              </small>
-              <small v-else>
-                系统正在创建临时 TXT、查询验证记录并自动清理。这是 DNS API 权限验证；实际申请证书时，仍可能需要等待公网 DNS-01 记录传播。
-              </small>
             </div>
             <p v-if="dnsTestError" class="inline-error">{{ dnsTestError }}</p>
             <div v-if="dnsVerificationValid" class="dns-verification-success">
               <strong>DNS API 在线验证通过</strong>
               <span
-                >凭据已加密保存，本次验证结果有效至
+                >有效至
                 {{
                   formatVerificationExpiry(dnsVerification.expires_at)
-                }}。修改服务商、测试域名或凭据后需要重新测试。</span
+                }}</span
               >
+              <HelpTip>
+                凭据已加密保存。修改服务商、测试域名或凭据后需要重新测试，验证过期后也必须重新验证。
+              </HelpTip>
             </div>
 
             <div
@@ -719,9 +708,9 @@ const {
             >
               <div class="dns-report-heading">
                 <strong>在线测试过程</strong>
-                <span v-if="dnsVerification.test_report.record_name">
+                <HelpTip v-if="dnsVerification.test_report.record_name">
                   临时记录：{{ dnsVerification.test_report.record_name }}
-                </span>
+                </HelpTip>
               </div>
               <div
                 v-for="stage in dnsVerification.test_report.stages"
@@ -731,7 +720,8 @@ const {
               >
                 <span class="dns-stage-name">{{ stage.name }}</span>
                 <strong>{{ formatVerificationStageStatus(stage.status) }}</strong>
-                <small>{{ stage.message }}</small>
+                <HelpTip v-if="stage.status === 'completed'">{{ stage.message }}</HelpTip>
+                <small v-else>{{ stage.message }}</small>
               </div>
             </div>
           </fieldset>
@@ -840,4 +830,5 @@ const {
 </template>
 
 <style scoped src="./SetupWizard.css"></style>
+<style scoped src="./DNSSetup.css"></style>
 <style src="./SetupWizardLayout.css"></style>

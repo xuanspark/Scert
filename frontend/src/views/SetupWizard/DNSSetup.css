@@ -1,0 +1,144 @@
+.setup-dns-step .dns-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.setup-dns-step .dns-settings-grid label {
+  margin-top: 0;
+}
+
+.setup-dns-step .dns-provider-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  color: #24734b;
+  font-size: 12px;
+}
+
+.setup-dns-step .dns-provider-status.unavailable {
+  color: #996d16;
+}
+
+.setup-dns-step .credential-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+
+.setup-dns-step .credential-visibility-row {
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.setup-dns-step .credential-visibility-control {
+  margin: 0;
+  font-size: 12px;
+}
+
+.setup-dns-step .credential-visibility-control input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+}
+
+.setup-dns-step .credential-grid > label:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+.setup-dns-step .dns-test-actions {
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.setup-dns-step .dns-test-button {
+  min-width: 132px;
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.setup-dns-step .dns-verification-progress,
+.setup-dns-step .dns-verification-success {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+  padding: 9px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.setup-dns-step .dns-verification-progress strong,
+.setup-dns-step .dns-verification-success strong {
+  font-size: 12px;
+}
+
+.setup-dns-step .dns-verification-report {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.setup-dns-step .dns-report-heading {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 6px;
+}
+
+.setup-dns-step .dns-report-heading strong {
+  font-size: 12px;
+}
+
+.setup-dns-step .dns-verification-stage {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px;
+  font-size: 12px;
+}
+
+.setup-dns-step .dns-verification-stage strong {
+  font-size: 12px;
+}
+
+.setup-dns-step .dns-verification-stage small {
+  grid-column: 1 / -1;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.setup-dns-step .inline-error {
+  margin-top: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 1201px) {
+  .setup-dns-step .dns-settings-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .setup-dns-step .credential-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .setup-dns-step .dns-settings-grid,
+  .setup-dns-step .credential-grid,
+  .setup-dns-step .dns-verification-report {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

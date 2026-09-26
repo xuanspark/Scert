@@ -286,7 +286,7 @@ label > small {
 .email-input-group {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(88px, 112px);
+  grid-template-columns: minmax(0, 1fr) 148px;
   gap: 6px;
   position: relative;
 }
@@ -1014,7 +1014,7 @@ button:disabled {
   }
 
   .email-input-group {
-    grid-template-columns: minmax(0, 1fr) minmax(78px, 96px);
+    grid-template-columns: minmax(0, 1fr) 140px;
     gap: 5px;
   }
 
