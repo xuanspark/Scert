@@ -596,7 +596,7 @@ test("serverModal.compilesAndPreservesDeploymentFields", async () => {
     assert.match(html, /value="22"/);
     assert.match(html, /min="1"/);
     assert.match(html, /max="65535"/);
-    assert.equal((html.match(/class="test-help-tip"/g) || []).length, 4);
+    assert.equal((html.match(/class="test-help-tip"/g) || []).length, 5);
     for (const path of ["/test/cert.pem", "/test/fullchain.pem", "/test/key.pem"]) {
       assert.ok(html.includes(path));
     }

@@ -17,21 +17,59 @@
 .server-modal form {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0 18px;
-}
-
-.server-modal form > .form-grid,
-.server-modal form > .field {
-  grid-column: span 2;
-}
-
-.server-modal .form-grid {
   gap: 14px;
 }
 
+.server-modal .server-form-section {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 18px;
+  min-width: 0;
+  padding: 14px 0 4px;
+  border-top: 1px solid #dce6f1;
+}
+
+.server-modal .server-form-section:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+
+.server-modal .server-form-section-heading,
+.server-modal .server-form-grid,
 .server-modal .server-paths,
 .server-modal .form-error,
 .server-modal .modal-actions {
+  grid-column: 1 / -1;
+}
+
+.server-modal .server-form-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.server-modal .server-form-section-heading h3 {
+  margin: 2px 0 0;
+  color: #214d86;
+  font-size: 17px;
+}
+
+.server-modal .server-form-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.server-modal .server-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+}
+
+.server-modal .server-form-field-wide {
   grid-column: 1 / -1;
 }
 
@@ -75,27 +113,11 @@
 }
 
 .server-modal .server-ssh-key-guide {
-  grid-column: 1 / -1;
-  min-width: 0;
-  margin: 2px 0 8px;
+  margin: 0;
   padding: 14px;
   border: 1px solid #c7daf1;
   border-radius: 14px;
   background: #f5f9ff;
-}
-
-.server-modal .server-ssh-key-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 10px;
-}
-
-.server-modal .server-ssh-key-heading h3 {
-  margin: 2px 0 4px;
-  color: #214d86;
-  font-size: 18px;
 }
 
 .server-modal .server-ssh-key-guide .ssh-key-steps {
@@ -229,13 +251,17 @@
   border-top: 1px solid #d1e0f1;
 }
 
+.server-modal .server-command-section textarea {
+  min-height: 82px;
+}
+
 @media (max-width: 900px) {
   .server-modal form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .server-modal form > .field {
-    grid-column: span 1;
+  .server-modal .server-form-section {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .server-modal .server-paths {
@@ -253,12 +279,15 @@
   }
 
   .server-modal form,
-  .server-modal .form-grid {
+  .server-modal .server-form-section,
+  .server-modal .server-form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .server-modal form > .form-grid,
-  .server-modal form > .field {
+  .server-modal .server-form-section,
+  .server-modal .server-form-section-heading,
+  .server-modal .server-form-grid,
+  .server-modal .server-form-field-wide {
     grid-column: 1 / -1;
   }
 
