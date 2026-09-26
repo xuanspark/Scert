@@ -124,6 +124,45 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
   }
 });
 
+test("certificateImport.preservesRequiredFileInputSelection", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key", "issuer_bundle"]) {
+    const file = new File([kind], `${kind}.pem`);
+    const target = { files: [file], value: `C:\\fakepath\\${file.name}` };
+    state.selectCertificateImportFile(kind, { target });
+    assert.equal(target.value, `C:\\fakepath\\${file.name}`);
+    assert.equal(target.files[0], file);
+  }
+});
+
+test("certificateImport.submitsSelectedFilesAndResetsOnReopen", async (t) => {
+  const imports = [];
+  const { state } = await mountComposable(t, useDashboard, async (path, options) => {
+    if (path.endsWith("/certificate/import")) {
+      imports.push({ path, body: options.body });
+      return Response.json({ imported: true });
+    }
+    return Response.json({ items: [] });
+  });
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key", "issuer_bundle"]) {
+    const file = new File([kind], `${kind}.pem`);
+    state.selectCertificateImportFile(kind, { target: { files: [file], value: file.name } });
+  }
+  await state.importCertificate();
+  assert.equal(imports.length, 1);
+  assert.equal(imports[0].path, "/api/v1/domains/domain-import/certificate/import");
+  for (const kind of ["certificate", "private_key", "issuer_bundle"]) {
+    assert.equal(await imports[0].body.get(kind).text(), kind);
+  }
+  state.closeCertificateImport();
+  state.openCertificateImport({ id: "another-domain", name: "another.test" });
+  await state.importCertificate();
+  assert.equal(imports.length, 1);
+  assert.ok(state.importError.value);
+});
+
 async function setup(t, request) {
   const mounted = await mountComposable(t, useDashboard, async (path) => {
     if (path === "/api/v1/dns/test") return request();

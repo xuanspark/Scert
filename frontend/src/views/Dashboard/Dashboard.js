@@ -1009,7 +1009,6 @@ export function useDashboard() {
 
   function selectCertificateImportFile(kind, event) {
     importFiles.value[kind] = event.target.files?.[0] || null;
-    event.target.value = "";
     importError.value = "";
   }
 
