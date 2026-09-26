@@ -292,6 +292,9 @@ ensure_services_stopped() {
             loaded:inactive:dead|loaded:failed:failed|not-found:inactive:dead) ;;
             *) fail "升级或安装前必须确认 $unit 已停止，当前状态：$load_state/$active_state/$sub_state" ;;
         esac
+        if [[ "$unit" == *.socket && -z "$main_pid" ]]; then
+            main_pid="0"
+        fi
         [[ "$main_pid" == "0" && "$control_pid" == "0" && -z "$job" ]] || \
             fail "$unit 仍有进程、排队任务或缺失状态，拒绝安装"
     done

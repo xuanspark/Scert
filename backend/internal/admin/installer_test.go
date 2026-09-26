@@ -3,11 +3,75 @@ package admin
 import (
 	"bufio"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestLinuxInstallerStoppedUnitStates(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip(err)
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "install-linux.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	start := strings.Index(content, "ensure_services_stopped() {")
+	if start < 0 {
+		t.Fatal("ensure_services_stopped")
+	}
+	end := strings.Index(content[start:], "\n}\n")
+	if end < 0 {
+		t.Fatal("ensure_services_stopped")
+	}
+	guard := content[start : start+end+3]
+	stopped := "LoadState=loaded\nActiveState=inactive\nSubState=dead\nControlPID=0\nJob=\n"
+	for _, tc := range []struct {
+		name       string
+		unit       string
+		properties string
+		allowed    bool
+	}{
+		{"socket-missing-main-pid", "Scert-storage.socket", stopped, true},
+		{"socket-zero-main-pid", "Scert-storage.socket", stopped + "MainPID=0\n", true},
+		{"socket-active", "Scert-storage.socket", strings.ReplaceAll(strings.ReplaceAll(stopped, "inactive", "active"), "dead", "listening"), false},
+		{"socket-control-process", "Scert-storage.socket", strings.ReplaceAll(stopped, "ControlPID=0", "ControlPID=52"), false},
+		{"socket-missing-control-pid", "Scert-storage.socket", strings.ReplaceAll(stopped, "ControlPID=0\n", ""), false},
+		{"socket-pending-job", "Scert-storage.socket", strings.ReplaceAll(stopped, "Job=", "Job=7"), false},
+		{"socket-missing-job", "Scert-storage.socket", strings.ReplaceAll(stopped, "Job=\n", ""), false},
+		{"socket-nonzero-main-pid", "Scert-storage.socket", stopped + "MainPID=51\n", false},
+		{"service-missing-main-pid", "Scert.service", stopped, false},
+		{"admin-missing-main-pid", "Scert-admin.service", stopped, false},
+		{"storage-missing-main-pid", "Scert-storage.service", stopped, false},
+		{"service-stopped", "Scert.service", stopped + "MainPID=0\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			script := `set -Eeuo pipefail
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+systemctl() {
+    [[ "$1" == show ]] || exit 97
+    if [[ "$2" == "$TEST_UNIT" ]]; then
+        printf '%s' "$TEST_PROPERTIES"
+    else
+        printf '%s' "$TEST_STOPPED"
+        [[ "$2" == *.socket ]] || printf 'MainPID=0\n'
+    fi
+    return 0
+}
+` + guard + "\nensure_services_stopped\n"
+			command := exec.Command(bash, "--noprofile", "--norc", "-c", script)
+			command.Env = append(os.Environ(), "TEST_UNIT="+tc.unit, "TEST_PROPERTIES="+tc.properties, "TEST_STOPPED="+stopped)
+			output, err := command.CombinedOutput()
+			if (err == nil) != tc.allowed {
+				t.Fatalf("allowed=%t, err=%v, output=%s", tc.allowed, err, output)
+			}
+		})
+	}
+}
 
 func TestLinuxInstallerPolicy(t *testing.T) {
 	installerPath := filepath.Join("..", "..", "..", "deploy", "install-linux.sh")
