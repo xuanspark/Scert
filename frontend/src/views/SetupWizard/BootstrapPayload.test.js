@@ -14,7 +14,7 @@ test("初始化只提交服务端验证令牌，通知字段保持兼容且不�
   assert.equal(payload.database_verification_token, "test-database-token");
   assert.equal(payload.dns_verification_token, "test-dns-token");
   assert.equal(payload.acme_environment, "staging");
-  assert.equal("certificate_root" in payload, false);
+  assert.equal(payload.certificate_root, "/untrusted");
   assert.equal("dns_credential_ref" in payload, false);
   assert.equal("http_credential_ref" in payload.notification, false);
   assert.deepEqual(payload.notification.http_credentials, { token: "test-notification-token" });

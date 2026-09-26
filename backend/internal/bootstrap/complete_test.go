@@ -96,7 +96,7 @@ func (issuer *completionCertificateIssuer) IssueForSetup(ctx context.Context, re
 		return certificate.SavedResource{}, issuer.err
 	}
 	resource := completionDomainResource(request.Domains[0])
-	store := certificate.FileStore{Root: issuer.root, BackupRoot: filepath.Join(filepath.Dir(issuer.root), "backups")}
+	store := certificate.FileStore{Root: request.CertificateRoot, BackupRoot: filepath.Join(filepath.Dir(issuer.root), "backups")}
 	saved, err := store.SaveForType(ctx, request.Domains[0], "single", resource)
 	issuer.saved = saved
 	return saved, err

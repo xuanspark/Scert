@@ -758,12 +758,17 @@ const {
             <legend><span>04</span>证书目录与剩余设置</legend>
             <div class="setup-grid two-columns">
               <label>
-                <span>证书部署根目录</span>
+                <span>
+                  证书部署根目录
+                  <HelpTip>
+                    可填写服务器上的绝对路径。Scert 运行账户必须有写入权限；Linux 自定义目录还需位于服务的可写范围内。
+                  </HelpTip>
+                </span>
                 <input
                   id="certificate-root"
                   name="certificate_root"
                   v-model.trim="form.certificate_root"
-                  :readonly="isBootstrap"
+                  maxlength="4096"
                   required
                 />
               </label>

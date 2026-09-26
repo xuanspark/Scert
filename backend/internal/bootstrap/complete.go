@@ -29,10 +29,12 @@ var (
 type CompleteErrorKind string
 
 const (
-	CompleteErrorInput        CompleteErrorKind = "input"
-	CompleteErrorVerification CompleteErrorKind = "verification"
-	CompleteErrorDependency   CompleteErrorKind = "dependency"
-	CompleteErrorInternal     CompleteErrorKind = "internal"
+	CompleteErrorInput             CompleteErrorKind = "input"
+	CompleteErrorVerification      CompleteErrorKind = "verification"
+	CompleteErrorDependency        CompleteErrorKind = "dependency"
+	CompleteErrorInternal          CompleteErrorKind = "internal"
+	CompleteErrorCertificatePath   CompleteErrorKind = "certificate_path"
+	CompleteErrorCertificateAccess CompleteErrorKind = "certificate_access"
 )
 
 // CompleteError 只向 HTTP 层公开安全分类和通用说明，底层错误不得直接返回浏览器。
@@ -72,6 +74,7 @@ type CompleteRequest struct {
 	PropagationTimeoutSecs         int                `json:"propagation_timeout_secs"`
 	PropagationPollingIntervalSecs int                `json:"propagation_polling_interval_secs"`
 	Notification                   *NotificationInput `json:"notification,omitempty"`
+	CertificateRoot                string             `json:"certificate_root,omitempty"`
 }
 
 type CompleteResult struct {
@@ -243,6 +246,10 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 
 	candidate := completer.base
 	candidate.Normalize()
+	certificateRoot, err := prepareCertificateRoot(candidate.Paths, request.CertificateRoot)
+	if err != nil {
+		return result, err
+	}
 	candidate.ACME.Environment = request.ACMEEnvironment
 	notification, discardNotification, err := completer.prepareNotification(ctx, candidate.Notification, request.Notification)
 	defer func() {
@@ -260,7 +267,7 @@ func (completer *Completer) Complete(ctx context.Context, request CompleteReques
 		DNSCredentialRef: dnsSession.CredentialRef, DNSVerified: true,
 		PropagationTimeoutSecs:         request.PropagationTimeoutSecs,
 		PropagationPollingIntervalSecs: request.PropagationPollingIntervalSecs,
-		CertificateRoot:                candidate.Paths.Certificate,
+		CertificateRoot:                certificateRoot,
 		WebHostname:                    request.WebHostname, WebPublicIP: request.WebPublicIP,
 		WebEnabled: request.WebEnabled, HTTPSMode: request.HTTPSMode, ProxyHTTPSPort: request.ProxyHTTPSPort,
 	}

@@ -22,6 +22,17 @@ function hasClass(name) {
     && prop.value?.content.split(/\s+/).includes(name));
 }
 
+test("certificate root remains editable during bootstrap", () => {
+  const root = template("./SetupWizard.vue");
+  const input = find(root, (node) => node.props?.some((prop) =>
+    prop.name === "id" && prop.value?.content === "certificate-root"));
+  assert.ok(input);
+  assert.equal(input.props.some((prop) => prop.name === "readonly"
+    || (prop.name === "bind" && prop.arg?.content === "readonly")), false);
+  assert.ok(input.props.some((prop) => prop.name === "model"
+    && prop.exp?.content === "form.certificate_root"));
+});
+
 test("notification step exposes SMTP only and keeps sender fields in its panel", () => {
   const root = template("./SetupWizard.vue");
   const step = find(root, hasClass("setup-notification-step"));

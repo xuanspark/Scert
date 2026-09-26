@@ -278,6 +278,10 @@ func writeBootstrapCompletionError(writer http.ResponseWriter, err error) {
 	case errors.As(err, &completionErr):
 		// 不转发底层错误或可注入的说明，防止密码、凭据引用及验证令牌泄露。
 		switch completionErr.Kind {
+		case CompleteErrorCertificatePath:
+			writeBootstrapError(writer, http.StatusBadRequest, "证书部署根目录必须是服务器上的独立绝对路径，不能使用根目录、符号链接或与配置、数据、日志、备份目录重叠")
+		case CompleteErrorCertificateAccess:
+			writeBootstrapError(writer, http.StatusUnprocessableEntity, "证书部署根目录无法创建或写入，请检查 Scert 运行账户权限及服务的可写目录限制")
 		case CompleteErrorInput:
 			writeBootstrapError(writer, http.StatusBadRequest, "初始化参数无效，请检查管理员、管理入口和服务配置")
 		case CompleteErrorVerification:

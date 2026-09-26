@@ -143,7 +143,8 @@ for (const driver of ["sqlite", "mysql", "postgres"]) {
     for (const key of ["endpoint", "http_auth_mode", "http_credentials", "http_path", "http_headers"]) {
       assert.equal(Object.hasOwn(submitted[0].notification, key), false);
     }
-    for (const key of ["dns_credential_ref", "certificate_root", "database", "confirm_password"]) {
+    assert.equal(submitted[0].certificate_root, "/srv/scert/ssl");
+    for (const key of ["dns_credential_ref", "database", "confirm_password"]) {
       assert.equal(Object.hasOwn(submitted[0], key), false);
     }
     assert.equal(Object.hasOwn(submitted[0].notification, "http_credential_ref"), false);
@@ -305,6 +306,15 @@ test("bootstrap service port defaults to 80 independently of listener port", asy
   state.currentStep.value = 4;
   await state.handleSubmit();
   assert.equal(submitted[0].server_port, 80);
+});
+
+test("bootstrap certificate root accepts a custom server path", async (t) => {
+  const { state, submitted } = await setup(t);
+  state.form.value.certificate_root = "/srv/scert/custom-certificates";
+  state.currentStep.value = 4;
+  await state.handleSubmit();
+  assert.equal(state.error.value, "");
+  assert.equal(submitted[0].certificate_root, "/srv/scert/custom-certificates");
 });
 
 test("bootstrap service port accepts a custom port", async (t) => {

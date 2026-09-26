@@ -1,5 +1,6 @@
 // 首次初始化只提交验证令牌，不接受浏览器指定敏感凭据引用或服务端路径。
 export function bootstrapPayload(legacy, databaseToken, environment) {
+  // 证书目录是允许自定义的路径例外，由服务端检查目录隔离和写入权限。
   const notification = {};
   for (const [key, value] of Object.entries(legacy)) {
     if (key.startsWith("email_") && key !== "email_http_credential_ref") {
@@ -19,6 +20,7 @@ export function bootstrapPayload(legacy, databaseToken, environment) {
     web_enabled: legacy.web_enabled,
     https_mode: legacy.https_mode,
     proxy_https_port: legacy.proxy_https_port,
+    certificate_root: legacy.certificate_root,
     acme_environment: environment,
     propagation_timeout_secs: legacy.propagation_timeout_secs,
     propagation_polling_interval_secs: legacy.propagation_polling_interval_secs,
