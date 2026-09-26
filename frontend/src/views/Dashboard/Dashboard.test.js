@@ -154,14 +154,21 @@ test("编辑服务器正确保留已有密码状态，新建和未配置密码�
 test("SSH引导目标直接跟随服务器配置中的地址和用户", async (t) => {
   const { state } = await setup(t, () => verifiedResponse());
   state.openServerCreate();
+  state.openSSHKeyCreate({ embedded: true });
   state.serverForm.value.username = "root";
   state.serverForm.value.address = "45.136.13.241";
   await nextTick();
 
   assert.equal(state.sshKeyCommandUsername.value, "root");
   assert.equal(state.sshKeyCommandHost.value, "45.136.13.241");
+  assert.equal(state.sshKeyForm.value.name, state.sshKeyFileName.value);
   assert.match(state.sshPublicKeyCommands.value.windows, /ssh root@45\.136\.13\.241/);
   assert.match(state.sshPublicKeyCommands.value.linux, /root@45\.136\.13\.241/);
+
+  state.sshKeyForm.value.name = "manual-key-name";
+  state.serverForm.value.username = "deploy";
+  await nextTick();
+  assert.equal(state.sshKeyForm.value.name, "manual-key-name");
 });
 
 async function fill(state) {

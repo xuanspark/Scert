@@ -316,6 +316,13 @@ export function useDashboard() {
     () => String(serverForm.value.address || "").trim() || "服务器地址",
   );
 
+  watch(sshKeyFileName, (fileName, previousFileName) => {
+    if (!showEmbeddedSSHKeyGuide.value) return;
+    const currentName = String(sshKeyForm.value.name || "").trim();
+    if (!currentName || currentName === previousFileName) {
+      sshKeyForm.value.name = fileName;
+    }
+  });
   async function fetchAdmin(path, options = {}) {
     const response = await fetch(path, {
       ...options,
