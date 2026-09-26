@@ -376,6 +376,9 @@ func (completer *Completer) issueManagementCertificate(ctx context.Context, cand
 			CertificateRoot: candidate.Paths.Certificate, BackupRoot: candidate.Paths.Backup,
 		})
 		if err != nil {
+			if completer.warn != nil {
+				completer.warn(certificateFailureDiagnostic(err))
+			}
 			return completionCertificate{}, completeError(CompleteErrorDependency, "申请管理域名证书失败", err)
 		}
 		return completionCertificate{
