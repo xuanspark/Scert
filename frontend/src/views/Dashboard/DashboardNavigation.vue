@@ -1,4 +1,8 @@
 <script setup>
+import { useAccessDenied } from "../AccessDenied/AccessDenied.js";
+
+const { loggingOut, error, logout } = useAccessDenied();
+
 defineProps({
   activeSection: { type: String, required: true },
   sections: { type: Array, required: true },
@@ -72,7 +76,22 @@ defineEmits(["select", "settings"]);
       </svg>
       <span>系统设置</span>
     </button>
-    <p class="navigation-footer">SSL 证书管理</p>
+    <div class="navigation-session">
+      <p v-if="error" class="navigation-error" role="alert">{{ error }}</p>
+      <button
+        class="navigation-item navigation-logout"
+        type="button"
+        :disabled="loggingOut"
+        :aria-busy="loggingOut"
+        @click="logout"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M9 4H4v16h5m6-13 5 5-5 5M9 12h11" />
+        </svg>
+        <span>{{ loggingOut ? "退出中…" : "退出登录" }}</span>
+      </button>
+      <p class="navigation-footer">SSL 证书管理</p>
+    </div>
   </nav>
 </template>
 

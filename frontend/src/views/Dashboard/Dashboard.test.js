@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import "./DeploymentResult.test.js";
+import "./DashboardLogout.test.js";
 import test from "node:test";
 import { nextTick, ref } from "vue";
 import { useDashboard } from "./Dashboard.js";
