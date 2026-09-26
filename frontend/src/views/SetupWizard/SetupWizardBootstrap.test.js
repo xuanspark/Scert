@@ -215,10 +215,17 @@ test("首次向导最终提交重新校验全部步骤", async (t) => {
   const { state, submitted } = await setup(t);
   for (const [field, value, step] of [
     ["server_port", 0, 1],
-    ["email_http_headers", "[]", 2],
+    ["email_smtp_port", 0, 2],
     ["propagation_polling_interval_secs", 99999, 3],
     ["certificate_root", "", 4],
   ]) {
+    Object.assign(state.form.value, {
+      email_smtp_enabled: true,
+      email_smtp_host: "smtp.example.test",
+      email_smtp_port: 587,
+      email_smtp_username: "sender@example.test",
+      email_smtp_password: "smtp-test-only",
+    });
     const original = state.form.value[field];
     state.form.value[field] = value;
     state.currentStep.value = 4;
@@ -253,6 +260,44 @@ test("首次向导拒绝畸形成功响应而不是误报完成", async (t) => {
   }
 });
 
+
+for (const [field, value] of [
+  ["email_smtp_host", ""],
+  ["email_smtp_port", 0],
+  ["email_smtp_port", 65536],
+  ["email_smtp_username", ""],
+  ["email_smtp_password", ""],
+  ["email_smtp_mode", "invalid"],
+  ["email_smtp_mode", "plain"],
+]) {
+  test(`SMTP validation rejects ${field}=${value}`, async (t) => {
+    const { state, submitted } = await setup(t);
+    Object.assign(state.form.value, {
+      email_smtp_enabled: true,
+      email_smtp_host: "smtp.example.test",
+      email_smtp_port: 587,
+      email_smtp_username: "sender@example.test",
+      email_smtp_password: "smtp-test-only",
+      email_smtp_mode: "starttls",
+      [field]: value,
+    });
+    state.currentStep.value = 4;
+    await state.handleSubmit();
+    assert.equal(submitted.length, 0);
+    assert.equal(state.currentStep.value, 2);
+    assert.notEqual(state.error.value, "");
+  });
+}
+
+test("disabled SMTP does not require credentials or enable HTTP", async (t) => {
+  const { state, submitted } = await setup(t);
+  state.currentStep.value = 4;
+  await state.handleSubmit();
+  assert.equal(state.error.value, "");
+  assert.equal(submitted.length, 1);
+  assert.equal(submitted[0].notification.smtp_enabled, false);
+  assert.equal(submitted[0].notification.http_enabled, false);
+});
 
 test("bootstrap service port defaults to 80 independently of listener port", async (t) => {
   const { state, submitted } = await setup(t);
