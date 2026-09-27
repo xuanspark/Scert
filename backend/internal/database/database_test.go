@@ -108,3 +108,19 @@ func TestSQLiteUpgradeAddsServerValidationCommand(t *testing.T) {
 		t.Fatalf("旧服务器记录的配置校验命令默认值错误：%s", validationCommand)
 	}
 }
+
+func TestAllSupportedMigrationFilesAreEmbedded(t *testing.T) {
+	drivers := []string{"sqlite", "mysql", "postgres"}
+	for _, driver := range drivers {
+		for version := 1; version <= latestMigrationVersion; version++ {
+			path := fmt.Sprintf("migrations/%s/%04d_%s.sql", driver, version, migrationName(version))
+			content, err := migrationFiles.ReadFile(path)
+			if err != nil {
+				t.Fatalf("%s 缺少第 %d 版迁移文件：%s：%v", driver, version, path, err)
+			}
+			if len(content) == 0 {
+				t.Fatalf("%s 第 %d 版迁移文件为空：%s", driver, version, path)
+			}
+		}
+	}
+}
