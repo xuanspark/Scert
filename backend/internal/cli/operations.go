@@ -460,6 +460,9 @@ func newRestoreCommandWithPostgresTools(factory postgresToolsFactory) *cobra.Com
 				} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 					return fmt.Errorf("检查当前数据库失败：%w", statErr)
 				}
+				if err := prepareSQLiteRestoreTarget(cmd.Context(), databaseTarget); err != nil {
+					return err
+				}
 			}
 
 			// 当前账号用于恢复前快照、导入和回滚，不能因替换配置或主密钥而丢失。
