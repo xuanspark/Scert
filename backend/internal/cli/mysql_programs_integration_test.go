@@ -119,7 +119,15 @@ func TestMySQLRealOfficialStoredPrograms(t *testing.T) {
 	}
 	t.Run("insufficient_privileges", func(t *testing.T) {
 		target := server.Database(t)
-		err := restoreMySQL(t.Context(), target, output)
+		// 通用夹具现有 TRIGGER 可见权限；本失败场景显式撤销，继续覆盖无对象管理权限的恢复。
+		limited, err := mysql.ParseDSN(target.DSN)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := server.Admin().ExecContext(t.Context(), "REVOKE TRIGGER ON "+quoteMySQLIdentifier(limited.DBName)+".* FROM "+mysqlStringLiteral(limited.User)+"@'127.0.0.1'"); err != nil {
+			t.Fatal(err)
+		}
+		err = restoreMySQL(t.Context(), target, output)
 		var serverError *mysql.MySQLError
 		if !errors.As(err, &serverError) || (serverError.Number != 1142 && serverError.Number != 1227 && serverError.Number != 1419) {
 			t.Fatalf("权限不足时必须返回原始数据库错误，不能忽略或提升权限：%v", err)

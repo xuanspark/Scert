@@ -212,7 +212,7 @@ func (f *Server) Database(t *testing.T) config.DatabaseConfig {
 	for _, statement := range []string{
 		"CREATE DATABASE " + name + " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
 		"CREATE USER '" + user + "'@'127.0.0.1' IDENTIFIED BY '" + f.password + "' REQUIRE SSL",
-		"GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES ON " + name + ".* TO '" + user + "'@'127.0.0.1'",
+		"GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES, TRIGGER ON " + name + ".* TO '" + user + "'@'127.0.0.1'",
 	} {
 		if _, err := f.admin.ExecContext(t.Context(), statement); err != nil {
 			t.Fatal("创建隔离数据库及库级账户失败")

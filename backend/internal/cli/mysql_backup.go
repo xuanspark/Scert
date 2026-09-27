@@ -15,7 +15,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 )
 
-// backupMySQL 将 MySQL 的表结构和数据导出为可在 MySQL 5.7/8.0 导入的 SQL 文件。
+// backupMySQL 将 MySQL 的基础表、数据和触发器导出为可在 MySQL 5.7/8.0 导入的 SQL 文件。
 func backupMySQL(ctx context.Context, cfg config.Config, output string) error {
 	resolved, err := resolveMaintenanceDatabase(ctx, cfg.Database, cfg.Paths.Config)
 	if err != nil {
@@ -85,11 +85,18 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 	if err := rows.Close(); err != nil {
 		return fmt.Errorf("关闭 MySQL 表列表失败：%w", err)
 	}
+	if err := requireMySQLTriggerVisibility(ctx, tx, tableNames); err != nil {
+		return err
+	}
 
 	for _, tableName := range tableNames {
 		if err := dumpMySQLTable(ctx, tx, file, tableName); err != nil {
 			return err
 		}
+	}
+	// 必须先恢复所有基础数据，再创建触发器，避免导入时重放业务副作用。
+	if err := dumpMySQLTriggers(ctx, tx, file); err != nil {
+		return err
 	}
 	if _, err := fmt.Fprint(file, "SET FOREIGN_KEY_CHECKS=1;\n"); err != nil {
 		return fmt.Errorf("写入 MySQL 备份尾失败：%w", err)
