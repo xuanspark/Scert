@@ -17,7 +17,7 @@ func TestCreateTarGzPreservesReleaseModes(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "Scert-test.tar.gz")
 	if err := Create(Options{
 		Source: source, Destination: destination, Format: FormatTarGz,
-		Executables: []string{"install-linux.sh", "scert", "scert-admin", "scert-nginx", "ScertDesktop"},
+		Executables: []string{"install-linux.sh", "scert", "scert-admin", "scert-nginx", "scert-storage"},
 	}); err != nil {
 		t.Fatalf("创建 Linux 发布归档失败：%v", err)
 	}
@@ -48,13 +48,13 @@ func TestCreateTarGzPreservesReleaseModes(t *testing.T) {
 	assertMode(t, modes, "scert", 0o755)
 	assertMode(t, modes, "scert-admin", 0o755)
 	assertMode(t, modes, "scert-nginx", 0o755)
-	assertMode(t, modes, "ScertDesktop", 0o755)
+	assertMode(t, modes, "scert-storage", 0o755)
 	assertMode(t, modes, "web/index.html", 0o644)
 	assertMode(t, modes, "web", 0o755)
 }
 
 func TestCreateZipContainsReleaseFiles(t *testing.T) {
-	source := createFixture(t)
+	source := createFixture(t, "install-windows.ps1", "scert.exe", "scert-admin.exe")
 	destination := filepath.Join(t.TempDir(), "Scert-test.zip")
 	if err := Create(Options{Source: source, Destination: destination, Format: FormatZip}); err != nil {
 		t.Fatalf("创建 Windows 发布归档失败：%v", err)
@@ -64,15 +64,23 @@ func TestCreateZipContainsReleaseFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	found := false
-	for _, item := range reader.File {
-		if item.Name == "web/index.html" {
-			found = true
-			break
-		}
+	expected := map[string]bool{
+		"install-windows.ps1": true,
+		"scert.exe":           true,
+		"scert-admin.exe":     true,
+		"web/index.html":      true,
 	}
-	if !found {
-		t.Fatal("Windows 发布归档缺少 Web 入口")
+	for _, item := range reader.File {
+		if item.FileInfo().IsDir() {
+			continue
+		}
+		if !expected[item.Name] {
+			t.Fatalf("Windows 发布归档出现非预期文件：%s", item.Name)
+		}
+		delete(expected, item.Name)
+	}
+	if len(expected) != 0 {
+		t.Fatalf("Windows 发布归档缺少必要文件：%v", expected)
 	}
 }
 
@@ -119,13 +127,16 @@ func TestCreateRejectsSymlink(t *testing.T) {
 	}
 }
 
-func createFixture(t *testing.T) string {
+func createFixture(t *testing.T, files ...string) string {
 	t.Helper()
 	source := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(source, "web"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"install-linux.sh", "scert", "scert-admin", "scert-nginx", "ScertDesktop"} {
+	if len(files) == 0 {
+		files = []string{"install-linux.sh", "scert", "scert-admin", "scert-nginx", "scert-storage"}
+	}
+	for _, name := range files {
 		if err := os.WriteFile(filepath.Join(source, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)
 		}
