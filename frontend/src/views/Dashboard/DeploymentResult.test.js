@@ -82,5 +82,6 @@ test("部署结果组件可编译且认证提示绑定真实配置", async () =>
   assert.match(source, /role="dialog"/);
   const dashboard = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
   assert.match(dashboard, /serverAuthLabel\(item\)/);
-  assert.match(dashboard, /item.auth_method === 'private_key' && item.private_key_ref/);
+  assert.match(dashboard, /serverSSHKeyStatusLabel\(item\)/);
+  assert.match(dashboard, /serverSSHCommand\(item\)/);
 });

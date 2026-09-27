@@ -97,7 +97,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
     activity: "运行概览",
     domains: "托管域名",
     servers: "部署服务器",
-    keys: "SSH 私钥",
+    keys: "服务器 SSH 密钥",
     "dns-accounts": "DNS 账户管理",
     users: "用户管理",
   };
