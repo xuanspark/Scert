@@ -10,3 +10,16 @@ build/*
 !build/build-release.ps1
 !build/README.md
 codex-*.patch
+desktop/frontend/dist/
+desktop/*.exe
+.deploy-stage/
+release/*
+!release/README.md
+artifacts/*
+!artifacts/README.md
+*.db
+*.sqlite
+*.sqlite3
+*.key
+*.p12
+*.pfx
