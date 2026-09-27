@@ -15,7 +15,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 )
 
-// backupMySQL 将 MySQL 的基础表、数据、例程和触发器导出为可在 MySQL 5.7/8.0 导入的 SQL 文件。
+// backupMySQL 将 MySQL 的基础表、数据、例程、触发器和事件导出为可在 MySQL 5.7/8.0 导入的 SQL 文件。
 func backupMySQL(ctx context.Context, cfg config.Config, output string) error {
 	resolved, err := resolveMaintenanceDatabase(ctx, cfg.Database, cfg.Paths.Config)
 	if err != nil {
@@ -59,6 +59,9 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 	if _, err := fmt.Fprintf(file, "-- Scert MySQL 数据备份\n-- 生成时间：%s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", time.Now().UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("写入 MySQL 备份头失败：%w", err)
 	}
+	if _, err := fmt.Fprint(file, "-- 恢复前须进入维护窗口，停止事件调度并等待工作线程退出；恢复后先核验对象及警告，再由管理员恢复调度。\n\n"); err != nil {
+		return err
+	}
 
 	rows, err := tx.QueryContext(ctx, "SELECT TABLE_NAME, ENGINE, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME")
 	if err != nil {
@@ -92,6 +95,10 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 	if err != nil {
 		return err
 	}
+	events, err := listMySQLEvents(ctx, tx)
+	if err != nil {
+		return err
+	}
 
 	for _, tableName := range tableNames {
 		if err := dumpMySQLTable(ctx, tx, file, tableName); err != nil {
@@ -108,6 +115,10 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 	}
 	if _, err := fmt.Fprint(file, "SET FOREIGN_KEY_CHECKS=1;\n"); err != nil {
 		return fmt.Errorf("写入 MySQL 备份尾失败：%w", err)
+	}
+	// 事件必须排在基础数据、例程、触发器和外键恢复之后。
+	if err := dumpMySQLEvents(ctx, tx, file, events); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("结束 MySQL 一致性备份事务失败：%w", err)
@@ -342,9 +353,15 @@ func restoreMySQL(ctx context.Context, cfg config.DatabaseConfig, input string) 
 	if err != nil {
 		return err
 	}
+	if err := preflightMySQLEventRestore(ctx, connection, statements); err != nil {
+		return err
+	}
 	for _, statement := range statements {
 		if _, err := connection.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("执行 MySQL 恢复语句失败：%w", err)
+		}
+		if err := checkMySQLEventRestoreWarnings(ctx, connection, statement); err != nil {
+			return err
 		}
 	}
 	return nil

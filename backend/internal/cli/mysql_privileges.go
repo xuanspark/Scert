@@ -85,6 +85,30 @@ func readMySQLEffectiveGrants(ctx context.Context, tx *sql.Tx, version string) (
 }
 
 func requireMySQLTableTriggerGrants(ctx context.Context, tx *sql.Tx, name string, tables, grants []string, normalize func(string) string) error {
+	return requireMySQLObjectGrants(ctx, tx, name, tables, grants, normalize, "TRIGGER", false)
+}
+
+func requireMySQLEventVisibility(ctx context.Context, tx *sql.Tx) error {
+	var name, version string
+	var lowerCaseNames int
+	if err := tx.QueryRowContext(ctx, "SELECT DATABASE(), VERSION(), @@lower_case_table_names").Scan(&name, &version, &lowerCaseNames); err != nil {
+		return err
+	}
+	grants, err := readMySQLEffectiveGrants(ctx, tx, version)
+	if err != nil {
+		return err
+	}
+	normalize := func(value string) string {
+		if lowerCaseNames != 0 {
+			return strings.ToLower(value)
+		}
+		return value
+	}
+	// EVENT 只有全局或库级授权，不能用某一张表的权限证明完整事件列表可见。
+	return requireMySQLObjectGrants(ctx, tx, normalize(name), []string{name}, grants, normalize, "EVENT", true)
+}
+
+func requireMySQLObjectGrants(ctx context.Context, tx *sql.Tx, name string, objects, grants []string, normalize func(string) string, privilege string, schemaOnly bool) error {
 	// 5.7 返回空列表；8.0 部分撤销模式下，数据库授权中的百分号和下划线为字面量。
 	partialRevokes := false
 	rows, err := tx.QueryContext(ctx, "SHOW GLOBAL VARIABLES LIKE 'partial_revokes'")
@@ -115,9 +139,9 @@ func requireMySQLTableTriggerGrants(ctx context.Context, tx *sql.Tx, name string
 		if len(match) == 0 {
 			continue
 		}
-		hasTrigger := mysqlHasTriggerPrivilege(match[2])
+		hasPrivilege := mysqlHasPrivilege(match[2], privilege)
 		if match[3] == "*" && match[4] == "*" {
-			global = global || (match[1] == "GRANT" && hasTrigger)
+			global = global || (match[1] == "GRANT" && hasPrivilege)
 			continue
 		}
 		databaseName := normalize(unquoteMySQLGrantIdentifier(match[3]))
@@ -131,16 +155,16 @@ func requireMySQLTableTriggerGrants(ctx context.Context, tx *sql.Tx, name string
 			continue
 		}
 		if match[1] == "REVOKE" {
-			revoked = revoked || hasTrigger
+			revoked = revoked || hasPrivilege
 		} else if match[4] == "*" {
 			if partialRevokes || !mysqlGrantHasWildcard(databaseName) {
 				exactSeen = true
-				exactAllowed = exactAllowed || hasTrigger
+				exactAllowed = exactAllowed || hasPrivilege
 			} else {
 				wildcardSeen = true
-				wildcardAllowed = wildcardAllowed && hasTrigger
+				wildcardAllowed = wildcardAllowed && hasPrivilege
 			}
-		} else if hasTrigger {
+		} else if hasPrivilege && !schemaOnly {
 			covered[normalize(unquoteMySQLGrantIdentifier(match[4]))] = true
 		}
 	}
@@ -150,9 +174,9 @@ func requireMySQLTableTriggerGrants(ctx context.Context, tx *sql.Tx, name string
 	if !exactSeen {
 		schema = wildcardSeen && wildcardAllowed
 	}
-	for _, table := range tables {
-		if !((global && !revoked) || schema || covered[normalize(table)]) {
-			return fmt.Errorf("MySQL 备份无法确认表 %s 的 TRIGGER 可见权限，不能把隐藏的触发器当成不存在", table)
+	for _, object := range objects {
+		if !((global && !revoked) || schema || covered[normalize(object)]) {
+			return fmt.Errorf("MySQL 无法确认对象 %s 的 %s 可见权限，不能把隐藏的对象当成不存在", object, privilege)
 		}
 	}
 	return nil
@@ -173,8 +197,12 @@ func mysqlGrantHasWildcard(value string) bool {
 }
 
 func mysqlHasTriggerPrivilege(privileges string) bool {
+	return mysqlHasPrivilege(privileges, "TRIGGER")
+}
+
+func mysqlHasPrivilege(privileges, required string) bool {
 	for _, privilege := range strings.Split(privileges, ",") {
-		if value := strings.TrimSpace(privilege); value == "TRIGGER" || value == "ALL PRIVILEGES" {
+		if value := strings.TrimSpace(privilege); value == required || value == "ALL PRIVILEGES" {
 			return true
 		}
 	}
