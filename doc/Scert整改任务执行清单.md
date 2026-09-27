@@ -122,3 +122,10 @@
 | 前端生产依赖审计 | `npm.cmd audit --omit=dev --audit-level=high` | 0 个漏洞 |
 
 以上结果仅证明当前代码在本地自动化层通过，不替代 Windows Service、Linux systemd、真实 DNS、ACME、HTTPS、SSH 和备份恢复验收。
+
+### 2026-09-27：P0-03 生成物索引清理
+
+- 已确认 `desktop/scripts/build-frontend.mjs` 从根目录 `frontend/dist` 重新构建并复制桌面资源。
+- 已将 `desktop/desktop.exe` 和 `desktop/frontend/dist/index.html` 从 Git 索引移除；本地文件仍保留，未物理删除。
+- `deploy/tests/install-linux-test.py` 保留为可复用测试代码。
+- 本项仍需在独立克隆中验证桌面构建入口和发布包内容后，才能标记为 `[✓]`。
