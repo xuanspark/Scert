@@ -39,7 +39,7 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 RemoveIPC=yes
 SystemCallArchitectures=native
-ReadWritePaths=/ssl/scert /scert/conf /scert/data /scert/log /scert/backups
+ReadWritePaths=/scert/conf /scert/data /scert/log /scert/backups
 # 初始化临时证书读取本机网卡地址需要 NETLINK_ROUTE，不授予网络管理能力。
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
