@@ -32,11 +32,12 @@ func TestMySQLRealBackupFailureBoundaries(t *testing.T) {
 		}
 	})
 	for _, scenario := range []struct {
-		name string
-		ddl  string
+		name     string
+		ddl      string
+		expected string
 	}{
-		{name: "reject_nontransactional_table", ddl: "CREATE TABLE %s (id INT PRIMARY KEY) ENGINE=MyISAM"},
-		{name: "reject_view", ddl: "CREATE VIEW %s AS SELECT 1 AS id"},
+		{name: "reject_nontransactional_table", ddl: "CREATE TABLE %s (id INT PRIMARY KEY) ENGINE=MyISAM", expected: "仅支持 InnoDB 基础表"},
+		{name: "reject_view_without_definition_permission", ddl: "CREATE VIEW %s AS SELECT 1 AS id", expected: "SHOW VIEW"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			cfg := server.Database(t)
@@ -52,8 +53,8 @@ func TestMySQLRealBackupFailureBoundaries(t *testing.T) {
 			original := []byte("原有备份不能因失败被替换\n")
 			writeMySQLBackupFixture(t, output, original)
 			err = backupMySQLDatabase(t.Context(), cfg, output)
-			if err == nil || !strings.Contains(err.Error(), "仅支持 InnoDB 基础表") {
-				t.Fatalf("非事务对象不能被当作一致性备份成功导出：%v", err)
+			if err == nil || !strings.Contains(err.Error(), scenario.expected) {
+				t.Fatalf("非事务表或不可见定义不能被当作完整备份成功导出：%v", err)
 			}
 			assertMySQLBackupFile(t, output, original)
 			assertMySQLBackupAbsent(t, output+".tmp")

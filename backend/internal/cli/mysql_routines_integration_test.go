@@ -197,6 +197,40 @@ func TestMySQLRealRoutineVisibility(t *testing.T) {
 			if err := os.WriteFile(output, []byte("existing backup"), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			if scenario == "partial_revoke" || scenario == "partial_revoke_with_show" {
+				db, err := database.Open(t.Context(), cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				tx, err := db.DB.BeginTx(t.Context(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback()
+				routines, visibilityErr := listMySQLRoutines(t.Context(), tx)
+				if err := tx.Rollback(); err != nil {
+					t.Fatal(err)
+				}
+				if allowed {
+					if visibilityErr != nil || len(routines) != 1 || routines[0].name != "hidden_routine" {
+						t.Fatalf("SHOW_ROUTINE 未独立保证例程可见：%v", visibilityErr)
+					}
+				} else if visibilityErr == nil || !strings.Contains(visibilityErr.Error(), "例程") {
+					t.Fatalf("全局 SELECT 被部分撤销后例程权限检查未拒绝：%v", visibilityErr)
+				}
+				if err := backupMySQLDatabase(t.Context(), cfg, output); err == nil || !strings.Contains(err.Error(), "SELECT") {
+					t.Fatalf("例程可见权限不能替代完整表清单的读取权限：%v", err)
+				}
+				assertMySQLBackupFile(t, output, []byte("existing backup"))
+				assertMySQLBackupAbsent(t, output+".tmp")
+				if !allowed {
+					return
+				}
+				if _, err := server.Admin().ExecContext(t.Context(), "GRANT SELECT ON "+quoteMySQLIdentifier(parsed.DBName)+".* TO "+account); err != nil {
+					t.Fatal(err)
+				}
+			}
 			err = backupMySQLDatabase(t.Context(), cfg, output)
 			if allowed {
 				if err != nil {

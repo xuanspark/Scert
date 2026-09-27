@@ -217,7 +217,7 @@ func TestMySQLRealEventVisibility(t *testing.T) {
 				escaped := strings.ReplaceAll(parsed.DBName, "_", string(rune(92))+"_")
 				grants = append(grants, "GRANT SELECT, EVENT ON "+quoteMySQLIdentifier(escaped)+".* TO "+account)
 			case "shadowed_schema":
-				grants = append(grants, "GRANT EVENT ON `scert%`.* TO "+account)
+				grants = append(grants, "GRANT SELECT ON *.* TO "+account, "GRANT EVENT ON `scert%`.* TO "+account)
 			case "shadowed_exact":
 				escaped := strings.ReplaceAll(parsed.DBName, "_", string(rune(92))+"_")
 				grants = append(grants, "GRANT EVENT ON "+schema+".* TO "+account, "GRANT SELECT ON "+quoteMySQLIdentifier(escaped)+".* TO "+account)

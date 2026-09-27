@@ -38,7 +38,11 @@ func readMySQLStoredDefinition(ctx context.Context, tx *sql.Tx, kind, name, stat
 			definition[column] = values[i].String
 		}
 	}
-	for _, column := range []string{"sql_mode", statementColumn, "character_set_client", "collation_connection", "Database Collation"} {
+	required := []string{"sql_mode", statementColumn, "character_set_client", "collation_connection", "Database Collation"}
+	if kind == "VIEW" {
+		required = []string{statementColumn, "character_set_client", "collation_connection"}
+	}
+	for _, column := range required {
 		value, exists := definition[column]
 		if !exists || (value == "" && column != "sql_mode") {
 			return nil, fmt.Errorf("MySQL 存储对象定义字段不完整（%s %s）：%s", kind, name, column)

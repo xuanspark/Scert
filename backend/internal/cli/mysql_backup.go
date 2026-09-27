@@ -15,7 +15,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 )
 
-// backupMySQL 将 MySQL 的基础表、数据、例程、触发器和事件导出为可在 MySQL 5.7/8.0 导入的 SQL 文件。
+// backupMySQL 将 MySQL 的基础表、数据、例程、视图、触发器和事件导出为可在 MySQL 5.7/8.0 导入的 SQL 文件。
 func backupMySQL(ctx context.Context, cfg config.Config, output string) error {
 	resolved, err := resolveMaintenanceDatabase(ctx, cfg.Database, cfg.Paths.Config)
 	if err != nil {
@@ -63,17 +63,25 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 		return err
 	}
 
+	// 元数据会按权限过滤；先证明完整库的读取权限，再信任表和视图清单。
+	if err := requireMySQLObjectVisibility(ctx, tx, nil, "SELECT", true); err != nil {
+		return fmt.Errorf("MySQL 无法确认完整表和视图清单：%w", err)
+	}
 	rows, err := tx.QueryContext(ctx, "SELECT TABLE_NAME, ENGINE, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME")
 	if err != nil {
 		return fmt.Errorf("读取 MySQL 表列表失败：%w", err)
 	}
-	var tableNames []string
+	var tableNames, viewNames []string
 	for rows.Next() {
 		var tableName, tableType string
 		var engine sql.NullString
 		if err := rows.Scan(&tableName, &engine, &tableType); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("读取 MySQL 表名失败：%w", err)
+		}
+		if tableType == "VIEW" {
+			viewNames = append(viewNames, tableName)
+			continue
 		}
 		if tableType != "BASE TABLE" || !engine.Valid || !strings.EqualFold(engine.String, "InnoDB") {
 			_ = rows.Close()
@@ -91,6 +99,11 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 	if err := requireMySQLTriggerVisibility(ctx, tx, tableNames); err != nil {
 		return err
 	}
+	if len(viewNames) > 0 {
+		if err := requireMySQLObjectVisibility(ctx, tx, viewNames, "SHOW VIEW", false); err != nil {
+			return err
+		}
+	}
 	routines, err := listMySQLRoutines(ctx, tx)
 	if err != nil {
 		return err
@@ -107,6 +120,9 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 	}
 	// 例程先于依赖它的触发器创建；例程定义不执行其中的业务语句。
 	if err := dumpMySQLRoutines(ctx, tx, file, routines); err != nil {
+		return err
+	}
+	if err := dumpMySQLViews(ctx, tx, file, viewNames); err != nil {
 		return err
 	}
 	// 必须先恢复所有基础数据，再创建触发器，避免导入时重放业务副作用。
@@ -353,10 +369,17 @@ func restoreMySQL(ctx context.Context, cfg config.DatabaseConfig, input string) 
 	if err != nil {
 		return err
 	}
-	if err := preflightMySQLEventRestore(ctx, connection, statements); err != nil {
+	viewPlan, err := prepareMySQLViewRestore(ctx, connection, statements)
+	if err != nil {
+		return fmt.Errorf("预检 MySQL 视图恢复依赖失败：%w", err)
+	}
+	if err := preflightMySQLEventRestore(ctx, connection, viewPlan.statements); err != nil {
 		return err
 	}
-	for _, statement := range statements {
+	for index, statement := range viewPlan.statements {
+		if err := viewPlan.checkContext(ctx, connection, index); err != nil {
+			return err
+		}
 		if _, err := connection.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("执行 MySQL 恢复语句失败：%w", err)
 		}
