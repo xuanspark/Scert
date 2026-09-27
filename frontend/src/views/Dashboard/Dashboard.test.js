@@ -460,7 +460,6 @@ test("settingsPayloadContract", async (t) => {
   const form = JSON.parse(JSON.stringify(state.settingsForm.value));
   form.notification.http_credential_configured = true;
   form.notification.smtp_credential_configured = true;
-  form.notification.http_credentials = { token: "test-only" };
   form.notification.recipients = ["owner@example.test"];
   form.notification.retry_count = 0;
   form.dns.credentials = { access_key_id: "not-for-settings" };
@@ -482,7 +481,7 @@ test("settingsPayloadContract", async (t) => {
   assert.equal("http_credential_configured" in payload.notification, false);
   assert.equal("credentials" in payload.dns, false);
   assert.equal(payload.dns.verification_token, "verified-token");
-  assert.deepEqual(payload.notification.http_credentials, { token: "test-only" });
+  assert.equal("http_credentials" in payload.notification, false);
   assert.deepEqual(payload.notification.recipients, ["owner@example.test"]);
   assert.equal(payload.notification.retry_count, 0);
   assert.equal(payload.web.enabled, true);
