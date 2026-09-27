@@ -1,12 +1,15 @@
 package mysqltest
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -54,9 +57,33 @@ func (f *Server) Import(t *testing.T, cfg config.DatabaseConfig, input string) {
 	}, file, io.Discard)
 }
 
+// 仅返回官方客户端的数据库错误码，不向日志透传可能含业务数据的错误文本。
+func (f *Server) ImportErrorCode(t *testing.T, cfg config.DatabaseConfig, input string) int {
+	t.Helper()
+	file, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	code, err := f.runToolResult(t, "mysql", cfg, []string{
+		"--binary-mode", "--batch", "--skip-reconnect", "--local-infile=0",
+	}, file, io.Discard)
+	if err == nil || code == 0 {
+		t.Fatal("官方客户端未返回预期的数据库错误码，不能作为失败对照")
+	}
+	return code
+}
+
 func (f *Server) IsMySQL8() bool { return strings.Contains(f.version, "Ver 8.0.") }
 
 func (f *Server) runTool(t *testing.T, name string, cfg config.DatabaseConfig, args []string, input io.Reader, output io.Writer) {
+	t.Helper()
+	if _, err := f.runToolResult(t, name, cfg, args, input, output); err != nil {
+		t.Fatalf("官方 %s 执行失败：%v；原始输出已隐藏", name, err)
+	}
+}
+
+func (f *Server) runToolResult(t *testing.T, name string, cfg config.DatabaseConfig, args []string, input io.Reader, output io.Writer) (int, error) {
 	t.Helper()
 	parsed, err := mysql.ParseDSN(cfg.DSN)
 	if err != nil || cfg.Driver != "mysql" {
@@ -93,11 +120,15 @@ func (f *Server) runTool(t *testing.T, name string, cfg config.DatabaseConfig, a
 	command.Env = mysqlToolTestEnvironment(f.root, parsed.Passwd)
 	command.Stdin, command.Stdout = input, output
 	// 错误可能含数据库内容；只报告退出状态，不透传工具的原始错误输出。
-	command.Stderr = io.Discard
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
 	command.WaitDelay = 2 * time.Second
-	if err := command.Run(); err != nil {
-		t.Fatalf("官方 %s 执行失败：%v；原始输出已隐藏", name, err)
+	err = command.Run()
+	code := 0
+	if match := regexp.MustCompile(`(?m)^ERROR ([0-9]+) \([A-Z0-9]+\)`).FindSubmatch(stderr.Bytes()); len(match) > 1 {
+		code, _ = strconv.Atoi(string(match[1]))
 	}
+	return code, err
 }
 
 func mysqlToolTestEnvironment(root, password string) []string {
