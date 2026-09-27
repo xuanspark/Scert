@@ -1,4 +1,10 @@
-# Scert Linux 部署
+# Scert 服务端部署
+
+## 正式范围
+
+正式安装包仅包含 Web 管理界面、Windows/Linux 服务端及其运维辅助程序，不含 Wails 桌面端，不要求 WebView2 或 GTK。桌面源码仅作为历史参考保留。
+
+CLI 用于初始化、服务启动、运维诊断、数据库迁移、备份恢复、服务安装和卸载；日常业务管理使用 Web。Windows 使用包内 `install-windows.ps1`，Linux 使用 `install-linux.sh`；发布入口及双平台包结构见仓库 `build/README.md`。下文是 Linux 部署步骤。
 
 ## 安装包目录
 

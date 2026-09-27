@@ -2,13 +2,15 @@
 
 Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码已覆盖核心证书生命周期、DNS-01、自动续期、SSH 部署、通知、认证和 Web 管理流程。
 
+正式交付仅包含 Web 和服务端。CLI 限定为初始化、服务启动、运维诊断、数据库迁移、备份恢复、服务安装和卸载入口；历史 `domain` 命令保留兼容，不再扩展成另一套业务管理界面。Wails 历史实现不参与正式发布及测试门禁。
+
 ## 当前已实现
 
 - Go 后端模块和 `scert` CLI 入口。
 - JSON 配置生成、读取、校验和原子保存。
 - Windows 与 Linux 默认目录模型。
-- SQLite 和 MySQL 数据库连接抽象。
-- SQLite/MySQL 首版迁移脚本。
+- SQLite、MySQL 和 PostgreSQL 数据库连接抽象。
+- 三种数据库的迁移脚本、嵌入检查和迁移历史保护；实际版本及验证边界见 `../doc/构建版本与数据库支持矩阵.md`。
 - 域名基础模型与 Repository。
 - 健康检查、状态和域名基础 API。
 - 中文 CLI：`version`、`help`、`init`、`status`、`serve`、`domain list`、`domain add`。

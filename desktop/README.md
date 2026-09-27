@@ -1,5 +1,8 @@
 # Scert 桌面版
 
+> 历史源码，非正式交付范围。自 2026 年 9 月 27 日整改起，正式产品仅包含 Web 和 Windows/Linux 服务端。
+> 本目录保留供参考及独立开发，不由 `build/build-release.ps1` 构建或打包。桌面窗口、托盘、自动更新、桌面配置管理和桌面 UI 测试均不属于正式验收门禁；以下说明仅适用于历史实现。
+
 桌面版使用 Wails 2，将 Vue 管理页面嵌入桌面窗口，并在同一进程内复用 Scert Go 核心服务和 HTTP API。桌面版不会额外监听服务端口，也不会复制一套桌面专用业务页面。
 
 ## 开发运行
@@ -11,7 +14,7 @@ npm.cmd --prefix .\frontend run build
 wails dev
 ```
 
-首次构建或发布构建会通过 `desktop/scripts/build-frontend.mjs` 构建根目录前端，并同步到桌面嵌入目录。
+手动进行桌面构建时，会通过 `desktop/scripts/build-frontend.mjs` 构建根目录前端，并同步到桌面嵌入目录；这不是正式发布入口。
 
 ## 配置目录
 

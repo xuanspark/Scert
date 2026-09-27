@@ -23,8 +23,11 @@ if ([string]::IsNullOrWhiteSpace($BackendDirectory)) {
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $scriptDirectory "release"
 }
-if ([string]::IsNullOrWhiteSpace($DesktopDirectory)) {
-    $DesktopDirectory = Join-Path $scriptDirectory "..\desktop"
+if ($PSBoundParameters.ContainsKey("DesktopDirectory")) {
+    throw "正式发布仅包含 Web 和服务端，不再接受 DesktopDirectory；历史桌面源码请在 desktop 目录单独开发。"
+}
+if ($PSBoundParameters.ContainsKey("SkipDesktop")) {
+    Write-Warning "SkipDesktop 仅用于兼容旧命令；正式发布始终排除桌面端，无需再传入此参数。"
 }
 if ([string]::IsNullOrWhiteSpace($DeployDirectory)) {
     $DeployDirectory = Join-Path $scriptDirectory "..\deploy"
@@ -62,68 +65,6 @@ function Invoke-GoBuild {
     & go build -trimpath -o $Destination $Package
     if ($LASTEXITCODE -ne 0) {
         throw "构建 $OperatingSystem/$Architecture 的 $Package 失败。"
-    }
-}
-
-function Get-HostDesktopTarget {
-    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-        [System.Runtime.InteropServices.OSPlatform]::Windows
-    )) {
-        return "windows-amd64"
-    }
-    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-        [System.Runtime.InteropServices.OSPlatform]::Linux
-    )) {
-        return "linux-amd64"
-    }
-    return ""
-}
-
-function Invoke-DesktopBuild {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ProjectDirectory,
-        [Parameter(Mandatory = $true)]
-        [string]$TargetName,
-        [Parameter(Mandatory = $true)]
-        [string]$Destination
-    )
-
-    if (-not (Get-Command wails -ErrorAction SilentlyContinue)) {
-        throw "未找到 Wails CLI，请先安装 Wails v2."
-    }
-    if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory "wails.json") -PathType Leaf)) {
-        throw "桌面项目中没有找到 wails.json：$ProjectDirectory"
-    }
-
-    Write-Host "正在构建 $TargetName 的 Scert 桌面版……"
-    $desktopGoOS = $env:GOOS
-    $desktopGoArch = $env:GOARCH
-    $desktopCGOEnabled = $env:CGO_ENABLED
-    Push-Location $ProjectDirectory
-    try {
-        $env:GOOS = ""
-        $env:GOARCH = ""
-        if ($TargetName.StartsWith("linux-")) {
-            $env:CGO_ENABLED = "1"
-        }
-        & wails build -trimpath -nopackage -platform ($TargetName.Replace("-", "/")) -o "ScertDesktop"
-        if ($LASTEXITCODE -ne 0) {
-            throw "构建 $TargetName 的 Scert 桌面版失败。"
-        }
-        $builtExtension = if ($TargetName.StartsWith("windows-")) { ".exe" } else { "" }
-        $builtDirectory = Join-Path (Join-Path $ProjectDirectory "build") "bin"
-        $builtPath = Join-Path $builtDirectory ("ScertDesktop" + $builtExtension)
-        if (-not (Test-Path -LiteralPath $builtPath -PathType Leaf)) {
-            throw "Wails 构建完成但没有找到桌面产物：$builtPath"
-        }
-        Copy-Item -LiteralPath $builtPath -Destination $Destination -Force
-    }
-    finally {
-        Pop-Location
-        $env:GOOS = $desktopGoOS
-        $env:GOARCH = $desktopGoArch
-        $env:CGO_ENABLED = $desktopCGOEnabled
     }
 }
 
@@ -261,7 +202,6 @@ function Test-ReleasePaths {
 
 $backend = Resolve-SafeDirectory -Path $BackendDirectory -Label "后端目录"
 $output = Resolve-SafeDirectory -Path $OutputDirectory -Label "输出目录"
-$desktop = Resolve-SafeDirectory -Path $DesktopDirectory -Label "桌面项目目录"
 $deploy = Resolve-SafeDirectory -Path $DeployDirectory -Label "部署目录"
 $frontend = Resolve-SafeDirectory -Path (Join-Path $scriptDirectory "..\frontend") -Label "前端目录"
 
@@ -348,7 +288,6 @@ $oldGoOS = $env:GOOS
 $oldGoArch = $env:GOARCH
 $oldCGOEnabled = $env:CGO_ENABLED
 $manifestArtifacts = [System.Collections.Generic.List[object]]::new()
-$hostDesktopTarget = Get-HostDesktopTarget
 
 Push-Location $backend
 try {
@@ -362,7 +301,7 @@ try {
     }
     $goEnvironment = ($goEnvironmentJSON -join "`n") | ConvertFrom-Json
     $forbiddenPaths = @(
-        (Split-Path -Parent $scriptDirectory), $backend, $desktop, $frontend, $deploy, $output,
+        (Split-Path -Parent $scriptDirectory), $backend, $frontend, $deploy, $output,
         $env:USERPROFILE, $env:HOME, [System.IO.Path]::GetTempPath(),
         $goEnvironment.GOROOT, $goEnvironment.GOMODCACHE, $goEnvironment.GOCACHE, $goEnvironment.GOTMPDIR
     ) + $goEnvironment.GOPATH.Split([System.IO.Path]::PathSeparator)
@@ -406,27 +345,6 @@ try {
         }
         else {
             Copy-Item -LiteralPath (Join-Path $deploy "install-windows.ps1") -Destination (Join-Path $targetDirectory "install-windows.ps1")
-        }
-
-        if (-not $SkipDesktop) {
-            if ($item -eq $hostDesktopTarget) {
-                $desktopExtension = if ($goos -eq "windows") { ".exe" } else { "" }
-                $desktopPath = Join-Path $targetDirectory ("ScertDesktop" + $desktopExtension)
-                Invoke-DesktopBuild -ProjectDirectory $desktop -TargetName $item -Destination $desktopPath
-                $binaries += ("ScertDesktop" + $desktopExtension)
-                $file = Get-Item -LiteralPath $desktopPath
-                $hash = Get-FileHash -LiteralPath $desktopPath -Algorithm SHA256
-                $manifestArtifacts.Add([ordered]@{
-                    target = $item
-                    type = "desktop"
-                    file = Get-RelativeReleasePath -BaseDirectory $releaseDirectory -Path $file.FullName
-                    size = $file.Length
-                    sha256 = $hash.Hash.ToLowerInvariant()
-                })
-            }
-            else {
-                Write-Warning "当前主机不能直接构建 $item 的 Wails 桌面版；请在对应平台主机上执行同一脚本。"
-            }
         }
 
         $checkedPaths = @($forbiddenPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
@@ -479,7 +397,8 @@ $manifest = [ordered]@{
     trimpath = $true
     local_path_check = "passed"
     targets = @($Target)
-    desktop_requested = -not [bool]$SkipDesktop
+    delivery_scope = @("web", "server")
+    desktop_requested = $false
     generated_at = [DateTimeOffset]::UtcNow.ToString("o")
     artifacts = $manifestArtifacts
 }

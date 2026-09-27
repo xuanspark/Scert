@@ -142,15 +142,25 @@ func TestReleaseScriptUsesPathChecksAndIncludesLinuxHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
-		"go build -trimpath", "wails build -trimpath", "Test-ReleasePaths -Source $targetDirectory",
+		"go build -trimpath", "Test-ReleasePaths -Source $targetDirectory",
 		`$checkedPaths = @($forbiddenPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)`,
 		`-ForbiddenPaths $checkedPaths`,
 		`-Package "./cmd/scert-nginx"`, `$binaries += "scert-nginx"`,
+		`-Package "./cmd/scert-storage"`, `$binaries += "scert-storage"`,
 		`-Executable (@("install-linux.sh") + $binaries)`,
 		`trimpath = $true`, `local_path_check = "passed"`,
+		`delivery_scope = @("web", "server")`, `desktop_requested = $false`,
 	} {
 		if !strings.Contains(string(data), required) {
 			t.Errorf("发布脚本缺少必要约束：%s", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"wails build", "Invoke-DesktopBuild", "Get-HostDesktopTarget", "ScertDesktop",
+		`type = "desktop"`, "if (-not $SkipDesktop)",
+	} {
+		if strings.Contains(string(data), forbidden) {
+			t.Errorf("正式发布脚本仍包含桌面构建路径：%s", forbidden)
 		}
 	}
 }
