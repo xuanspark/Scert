@@ -89,6 +89,11 @@ func requireMySQLTableTriggerGrants(ctx context.Context, tx *sql.Tx, name string
 }
 
 func requireMySQLEventVisibility(ctx context.Context, tx *sql.Tx) error {
+	// EVENT 只有全局或库级授权，不能用某一张表的权限证明完整事件列表可见。
+	return requireMySQLObjectVisibility(ctx, tx, nil, "EVENT", true)
+}
+
+func requireMySQLObjectVisibility(ctx context.Context, tx *sql.Tx, objects []string, privilege string, schemaOnly bool) error {
 	var name, version string
 	var lowerCaseNames int
 	if err := tx.QueryRowContext(ctx, "SELECT DATABASE(), VERSION(), @@lower_case_table_names").Scan(&name, &version, &lowerCaseNames); err != nil {
@@ -104,8 +109,10 @@ func requireMySQLEventVisibility(ctx context.Context, tx *sql.Tx) error {
 		}
 		return value
 	}
-	// EVENT 只有全局或库级授权，不能用某一张表的权限证明完整事件列表可见。
-	return requireMySQLObjectGrants(ctx, tx, normalize(name), []string{name}, grants, normalize, "EVENT", true)
+	if schemaOnly {
+		objects = []string{name}
+	}
+	return requireMySQLObjectGrants(ctx, tx, normalize(name), objects, grants, normalize, privilege, schemaOnly)
 }
 
 func requireMySQLObjectGrants(ctx context.Context, tx *sql.Tx, name string, objects, grants []string, normalize func(string) string, privilege string, schemaOnly bool) error {
