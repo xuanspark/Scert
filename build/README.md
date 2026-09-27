@@ -73,6 +73,8 @@ powershell -ExecutionPolicy Bypass -File .\build\build-release.ps1 -OutputDirect
 
 从 `npm test` 等父进程启动检查器时，npm 可能将用户级 `allow-scripts` 导出到环境变量，而项目级安装拒绝这种传递。本入口仅从子进程环境移除该白名单变量，不改用户配置；`--ignore-scripts` 仍强制生效。正式测试覆盖嵌套调用和主动尝试放行脚本的环境设置，不能通过开启安装脚本解决此兼容问题。
 
+仓库 `.gitattributes` 对自动识别的文本固定 LF，避免不同 `core.autocrlf` 设置改变 Vue/CSS/HTML 构建输入及产物哈希，二进制保持原样。已有工作目录不会因此被强制重写；正式验证从干净克隆执行，不用脚本批量替换中文文件或清理既有数据。正式 Go 测试实际签出三种换行设置并检查文本和二进制字节。归档生成时间和源码提交信息仍可能影响包字节，因此不能把前端文件一致等同于所有归档逐字节一致。
+
 ## 本机路径保护
 
 正式服务端和辅助程序统一使用 `-trimpath`。手动构建也必须保留此参数，例如 `go build -trimpath -o scert ./cmd/scert`。前端生产构建明确关闭源码映射。

@@ -81,6 +81,66 @@ func TestRepositoryIgnoreBoundaries(t *testing.T) {
 	}
 }
 
+func TestRepositoryCheckoutLineEndings(t *testing.T) {
+	root, sandbox := repositoryIgnoreFixture(t)
+	attributes, err := os.ReadFile(filepath.Join(root, ".gitattributes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sandbox, ".gitattributes"), attributes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	text := []byte("first line\nsecond line\n")
+	files := map[string][]byte{
+		"backend/go.mod":             text,
+		"backend/go.sum":             text,
+		"frontend/package.json":      text,
+		"frontend/package-lock.json": text,
+		"frontend/.npmrc":            text,
+		"frontend/index.html":        text,
+		"frontend/src/App.vue":       text,
+		"frontend/src/App.js":        text,
+		"frontend/src/App.css":       text,
+		"build/toolchain.mjs":        text,
+		"build/build-release.ps1":    text,
+		"frontend/logo/fixture.png":  {0x89, 0, 13, 10, 0xff},
+	}
+	arguments := []string{"add", "--", ".gitattributes"}
+	for path, data := range files {
+		fullPath := filepath.Join(sandbox, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		arguments = append(arguments, path)
+	}
+	if output, err := repositoryGitCommand(sandbox, arguments...).CombinedOutput(); err != nil {
+		t.Fatalf("准备换行测试索引失败：%v\n%s", err, output)
+	}
+	// 从相同索引实际签出，证明用户换行设置不会改变文本，也不会转换二进制。
+	for _, value := range []string{"true", "false", "input"} {
+		t.Run(value, func(t *testing.T) {
+			destination := t.TempDir()
+			command := repositoryGitCommand(sandbox, "-c", "core.autocrlf="+value,
+				"checkout-index", "--all", "--prefix="+filepath.ToSlash(destination)+"/")
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("签出换行测试源码失败：%v\n%s", err, output)
+			}
+			for path, expected := range files {
+				actual, err := os.ReadFile(filepath.Join(destination, filepath.FromSlash(path)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(actual, expected) {
+					t.Errorf("签出改变了构建输入或二进制内容：%s", path)
+				}
+			}
+		})
+	}
+}
+
 func repositoryIgnoreFixture(t *testing.T) (string, string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
