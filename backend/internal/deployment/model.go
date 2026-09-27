@@ -21,10 +21,10 @@ const (
 
 const (
 	SSHKeyStatusNotConfigured SSHKeyStatus = "not_configured"
-	SSHKeyStatusPending      SSHKeyStatus = "pending"
-	SSHKeyStatusDeployed     SSHKeyStatus = "deployed"
-	SSHKeyStatusManual       SSHKeyStatus = "manual"
-	SSHKeyStatusFailed       SSHKeyStatus = "failed"
+	SSHKeyStatusPending       SSHKeyStatus = "pending"
+	SSHKeyStatusDeployed      SSHKeyStatus = "deployed"
+	SSHKeyStatusManual        SSHKeyStatus = "manual"
+	SSHKeyStatusFailed        SSHKeyStatus = "failed"
 )
 
 type SSHKeyStatus string

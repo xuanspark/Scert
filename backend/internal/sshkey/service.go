@@ -120,26 +120,26 @@ func (s *Service) CreateGenerated(ctx context.Context, name string) (Metadata, s
 	return metadata, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublicKey))), nil
 }
 func (s *Service) AuthorizedPublicKey(ctx context.Context, reference string) (string, error) {
-    if s == nil || s.store == nil {
-        return "", errors.New("SSH 私钥存储未初始化")
-    }
-    metadata, err := s.metadata(ctx, strings.TrimSpace(reference), time.Time{}, true)
-    if err != nil {
-        return "", err
-    }
-    payload, err := s.store.Get(ctx, metadata.Reference)
-    if err != nil {
-        return "", fmt.Errorf("读取 SSH 私钥失败：%w", err)
-    }
-    signer, err := parsePrivateKey(payload["private_key"], payload["passphrase"])
-    if err != nil {
-        return "", err
-    }
-    publicKey, err := ssh.NewPublicKey(signer.PublicKey())
-    if err != nil {
-        return "", fmt.Errorf("编码 SSH 公钥失败：%w", err)
-    }
-    return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicKey))), nil
+	if s == nil || s.store == nil {
+		return "", errors.New("SSH 私钥存储未初始化")
+	}
+	metadata, err := s.metadata(ctx, strings.TrimSpace(reference), time.Time{}, true)
+	if err != nil {
+		return "", err
+	}
+	payload, err := s.store.Get(ctx, metadata.Reference)
+	if err != nil {
+		return "", fmt.Errorf("读取 SSH 私钥失败：%w", err)
+	}
+	signer, err := parsePrivateKey(payload["private_key"], payload["passphrase"])
+	if err != nil {
+		return "", err
+	}
+	publicKey, err := ssh.NewPublicKey(signer.PublicKey())
+	if err != nil {
+		return "", fmt.Errorf("编码 SSH 公钥失败：%w", err)
+	}
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicKey))), nil
 }
 func (s *Service) List(ctx context.Context) ([]Metadata, error) {
 	if s == nil || s.store == nil {
