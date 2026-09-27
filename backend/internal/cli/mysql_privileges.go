@@ -27,27 +27,35 @@ func requireMySQLTriggerVisibility(ctx context.Context, tx *sql.Tx, tables []str
 		return value
 	}
 	name = normalize(name)
+	grants, err := readMySQLEffectiveGrants(ctx, tx, version)
+	if err != nil {
+		return err
+	}
+	return requireMySQLTableTriggerGrants(ctx, tx, name, tables, grants, normalize)
+}
+
+func readMySQLEffectiveGrants(ctx context.Context, tx *sql.Tx, version string) ([]string, error) {
 	query := "SHOW GRANTS FOR CURRENT_USER"
 	if strings.HasPrefix(version, "8.0.") {
 		rows, err := tx.QueryContext(ctx, "SELECT ROLE_NAME, ROLE_HOST FROM information_schema.ENABLED_ROLES ORDER BY ROLE_NAME, ROLE_HOST")
 		if err != nil {
-			return fmt.Errorf("读取 MySQL 当前角色失败：%w", err)
+			return nil, fmt.Errorf("读取 MySQL 当前角色失败：%w", err)
 		}
 		var roles []string
 		for rows.Next() {
 			var role, host string
 			if err := rows.Scan(&role, &host); err != nil {
 				_ = rows.Close()
-				return err
+				return nil, err
 			}
 			roles = append(roles, quoteMySQLIdentifier(role)+"@"+quoteMySQLIdentifier(host))
 		}
 		if err := rows.Err(); err != nil {
 			_ = rows.Close()
-			return err
+			return nil, err
 		}
 		if err := rows.Close(); err != nil {
-			return err
+			return nil, err
 		}
 		if len(roles) > 0 {
 			query += " USING " + strings.Join(roles, ", ")
@@ -55,27 +63,31 @@ func requireMySQLTriggerVisibility(ctx context.Context, tx *sql.Tx, tables []str
 	}
 	rows, err := tx.QueryContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("读取 MySQL 有效权限失败：%w", err)
+		return nil, fmt.Errorf("读取 MySQL 有效权限失败：%w", err)
 	}
 	var grants []string
 	for rows.Next() {
 		var grant string
 		if err := rows.Scan(&grant); err != nil {
 			_ = rows.Close()
-			return err
+			return nil, err
 		}
 		grants = append(grants, grant)
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return err
+		return nil, err
 	}
 	if err := rows.Close(); err != nil {
-		return err
+		return nil, err
 	}
+	return grants, nil
+}
+
+func requireMySQLTableTriggerGrants(ctx context.Context, tx *sql.Tx, name string, tables, grants []string, normalize func(string) string) error {
 	// 5.7 返回空列表；8.0 部分撤销模式下，数据库授权中的百分号和下划线为字面量。
 	partialRevokes := false
-	rows, err = tx.QueryContext(ctx, "SHOW GLOBAL VARIABLES LIKE 'partial_revokes'")
+	rows, err := tx.QueryContext(ctx, "SHOW GLOBAL VARIABLES LIKE 'partial_revokes'")
 	if err != nil {
 		return err
 	}

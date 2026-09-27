@@ -218,6 +218,14 @@ func (f *Server) Database(t *testing.T) config.DatabaseConfig {
 			t.Fatal("创建隔离数据库及库级账户失败")
 		}
 	}
+	// 备份必须能发现其他定义者的例程，不能将过滤后的空列表当作完整目录。
+	grant := "GRANT SELECT ON mysql.proc TO '" + user + "'@'127.0.0.1'"
+	if f.IsMySQL8() {
+		grant = "GRANT SHOW_ROUTINE ON *.* TO '" + user + "'@'127.0.0.1'"
+	}
+	if _, err := f.admin.ExecContext(t.Context(), grant); err != nil {
+		t.Fatal("授予隔离账户例程可见权限失败")
+	}
 	return config.DatabaseConfig{Driver: "mysql", DSN: f.DSN(user, name), MaxOpenConns: 2, MaxIdleConns: 1}
 }
 
