@@ -23,3 +23,57 @@ artifacts/*
 *.key
 *.p12
 *.pfx
+
+# 通用构建与发布产物；公开测试证书不是私钥，不能整体忽略 PEM。
+*.exe
+*.dll
+*.so
+*.dylib
+*.tar.gz
+*.tgz
+*.zip
+node_modules/
+dist/
+coverage/
+.vite/
+
+# 临时补丁、编辑器恢复文件与浏览器运行缓存。
+*.patch
+*.orig
+*.rej
+*.tmp
+*.swp
+__pycache__/
+*.pyc
+.cache/
+.pytest_cache/
+.playwright/
+playwright-report/
+test-results/
+browser-profile/
+chrome-profile/
+
+# 数据库旁路文件与导出；正式迁移 SQL 必须继续纳入源码。
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+*.dump
+
+# 本地环境凭据与常见 SSH 私钥；示例文件只允许使用占位值。
+.env
+.env.*
+!.env.example
+!.env.sample
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.private.pem
+*-key.pem
+*_key.pem
