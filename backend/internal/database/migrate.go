@@ -23,13 +23,9 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	if _, err := db.ExecContext(ctx, migrationTableSQL(driver)); err != nil {
 		return fmt.Errorf("创建迁移表失败：%w", err)
 	}
-	var version int
-	err := db.QueryRowContext(ctx, "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&version)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("读取迁移版本失败：%w", err)
-	}
-	if err == sql.ErrNoRows {
-		version = 0
+	version, err := currentMigrationVersion(ctx, db)
+	if err != nil {
+		return err
 	}
 	for nextVersion := version + 1; nextVersion <= latestMigrationVersion; nextVersion++ {
 		if err := applyMigration(ctx, db, driver, nextVersion); err != nil {
@@ -40,6 +36,33 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 }
 
 const latestMigrationVersion = 9
+
+// currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
+func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
+	rows, err := db.QueryContext(ctx, "SELECT version FROM schema_migrations ORDER BY version")
+	if err != nil {
+		return 0, fmt.Errorf("读取迁移版本失败：%w", err)
+	}
+	defer rows.Close()
+	current := 0
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return 0, fmt.Errorf("读取迁移版本失败：%w", err)
+		}
+		if version > latestMigrationVersion {
+			return 0, fmt.Errorf("数据库版本 %d 高于当前程序支持的版本 %d，拒绝启动；请使用兼容版本程序，不要删除迁移记录", version, latestMigrationVersion)
+		}
+		if version != current+1 {
+			return 0, fmt.Errorf("数据库迁移历史不连续：期望版本 %d，实际版本 %d，拒绝继续迁移", current+1, version)
+		}
+		current = version
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("读取迁移版本失败：%w", err)
+	}
+	return current, nil
+}
 
 func applyMigration(ctx context.Context, db *sql.DB, driver string, version int) error {
 	path := fmt.Sprintf("migrations/%s/%04d_%s.sql", driver, version, migrationName(version))
