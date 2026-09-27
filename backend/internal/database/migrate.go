@@ -168,7 +168,9 @@ func migrationName(version int) string {
 
 func migrationStatements(content []byte) []string {
 	statements := make([]string, 0)
-	for _, statement := range strings.Split(string(content), ";") {
+	// 只移除文件头的编码标记，不能替换 SQL 字面量中的相同字符。
+	script := strings.TrimPrefix(string(content), "\ufeff")
+	for _, statement := range strings.Split(script, ";") {
 		statement = strings.TrimSpace(statement)
 		if statement != "" {
 			statements = append(statements, statement)
