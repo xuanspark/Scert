@@ -11,6 +11,7 @@ type Client interface {
 	Lock(ctx context.Context, path string) error
 	Unlock(ctx context.Context, path string) error
 	MkdirAll(ctx context.Context, path string) error
+	List(ctx context.Context, path string) ([]string, error)
 	Exists(ctx context.Context, path string) (bool, error)
 	Upload(ctx context.Context, path string, data []byte, mode uint32) error
 	Rename(ctx context.Context, source, target string) error

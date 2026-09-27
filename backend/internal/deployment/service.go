@@ -178,8 +178,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	}
 	backupID := s.backupID()
 	result.BackupID = backupID
-	type backup struct{ original, saved string }
-	backups := make([]backup, 0, len(paths))
+	backups := make([]backupFile, 0, len(paths))
 	temporary := make([]string, 0, len(paths))
 	installed := make([]string, 0, len(paths))
 	rollback := func() error {
@@ -256,7 +255,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			if exists, err := client.Exists(ctx, backupPath); err != nil || exists {
 				return failed(fmt.Sprintf("备份目标已存在或无法检查，已停止替换：%s：%v", backupPath, err))
 			}
-			backups = append(backups, backup{original: file.path, saved: backupPath})
+			backups = append(backups, backupFile{original: file.path, saved: backupPath})
 			if err := client.Rename(ctx, file.path, backupPath); err != nil {
 				return failed(fmt.Sprintf("备份远程证书失败：%v", err))
 			}
@@ -282,12 +281,50 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		}
 		return failed(fmt.Sprintf("reload 失败：%v", err))
 	}
+	if err := cleanupBackups(ctx, client, backups, paths); err != nil {
+		result.Status = "failed"
+		result.Message = fmt.Sprintf("\u8bc1\u4e66\u5df2\u90e8\u7f72\u5e76 reload \u6210\u529f\uff0c\u4f46\u65e7\u8bc1\u4e66\u5907\u4efd\u6e05\u7406\u5931\u8d25\uff1a%v", err)
+		return result
+	}
 	result.Status = "success"
 	result.Message = "证书部署、配置校验并 reload 成功"
 	result.BackupID = backupID
 	return result
 }
 
+func cleanupBackups(ctx context.Context, client Client, backups []backupFile, paths []remoteFile) error {
+	seen := make(map[string]struct{}, len(backups))
+	for _, item := range backups {
+		if _, exists := seen[item.saved]; exists {
+			continue
+		}
+		seen[item.saved] = struct{}{}
+		if err := client.Remove(ctx, item.saved); err != nil {
+			return fmt.Errorf("\u5220\u9664\u672c\u6b21\u5907\u4efd %s \u5931\u8d25\uff1a%w", item.saved, err)
+		}
+	}
+	for _, file := range paths {
+		directory := parentPath(file.path)
+		entries, err := client.List(ctx, directory)
+		if err != nil {
+			return fmt.Errorf("\u5217\u51fa\u8bc1\u4e66\u76ee\u5f55 %s \u5931\u8d25\uff1a%w", directory, err)
+		}
+		prefix := file.path + ".scert-backup-"
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry, prefix) {
+				continue
+			}
+			if _, exists := seen[entry]; exists {
+				continue
+			}
+			seen[entry] = struct{}{}
+			if err := client.Remove(ctx, entry); err != nil {
+				return fmt.Errorf("\u5220\u9664\u5386\u53f2\u5907\u4efd %s \u5931\u8d25\uff1a%w", entry, err)
+			}
+		}
+	}
+	return nil
+}
 func reconnectDeploymentClient(ctx context.Context, factory ClientFactory, server Server, client *Client) error {
 	if state, ok := (*client).(interface{ Disconnected() bool }); ok && state.Disconnected() {
 		_ = (*client).Close()
@@ -304,6 +341,11 @@ type remoteFile struct {
 	path string
 	data []byte
 	mode uint32
+}
+
+type backupFile struct {
+	original string
+	saved    string
 }
 
 func validateDeploymentPaths(files []remoteFile) error {

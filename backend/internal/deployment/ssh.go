@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -250,6 +251,20 @@ func (c *sshClientAdapter) fileOperation(ctx context.Context, operation func() e
 
 func (c *sshClientAdapter) MkdirAll(ctx context.Context, path string) error {
 	return c.fileOperation(ctx, func() error { return c.sftp.MkdirAll(path) })
+}
+
+func (c *sshClientAdapter) List(ctx context.Context, directory string) ([]string, error) {
+	return sshOperation(ctx, c, func() ([]string, error) {
+		entries, err := c.sftp.ReadDir(directory)
+		if err != nil {
+			return nil, err
+		}
+		paths := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			paths = append(paths, path.Join(directory, entry.Name()))
+		}
+		return paths, nil
+	})
 }
 
 // 远程原子建目录用于协作锁，跨进程共享；已有锁绝不自动抢占或清理。

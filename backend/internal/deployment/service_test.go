@@ -38,6 +38,35 @@ func newMemoryClient() *memoryClient {
 
 func (c *memoryClient) MkdirAll(context.Context, string) error { return nil }
 
+func (c *memoryClient) List(_ context.Context, directory string) ([]string, error) {
+
+	entries := make([]string, 0)
+
+	prefix := strings.TrimSuffix(directory, "/") + "/"
+
+	for filePath := range c.files {
+
+		if !strings.HasPrefix(filePath, prefix) {
+
+			continue
+
+		}
+
+		name := strings.TrimPrefix(filePath, prefix)
+
+		if name == "" || strings.Contains(name, "/") {
+
+			continue
+
+		}
+
+		entries = append(entries, filePath)
+
+	}
+
+	return entries, nil
+}
+
 func (c *memoryClient) Lock(_ context.Context, path string) error {
 	if _, exists := c.files[path]; exists {
 		return errors.New("模拟锁已存在")
@@ -118,12 +147,15 @@ func (f memoryFactory) Connect(_ context.Context, server Server) (Client, error)
 	return f.clients[server.ID], nil
 }
 
-func TestDeployReplacesFilesAndKeepsBackup(t *testing.T) {
+func TestDeployReplacesFilesAndCleansBackups(t *testing.T) {
 	client := newMemoryClient()
 	server := testServer("server-1")
 	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
 	client.files[server.CertificateChainPath] = memoryFile{data: []byte("old-chain"), mode: 0o644}
 	client.files[server.PrivateKeyPath] = memoryFile{data: []byte("old-key"), mode: 0o600}
+	client.files[server.CertificatePath+".scert-backup-old-1"] = memoryFile{data: []byte("stale-cert"), mode: 0o644}
+	client.files[server.CertificateChainPath+".scert-backup-old-1"] = memoryFile{data: []byte("stale-chain"), mode: 0o644}
+	client.files[server.PrivateKeyPath+".scert-backup-old-1"] = memoryFile{data: []byte("stale-key"), mode: 0o600}
 	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
 	service.now = func() time.Time { return time.Date(2026, 8, 27, 1, 2, 3, 4, time.UTC) }
 	artifact := testArtifact(t)
@@ -143,11 +175,29 @@ func TestDeployReplacesFilesAndKeepsBackup(t *testing.T) {
 			backupCount++
 		}
 	}
-	if backupCount != 3 {
+	if backupCount != 0 {
 		t.Fatalf("成功部署后应保留三份远程备份：%d", backupCount)
 	}
 }
 
+func TestDeployReportsBackupCleanupFailure(t *testing.T) {
+	client := newMemoryClient()
+	client.removeError = ".scert-backup-"
+	server := testServer("server-1")
+	client.files[server.CertificatePath] = memoryFile{data: []byte("old-cert"), mode: 0o644}
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+
+	report := service.Deploy(context.Background(), []Target{{Server: server}}, testArtifact(t))
+	if report.Status != "failed" || report.Failed != 1 {
+		t.Fatalf("backup cleanup failure result is wrong: %+v", report)
+	}
+	if !strings.Contains(report.Results[0].Message, "\u65e7\u8bc1\u4e66\u5907\u4efd\u6e05\u7406\u5931\u8d25") {
+		t.Fatalf("backup cleanup failure was not reported: %s", report.Results[0].Message)
+	}
+	if string(client.files[server.CertificatePath].data) == "old-cert" {
+		t.Fatal("backup cleanup failure must not silently report success")
+	}
+}
 func TestDeployRollsBackWhenReloadFails(t *testing.T) {
 	client := newMemoryClient()
 	client.runResults = []CommandResult{{ExitCode: 0}, {ExitCode: 1}}
