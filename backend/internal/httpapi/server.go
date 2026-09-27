@@ -49,6 +49,7 @@ type Dependencies struct {
 	Servers                   repository.ServerRepository
 	Users                     repository.UserRepository
 	SSHKeys                   *sshkey.Service
+	DeploymentFactory         deployment.ClientFactory
 	SetupDNS                  setupDNSVerifier
 	Secrets                   setupSecretWriter
 	Firewall                  firewall.Manager
@@ -79,6 +80,7 @@ type Server struct {
 	servers                  repository.ServerRepository
 	users                    repository.UserRepository
 	sshKeys                  *sshkey.Service
+	deploymentFactory        deployment.ClientFactory
 	setupDNS                 setupDNSVerifier
 	secrets                  setupSecretWriter
 	firewall                 firewall.Manager
@@ -138,6 +140,7 @@ func New(deps Dependencies) *Server {
 		servers:                  deps.Servers,
 		users:                    deps.Users,
 		sshKeys:                  deps.SSHKeys,
+		deploymentFactory:        deps.DeploymentFactory,
 		issueCertificate:         deps.IssueCertificate,
 		issueSetupCertificate:    deps.IssueSetupCertificate,
 		rollbackSetupCertificate: deps.RollbackSetupCertificate,
@@ -551,6 +554,20 @@ func (s *Server) createDomain(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "保存域名失败", err)
 		return
 	}
+	item, provisionErr := s.provisionServerSSHKey(c.Request.Context(), item)
+	if provisionErr != nil {
+		if updateErr := s.servers.UpdateServer(c.Request.Context(), item); updateErr != nil && s.logger != nil {
+		`s.logger.Warn("保存 SSH 密钥部署失败状态失败", "error", updateErr)
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": item.SSHKeyError, "server": item})
+		return
+	}
+	if err := s.servers.UpdateServer(c.Request.Context(), item); err != nil {
+		s.writeError(c, http.StatusInternalServerError, "保存 SSH 密钥部署状态失败", err)
+		return
+	}
+	item, provisionErr := s.provisionServerSSHKey(c.Request.Context(), item) 	if provisionErr != nil { 		if updateErr := s.servers.UpdateServer(c.Request.Context(), item); updateErr != nil && s.logger != nil { 			s.logger.Warn("保存 SSH 密钥部署失败状态失败", "error", updateErr) 		} 		c.JSON(http.StatusBadGateway, gin.H{"error": item.SSHKeyError, "server": item}) 		return 	} 	if err := s.servers.UpdateServer(c.Request.Context(), item); err != nil { 		s.writeError(c, http.StatusInternalServerError, "保存 SSH 密钥部署状态失败", err) 		return 	}
+	item, provisionErr := s.provisionServerSSHKey(c.Request.Context(), item) 	if provisionErr != nil { 		if updateErr := s.servers.UpdateServer(c.Request.Context(), item); updateErr != nil && s.logger != nil { 			s.logger.Warn("保存 SSH 密钥部署失败状态失败", "error", updateErr) 		} 		c.JSON(http.StatusBadGateway, gin.H{"error": item.SSHKeyError, "server": item}) 		return 	} 	if err := s.servers.UpdateServer(c.Request.Context(), item); err != nil { 		s.writeError(c, http.StatusInternalServerError, "保存 SSH 密钥部署状态失败", err) 		return 	}
 	c.JSON(http.StatusCreated, item)
 }
 
@@ -750,6 +767,18 @@ func (s *Server) updateServer(c *gin.Context) {
 		s.writeError(c, serverErrorStatus(err), "更新服务器失败", err)
 		return
 	}
+	item, provisionErr := s.provisionServerSSHKey(c.Request.Context(), item)
+	if provisionErr != nil {
+		if updateErr := s.servers.UpdateServer(c.Request.Context(), item); updateErr != nil && s.logger != nil {
+		`s.logger.Warn("保存 SSH 密钥部署失败状态失败", "error", updateErr)
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": item.SSHKeyError, "server": item})
+		return
+	}
+	if err := s.servers.UpdateServer(c.Request.Context(), item); err != nil {
+		s.writeError(c, http.StatusInternalServerError, "保存 SSH 密钥部署状态失败", err)
+		return
+	}
 	if existing.PasswordRef != "" && existing.PasswordRef != item.PasswordRef && s.secrets != nil {
 		if err := s.secrets.Delete(c.Request.Context(), existing.PasswordRef); err != nil && s.logger != nil {
 			s.logger.Warn("删除旧 SSH 密码失败", "error", err)
@@ -783,11 +812,11 @@ func (s *Server) prepareServerCredential(ctx context.Context, item deployment.Se
 	}
 	if password == "" && existing != nil && existing.PasswordRef != "" {
 		item.PasswordRef = existing.PasswordRef
-		return item, cleanup, nil
 	}
-	if password == "" {
+	if item.PasswordRef == "" && password == "" {
 		return deployment.Server{}, cleanup, errors.New("SSH \u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a")
 	}
+	if item.PasswordRef == "" {
 	item.PasswordRef = "secret://ssh/password/" + domain.NewID()
 	if err := s.secrets.Put(ctx, item.PasswordRef, map[string]string{"kind": "ssh_password", "password": password}); err != nil {
 		return deployment.Server{}, cleanup, fmt.Errorf("\u4fdd\u5b58 SSH \u5bc6\u7801\u5931\u8d25\uff1a%w", err)
@@ -795,7 +824,76 @@ func (s *Server) prepareServerCredential(ctx context.Context, item deployment.Se
 	cleanup = func() {
 		_ = s.secrets.Delete(context.Background(), item.PasswordRef)
 	}
+	}
+	if item.PrivateKeyRef == "" && s.sshKeys != nil && s.deploymentFactory != nil {
+		metadata, _, err := s.sshKeys.CreateGenerated(ctx, "服务器 "+item.Name+" SSH密钥")
+		if err != nil {
+			return deployment.Server{}, cleanup, fmt.Errorf("生成 SSH 密钥失败：%w", err)
+		}
+		item.PrivateKeyRef = metadata.Reference
+		item.SSHKeyFingerprint = metadata.Fingerprint
+		item.SSHKeyStatus = deployment.SSHKeyStatusPending
+	}
 	return item, cleanup, nil
+}
+
+func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Server) (deployment.Server, error) {
+	item = item.Normalize()
+	if item.AuthMethod != deployment.SSHAuthPassword || item.PrivateKeyRef == "" || s.sshKeys == nil || s.deploymentFactory == nil {
+		return item, nil
+	}
+	publicKey, err := s.sshKeys.AuthorizedPublicKey(ctx, item.PrivateKeyRef)
+	if err != nil {
+		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
+		item.SSHKeyError = "自动部署 SSH 公钥失败"
+		return item, err
+	}
+	item.SSHKeyStatus = deployment.SSHKeyStatusPending
+	item.SSHKeyError = ""
+	passwordClient, err := s.deploymentFactory.Connect(ctx, item)
+	if err != nil {
+		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
+		item.SSHKeyError = "自动部署 SSH 公钥失败"
+		return item, err
+	}
+	if err := passwordClient.InstallAuthorizedKey(ctx, publicKey); err != nil {
+		_ = passwordClient.Close()
+		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
+		item.SSHKeyError = "自动部署 SSH 公钥失败"
+		return item, err
+	}
+	if err := passwordClient.Close(); err != nil {
+		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
+		item.SSHKeyError = "自动部署 SSH 公钥失败"
+		return item, err
+	}
+	privateItem := item
+	privateItem.AuthMethod = deployment.SSHAuthPrivateKey
+	privateClient, err := s.deploymentFactory.Connect(ctx, privateItem)
+	if err != nil {
+		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
+		item.SSHKeyError = "自动验证 SSH 密钥登录失败"
+		return item, err
+	}
+	defer privateClient.Close()
+	result, err := privateClient.Run(ctx, []string{"true"})
+	if err != nil {
+		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
+		item.SSHKeyError = "自动验证 SSH 密钥登录失败"
+		return item, err
+	}
+	if result.ExitCode != 0 {
+		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
+		item.SSHKeyError = "自动验证 SSH 密钥登录失败"
+		return item, fmt.Errorf("远程验证退出码：%d", result.ExitCode)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	item.AuthMethod = deployment.SSHAuthPrivateKey
+	item.SSHKeyStatus = deployment.SSHKeyStatusDeployed
+	item.SSHKeyDeployedAt = now
+	item.SSHKeyTestedAt = now
+	item.SSHKeyError = ""
+	return item, nil
 }
 
 func (s *Server) deleteServer(c *gin.Context) {

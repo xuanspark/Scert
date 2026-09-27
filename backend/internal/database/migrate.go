@@ -119,7 +119,7 @@ func shouldSkipMySQLStatement(ctx context.Context, db *sql.DB, statement string)
 }
 
 func migrationName(version int) string {
-	switch version {`n`tcase 9:`n`t	return "server_ssh_key_status"
+	switch version {
 	case 1:
 		return "initial"
 	case 2:
@@ -136,6 +136,8 @@ func migrationName(version int) string {
 		return "server_password_auth"
 	case 8:
 		return "user_groups"
+	case 9:
+		return "server_ssh_key_status"
 	default:
 		return "unknown"
 	}
