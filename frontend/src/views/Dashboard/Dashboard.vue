@@ -58,6 +58,11 @@ const {
   dnsProviders,
   environmentLabels,
   webServerLabels,
+  serverSSHKey,
+  serverSSHKeyStatusLabel,
+  serverSSHKeyStatusClass,
+  serverSSHCommand,
+  serverSSHKeyHint,
   isEditing,
   formTitle,
   form,
@@ -415,40 +420,91 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
       <div class="panel-heading">
         <div>
           <p class="eyebrow">安全凭据</p>
-          <h2>SSH 私钥</h2>
+          <h2>服务器 SSH 密钥</h2>
         </div>
-        <span class="muted">共 {{ sshKeys.length }} 个加密引用</span>
-      </div>
-      <div v-if="sshKeys.length === 0" class="empty-state">
-        <strong>还没有 SSH 私钥</strong
-        ><span>私钥会加密保存，页面和接口只显示算法、指纹与安全引用。</span
-        ><button class="primary-button" type="button" @click="openSSHKeyCreate">
-          添加 SSH 私钥
+        <button class="secondary-button" type="button" @click="openServerCreate">
+          添加部署服务器
         </button>
       </div>
-      <div v-else class="domain-list">
-        <article v-for="item in sshKeys" :key="item.id" class="domain-row">
-          <div class="domain-main">
+      <div v-if="servers.length === 0" class="empty-state">
+        <strong>还没有部署服务器</strong>
+        <span>添加服务器后，Scert 会自动生成密钥、部署公钥并验证密钥登录。</span>
+        <button class="primary-button" type="button" @click="openServerCreate">
+          添加部署服务器
+        </button>
+      </div>
+      <div v-else class="ssh-server-list">
+        <article v-for="item in servers" :key="item.id" class="ssh-server-card">
+          <div class="ssh-server-card-heading">
             <div class="domain-title-line">
-              <strong>{{ item.name }}</strong
-              ><span class="tag success">{{ item.algorithm }}</span>
+              <strong>{{ item.name }}</strong>
+              <span class="tag">{{ displayLabel(webServerLabels, item.web_server) }}</span>
+              <span :class="['tag', serverSSHKeyStatusClass(item)]">
+                {{ serverSSHKeyStatusLabel(item) }}
+              </span>
             </div>
-            <div class="domain-meta">
-              <span class="key-fingerprint"
-                >公钥指纹：{{ item.fingerprint }}</span
-              ><span>更新时间：{{ formatDate(item.updated_at) }}</span>
+            <div class="row-actions">
+              <button class="text-button" type="button" @click="openServerEdit(item)">
+                编辑
+              </button>
+              <button class="text-button danger-text" type="button" @click="deleteServer(item)">
+                删除
+              </button>
             </div>
           </div>
-          <div class="row-actions">
+          <div class="ssh-server-meta">
+            <span>{{ item.username }}@{{ item.address }}:{{ item.port }}</span>
+            <span>主机指纹：{{ item.host_key_fingerprint || "未填写" }}</span>
+            <span>认证：{{ serverAuthLabel(item) }}</span>
+          </div>
+          <div class="ssh-server-details">
+            <div class="ssh-server-detail">
+              <span class="detail-label">托管私钥</span>
+              <strong>{{ serverSSHKey(item)?.name || "尚未生成" }}</strong>
+              <code>{{ serverSSHKey(item)?.fingerprint || item.ssh_key_fingerprint || "—" }}</code>
+            </div>
+            <div class="ssh-server-detail">
+              <span class="detail-label">公钥部署</span>
+              <strong>{{ serverSSHKeyStatusLabel(item) }}</strong>
+              <span>{{ serverSSHKeyHint(item) }}</span>
+            </div>
+            <div class="ssh-server-detail">
+              <span class="detail-label">最近部署 / 测试</span>
+              <span>{{ formatDate(item.ssh_key_deployed_at) }} / {{ formatDate(item.ssh_key_tested_at) }}</span>
+              <span v-if="item.ssh_key_error" class="form-error inline-error">{{ item.ssh_key_error }}</span>
+            </div>
+          </div>
+          <div class="ssh-server-command">
+            <div>
+              <span class="detail-label">服务器 SSH 命令</span>
+              <code>{{ serverSSHCommand(item) }}</code>
+            </div>
             <button
-              class="text-button danger-text"
+              class="inline-button"
               type="button"
-              @click="deleteSSHKey(item)"
+              @click="copySSHKeyCommand(serverSSHCommand(item), '服务器 SSH 命令已复制')"
             >
-              删除
+              复制命令
             </button>
           </div>
         </article>
+      </div>
+      <div v-if="servers.length > 0 && sshKeys.length > 0" class="ssh-orphaned-keys">
+        <div class="ssh-orphaned-heading">
+          <div>
+            <span class="eyebrow">兼容入口</span>
+            <strong>未关联服务器的私钥</strong>
+          </div>
+          <button class="inline-button" type="button" @click="openSSHKeyCreate">
+            添加私钥
+          </button>
+        </div>
+        <div class="ssh-orphaned-list">
+          <span v-for="item in sshKeys.filter((key) => !servers.some((server) => server.private_key_ref === key.reference))" :key="item.id" class="ssh-orphaned-item">
+            {{ item.name }} · {{ item.fingerprint }}
+            <button class="text-button danger-text" type="button" @click="deleteSSHKey(item)">删除</button>
+          </span>
+        </div>
       </div>
     </section>
 
@@ -473,11 +529,14 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <div class="domain-title-line">
               <strong>{{ item.name }}</strong
               ><span class="tag">{{ displayLabel(webServerLabels, item.web_server) }}</span>
+              ><span :class="['tag', serverSSHKeyStatusClass(item)]">
+                {{ serverSSHKeyStatusLabel(item) }}
+              </span>
             </div>
             <div class="domain-meta">
               <span>{{ item.username }}@{{ item.address }}:{{ item.port }}</span
-              ><span v-if="item.auth_method === 'private_key' && item.private_key_ref">私钥引用已配置</span
-              ><span v-else>{{ serverAuthLabel(item) }}</span
+              ><span>{{ serverAuthLabel(item) }}</span
+              ><span>托管私钥：{{ serverSSHKey(item)?.name || "尚未生成" }}</span
               ><span>指纹：{{ item.host_key_fingerprint }}</span>
             </div>
           </div>

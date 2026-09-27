@@ -516,6 +516,49 @@ export function useDashboard() {
     return labels[value] || (value ? "未知" : "—");
   }
 
+  function serverSSHKey(server) {
+    if (!server?.private_key_ref) return null;
+    return sshKeys.value.find((item) => item.reference === server.private_key_ref) || null;
+  }
+
+  function serverSSHKeyStatusLabel(server) {
+    const labels = {
+      not_configured: "未配置",
+      pending: "部署中",
+      deployed: "已部署并验证",
+      manual: "已配置，待验证",
+      failed: "部署失败，保留密码回退",
+    };
+    return labels[server?.ssh_key_status] || "未配置";
+  }
+
+  function serverSSHKeyStatusClass(server) {
+    if (server?.ssh_key_status === "deployed") return "success";
+    if (server?.ssh_key_status === "failed") return "danger";
+    if (server?.ssh_key_status === "pending") return "warning";
+    return "neutral";
+  }
+
+  function serverSSHCommand(server) {
+    if (!server?.address || !server?.username) return "—";
+    const port = Number(server.port || 22);
+    const portOption = port === 22 ? "" : ` -p ${port}`;
+    return `ssh${portOption} ${server.username}@${server.address}`;
+  }
+
+  function serverSSHKeyHint(server) {
+    if (server?.ssh_key_status === "deployed") {
+      return "Scert 已自动部署公钥并验证密钥登录，后续部署默认使用托管私钥。";
+    }
+    if (server?.ssh_key_status === "failed") {
+      return server.ssh_key_error || "公钥部署或密钥登录验证失败，当前仍使用密码回退。";
+    }
+    if (server?.auth_method === "private_key") {
+      return "当前使用已配置的私钥连接，尚未完成自动部署验证。";
+    }
+    return "保存服务器后，Scert 会先用密码部署公钥，再自动验证密钥登录。";
+  }
+
   function formatDate(value) {
     if (!value) return "尚未签发";
     return new Intl.DateTimeFormat("zh-CN", {
@@ -1318,6 +1361,11 @@ export function useDashboard() {
     environmentLabels,
     webServerLabels,
     serverAuthLabel,
+    serverSSHKey,
+    serverSSHKeyStatusLabel,
+    serverSSHKeyStatusClass,
+    serverSSHCommand,
+    serverSSHKeyHint,
     isEditing,
     formTitle,
     form,
