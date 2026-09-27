@@ -43,21 +43,33 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 			_ = os.Remove(temporaryPath)
 		}
 	}()
+	// 所有表的数据必须来自同一个可重复读事务，不能按表从连接池独立读取。
+	// 元数据变更不属于 MVCC 快照，运维期间仍需禁止外部并发 DDL。
+	tx, err := db.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("创建 MySQL 一致性备份事务失败：%w", err)
+	}
+	defer tx.Rollback()
 
 	if _, err := fmt.Fprintf(file, "-- Scert MySQL 数据备份\n-- 生成时间：%s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", time.Now().UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("写入 MySQL 备份头失败：%w", err)
 	}
 
-	rows, err := db.DB.QueryContext(ctx, "SHOW TABLES")
+	rows, err := tx.QueryContext(ctx, "SELECT TABLE_NAME, ENGINE, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME")
 	if err != nil {
 		return fmt.Errorf("读取 MySQL 表列表失败：%w", err)
 	}
 	var tableNames []string
 	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
+		var tableName, tableType string
+		var engine sql.NullString
+		if err := rows.Scan(&tableName, &engine, &tableType); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("读取 MySQL 表名失败：%w", err)
+		}
+		if tableType != "BASE TABLE" || !engine.Valid || !strings.EqualFold(engine.String, "InnoDB") {
+			_ = rows.Close()
+			return fmt.Errorf("MySQL 一致性备份当前仅支持 InnoDB 基础表，不能静默导出其他对象：%s", tableName)
 		}
 		tableNames = append(tableNames, tableName)
 	}
@@ -70,18 +82,27 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 	}
 
 	for _, tableName := range tableNames {
-		if err := dumpMySQLTable(ctx, db.DB, file, tableName); err != nil {
+		if err := dumpMySQLTable(ctx, tx, file, tableName); err != nil {
 			return err
 		}
 	}
 	if _, err := fmt.Fprint(file, "SET FOREIGN_KEY_CHECKS=1;\n"); err != nil {
 		return fmt.Errorf("写入 MySQL 备份尾失败：%w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("结束 MySQL 一致性备份事务失败：%w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("同步 MySQL 备份文件失败：%w", err)
+	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("关闭 MySQL 备份文件失败：%w", err)
 	}
 	if err := os.Chmod(temporaryPath, 0o600); err != nil {
 		return fmt.Errorf("设置 MySQL 备份文件权限失败：%w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := os.Rename(temporaryPath, output); err != nil {
 		return fmt.Errorf("保存 MySQL 备份文件失败：%w", err)
@@ -121,7 +142,7 @@ func createMySQLRestoreBackup(ctx context.Context, cfg config.Config, connection
 	return rollbackPath, nil
 }
 
-func dumpMySQLTable(ctx context.Context, db *sql.DB, output *os.File, tableName string) error {
+func dumpMySQLTable(ctx context.Context, db *sql.Tx, output *os.File, tableName string) error {
 	quotedTable := quoteMySQLIdentifier(tableName)
 	var name, createSQL string
 	if err := db.QueryRowContext(ctx, "SHOW CREATE TABLE "+quotedTable).Scan(&name, &createSQL); err != nil {
