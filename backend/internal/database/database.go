@@ -55,7 +55,13 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
 	if driver == "postgres" {
 		sqlDriver = "pgx"
 	}
-	db, err := sql.Open(sqlDriver, dsn)
+	var db *sql.DB
+	var err error
+	if driver == "mysql" {
+		db, err = openMySQLPool(dsn)
+	} else {
+		db, err = sql.Open(sqlDriver, dsn)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败：%w", err)
 	}
