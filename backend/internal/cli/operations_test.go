@@ -66,7 +66,7 @@ func TestSetConfigValueUpdatesAndValidatesAllowedFields(t *testing.T) {
 
 func TestRootIncludesOperationalCommands(t *testing.T) {
 	root := newRootCommand()
-	for _, name := range []string{"certificate", "renew", "deploy", "logs", "config", "backup", "restore"} {
+	for _, name := range []string{"certificate", "logs", "config", "backup", "restore", "service", "dns"} {
 		if root.CommandPath() == name || root.Commands() == nil {
 			t.Fatalf("根命令状态异常：%s", name)
 		}

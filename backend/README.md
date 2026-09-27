@@ -2,7 +2,7 @@
 
 Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码已覆盖核心证书生命周期、DNS-01、自动续期、SSH 部署、通知、认证和 Web 管理流程。
 
-正式交付仅包含 Web 和服务端。CLI 限定为初始化、服务启动、运维诊断、数据库迁移、备份恢复、服务安装和卸载入口；历史 `domain` 命令保留兼容，不再扩展成另一套业务管理界面。Wails 历史实现不参与正式发布及测试门禁。
+正式交付仅包含 Web 和服务端。CLI 限定为初始化、服务启动、运维诊断、数据库维护、备份恢复、服务安装和卸载入口；历史 `domain`、`server`、`ssh-key`、`renew`、`deploy` 命令已停用，仅返回中文迁移提示，不执行原业务操作。命令边界见 `../doc/命令行运维范围说明.md`。Wails 历史实现不参与正式发布及测试门禁。
 
 ## 当前已实现
 
@@ -13,7 +13,7 @@ Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码已�
 - 三种数据库的迁移脚本、嵌入检查和迁移历史保护；实际版本及验证边界见 `../doc/构建版本与数据库支持矩阵.md`。
 - 域名基础模型与 Repository。
 - 健康检查、状态和域名基础 API。
-- 中文 CLI：`version`、`help`、`init`、`status`、`serve`、`domain list`、`domain add`。
+- 中文运维 CLI：`version`、`help`、`init`、`status`、`serve`、证书诊断、日志、配置、备份恢复和系统服务管理。
 - Vue 前端管理页面。
 
 ## 首轮运行
@@ -23,12 +23,12 @@ Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码已�
 ```powershell
 go run ./cmd/scert init --base-dir C:\ScertData
 go run ./cmd/scert status --base-dir C:\ScertData
-go run ./cmd/scert domain add --base-dir C:\ScertData --name example.com --type single
-go run ./cmd/scert domain list --base-dir C:\ScertData
 go run ./cmd/scert serve --base-dir C:\ScertData
 ```
 
 服务启动后可访问：
+
+业务操作应在 Web 登录后进行。下列接口沿用服务端认证及授权规则，不能因列在运行示例中就视为允许匿名调用：
 
 - `GET /healthz`
 - `GET /api/v1/status`

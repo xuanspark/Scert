@@ -64,7 +64,7 @@ func Execute() {
 }
 
 func newRootCommand() *cobra.Command {
-	root := &cobra.Command{Use: "scert", Short: "SSL 证书管理服务", SilenceUsage: true}
+	root := &cobra.Command{Use: "scert", Short: "SSL 证书服务与运维工具，业务管理请使用 Web", SilenceUsage: true}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetHelpCommand(newHelpCommand())
 	root.SetHelpTemplate(helpTemplate)
@@ -72,12 +72,28 @@ func newRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&baseDir, "base-dir", "", "Windows 默认安装根目录")
 	root.AddCommand(
 		&cobra.Command{Use: "version", Short: "显示版本信息", Run: func(cmd *cobra.Command, args []string) { cmd.Printf("Scert %s\n", version) }},
-		newInitCommand(), newStatusCommand(), newServeCommand(), newDomainCommand(), newCertificateCommand(),
-		newRenewCommand(), newDeployCommand(), newLogsCommand(), newConfigCommand(), newBackupCommand(), newRestoreCommand(),
-		newServerCommand(), newSSHKeyCommand(), newServiceCommand(), newDNSCommand(),
+		newInitCommand(), newStatusCommand(), newServeCommand(), newCertificateCommand(),
+		newLogsCommand(), newConfigCommand(), newBackupCommand(), newRestoreCommand(),
+		newServiceCommand(), newDNSCommand(),
 	)
+	for _, name := range []string{"domain", "server", "ssh-key", "renew", "deploy"} {
+		root.AddCommand(newRetiredBusinessCommand(name))
+	}
 	localizeHelpFlags(root)
 	return root
+}
+
+// 历史业务命令只保留迁移提示，不读取配置、凭据或数据库，也不执行远程操作。
+func newRetiredBusinessCommand(name string) *cobra.Command {
+	return &cobra.Command{
+		Use:                name,
+		Short:              "业务命令已迁移至 Web 管理页面",
+		Hidden:             true,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("此业务命令已停用，请使用 Web 管理页面；CLI 仅保留初始化、服务运行和运维诊断、数据库维护、备份恢复及系统服务管理")
+		},
+	}
 }
 
 func newHelpCommand() *cobra.Command {

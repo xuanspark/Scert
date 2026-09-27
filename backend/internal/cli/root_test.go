@@ -72,29 +72,29 @@ func TestHelpSupportsSubcommand(t *testing.T) {
 	var output bytes.Buffer
 	root.SetOut(&output)
 	root.SetErr(&output)
-	root.SetArgs([]string{"help", "domain"})
+	root.SetArgs([]string{"help", "certificate"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("查看子命令帮助失败：%v", err)
 	}
 	text := output.String()
-	if !strings.Contains(text, "管理托管域名") || !strings.Contains(text, "添加托管域名") {
+	if !strings.Contains(text, "查询和校验证书") || !strings.Contains(text, "校验当前证书") {
 		t.Fatalf("子命令帮助内容不正确：%s", text)
 	}
 }
 
-func TestHelpIncludesServerManagementCommands(t *testing.T) {
+func TestHelpIncludesSystemServiceCommands(t *testing.T) {
 	root := newRootCommand()
 	var output bytes.Buffer
 	root.SetOut(&output)
 	root.SetErr(&output)
-	root.SetArgs([]string{"help", "server"})
+	root.SetArgs([]string{"help", "service"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("查看服务器管理帮助失败：%v", err)
+		t.Fatalf("查看系统服务帮助失败：%v", err)
 	}
 	text := output.String()
-	for _, expected := range []string{"管理部署服务器", "添加部署服务器", "编辑部署服务器", "删除部署服务器"} {
+	for _, expected := range []string{"管理系统服务", "注册 Scert 系统服务", "取消注册 Scert 系统服务"} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("服务器管理帮助缺少 %q：%s", expected, text)
+			t.Fatalf("系统服务帮助缺少 %q：%s", expected, text)
 		}
 	}
 }
@@ -117,19 +117,19 @@ func TestServerCommandUsesDefaultCertificatePathTemplates(t *testing.T) {
 	}
 }
 
-func TestHelpIncludesSSHKeyManagementCommands(t *testing.T) {
+func TestHelpIncludesDNSDiagnosticCommand(t *testing.T) {
 	root := newRootCommand()
 	var output bytes.Buffer
 	root.SetOut(&output)
 	root.SetErr(&output)
-	root.SetArgs([]string{"help", "ssh-key"})
+	root.SetArgs([]string{"help", "dns"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("查看 SSH 私钥管理帮助失败：%v", err)
+		t.Fatalf("查看 DNS 诊断帮助失败：%v", err)
 	}
 	text := output.String()
-	for _, expected := range []string{"管理 SSH 部署私钥", "安全录入 SSH 私钥", "删除未被服务器使用的 SSH 私钥"} {
+	for _, expected := range []string{"检查指定域名的阿里云 RAM 权限", "验证当前权限"} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("SSH 私钥管理帮助缺少 %q：%s", expected, text)
+			t.Fatalf("DNS 诊断帮助缺少 %q：%s", expected, text)
 		}
 	}
 }
