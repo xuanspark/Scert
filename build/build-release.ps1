@@ -62,7 +62,7 @@ function Invoke-GoBuild {
     $env:GOOS = $OperatingSystem
     $env:GOARCH = $Architecture
     $env:CGO_ENABLED = "0"
-    & go build -trimpath -o $Destination $Package
+    & go build -trimpath -mod=readonly -o $Destination $Package
     if ($LASTEXITCODE -ne 0) {
         throw "构建 $OperatingSystem/$Architecture 的 $Package 失败。"
     }
@@ -136,6 +136,7 @@ function Invoke-ReleaseArchive {
     $arguments = @(
         "run",
         "-trimpath",
+        "-mod=readonly",
         "./cmd/scert-release",
         "--source", $Source,
         "--output", $Destination,
@@ -174,7 +175,7 @@ function Test-ReleasePaths {
         [string[]]$ForbiddenPaths
     )
 
-    $arguments = @("run", "-trimpath", "./cmd/scert-release", "--verify-only", "--source", $Source)
+    $arguments = @("run", "-trimpath", "-mod=readonly", "./cmd/scert-release", "--verify-only", "--source", $Source)
     foreach ($binary in $Binaries) {
         $arguments += @("--binary", $binary)
     }
@@ -214,6 +215,9 @@ if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
 $npmCommand = if ($env:OS -eq "Windows_NT") { "npm.cmd" } else { "npm" }
 if (-not (Get-Command $npmCommand -ErrorAction SilentlyContinue)) {
     throw "未找到 npm 工具链，请先安装 Node.js 并加入 PATH。"
+}
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    throw "未找到 Node.js 工具链，请先安装 Node.js 并加入 PATH。"
 }
 if (-not (Test-Path -LiteralPath (Join-Path $frontend "package.json") -PathType Leaf)) {
     throw "前端目录中没有找到 package.json：$frontend"
@@ -258,21 +262,29 @@ $sourceCommit = (& git -C $backend rev-parse HEAD)
 if ($LASTEXITCODE -ne 0) {
     throw "无法取得源码提交，不能生成可追溯发布包。"
 }
-$sourceChanges = @(& git -C $backend status --porcelain --untracked-files=no)
+$sourceChanges = @(& git -C $backend status --porcelain --untracked-files=normal)
 if ($LASTEXITCODE -ne 0) {
     throw "无法检查源码工作区状态。"
 }
 $sourceDirty = $sourceChanges.Count -gt 0
 if ($sourceDirty) {
-    Write-Warning "存在未提交的已跟踪文件改动，清单将标记 source_dirty=true，不能作为正式发布包。"
+    Write-Warning "存在未提交的源码改动，清单将标记 source_dirty=true，不能作为正式发布包。"
 }
+
+Write-Host "正在校验构建版本并按锁文件安装前端依赖……"
+$toolchainJSON = & node (Join-Path $scriptDirectory "toolchain.mjs") --backend $backend --frontend $frontend --install
+if ($LASTEXITCODE -ne 0) {
+    throw "构建版本或依赖安装检查失败，尚未创建发布目录。"
+}
+$toolchain = ($toolchainJSON -join "`n") | ConvertFrom-Json
+$toolchain | Add-Member -NotePropertyName powershell -NotePropertyValue $PSVersionTable.PSVersion.ToString()
 New-Item -ItemType Directory -Path $releaseDirectory | Out-Null
 $frontendDistribution = Join-Path $releaseDirectory "web-build"
 
 Write-Host "正在构建 Scert Web 前端……"
 Push-Location $frontend
 try {
-    & $npmCommand run build -- --outDir $frontendDistribution --emptyOutDir false
+    & $npmCommand --ignore-scripts run build -- --outDir $frontendDistribution --emptyOutDir false
     if ($LASTEXITCODE -ne 0) {
         throw "构建 Scert Web 前端失败。"
     }
@@ -287,6 +299,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $frontendDistribution "index.html") 
 $oldGoOS = $env:GOOS
 $oldGoArch = $env:GOARCH
 $oldCGOEnabled = $env:CGO_ENABLED
+$oldGoWork = $env:GOWORK
+$env:GOWORK = "off"
 $manifestArtifacts = [System.Collections.Generic.List[object]]::new()
 
 Push-Location $backend
@@ -385,6 +399,16 @@ finally {
     $env:GOOS = $oldGoOS
     $env:GOARCH = $oldGoArch
     $env:CGO_ENABLED = $oldCGOEnabled
+    $env:GOWORK = $oldGoWork
+}
+
+$verifiedToolchainJSON = & node (Join-Path $scriptDirectory "toolchain.mjs") --backend $backend --frontend $frontend
+if ($LASTEXITCODE -ne 0) {
+    throw "构建后的工具链复核失败，不生成发布清单。"
+}
+$verifiedToolchain = ($verifiedToolchainJSON -join "`n") | ConvertFrom-Json
+if (($toolchain.input_sha256 | ConvertTo-Json -Compress) -ne ($verifiedToolchain.input_sha256 | ConvertTo-Json -Compress)) {
+    throw "构建期间版本文件发生变化，不生成发布清单。"
 }
 
 $manifest = [ordered]@{
@@ -394,6 +418,7 @@ $manifest = [ordered]@{
     source_commit = $sourceCommit.Trim()
     source_dirty = $sourceDirty
     go_toolchain = $goVersion.Trim()
+    build_environment = $toolchain
     trimpath = $true
     local_path_check = "passed"
     targets = @($Target)

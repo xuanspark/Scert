@@ -56,7 +56,22 @@ powershell -ExecutionPolicy Bypass -File .\build\build-release.ps1 -OutputDirect
 
 脚本仅创建新的发布目录。发布目录或对应归档已存在时，在构建前拒绝执行，不覆盖旧包。前端直接构建到本次发布目录中的 `web-build/`，不清空或覆盖已有 `frontend/dist/`。失败产生的目录保留供排查，再次构建请使用新的输出目录。
 
-`manifest.json` 记录源码提交、已跟踪文件是否未提交、实际 Go 工具链、目标平台和文件及归档的 SHA256。`delivery_scope` 固定为 `web`、`server`，兼容字段 `desktop_requested` 固定为 `false`。`source_dirty=true` 的包仅用于开发，正式发布必须从已复审提交构建。未跟踪本地产物不计入源码脏状态，也不会自动打包。
+`manifest.json` 记录源码提交、源码是否未提交、实际 Go 工具链、目标平台和文件及归档的 SHA256。`delivery_scope` 固定为 `web`、`server`，兼容字段 `desktop_requested` 固定为 `false`。`source_dirty=true` 的包仅用于开发，正式发布必须从已复审提交构建。未忽略的未跟踪文件也计入源码脏状态；已忽略的本地产物不计入，也不会自动打包。
+
+## 固定工具链与安装策略
+
+`toolchain.mjs` 是正式发布入口调用的构建检查器，`toolchain.test.mjs` 是纳入前端测试命令的正式回归，不是临时验收脚本。
+
+1. Go 精确版本以 `backend/go.mod` 为唯一来源；实际工具链不符则失败。`go.sum`、`go.mod` 固定 Go 依赖和数据库驱动，构建及归档使用 `-mod=readonly`；禁用外部 Go 工作区及 `GOFLAGS` 覆盖。
+2. Node/npm 精确版本由 `frontend/package.json` 的 `engines` 声明，`devEngines`、`packageManager` 和锁文件必须一致。直接依赖禁止范围版本，锁文件负责传递依赖。
+3. `frontend/.npmrc` 明确配置 `ignore-scripts=true`、`engine-strict=true`、`save-exact=true`。不使用脚本白名单或全量放行开关；当前 npm 的未审查警告不能证明脚本被禁止。
+4. 发布脚本在创建输出目录前校验版本、执行 `go mod verify`，并自动执行 `npm ci --ignore-scripts --engine-strict --include=dev --include=optional --no-audit --no-fund`。这会按锁文件重建前端依赖，不复用未知的旧安装，也不删除数据库、证据或既有发布包。
+5. esbuild 使用锁文件中对应构建机的平台可选包，不运行其安装脚本，不允许 `ESBUILD_BINARY_PATH` 外部覆盖。缺少平台包或二进制不可用必须失败，不允许另行下载绕过锁文件。
+6. Vite 构建仍显式执行，但禁用隐式前后置脚本。最终再校验版本和输入 SHA256；构建中改变版本文件不生成发布清单。
+
+`build_environment` 记录 Node/npm/Go/PowerShell、直接前端依赖、安装策略、构建机系统名称/版本/架构，以及五份依赖和策略文件的 SHA256；不记录用户名、主机名或本地绝对路径。构建机目前允许 Windows/Linux amd64，实际已验证系统和未验证边界见版本矩阵；Windows 交叉编译 Linux 包不等于 Linux 原生构建或运行验收。
+
+从 `npm test` 等父进程启动检查器时，npm 可能将用户级 `allow-scripts` 导出到环境变量，而项目级安装拒绝这种传递。本入口仅从子进程环境移除该白名单变量，不改用户配置；`--ignore-scripts` 仍强制生效。正式测试覆盖嵌套调用和主动尝试放行脚本的环境设置，不能通过开启安装脚本解决此兼容问题。
 
 ## 本机路径保护
 

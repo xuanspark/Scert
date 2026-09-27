@@ -41,6 +41,7 @@ func TestRepositoryIgnoreBoundaries(t *testing.T) {
 		"frontend/src/views/Login/Login.vue", "frontend/src/views/Login/Login.test.js",
 		"deploy/install-linux.sh", "deploy/install-windows.ps1", "deploy/tests/install-linux-test.py",
 		"desktop/main.go", "build/README.md", "build/build-release.ps1",
+		"build/toolchain.mjs", "build/toolchain.test.mjs", "frontend/.npmrc",
 		"release/README.md", "artifacts/README.md", "tests/README.md", "scripts/README.md",
 		"tests/example_test.go", "scripts/example.go", ".env.example", "nested/.env.sample",
 	}

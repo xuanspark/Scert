@@ -9,6 +9,8 @@ frontend/dist-release-*/
 build/*
 !build/build-release.ps1
 !build/README.md
+!build/toolchain.mjs
+!build/toolchain.test.mjs
 codex-*.patch
 desktop/frontend/dist/
 desktop/*.exe
