@@ -40,6 +40,28 @@ func TestQuoteMySQLColumns(t *testing.T) {
 		t.Fatalf("MySQL 字段列表不正确：%s", value)
 	}
 }
+
+func TestMySQLColumnSQLLiteral(t *testing.T) {
+	for _, item := range []struct {
+		name       string
+		value      any
+		columnType string
+		want       string
+	}{
+		{name: "decimal", value: []byte("123456789.123456"), columnType: "DECIMAL", want: "'123456789.123456'"},
+		{name: "precision", value: sql.RawBytes("-12345678901234567890123456789012345.123456789012345678901234567890"), columnType: "DECIMAL", want: "'-12345678901234567890123456789012345.123456789012345678901234567890'"},
+		{name: "null", value: nil, columnType: "DECIMAL", want: "NULL"},
+		{name: "string", value: "0.000001", columnType: "DECIMAL", want: "'0.000001'"},
+		{name: "binary", value: []byte("12"), columnType: "BLOB", want: "X'3132'"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			if got := mysqlColumnSQLLiteral(item.value, item.columnType); got != item.want {
+				t.Fatalf("字段字面量不正确：%s", got)
+			}
+		})
+	}
+}
+
 func TestSplitMySQLStatementsKeepsQuotedSemicolons(t *testing.T) {
 	script := "-- 注释\nSET FOREIGN_KEY_CHECKS=0;\nINSERT INTO `items` (`value`) VALUES ('a; b'), ('it''s');\n"
 	statements := splitMySQLStatements(script)

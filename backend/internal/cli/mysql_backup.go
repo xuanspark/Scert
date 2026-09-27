@@ -140,6 +140,10 @@ func dumpMySQLTable(ctx context.Context, db *sql.DB, output *os.File, tableName 
 	if err != nil {
 		return fmt.Errorf("读取 MySQL 表字段失败（%s）：%w", tableName, err)
 	}
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return fmt.Errorf("读取 MySQL 表字段类型失败（%s）：%w", tableName, err)
+	}
 	for rows.Next() {
 		values := make([]any, len(columns))
 		pointers := make([]any, len(columns))
@@ -151,7 +155,7 @@ func dumpMySQLTable(ctx context.Context, db *sql.DB, output *os.File, tableName 
 		}
 		literals := make([]string, len(values))
 		for index, value := range values {
-			literals[index] = mysqlSQLLiteral(value)
+			literals[index] = mysqlColumnSQLLiteral(value, columnTypes[index].DatabaseTypeName())
 		}
 		if _, err := fmt.Fprintf(output, "INSERT INTO %s (%s) VALUES (%s);\n", quotedTable, quoteMySQLColumns(columns), strings.Join(literals, ", ")); err != nil {
 			return fmt.Errorf("写入 MySQL 表数据失败（%s）：%w", tableName, err)
@@ -174,6 +178,20 @@ func quoteMySQLColumns(columns []string) string {
 		quoted[index] = quoteMySQLIdentifier(column)
 	}
 	return strings.Join(quoted, ", ")
+}
+
+func mysqlColumnSQLLiteral(value any, columnType string) string {
+	// 驱动将 DECIMAL 返回为文本字节；十六进制字面量在数值列中会被当作整数。
+	// 使用文本字面量保留任意精度，不经浮点转换；真正的二进制列仍按原样导出。
+	if columnType == "DECIMAL" {
+		switch typed := value.(type) {
+		case sql.RawBytes:
+			return mysqlStringLiteral(string(typed))
+		case []byte:
+			return mysqlStringLiteral(string(typed))
+		}
+	}
+	return mysqlSQLLiteral(value)
 }
 
 func mysqlSQLLiteral(value any) string {
@@ -243,8 +261,14 @@ func restoreMySQL(ctx context.Context, cfg config.DatabaseConfig, input string) 
 		return fmt.Errorf("打开 MySQL 恢复连接失败：%w", err)
 	}
 	defer db.Close()
+	// 会话变量与外键开关必须留在同一条连接上；失败后返回，不切换连接重放。
+	connection, err := db.DB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("获取 MySQL 恢复会话失败：%w", err)
+	}
+	defer connection.Close()
 	for _, statement := range splitMySQLStatements(string(script)) {
-		if _, err := db.DB.ExecContext(ctx, statement); err != nil {
+		if _, err := connection.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("执行 MySQL 恢复语句失败：%w", err)
 		}
 	}
