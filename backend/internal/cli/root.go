@@ -64,7 +64,12 @@ func Execute() {
 }
 
 func newRootCommand() *cobra.Command {
-	root := &cobra.Command{Use: "scert", Short: "SSL 证书服务与运维工具，业务管理请使用 Web", SilenceUsage: true}
+	root := &cobra.Command{
+		Use:           "scert",
+		Short:         "SSL 证书服务与运维工具，业务管理请使用 Web",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetHelpCommand(newHelpCommand())
 	root.SetHelpTemplate(helpTemplate)

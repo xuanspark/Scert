@@ -74,6 +74,9 @@ func TestRetiredBusinessCommandsRejectBeforeAccessingData(t *testing.T) {
 			if strings.Contains(output.String()+err.Error(), "test-secret-not-real") {
 				t.Fatal("迁移提示泄露了旧命令中的凭据参数")
 			}
+			if output.Len() != 0 {
+				t.Fatalf("错误应交由中文入口统一输出，不能重复打印框架提示：%s", output.String())
+			}
 			content, readErr := os.ReadFile(path)
 			if readErr != nil || !bytes.Equal(content, original) {
 				t.Fatalf("被停用命令修改了配置：%v", readErr)
