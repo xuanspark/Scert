@@ -1,17 +1,7 @@
-.mail-common-fields,
-.mail-channels,
 .mail-smtp-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 16px;
-}
-
-.mail-common-fields {
-  margin-bottom: 14px;
-}
-
-.mail-channels {
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
 }
 
 .mail-channel {
@@ -40,6 +30,10 @@
 
 .mail-channel > .mail-field + .mail-field {
   margin-top: 12px;
+}
+
+.mail-recipient-field {
+  margin-top: 14px;
 }
 
 .mail-field > span {
@@ -83,8 +77,6 @@
 }
 
 @media (max-width: 700px) {
-  .mail-common-fields,
-  .mail-channels,
   .mail-smtp-fields {
     grid-template-columns: minmax(0, 1fr);
   }

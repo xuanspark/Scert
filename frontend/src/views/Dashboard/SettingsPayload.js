@@ -10,12 +10,11 @@ const requestFields = {
     "propagation_polling_interval_secs",
   ],
   notification: [
-    "http_enabled", "smtp_enabled", "smtp_host", "smtp_port",
+    "smtp_enabled", "smtp_host", "smtp_port",
     "smtp_username", "smtp_password", "smtp_mode", "smtp_allow_plaintext_auth",
-    "http_credentials", "provider", "endpoint", "http_path", "http_login_path",
-    "http_auth_mode", "event_mode", "include_deployment_details",
+    "event_mode", "include_deployment_details",
     "include_certificate_serial", "include_management_url", "sender_name",
-    "sender_email", "recipients", "timeout_secs", "retry_count",
+    "recipients", "timeout_secs", "retry_count",
     "retry_intervals_secs",
   ],
 };

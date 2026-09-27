@@ -7,7 +7,7 @@ import { settingsPayload } from "./SettingsPayload.js";
 
 const source = readFileSync(new URL("./SettingsModal.vue", import.meta.url), "utf8");
 
-test("邮件通知组件保留两种通道且公共字段只出现一次", () => {
+test("邮件通知组件只保留 SMTP 通道和收件人配置", () => {
   const mailSource = readFileSync(new URL("./MailNotificationSettings.vue", import.meta.url), "utf8");
   const { descriptor, errors } = parse(mailSource);
   assert.deepEqual(errors, []);
@@ -19,36 +19,41 @@ test("邮件通知组件保留两种通道且公共字段只出现一次", () =>
     compilerOptions: { bindingMetadata: script.bindings },
   });
   assert.deepEqual(compiled.errors, []);
-  for (const field of ["http_enabled", "smtp_enabled", "sender_email", "smtp_password"]) {
+  for (const field of ["smtp_enabled", "smtp_password"]) {
     assert.equal(mailSource.split(`v-model="notification.${field}"`).length - 1, 1);
   }
+  assert.doesNotMatch(mailSource, /HTTP 接口|sender_email|notification\.http_enabled/);
   assert.equal(mailSource.split(':value="notification.recipients.join').length - 1, 1);
   assert.match(source, /<MailNotificationSettings :notification="settingsForm.notification"/);
   assert.doesNotMatch(mailSource, /role="tab"/);
 });
 
-test("合并通知页面不改变通道开关和已保存配置", () => {
-  for (const http of [false, true]) {
-    for (const smtp of [false, true]) {
-      const notification = {
-        http_enabled: http,
-        smtp_enabled: smtp,
-        endpoint: "https://mail.example.com",
-        sender_email: "sender@example.com",
-        recipients: ["recipient@example.com"],
-        smtp_host: "smtp.example.com",
-        smtp_port: 587,
-        smtp_username: "sender",
-        smtp_password: "",
-        smtp_mode: "starttls",
-        smtp_credential_configured: true,
-      };
-      const payload = settingsPayload({ notification }).notification;
-      const { smtp_credential_configured, ...expected } = notification;
-      assert.deepEqual(payload, expected);
-      assert.equal(notification.smtp_credential_configured, true);
-    }
-  }
+test("邮件设置只提交 SMTP 配置，不提交 HTTP 和自定义发件人", () => {
+  const notification = {
+    http_enabled: true,
+    smtp_enabled: true,
+    endpoint: "https://mail.example.com",
+    sender_email: "sender@example.com",
+    recipients: ["recipient@example.com"],
+    smtp_host: "smtp.example.com",
+    smtp_port: 587,
+    smtp_username: "notify:system@example.com",
+    smtp_password: "",
+    smtp_mode: "starttls",
+    smtp_credential_configured: true,
+  };
+  const payload = settingsPayload({ notification }).notification;
+  assert.deepEqual(payload, {
+    smtp_enabled: true,
+    smtp_host: "smtp.example.com",
+    smtp_port: 587,
+    smtp_username: "notify:system@example.com",
+    smtp_password: "",
+    smtp_mode: "starttls",
+    recipients: ["recipient@example.com"],
+  });
+  assert.equal(notification.http_enabled, true);
+  assert.equal(notification.sender_email, "sender@example.com");
 });
 
 test("通知字段校验失败时切换到合并后的邮件通知页", async () => {
