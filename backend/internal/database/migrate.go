@@ -71,6 +71,9 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		return fmt.Errorf("读取迁移文件失败：%w", err)
 	}
 	statements := migrationStatements(content)
+	if driver == "sqlite" && version == 4 {
+		return applySQLiteTaskMigration(ctx, db, statements, version)
+	}
 	if driver == "mysql" {
 		for _, statement := range statements {
 			skip, err := shouldSkipMySQLStatement(ctx, db, statement)

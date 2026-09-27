@@ -31,10 +31,17 @@ type sqliteBusinessFixture struct {
 	certificate certificate.SavedResource
 }
 
-func newSQLiteBusinessFixture(t *testing.T) sqliteBusinessFixture {
+func newSQLiteBusinessAssets(t *testing.T) sqliteBusinessFixture {
 	t.Helper()
-	fixture := sqliteBusinessFixture{config: config.Default(t.TempDir()), password: rand.Text()}
+	root := t.TempDir()
+	fixture := sqliteBusinessFixture{config: config.Default(root), password: rand.Text()}
 	cfg := &fixture.config
+	// 明确覆盖全部路径，Linux 测试也不能读写正式安装目录。
+	cfg.Paths = config.PathsConfig{
+		Install: root, Config: filepath.Join(root, "conf"), Data: filepath.Join(root, "data"),
+		Certificate: filepath.Join(root, "ssl"), Log: filepath.Join(root, "log"), Backup: filepath.Join(root, "backup"),
+	}
+	cfg.Database.DSN = filepath.Join(cfg.Paths.Data, "scert.db")
 	for _, directory := range []string{cfg.Paths.Config, cfg.Paths.Data, cfg.Paths.Certificate, cfg.Paths.Backup} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
@@ -69,6 +76,13 @@ func newSQLiteBusinessFixture(t *testing.T) sqliteBusinessFixture {
 		}
 	}
 	fixture.certificate = saveSQLiteBusinessCertificate(t, *cfg)
+	return fixture
+}
+
+func newSQLiteBusinessFixture(t *testing.T) sqliteBusinessFixture {
+	t.Helper()
+	fixture := newSQLiteBusinessAssets(t)
+	cfg := &fixture.config
 	hash, err := bcrypt.GenerateFromPassword([]byte(fixture.password), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)

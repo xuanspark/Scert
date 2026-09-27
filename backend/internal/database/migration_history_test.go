@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"git.pcux.cn/xuans/Scert/backend/internal/config"
 )
 
 func TestMigrateRejectsInvalidHistoryWithoutChangingDatabase(t *testing.T) {
@@ -26,7 +24,7 @@ func TestMigrateRejectsInvalidHistoryWithoutChangingDatabase(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			db, err := Open(t.Context(), config.Default(t.TempDir()).Database)
+			db, err := Open(t.Context(), sqliteBusinessUpgradeConfig(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,7 +71,7 @@ func TestMigrateRejectsInvalidHistoryWithoutChangingDatabase(t *testing.T) {
 func TestSQLiteUpgradeFromEverySupportedVersion(t *testing.T) {
 	for version := 0; version <= latestMigrationVersion; version++ {
 		t.Run(fmt.Sprintf("version_%d", version), func(t *testing.T) {
-			db, err := Open(t.Context(), config.Default(t.TempDir()).Database)
+			db, err := Open(t.Context(), sqliteBusinessUpgradeConfig(t))
 			if err != nil {
 				t.Fatal(err)
 			}
