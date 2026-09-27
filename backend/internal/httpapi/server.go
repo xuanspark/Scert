@@ -851,13 +851,15 @@ func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Serv
 	}
 	item.SSHKeyStatus = deployment.SSHKeyStatusPending
 	item.SSHKeyError = ""
-	passwordClient, err := s.deploymentFactory.Connect(ctx, item)
+	passwordClient, err := s.connectSSHForKey(ctx, item)
 	if err != nil {
+		s.logSSHProvisionFailure("password_connect", item, err)
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
 		item.SSHKeyError = "自动部署 SSH 公钥失败"
 		return item, err
 	}
 	if err := passwordClient.InstallAuthorizedKey(ctx, publicKey); err != nil {
+		s.logSSHProvisionFailure("authorized_key_install", item, err)
 		_ = passwordClient.Close()
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
 		item.SSHKeyError = "自动部署 SSH 公钥失败"
@@ -870,8 +872,9 @@ func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Serv
 	}
 	privateItem := item
 	privateItem.AuthMethod = deployment.SSHAuthPrivateKey
-	privateClient, err := s.deploymentFactory.Connect(ctx, privateItem)
+	privateClient, err := s.connectSSHForKey(ctx, privateItem)
 	if err != nil {
+		s.logSSHProvisionFailure("private_key_connect", item, err)
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
 		item.SSHKeyError = "自动验证 SSH 密钥登录失败"
 		return item, err
@@ -879,11 +882,13 @@ func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Serv
 	defer privateClient.Close()
 	result, err := privateClient.Run(ctx, []string{"true"})
 	if err != nil {
+		s.logSSHProvisionFailure("private_key_command", item, err)
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
 		item.SSHKeyError = "自动验证 SSH 密钥登录失败"
 		return item, err
 	}
 	if result.ExitCode != 0 {
+		s.logSSHProvisionFailure("private_key_exit", item, fmt.Errorf("远程退出码：%d", result.ExitCode))
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
 		item.SSHKeyError = "自动验证 SSH 密钥登录失败"
 		return item, fmt.Errorf("远程验证退出码：%d", result.ExitCode)
@@ -897,6 +902,19 @@ func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Serv
 	return item, nil
 }
 
+func (s *Server) connectSSHForKey(ctx context.Context, item deployment.Server) (deployment.Client, error) {
+	if factory, ok := s.deploymentFactory.(deployment.ShellClientFactory); ok {
+		return factory.ConnectShell(ctx, item)
+	}
+	return s.deploymentFactory.Connect(ctx, item)
+}
+
+func (s *Server) logSSHProvisionFailure(stage string, item deployment.Server, err error) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn("服务器 SSH 密钥流程失败", "stage", stage, "server_id", item.ID, "server_name", item.Name, "error", err)
+}
 func (s *Server) deleteServer(c *gin.Context) {
 	if s.servers == nil {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))

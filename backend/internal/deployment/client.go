@@ -24,3 +24,8 @@ type Client interface {
 type ClientFactory interface {
 	Connect(ctx context.Context, server Server) (Client, error)
 }
+
+// ShellClientFactory 为只需要 SSH Shell 的操作提供连接入口，避免无关的 SFTP 子系统阻塞密钥部署。
+type ShellClientFactory interface {
+	ConnectShell(ctx context.Context, server Server) (Client, error)
+}

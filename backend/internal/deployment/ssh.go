@@ -28,6 +28,14 @@ type SSHFactory struct {
 }
 
 func (f SSHFactory) Connect(ctx context.Context, server Server) (Client, error) {
+	return f.connect(ctx, server, true)
+}
+
+func (f SSHFactory) ConnectShell(ctx context.Context, server Server) (Client, error) {
+	return f.connect(ctx, server, false)
+}
+
+func (f SSHFactory) connect(ctx context.Context, server Server, requireSFTP bool) (Client, error) {
 	server = server.Normalize()
 	if err := server.Validate(); err != nil {
 		return nil, err
@@ -82,6 +90,9 @@ func (f SSHFactory) Connect(ctx context.Context, server Server) (Client, error) 
 		return nil, err
 	}
 	adapter := &sshClientAdapter{ssh: sshClient}
+	if !requireSFTP {
+		return adapter, nil
+	}
 	sftpClient, err := sshOperation(timeoutContext, adapter, func() (*sftp.Client, error) {
 		return sftp.NewClient(sshClient)
 	})
