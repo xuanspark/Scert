@@ -103,15 +103,23 @@ func TestMySQLRealOfficialStoredPrograms(t *testing.T) {
 				t.Fatal(err)
 			}
 			deadline := time.Now().Add(10 * time.Second)
-			var value int
+			var completed bool
+			var workers int
 			for time.Now().Before(deadline) {
-				if err := verify.DB.QueryRowContext(t.Context(), "SELECT value FROM interop WHERE id = 1").Scan(&value); err != nil {
+				if err := verify.DB.QueryRowContext(t.Context(), "SELECT value = 115 AND label = '事件;执行' FROM interop WHERE id = 1").Scan(&completed); err != nil {
 					t.Fatal(err)
 				}
-				if value == 115 {
+				// 多语句事件逐条提交，必须等待完整结果及工作线程退出，避免读取中间状态或影响下一用例。
+				if err := server.Admin().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE COMMAND = 'Connect'").Scan(&workers); err != nil {
+					t.Fatal(err)
+				}
+				if completed && workers == 0 {
 					break
 				}
 				time.Sleep(25 * time.Millisecond)
+			}
+			if !completed || workers != 0 {
+				t.Fatal("事件未在预期时间完成全部更新并退出工作线程")
 			}
 			checkMySQLInteropValue(t, target, "SELECT CONCAT(value, '|', label) FROM interop WHERE id = 1", "115|事件;执行")
 			checkMySQLInteropValue(t, source, "SELECT CONCAT(value, '|', label) FROM interop WHERE id = 1", "10|原始值")

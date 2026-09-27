@@ -153,7 +153,7 @@ func TestMySQLRealTriggerPrivileges(t *testing.T) {
 				statements = append(statements, "GRANT TRIGGER ON "+schema+".* TO "+account)
 			case "escaped_schema":
 				escaped := strings.ReplaceAll(parsed.DBName, "_", string(rune(92))+"_")
-				statements = append(statements, "GRANT SELECT, TRIGGER ON "+quoteMySQLIdentifier(escaped)+".* TO "+account)
+				statements = append(statements, "GRANT SELECT, TRIGGER, EVENT ON "+quoteMySQLIdentifier(escaped)+".* TO "+account)
 			case "shadowed_schema":
 				statements = append(statements, "GRANT TRIGGER ON `scert%`.* TO "+account)
 			case "shadowed_exact":
