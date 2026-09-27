@@ -6,6 +6,7 @@
 
 - 后端：`backend/internal/` 下的 `*_test.go`，在 `backend/` 执行 `go test ./...` 和 `go vet ./...`。
 - MySQL 隔离实库：`backend/internal/database/mysql_integration_test.go`；显式提供程序和产物目录，分别验证 5.7/8.0，参数及安全边界见《构建版本与数据库支持矩阵.md》。默认跳过不算实库通过。
+- MySQL 在线连接恢复：同目录 `mysql_recovery_integration_test.go`；保留应用连接池并重启自己的隔离数据库，验证首次操作、事务和故障边界；不重启共享服务，不用业务重试掩盖错误。
 - 前端：页面旁的 `*.test.js`，在 `frontend/` 执行 `npm.cmd test`。
 - 安装器：`deploy/tests/install-linux-test.py` 是已有正式安装器测试，不属于临时辅助脚本。
 - 产物边界：`backend/internal/releasearchive/source_boundary_test.go`，在隔离 Git 仓库验证实际忽略行为，不依赖开发机 `.git/info/exclude`。
