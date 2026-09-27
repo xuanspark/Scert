@@ -39,31 +39,18 @@ func newMemoryClient() *memoryClient {
 func (c *memoryClient) MkdirAll(context.Context, string) error { return nil }
 
 func (c *memoryClient) List(_ context.Context, directory string) ([]string, error) {
-
 	entries := make([]string, 0)
-
 	prefix := strings.TrimSuffix(directory, "/") + "/"
-
 	for filePath := range c.files {
-
 		if !strings.HasPrefix(filePath, prefix) {
-
 			continue
-
 		}
-
 		name := strings.TrimPrefix(filePath, prefix)
-
 		if name == "" || strings.Contains(name, "/") {
-
 			continue
-
 		}
-
 		entries = append(entries, filePath)
-
 	}
-
 	return entries, nil
 }
 
@@ -176,7 +163,7 @@ func TestDeployReplacesFilesAndCleansBackups(t *testing.T) {
 		}
 	}
 	if backupCount != 0 {
-		t.Fatalf("成功部署后应保留三份远程备份：%d", backupCount)
+		t.Fatalf("成功部署后不应残留远程备份：%d", backupCount)
 	}
 }
 
