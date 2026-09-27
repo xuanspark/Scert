@@ -157,12 +157,22 @@ func dumpMySQLTable(ctx context.Context, db *sql.Tx, output *os.File, tableName 
 		return fmt.Errorf("写入 MySQL 表结构失败（%s）：%w", tableName, err)
 	}
 
-	rows, err := db.QueryContext(ctx, "SELECT * FROM "+quotedTable)
+	columns, err := mysqlInsertableColumns(ctx, db, tableName)
+	if err != nil {
+		return err
+	}
+	// 显式投影可写列：SELECT * 会遗漏不可见列，并错误地包含生成列的计算结果。
+	projection := quoteMySQLColumns(columns)
+	if len(columns) == 0 {
+		// 只有生成列的表仍有行数，使用占位读取并导出空列 INSERT 保留每一行。
+		projection = "1"
+	}
+	rows, err := db.QueryContext(ctx, "SELECT "+projection+" FROM "+quotedTable)
 	if err != nil {
 		return fmt.Errorf("读取 MySQL 表数据失败（%s）：%w", tableName, err)
 	}
 	defer rows.Close()
-	columns, err := rows.Columns()
+	selectedColumns, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("读取 MySQL 表字段失败（%s）：%w", tableName, err)
 	}
@@ -171,17 +181,17 @@ func dumpMySQLTable(ctx context.Context, db *sql.Tx, output *os.File, tableName 
 		return fmt.Errorf("读取 MySQL 表字段类型失败（%s）：%w", tableName, err)
 	}
 	for rows.Next() {
-		values := make([]any, len(columns))
-		pointers := make([]any, len(columns))
+		values := make([]any, len(selectedColumns))
+		pointers := make([]any, len(values))
 		for index := range values {
 			pointers[index] = &values[index]
 		}
 		if err := rows.Scan(pointers...); err != nil {
 			return fmt.Errorf("读取 MySQL 表行失败（%s）：%w", tableName, err)
 		}
-		literals := make([]string, len(values))
-		for index, value := range values {
-			literals[index] = mysqlColumnSQLLiteral(value, columnTypes[index].DatabaseTypeName())
+		literals := make([]string, len(columns))
+		for index := range columns {
+			literals[index] = mysqlColumnSQLLiteral(values[index], columnTypes[index].DatabaseTypeName())
 		}
 		if _, err := fmt.Fprintf(output, "INSERT INTO %s (%s) VALUES (%s);\n", quotedTable, quoteMySQLColumns(columns), strings.Join(literals, ", ")); err != nil {
 			return fmt.Errorf("写入 MySQL 表数据失败（%s）：%w", tableName, err)
@@ -192,6 +202,26 @@ func dumpMySQLTable(ctx context.Context, db *sql.Tx, output *os.File, tableName 
 	}
 	_, err = fmt.Fprintln(output)
 	return err
+}
+
+func mysqlInsertableColumns(ctx context.Context, db *sql.Tx, tableName string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COALESCE(GENERATION_EXPRESSION, '') = '' ORDER BY ORDINAL_POSITION", tableName)
+	if err != nil {
+		return nil, fmt.Errorf("读取 MySQL 可写字段失败（%s）：%w", tableName, err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("读取 MySQL 可写字段名失败（%s）：%w", tableName, err)
+		}
+		columns = append(columns, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 MySQL 可写字段失败（%s）：%w", tableName, err)
+	}
+	return columns, nil
 }
 
 func quoteMySQLIdentifier(value string) string {

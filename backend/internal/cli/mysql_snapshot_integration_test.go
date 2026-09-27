@@ -126,7 +126,7 @@ func waitForMySQLBackupLock(t *testing.T, ctx context.Context, admin *sql.DB, na
 	defer ticker.Stop()
 	for {
 		var connectionID uint64
-		err := admin.QueryRowContext(ctx, "SELECT ID FROM information_schema.PROCESSLIST WHERE DB = ? AND STATE LIKE '%lock%' AND (INFO = 'SHOW CREATE TABLE `b_snapshot`' OR INFO = 'SELECT * FROM `b_snapshot`')", name).Scan(&connectionID)
+		err := admin.QueryRowContext(ctx, "SELECT ID FROM information_schema.PROCESSLIST WHERE DB = ? AND STATE LIKE '%lock%' AND (INFO = 'SHOW CREATE TABLE `b_snapshot`' OR INFO LIKE 'SELECT % FROM `b_snapshot`')", name).Scan(&connectionID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			t.Fatal(err)
 		}
