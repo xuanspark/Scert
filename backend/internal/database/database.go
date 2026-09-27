@@ -12,7 +12,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "modernc.org/sqlite"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 )
@@ -59,6 +58,8 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
 	var err error
 	if driver == "mysql" {
 		db, err = openMySQLPool(dsn)
+	} else if driver == "sqlite" {
+		db = openSQLitePool(dsn)
 	} else {
 		db, err = sql.Open(sqlDriver, dsn)
 	}
@@ -73,12 +74,6 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
 	if err := db.PingContext(pingCtx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("连接数据库失败：%w", err)
-	}
-	if driver == "sqlite" {
-		if err := configureSQLite(pingCtx, db); err != nil {
-			_ = db.Close()
-			return nil, err
-		}
 	}
 	return &Database{DB: db}, nil
 }
@@ -97,23 +92,6 @@ func ValidateConfigForOpen(cfg config.DatabaseConfig) error {
 		return fmt.Errorf("SQLite 不允许配置数据库凭据引用")
 	}
 	return nil
-}
-
-func configureSQLite(ctx context.Context, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
-		return fmt.Errorf("配置 SQLite 忙等待失败：%w", err)
-	}
-	var mode string
-	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
-		return fmt.Errorf("配置 SQLite WAL 失败：%w", err)
-	}
-	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
-		return fmt.Errorf("读取 SQLite 日志模式失败：%w", err)
-	}
-	if strings.EqualFold(strings.TrimSpace(mode), "memory") || strings.EqualFold(strings.TrimSpace(mode), "wal") {
-		return nil
-	}
-	return fmt.Errorf("SQLite 日志模式无效：%s", mode)
 }
 
 func normalizeMySQLDSN(dsn string) (string, error) {
