@@ -18,16 +18,25 @@ import (
 
 // 官方工具仅连接本夹具创建的隔离实例，密码只传入子进程环境，不进入命令行或文件。
 func (f *Server) Dump(t *testing.T, cfg config.DatabaseConfig, output string) {
+	f.dump(t, cfg, output, nil)
+}
+
+func (f *Server) DumpStoredPrograms(t *testing.T, cfg config.DatabaseConfig, output string) {
+	f.dump(t, cfg, output, []string{"--routines", "--events"})
+}
+
+func (f *Server) dump(t *testing.T, cfg config.DatabaseConfig, output string, extra []string) {
 	t.Helper()
 	file, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	f.runTool(t, "mysqldump", cfg, []string{
+	args := []string{
 		"--single-transaction", "--no-tablespaces", "--set-gtid-purged=OFF",
 		"--skip-add-locks", "--hex-blob", "--complete-insert", "--skip-comments", "--skip-extended-insert",
-	}, nil, file)
+	}
+	f.runTool(t, "mysqldump", cfg, append(args, extra...), nil, file)
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}

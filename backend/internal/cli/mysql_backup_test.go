@@ -64,7 +64,10 @@ func TestMySQLColumnSQLLiteral(t *testing.T) {
 
 func TestSplitMySQLStatementsKeepsQuotedSemicolons(t *testing.T) {
 	script := "-- 注释\nSET FOREIGN_KEY_CHECKS=0;\nINSERT INTO `items` (`value`) VALUES ('a; b'), ('it''s');\n"
-	statements := splitMySQLStatements(script)
+	statements, err := splitMySQLStatements(script)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(statements) != 2 {
 		t.Fatalf("SQL 语句拆分数量不正确：%d %#v", len(statements), statements)
 	}
@@ -75,7 +78,10 @@ func TestSplitMySQLStatementsKeepsQuotedSemicolons(t *testing.T) {
 
 func TestSplitMySQLStatementsKeepsExecutableComments(t *testing.T) {
 	script := "CREATE TABLE `items` (`id` bigint) /*!50100 SET @value = 'a;b' */;\n"
-	statements := splitMySQLStatements(script)
+	statements, err := splitMySQLStatements(script)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(statements) != 1 {
 		t.Fatalf("带可执行注释的 SQL 语句拆分数量不正确：%d %#v", len(statements), statements)
 	}

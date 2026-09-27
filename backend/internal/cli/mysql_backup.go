@@ -323,7 +323,11 @@ func restoreMySQL(ctx context.Context, cfg config.DatabaseConfig, input string) 
 		return fmt.Errorf("获取 MySQL 恢复会话失败：%w", err)
 	}
 	defer connection.Close()
-	for _, statement := range splitMySQLStatements(string(script)) {
+	statements, err := splitMySQLStatements(string(script))
+	if err != nil {
+		return err
+	}
+	for _, statement := range statements {
 		if _, err := connection.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("执行 MySQL 恢复语句失败：%w", err)
 		}
@@ -331,9 +335,11 @@ func restoreMySQL(ctx context.Context, cfg config.DatabaseConfig, input string) 
 	return nil
 }
 
-func splitMySQLStatements(script string) []string {
+func splitMySQLStatements(script string) ([]string, error) {
+	script = strings.TrimPrefix(script, "\uFEFF")
 	var statements []string
 	var statement strings.Builder
+	delimiter := ";"
 	var quote byte
 	lineComment := false
 	blockComment := false
@@ -392,6 +398,32 @@ func splitMySQLStatements(script string) []string {
 			}
 			continue
 		}
+		if (index == 0 || script[index-1] == '\n') && strings.TrimSpace(statement.String()) == "" {
+			end := strings.IndexByte(script[index:], '\n')
+			if end < 0 {
+				end = len(script) - index
+			}
+			line := strings.TrimSpace(script[index : index+end])
+			if len(line) >= len("delimiter") && strings.EqualFold(line[:len("delimiter")], "delimiter") &&
+				(len(line) == len("delimiter") || line[len("delimiter")] == ' ' || line[len("delimiter")] == '\t') {
+				value := strings.TrimSpace(line[len("delimiter"):])
+				if len(value) >= 2 && (value[0] == '\'' || value[0] == '"') && value[len(value)-1] == value[0] {
+					value = value[1 : len(value)-1]
+				}
+				if value == "" || strings.ContainsAny(value, " \t\r\n") || strings.ContainsRune(value, '\\') || strings.ContainsRune(value, '\'') || strings.ContainsRune(value, '"') || strings.ContainsRune(value, '`') {
+					return nil, fmt.Errorf("MySQL 备份中的 DELIMITER 指令无效")
+				}
+				delimiter = value
+				statement.Reset()
+				index += end
+				continue
+			}
+		}
+		if strings.HasPrefix(script[index:], delimiter) {
+			flush()
+			index += len(delimiter) - 1
+			continue
+		}
 		if current == '\'' || current == '"' || current == '`' {
 			quote = current
 			statement.WriteByte(current)
@@ -418,12 +450,11 @@ func splitMySQLStatements(script string) []string {
 			index++
 			continue
 		}
-		if current == ';' {
-			flush()
-			continue
-		}
 		statement.WriteByte(current)
 	}
+	if quote != 0 || blockComment || executableComment {
+		return nil, fmt.Errorf("MySQL 备份包含未闭合的字符串、标识符或注释")
+	}
 	flush()
-	return statements
+	return statements, nil
 }
