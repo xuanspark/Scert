@@ -50,6 +50,11 @@ func backupMySQLDatabase(ctx context.Context, cfg config.DatabaseConfig, output 
 		return fmt.Errorf("创建 MySQL 一致性备份事务失败：%w", err)
 	}
 	defer tx.Rollback()
+	// 客户端取消会关闭连接，但服务端等待元数据锁时未必立即感知断开。
+	// 仅限制本次备份会话的单次锁等待；不限制总导出时间，也不修改全局配置。
+	if _, err := tx.ExecContext(ctx, "SET SESSION lock_wait_timeout = 5"); err != nil {
+		return fmt.Errorf("设置 MySQL 备份元数据锁等待上限失败：%w", err)
+	}
 
 	if _, err := fmt.Fprintf(file, "-- Scert MySQL 数据备份\n-- 生成时间：%s\n\nSET FOREIGN_KEY_CHECKS=0;\n\n", time.Now().UTC().Format(time.RFC3339)); err != nil {
 		return fmt.Errorf("写入 MySQL 备份头失败：%w", err)

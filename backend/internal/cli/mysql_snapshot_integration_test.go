@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,8 +62,12 @@ func TestMySQLRealBackupSnapshot(t *testing.T) {
 			output := filepath.Join(server.Root(), scenario.name+".sql")
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
-			done := make(chan error, 1)
-			go func() { done <- backupMySQLDatabase(ctx, cfg, output) }()
+			done := make(chan struct{})
+			var backupErr error
+			go func() {
+				defer close(done)
+				backupErr = backupMySQLDatabase(ctx, cfg, output)
+			}()
 			t.Cleanup(func() {
 				cancel()
 				select {
@@ -88,10 +93,9 @@ func TestMySQLRealBackupSnapshot(t *testing.T) {
 				t.Fatal(err)
 			}
 			select {
-			case err := <-done:
-				done <- err
-				if err != nil {
-					t.Fatal(err)
+			case <-done:
+				if backupErr != nil {
+					t.Fatal(backupErr)
 				}
 			case <-ctx.Done():
 				t.Fatal("真实备份未按期完成")
@@ -116,18 +120,18 @@ func TestMySQLRealBackupSnapshot(t *testing.T) {
 	}
 }
 
-func waitForMySQLBackupLock(t *testing.T, ctx context.Context, admin *sql.DB, name string) {
+func waitForMySQLBackupLock(t *testing.T, ctx context.Context, admin *sql.DB, name string) uint64 {
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		var count int
-		err := admin.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE DB = ? AND STATE LIKE '%lock%' AND (INFO = 'SHOW CREATE TABLE `b_snapshot`' OR INFO = 'SELECT * FROM `b_snapshot`')", name).Scan(&count)
-		if err != nil {
+		var connectionID uint64
+		err := admin.QueryRowContext(ctx, "SELECT ID FROM information_schema.PROCESSLIST WHERE DB = ? AND STATE LIKE '%lock%' AND (INFO = 'SHOW CREATE TABLE `b_snapshot`' OR INFO = 'SELECT * FROM `b_snapshot`')", name).Scan(&connectionID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			t.Fatal(err)
 		}
-		if count > 0 {
-			return
+		if err == nil {
+			return connectionID
 		}
 		select {
 		case <-ctx.Done():
