@@ -120,6 +120,8 @@ func (c *memoryClient) Run(_ context.Context, command []string) (CommandResult, 
 	return result, err
 }
 
+func (c *memoryClient) InstallAuthorizedKey(context.Context, string) error { return nil }
+
 func (c *memoryClient) Close() error { return nil }
 
 type memoryFactory struct {

@@ -20,6 +20,16 @@ const (
 )
 
 const (
+	SSHKeyStatusNotConfigured SSHKeyStatus = "not_configured"
+	SSHKeyStatusPending      SSHKeyStatus = "pending"
+	SSHKeyStatusDeployed     SSHKeyStatus = "deployed"
+	SSHKeyStatusManual       SSHKeyStatus = "manual"
+	SSHKeyStatusFailed       SSHKeyStatus = "failed"
+)
+
+type SSHKeyStatus string
+
+const (
 	WebServerNginx  WebServer = "nginx"
 	WebServerCaddy  WebServer = "caddy"
 	WebServerApache WebServer = "apache"
@@ -44,6 +54,11 @@ type Server struct {
 	PrivateKeyRef        string        `json:"private_key_ref"`
 	PasswordRef          string        `json:"-"`
 	PasswordConfigured   bool          `json:"password_configured"`
+	SSHKeyStatus         SSHKeyStatus  `json:"ssh_key_status"`
+	SSHKeyFingerprint    string        `json:"ssh_key_fingerprint,omitempty"`
+	SSHKeyDeployedAt     string        `json:"ssh_key_deployed_at,omitempty"`
+	SSHKeyTestedAt       string        `json:"ssh_key_tested_at,omitempty"`
+	SSHKeyError          string        `json:"ssh_key_error,omitempty"`
 	HostKeyFingerprint   string        `json:"host_key_fingerprint"`
 	CertificatePath      string        `json:"certificate_path"`
 	PrivateKeyPath       string        `json:"private_key_path"`
@@ -64,11 +79,22 @@ func (s Server) Normalize() Server {
 	s.PrivateKeyRef = strings.TrimSpace(s.PrivateKeyRef)
 	s.PasswordRef = strings.TrimSpace(s.PasswordRef)
 	s.PasswordConfigured = s.PasswordRef != ""
+	s.SSHKeyStatus = SSHKeyStatus(strings.ToLower(strings.TrimSpace(string(s.SSHKeyStatus))))
+	s.SSHKeyFingerprint = strings.TrimSpace(s.SSHKeyFingerprint)
+	s.SSHKeyDeployedAt = strings.TrimSpace(s.SSHKeyDeployedAt)
+	s.SSHKeyTestedAt = strings.TrimSpace(s.SSHKeyTestedAt)
+	s.SSHKeyError = strings.TrimSpace(s.SSHKeyError)
 	if s.AuthMethod == "" {
 		if s.PasswordRef != "" {
 			s.AuthMethod = SSHAuthPassword
 		} else {
 			s.AuthMethod = SSHAuthPrivateKey
+		}
+	}
+	if s.SSHKeyStatus == "" {
+		s.SSHKeyStatus = SSHKeyStatusNotConfigured
+		if s.PrivateKeyRef != "" {
+			s.SSHKeyStatus = SSHKeyStatusManual
 		}
 	}
 	s.HostKeyFingerprint = strings.TrimSpace(s.HostKeyFingerprint)

@@ -2,6 +2,9 @@ package sshkey
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"strings"
@@ -90,6 +93,32 @@ func (s *Service) Create(ctx context.Context, name, privateKey, passphrase strin
 	}, nil
 }
 
+func (s *Service) CreateGenerated(ctx context.Context, name string) (Metadata, string, error) {
+	if s == nil || s.store == nil {
+		return Metadata{}, "", errors.New("SSH 私钥存储未初始化")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Metadata{}, "", errors.New("SSH 私钥名称不能为空")
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return Metadata{}, "", fmt.Errorf("生成 SSH 密钥失败：%w", err)
+	}
+	privatePEM, err := ssh.MarshalPrivateKey(privateKey, "scert-deploy")
+	if err != nil {
+		return Metadata{}, "", fmt.Errorf("编码 SSH 私钥失败：%w", err)
+	}
+	metadata, err := s.Create(ctx, name, string(pem.EncodeToMemory(privatePEM)), "")
+	if err != nil {
+		return Metadata{}, "", err
+	}
+	sshPublicKey, err := ssh.NewPublicKey(publicKey)
+	if err != nil {
+		return Metadata{}, "", fmt.Errorf("编码 SSH 公钥失败：%w", err)
+	}
+	return metadata, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublicKey))), nil
+}
 func (s *Service) List(ctx context.Context) ([]Metadata, error) {
 	if s == nil || s.store == nil {
 		return nil, errors.New("SSH 私钥存储未初始化")

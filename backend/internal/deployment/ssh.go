@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -332,6 +333,31 @@ func (c *sshClientAdapter) Remove(ctx context.Context, path string) error {
 	})
 }
 
+func (c *sshClientAdapter) InstallAuthorizedKey(ctx context.Context, publicKey string) error {
+	publicKey = strings.TrimSpace(publicKey)
+	key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKey))
+	if err != nil {
+		return fmt.Errorf("SSH 公钥格式无效：%w", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(ssh.MarshalAuthorizedKey(key))
+	script := fmt.Sprintf(`set -eu
+umask 077
+install -d -m 700 "$HOME/.ssh"
+touch "$HOME/.ssh/authorized_keys"
+chmod 600 "$HOME/.ssh/authorized_keys"
+decoded="$(printf '%s' '%s' | base64 -d)"
+if ! grep -Fqx -- "$decoded" "$HOME/.ssh/authorized_keys"; then
+	printf '%%s\\n' "$decoded" >> "$HOME/.ssh/authorized_keys"
+fi`, "%s", encoded)
+	result, err := c.Run(ctx, []string{"sh", "-c", script})
+	if err != nil {
+		return fmt.Errorf("部署 SSH 公钥失败：%w", err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("部署 SSH 公钥失败，远程退出码：%d", result.ExitCode)
+	}
+	return nil
+}
 func (c *sshClientAdapter) Run(ctx context.Context, command []string) (CommandResult, error) {
 	if len(command) == 0 {
 		return CommandResult{}, errors.New("远程命令不能为空")
