@@ -59,6 +59,9 @@ func TestMySQLRealNativeRoutines(t *testing.T) {
 		}
 	}
 	definition := readMySQLRoutineDefinitions(t, db.DB)
+	t.Run("metadata_rejection", func(t *testing.T) {
+		checkMySQLRoutineMetadataRejection(t, db.DB, server.IsMySQL8())
+	})
 	output := filepath.Join(server.Root(), "native-routines.sql")
 	if err := backupMySQLDatabase(t.Context(), source, output); err != nil {
 		t.Fatal(err)
@@ -214,6 +217,50 @@ func TestMySQLRealRoutineVisibility(t *testing.T) {
 				if _, err := os.Stat(output + ".tmp"); !os.IsNotExist(err) {
 					t.Fatal("权限不足遗留临时文件")
 				}
+			}
+		})
+	}
+}
+
+func checkMySQLRoutineMetadataRejection(t *testing.T, db *sql.DB, mysql8 bool) {
+	t.Helper()
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	routine := mysqlRoutine{name: "legacy_café", kind: "FUNCTION", utf8MetadataHeader: mysql8}
+	const column = "Create Function"
+	for _, item := range []struct {
+		name    string
+		alter   func(string) string
+		message string
+	}{
+		{"incomplete_header", func(string) string { return "CREATE FUNCTION" }, "参数列表"},
+		{"body_mismatch", func(value string) string { return value + " " }, "正文与目录元数据不一致"},
+		{"missing_comment", func(value string) string {
+			return strings.Replace(value, "\n    COMMENT ", "\n    REMARK ", 1)
+		}, "注释声明不完整"},
+		{"lossy_comment", func(value string) string {
+			return strings.Replace(value, "\n    COMMENT '", "\n    COMMENT '中文", 1)
+		}, "无法无损还原"},
+		{"invalid_utf8_comment", func(value string) string {
+			return strings.Replace(value, "\n    COMMENT '", "\n    COMMENT 'é", 1)
+		}, "无法无损还原"},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			definition, err := readMySQLStoredDefinition(t.Context(), tx, routine.kind, routine.name, column)
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition[column] = item.alter(definition[column])
+			original := definition[column]
+			err = normalizeMySQLRoutineMetadata(t.Context(), tx, routine, definition, column)
+			if err == nil || !strings.Contains(err.Error(), item.message) {
+				t.Fatalf("无效例程元数据必须明确拒绝：%v", err)
+			}
+			if definition[column] != original {
+				t.Fatal("失败时不能写回部分转换的定义")
 			}
 		})
 	}

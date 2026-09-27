@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 )
 
-// MySQL 8.0 将 UTF-8 目录中的声明头和注释与原客户端编码的正文拼接，
-// 再按客户端字符集返回 SHOW CREATE；非 UTF-8 例程必须分段还原，不能整体反解正文。
+// 两个版本的目录注释均需单独还原，8.0 还需还原声明头；
+// 非 UTF-8 例程必须分段处理，不能整体反解原客户端编码的正文。
 func normalizeMySQLRoutineMetadata(ctx context.Context, tx *sql.Tx, routine mysqlRoutine, definition map[string]string, column string) error {
 	charset := definition["character_set_client"]
 	if charset == "utf8" || charset == "utf8mb3" || charset == "utf8mb4" {
@@ -21,19 +21,23 @@ func normalizeMySQLRoutineMetadata(ctx context.Context, tx *sql.Tx, routine mysq
 		return err
 	}
 	decode := func(value string) (string, error) {
-		var encoded []byte
-		query := "SELECT CAST(CONVERT(? USING " + quoteMySQLIdentifier(charset) + ") AS BINARY)"
-		if err := tx.QueryRowContext(ctx, query, value).Scan(&encoded); err != nil {
-			return "", err
+		var encoded, roundTrip []byte
+		identifier := quoteMySQLIdentifier(charset)
+		query := "SELECT CAST(CONVERT(? USING " + identifier + ") AS BINARY), CAST(CONVERT(CONVERT(? USING " + identifier + ") USING utf8mb4) AS BINARY)"
+		if err := tx.QueryRowContext(ctx, query, value, value).Scan(&encoded, &roundTrip); err != nil {
+			return "", fmt.Errorf("MySQL 例程目录元数据无法无损还原为 UTF-8（%s）：%w", routine.name, err)
 		}
-		if !utf8.Valid(encoded) {
+		if string(roundTrip) != value || !utf8.Valid(encoded) {
 			return "", fmt.Errorf("MySQL 例程目录元数据无法无损还原为 UTF-8：%s", routine.name)
 		}
 		return string(encoded), nil
 	}
-	header, err := decode(original[:end])
-	if err != nil {
-		return err
+	header := original[:end]
+	if routine.utf8MetadataHeader {
+		header, err = decode(header)
+		if err != nil {
+			return err
+		}
 	}
 	var comment string
 	var body sql.NullString

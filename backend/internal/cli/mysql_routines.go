@@ -115,10 +115,8 @@ SET @scert_routine_collation = @@SESSION.collation_connection;`); err != nil {
 		if err != nil {
 			return err
 		}
-		if routine.utf8MetadataHeader {
-			if err := normalizeMySQLRoutineMetadata(ctx, tx, routine, definition, column); err != nil {
-				return err
-			}
+		if err := normalizeMySQLRoutineMetadata(ctx, tx, routine, definition, column); err != nil {
+			return err
 		}
 		// 同名例程必须替换；定义者和权限语义来自原始 SHOW CREATE，不擅自改写。
 		drop := "DROP " + routine.kind + " IF EXISTS " + quoteMySQLIdentifier(routine.name)
