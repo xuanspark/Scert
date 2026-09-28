@@ -9,7 +9,11 @@ const {
   saveDomain,
   form,
   dnsProviders,
-  servers,
+  domainServerOptions,
+  domainBindingsLoading,
+  domainBindingsReady,
+  domainSaveUncertain,
+  reloadDomainBindings,
   displayLabel,
   webServerLabels,
   formError,
@@ -34,6 +38,7 @@ const {
             class="close-button"
             type="button"
             aria-label="关闭"
+            :disabled="saving"
             @click="closeForm"
           >
             ×
@@ -46,6 +51,7 @@ const {
               id="domain-name"
               name="name"
               v-model="form.name"
+              :disabled="saving || domainSaveUncertain"
               type="text"
               placeholder="例如 example.com"
               autocomplete="off"
@@ -56,6 +62,7 @@ const {
               id="certificate-type"
               name="certificate_type"
               v-model="form.certificate_type"
+              :disabled="saving || domainSaveUncertain"
             >
               <option value="single">单域名</option>
               <option value="wildcard">泛域名</option>
@@ -71,6 +78,7 @@ const {
               id="domain-sans"
               name="sans"
               v-model="form.sans"
+              :disabled="saving || domainSaveUncertain"
               rows="2"
               :placeholder="'www.example.com\napi.example.com'"
             ></textarea>
@@ -82,6 +90,7 @@ const {
                 id="acme-environment"
                 name="acme_environment"
                 v-model="form.acme_environment"
+                :disabled="saving || domainSaveUncertain"
               >
                 <option value="staging">测试环境</option>
                 <option value="production">生产环境</option>
@@ -93,6 +102,7 @@ const {
                 id="dns-provider"
                 name="dns_provider"
                 v-model="form.dns_provider"
+                :disabled="saving || domainSaveUncertain"
               >
                 <option value="">暂不选择</option>
                 <option
@@ -110,19 +120,24 @@ const {
               id="auto-renew"
               name="auto_renew"
               v-model="form.auto_renew"
+              :disabled="saving || domainSaveUncertain"
               type="checkbox"
             /><span
               ><strong>启用自动续期</strong
               ><HelpTip>证书剩余有效期达到阈值时自动创建续期任务</HelpTip></span
             ></label
           >
-          <fieldset class="server-picker">
+          <fieldset
+            class="server-picker"
+            :disabled="saving || domainBindingsLoading || !domainBindingsReady || domainSaveUncertain"
+            :aria-busy="domainBindingsLoading"
+          >
             <legend>
               关联部署服务器
-              <HelpTip>可多选；同一服务器可关联多个域名。取消选择只解除当前域名的关联，不删除服务器，也不影响其他域名。</HelpTip>
+              <HelpTip>仅列出当前域名所属项目的服务器，新域名使用默认项目。可多选；同一服务器可关联多个域名。取消选择只解除当前域名的关联，不删除服务器，也不影响其他域名。</HelpTip>
             </legend>
             <label
-              v-for="server in servers"
+              v-for="server in domainServerOptions"
               :key="server.id"
               class="server-option"
               ><input
@@ -137,12 +152,24 @@ const {
                 ></span
               ></label
             >
-            <p v-if="servers.length === 0" class="muted">
-              暂无服务器配置，可先保存域名后添加服务器。
+            <p v-if="domainBindingsLoading" class="muted" role="status">
+              正在读取服务器关联……
+            </p>
+            <p v-else-if="domainServerOptions.length === 0" class="muted">
+              当前项目暂无可用服务器，可先保存域名后添加服务器。
             </p>
           </fieldset>
-          <p v-if="formError" class="form-error">{{ formError }}</p>
+          <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
           <div class="modal-actions">
+            <button
+              v-if="!domainBindingsReady"
+              class="secondary-button"
+              type="button"
+              :disabled="saving || domainBindingsLoading"
+              @click="reloadDomainBindings"
+            >
+              重新读取关联
+            </button>
             <button
               class="secondary-button"
               type="button"
@@ -150,7 +177,11 @@ const {
               @click="closeForm"
             >
               取消</button
-            ><button class="primary-button" type="submit" :disabled="saving">
+            ><button
+              class="primary-button"
+              type="submit"
+              :disabled="saving || domainBindingsLoading || !domainBindingsReady || domainSaveUncertain"
+            >
               {{ saving ? "保存中……" : "保存配置" }}
             </button>
           </div>

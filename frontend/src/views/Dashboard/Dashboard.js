@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { settingsPayload } from "./SettingsPayload.js";
 import { deploymentSummary, serverAuthLabel } from "./DeploymentFeedback.js";
+import { useDomainForm } from "./DomainForm.js";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
 const aliyunDNSVerificationTimeoutSeconds = 6;
@@ -27,12 +28,11 @@ export function useDashboard() {
   const domainPageSize = ref(5);
   const domainPageSizeOptions = [5, 10, 15, 30];
   const loading = ref(true);
-  const saving = ref(false);
   const error = ref("");
   const notice = ref("");
-  const formError = ref("");
-  const showForm = ref(false);
-  const editingId = ref("");
+  const domainForm = useDomainForm({ fetchAdmin, domains, servers, domainServers, notice, loadData });
+  const { saving, formError, showForm, editingId, isEditing, formTitle, form,
+    openCreate, openEdit, closeForm, saveDomain } = domainForm;
   const showServerForm = ref(false);
   const serverEditingId = ref("");
   const serverSaving = ref(false);
@@ -233,10 +233,6 @@ export function useDashboard() {
     { value: "other", label: "其他服务商" },
   ];
 
-  const isEditing = computed(() => Boolean(editingId.value));
-  const formTitle = computed(() =>
-    isEditing.value ? "编辑域名配置" : "添加托管域名",
-  );
   const selectedDNSProvider = computed(() =>
     dnsProviderCatalog.value.find(
       (provider) => provider.id === settingsForm.value.dns.provider,
@@ -305,7 +301,6 @@ export function useDashboard() {
   const defaultCertificateChainPath = "/ssl/{域名}/{证书类型}/fullchain.pem";
   const defaultPrivateKeyPath = "/ssl/{域名}/{证书类型}/key.pem";
 
-  const form = ref(createEmptyForm());
   const serverForm = ref(createEmptyServerForm());
   const sshKeyForm = ref(createEmptySSHKeyForm());
 
@@ -361,18 +356,6 @@ export function useDashboard() {
 
   function attemptStatusLabel(value) {
     return displayLabel(attemptStatusLabels, value);
-  }
-
-  function createEmptyForm() {
-    return {
-      name: "",
-      certificate_type: "single",
-      sans: "",
-      auto_renew: true,
-      acme_environment: "staging",
-      dns_provider: "",
-      server_ids: [],
-    };
   }
 
   function createEmptyServerForm() {
@@ -587,34 +570,6 @@ export function useDashboard() {
 
   function nextDomainPage() {
     domainPage.value = Math.min(domainPageCount.value, domainPage.value + 1);
-  }
-
-  function openCreate() {
-    editingId.value = "";
-    form.value = createEmptyForm();
-    formError.value = "";
-    showForm.value = true;
-  }
-
-  function openEdit(item) {
-    editingId.value = item.id;
-    form.value = {
-      name: item.name,
-      certificate_type: item.certificate_type,
-      sans: (item.sans || []).filter((name) => name !== item.name).join("\n"),
-      auto_renew: item.auto_renew !== false,
-      acme_environment: item.acme_environment || "staging",
-      dns_provider: item.dns_provider || "",
-      server_ids: (domainServers.value[item.id] || []).map(
-        (server) => server.id,
-      ),
-    };
-    formError.value = "";
-    showForm.value = true;
-  }
-
-  function closeForm() {
-    if (!saving.value) showForm.value = false;
   }
 
   function openServerCreate() {
@@ -1121,74 +1076,6 @@ export function useDashboard() {
     }
   }
 
-  async function saveDomainServers(domainId, serverIds) {
-    const response = await fetchAdmin(`/api/v1/domains/${domainId}/servers`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ server_ids: serverIds }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || "保存域名服务器关联失败");
-    domainServers.value = {
-      ...domainServers.value,
-      [domainId]: result.items || [],
-    };
-  }
-
-  function parseSANs(value) {
-    return value
-      .split(/[\n,，]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  async function saveDomain() {
-    formError.value = "";
-    notice.value = "";
-    if (!form.value.name.trim()) {
-      formError.value = "请输入主域名";
-      return;
-    }
-    if (
-      form.value.certificate_type === "san" &&
-      parseSANs(form.value.sans).length === 0
-    ) {
-      formError.value = "SAN 证书至少需要填写一个附加域名";
-      return;
-    }
-    saving.value = true;
-    try {
-      const payload = {
-        name: form.value.name,
-        certificate_type: form.value.certificate_type,
-        sans: parseSANs(form.value.sans),
-        auto_renew: form.value.auto_renew,
-        acme_environment: form.value.acme_environment,
-        dns_provider: form.value.dns_provider,
-      };
-      const path = isEditing.value
-        ? `/api/v1/domains/${editingId.value}`
-        : "/api/v1/domains";
-      const response = await fetchAdmin(path, {
-        method: isEditing.value ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "保存域名失败");
-      await saveDomainServers(result.id, form.value.server_ids);
-      showForm.value = false;
-      notice.value = isEditing.value
-        ? "域名配置已更新"
-        : "域名已添加，等待申请证书";
-      await loadData();
-    } catch (err) {
-      formError.value = err.message || "保存域名失败";
-    } finally {
-      saving.value = false;
-    }
-  }
-
   async function deleteDomain(item) {
     if (
       !window.confirm(
@@ -1303,6 +1190,7 @@ export function useDashboard() {
   });
 
   return {
+    ...domainForm,
     status,
     currentUser,
     domains,

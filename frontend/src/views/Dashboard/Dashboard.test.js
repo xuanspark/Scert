@@ -2,12 +2,36 @@ import assert from "node:assert/strict";
 import "./DeploymentResult.test.js";
 import "./DashboardLogout.test.js";
 import "./DomainModal.test.js";
+import "./DomainForm.test.js";
 import test from "node:test";
 import { nextTick, ref } from "vue";
 import { useDashboard } from "./Dashboard.js";
 import { useDashboardNavigation } from "./DashboardNavigation.js";
 import { summarizeRuntime, runtimeTime, useRuntimeOverview } from "./RuntimeOverview.js";
 import { aliyunProvider, deferred, mountComposable, verifiedResponse } from "../../test-support/mount.js";
+
+test("管理页面使用拆分后的域名表单与同项目服务器候选", async (t) => {
+  const requests = [];
+  const item = { id: "domain-form", name: "example.test", project_id: "default" };
+  const server = { id: "server-form", name: "共享服务器", project_id: "default" };
+  const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
+    if (options.method) {
+      requests.push({ path, ...options });
+      return Response.json(path.endsWith("/servers") ? { items: [server] } : item);
+    }
+    if (path === "/api/v1/servers") return Response.json({ items: [server, { id: "other", project_id: "other" }] });
+    return Response.json({ items: [] });
+  });
+  state.openCreate();
+  assert.deepEqual(state.domainServerOptions.value, [server]);
+  state.form.value.name = item.name;
+  state.form.value.server_ids = [server.id];
+  await state.saveDomain();
+  assert.deepEqual(requests.map(({ method }) => method), ["POST", "PUT"]);
+  assert.equal(requests[1].path, `/api/v1/domains/${item.id}/servers`);
+  assert.deepEqual(JSON.parse(requests[1].body), { server_ids: [server.id] });
+  assert.equal(state.showForm.value, false);
+});
 
 test("板块导航默认只选中基本信息，超级管理员可切换全部板块", () => {
   const navigation = useDashboardNavigation(ref({ role: "super_admin" }));
@@ -615,7 +639,11 @@ test("domainModal.compilesAndRendersSanFieldsWithoutLiteralNewline", async () =>
           server_ids: [],
         },
         dnsProviders: [],
-        servers: [],
+        domainServerOptions: [],
+        domainBindingsLoading: false,
+        domainBindingsReady: true,
+        domainSaveUncertain: false,
+        reloadDomainBindings() {},
         displayLabel: (_, value) => value,
         webServerLabels: {},
         formError: "",
