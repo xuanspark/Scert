@@ -50,7 +50,7 @@ func newProjectMemberAPIFixture(t *testing.T) projectMemberAPIFixture {
 	}
 	f.server = New(Dependencies{
 		Config: cfg, Users: users, ProjectMembers: f.members, ProjectDirectory: f.members,
-		ProjectLifecycle: f.members, ProjectResources: f.members, Audit: f.audit,
+		ProjectLifecycle: f.members, ProjectResources: f.members, ProjectBindings: f.members, Audit: f.audit,
 	})
 	for _, account := range []struct{ id, role string }{
 		{"primary-super-admin", repository.UserRoleSuperAdmin}, {"manager", repository.UserRoleUser},

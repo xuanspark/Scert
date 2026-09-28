@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
@@ -13,15 +14,15 @@ import (
 )
 
 func TestProjectResourcesSQLite(t *testing.T) {
-	checkProjectResources(t, config.Default(t.TempDir()).Database)
+	checkProjectResources(t, config.Default(t.TempDir()).Database, nil)
 }
 
 func TestProjectResourcesMySQLReal(t *testing.T) {
 	server := mysqltest.New(t)
-	checkProjectResources(t, server.Database(t))
+	checkProjectResources(t, server.Database(t), server.Admin())
 }
 
-func checkProjectResources(t *testing.T, cfg config.DatabaseConfig) {
+func checkProjectResources(t *testing.T, cfg config.DatabaseConfig, admin *sql.DB) {
 	t.Helper()
 	db, err := database.Open(t.Context(), cfg)
 	if err != nil {
@@ -135,6 +136,7 @@ func checkProjectResources(t *testing.T, cfg config.DatabaseConfig) {
 			t.Fatalf("越权绑定查询未拒绝：%v", err)
 		}
 	})
+	checkProjectBindings(t, db.DB, admin, repo, cfg.Driver)
 	t.Run("revocation_and_disabled_account_are_not_cached", func(t *testing.T) {
 		if err := repo.RevokeProjectRole(t.Context(), "root", "project-a", "reader", domain.ProjectRoleReadOnly); err != nil {
 			t.Fatal(err)
@@ -146,6 +148,9 @@ func checkProjectResources(t *testing.T, cfg config.DatabaseConfig) {
 			t.Fatal(err)
 		}
 		for _, actor := range []string{"reader", "manager"} {
+			if _, err := repo.ReplaceProjectDomainServers(t.Context(), actor, "domain-a", []string{}); !errors.Is(err, ErrProjectAccessDenied) {
+				t.Fatalf("撤权或停用后仍可修改绑定：%s，%v", actor, err)
+			}
 			items, err := repo.ListVisibleServers(t.Context(), actor)
 			if err != nil || len(items) != 0 {
 				t.Fatalf("撤权或停用后仍有资源：%s，%+v，%v", actor, items, err)

@@ -52,6 +52,7 @@ type Dependencies struct {
 	ProjectDirectory          repository.ProjectDirectoryRepository
 	ProjectLifecycle          repository.ProjectLifecycleRepository
 	ProjectResources          repository.ProjectResourceReader
+	ProjectBindings           repository.ProjectBindingRepository
 	SSHKeys                   *sshkey.Service
 	DeploymentFactory         deployment.ClientFactory
 	SetupDNS                  setupDNSVerifier
@@ -87,6 +88,7 @@ type Server struct {
 	projectDirectory         repository.ProjectDirectoryRepository
 	projectLifecycle         repository.ProjectLifecycleRepository
 	projectResources         repository.ProjectResourceReader
+	projectBindings          repository.ProjectBindingRepository
 	sshKeys                  *sshkey.Service
 	deploymentFactory        deployment.ClientFactory
 	setupDNS                 setupDNSVerifier
@@ -151,6 +153,7 @@ func New(deps Dependencies) *Server {
 		projectDirectory:         deps.ProjectDirectory,
 		projectLifecycle:         deps.ProjectLifecycle,
 		projectResources:         deps.ProjectResources,
+		projectBindings:          deps.ProjectBindings,
 		sshKeys:                  deps.SSHKeys,
 		deploymentFactory:        deps.DeploymentFactory,
 		issueCertificate:         deps.IssueCertificate,
@@ -201,6 +204,7 @@ func (s *Server) registerRoutes() {
 	s.registerProjectMemberRoutes()
 	s.registerProjectLifecycleRoutes()
 	s.registerProjectResourceRoutes()
+	s.registerProjectBindingRoutes()
 	s.router.GET("/api/v1/projects", privateProjectResponse, s.requireAuthenticated, s.listVisibleProjects)
 	adminAPI.POST("/domains", s.dnsOperation, s.createDomain)
 	adminAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)
@@ -222,7 +226,6 @@ func (s *Server) registerRoutes() {
 	adminAPI.POST("/domains/:id/certificate/validate", s.longOperation(certificateTaskTimeout), s.validateCertificate)
 	adminAPI.POST("/domains/:id/deploy", s.longOperation(certificateTaskTimeout), s.deployCertificateCurrent)
 	adminAPI.POST("/domains/:id/certificate/versions/:version/restore", s.longOperation(certificateTaskTimeout), s.restoreCertificateVersion)
-	adminAPI.PUT("/domains/:id/servers", s.replaceDomainServers)
 	adminAPI.POST("/servers", s.createServer)
 	adminAPI.PUT("/servers/:id", s.updateServer)
 	adminAPI.DELETE("/servers/:id", s.deleteServer)
@@ -400,10 +403,6 @@ type serverRequest struct {
 	WebServer            string   `json:"web_server" binding:"required"`
 	ValidationCommand    []string `json:"validation_command"`
 	ReloadCommand        []string `json:"reload_command"`
-}
-
-type domainServersRequest struct {
-	ServerIDs []string `json:"server_ids"`
 }
 
 func (s *Server) health(c *gin.Context) {
@@ -959,39 +958,6 @@ func (s *Server) listDomainServers(c *gin.Context) {
 	items, err := s.projectResources.ListVisibleDomainServers(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
 	if err != nil {
 		s.writeProjectResourceError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
-}
-
-func (s *Server) replaceDomainServers(c *gin.Context) {
-	if !s.requireDomainRepository(c) {
-		return
-	}
-	if s.servers == nil {
-		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
-		return
-	}
-	if _, err := s.repository.GetByID(c.Request.Context(), c.Param("id")); err != nil {
-		if repository.IsNotFound(err) {
-			s.writeError(c, http.StatusNotFound, "域名不存在", err)
-			return
-		}
-		s.writeError(c, http.StatusInternalServerError, "读取域名失败", err)
-		return
-	}
-	var request domainServersRequest
-	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
-		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
-		return
-	}
-	if err := s.servers.ReplaceDomainServers(c.Request.Context(), c.Param("id"), request.ServerIDs); err != nil {
-		s.writeError(c, serverErrorStatus(err), "保存域名部署服务器失败", err)
-		return
-	}
-	items, err := s.servers.ListServersByDomainID(c.Request.Context(), c.Param("id"))
-	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, "读取域名部署服务器失败", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})

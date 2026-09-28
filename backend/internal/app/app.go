@@ -159,6 +159,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		ProjectDirectory: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectLifecycle: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectResources: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
+		ProjectBindings:  repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		SetupDNS:         dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(), AliyunChecker: aliyunAuthChecker,
 		IssueCertificate: workflow.IssueForHTTP,
 		IssueSetupCertificate: func(ctx context.Context, request certificate.SetupCertificateRequest) (certificate.SavedResource, error) {

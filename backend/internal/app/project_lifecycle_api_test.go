@@ -45,6 +45,7 @@ func TestApplicationWiresProjectLifecycleAPI(t *testing.T) {
 	}
 	request(http.MethodGet, "/api/v1/servers/missing", "", http.StatusForbidden)
 	request(http.MethodGet, "/api/v1/certificates/missing", "", http.StatusForbidden)
+	request(http.MethodPut, "/api/v1/domains/missing/servers", `{"server_ids":[]}`, http.StatusForbidden)
 	created := request(http.MethodPost, "/api/v1/projects", `{"name":"实际应用项目","description":"接线验证"}`, 201)
 	var item domain.Project
 	if err := json.Unmarshal(created.Body.Bytes(), &item); err != nil || item.ID == "" {
