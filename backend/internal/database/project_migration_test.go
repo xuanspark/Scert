@@ -12,7 +12,7 @@ func TestSQLiteProjectMigrationPreservesBusiness(t *testing.T) {
 	defer db.Close()
 	createSQLiteHistoricalBusiness(t, db.DB, 9)
 	before := snapshotSQLiteHistoricalBusiness(t, db.DB)
-	if err := Migrate(t.Context(), db.DB, "sqlite"); err != nil {
+	if err := applyMigration(t.Context(), db.DB, "sqlite", 10); err != nil {
 		t.Fatal(err)
 	}
 	assertSQLiteHistoricalBusiness(t, db.DB, before)

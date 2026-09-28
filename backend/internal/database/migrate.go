@@ -12,6 +12,7 @@ import (
 //go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/sqlite/0004_task_attempts.sql migrations/sqlite/0005_users.sql migrations/sqlite/0006_server_validation.sql migrations/sqlite/0007_server_password_auth.sql migrations/sqlite/0009_server_ssh_key_status.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql migrations/mysql/0004_task_attempts.sql migrations/mysql/0005_users.sql migrations/mysql/0006_server_validation.sql migrations/mysql/0007_server_password_auth.sql migrations/mysql/0009_server_ssh_key_status.sql migrations/postgres/0001_initial.sql migrations/postgres/0002_domain_options.sql migrations/postgres/0003_deployment.sql migrations/postgres/0004_task_attempts.sql migrations/postgres/0005_users.sql migrations/postgres/0006_server_validation.sql migrations/postgres/0007_server_password_auth.sql migrations/postgres/0009_server_ssh_key_status.sql
 //go:embed migrations/sqlite/0008_user_groups.sql migrations/mysql/0008_user_groups.sql migrations/postgres/0008_user_groups.sql
 //go:embed migrations/sqlite/0010_projects.sql migrations/mysql/0010_projects.sql migrations/postgres/0010_projects.sql
+//go:embed migrations/sqlite/0011_resource_projects.sql migrations/mysql/0011_resource_projects.sql migrations/postgres/0011_resource_projects.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -36,7 +37,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 10
+const latestMigrationVersion = 11
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -103,6 +104,12 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 			return fmt.Errorf("执行数据库迁移失败：%w", err)
 		}
 	}
+	if driver == "sqlite" && version == 11 {
+		if err := installSQLiteResourceConstraints(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
 	migrationVersionInsert := "INSERT INTO schema_migrations (version) VALUES (?)"
 	if driver == "postgres" {
 		migrationVersionInsert = "INSERT INTO schema_migrations (version) VALUES ($1)"
@@ -118,14 +125,21 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 }
 
 var (
-	mysqlAddColumnPattern   = regexp.MustCompile(`(?is)^ALTER\s+TABLE\s+` + "`?([a-zA-Z0-9_]+)`?" + `\s+ADD\s+COLUMN\s+` + "`?([a-zA-Z0-9_]+)`?")
-	mysqlCreateIndexPattern = regexp.MustCompile(`(?is)^CREATE\s+INDEX\s+` + "`?([a-zA-Z0-9_]+)`?" + `\s+ON\s+` + "`?([a-zA-Z0-9_]+)`?")
+	mysqlAddColumnPattern     = regexp.MustCompile(`(?is)^ALTER\s+TABLE\s+` + "`?([a-zA-Z0-9_]+)`?" + `\s+ADD\s+COLUMN\s+` + "`?([a-zA-Z0-9_]+)`?")
+	mysqlCreateIndexPattern   = regexp.MustCompile(`(?is)^CREATE\s+(?:UNIQUE\s+)?INDEX\s+` + "`?([a-zA-Z0-9_]+)`?" + `\s+ON\s+` + "`?([a-zA-Z0-9_]+)`?")
+	mysqlAddConstraintPattern = regexp.MustCompile(`(?is)^ALTER\s+TABLE\s+` + "`?([a-zA-Z0-9_]+)`?" + `\s+ADD\s+CONSTRAINT\s+` + "`?([a-zA-Z0-9_]+)`?")
 )
 
 // shouldSkipMySQLStatement 检查可恢复迁移中的字段和索引是否已经存在。
 // MySQL 5.7 不支持 ADD COLUMN IF NOT EXISTS，因此需要在执行前查询元数据。
 func shouldSkipMySQLStatement(ctx context.Context, db *sql.DB, statement string) (bool, error) {
 	statement = strings.TrimSpace(statement)
+	if matches := mysqlAddConstraintPattern.FindStringSubmatch(statement); len(matches) == 3 {
+		var count int
+		err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.table_constraints
+			WHERE constraint_schema = DATABASE() AND table_name = ? AND constraint_name = ?`, matches[1], matches[2]).Scan(&count)
+		return count > 0, err
+	}
 	if matches := mysqlAddColumnPattern.FindStringSubmatch(statement); len(matches) == 3 {
 		var count int
 		err := db.QueryRowContext(ctx, `
@@ -167,6 +181,8 @@ func migrationName(version int) string {
 		return "server_ssh_key_status"
 	case 10:
 		return "projects"
+	case 11:
+		return "resource_projects"
 	default:
 		return "unknown"
 	}

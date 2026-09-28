@@ -864,6 +864,8 @@ func newDomainEditCommand() *cobra.Command {
 			return err
 		}
 		item.ID = existing.ID
+		item.ResourceScope = existing.ResourceScope
+		item.UpdatedBy = ""
 		item.CreatedAt = existing.CreatedAt
 		item.Status = "pending"
 		item.ExpiresAt = nil

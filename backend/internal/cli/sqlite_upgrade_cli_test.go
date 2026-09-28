@@ -147,6 +147,29 @@ func createSQLiteProjectForBackup(t *testing.T, fixture sqliteBusinessFixture) {
 	if err := repository.NewSQLProjectRepository(db.DB).CreateProject(t.Context(), item); err != nil {
 		t.Fatal(err)
 	}
+	domains := repository.NewSQLDomainRepository(db.DB)
+	resource, err := domains.GetByID(t.Context(), "domain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resource.ID, resource.Name = "project-domain", "project.example.test"
+	resource.ResourceScope = domain.ResourceScope{ProjectID: item.ID, OwnerID: "owner", CreatedBy: "creator", UpdatedBy: "editor"}
+	if err := domains.Create(t.Context(), resource); err != nil {
+		t.Fatal(err)
+	}
+	servers := repository.NewSQLServerRepository(db.DB)
+	server, err := servers.GetServerByID(t.Context(), "server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.ID = "project-server"
+	server.ResourceScope = resource.ResourceScope
+	if err := servers.CreateServer(t.Context(), server); err != nil {
+		t.Fatal(err)
+	}
+	if err := servers.ReplaceDomainServers(t.Context(), resource.ID, []string{server.ID}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func runSQLiteProductCLI(t *testing.T, binary string, fixture sqliteBusinessFixture, args ...string) {
@@ -218,7 +241,7 @@ func assertSQLiteCLIUpgradeUsable(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	defer db.Close()
 	var version, bindings int
-	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 10 {
+	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 11 {
 		t.Fatalf("正式应用入口未完成历史升级：%d，%v", version, err)
 	}
 	project, err := repository.NewSQLProjectRepository(db.DB).GetProject(t.Context(), domain.DefaultProjectID)
@@ -231,6 +254,15 @@ func assertSQLiteCLIUpgradeUsable(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	if err := db.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM domain_servers WHERE domain_id = 'domain' AND server_id = 'server'").Scan(&bindings); err != nil || bindings != 1 {
 		t.Fatalf("历史部署绑定丢失：%v", err)
+	}
+	for _, statement := range []string{
+		`DELETE FROM projects WHERE id = 'default'`,
+		`UPDATE domains SET project_id = 'missing' WHERE id = 'domain'`,
+		`UPDATE domain_servers SET server_id = 'missing' WHERE domain_id = 'domain'`,
+	} {
+		if _, err := db.DB.ExecContext(t.Context(), statement); err == nil {
+			t.Fatalf("恢复后的项目引用保护失效：%s", statement)
+		}
 	}
 	user, err := repository.NewSQLUserRepository(db.DB).FindByIdentifier(t.Context(), "upgrade-owner")
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(fixture.password)) != nil {

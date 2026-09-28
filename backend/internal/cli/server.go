@@ -92,6 +92,8 @@ func newServerEditCommand() *cobra.Command {
 		}
 		item := value.server()
 		item.ID = existing.ID
+		item.ResourceScope = existing.ResourceScope
+		item.UpdatedBy = ""
 		item.CreatedAt = existing.CreatedAt
 		item.UpdatedAt = time.Now().UTC()
 		if _, err := service.SSHKeys.ValidateReference(cmd.Context(), item.PrivateKeyRef); err != nil {

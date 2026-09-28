@@ -34,9 +34,10 @@ func (r *SQLDomainRepository) Create(ctx context.Context, item domain.Domain) er
 		return fmt.Errorf("编码 SAN 域名失败：%w", err)
 	}
 	_, err = r.db.ExecContext(ctx, r.query(`INSERT INTO domains
-		(id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
-		item.ACMEEnvironment, item.DNSProvider, item.Status, nullableTime(item.ExpiresAt), item.CreatedAt, item.UpdatedAt)
+		(id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
+		item.ACMEEnvironment, item.DNSProvider, item.Status, nullableTime(item.ExpiresAt), item.CreatedAt, item.UpdatedAt,
+		item.ResourceScope.Normalize().ProjectID, item.OwnerID, item.CreatedBy, item.UpdatedBy)
 	if err != nil {
 		return fmt.Errorf("保存域名失败：%w", err)
 	}
@@ -52,9 +53,9 @@ func (r *SQLDomainRepository) Update(ctx context.Context, item domain.Domain) er
 		return fmt.Errorf("编码 SAN 域名失败：%w", err)
 	}
 	result, err := r.db.ExecContext(ctx, r.query(`UPDATE domains SET
-		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?
-		WHERE id = ?`), item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
-		item.DNSProvider, item.UpdatedAt, item.ID)
+		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?, updated_by = ?
+		WHERE id = ? AND project_id = ?`), item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
+		item.DNSProvider, item.UpdatedAt, item.UpdatedBy, item.ID, item.ResourceScope.Normalize().ProjectID)
 	if err != nil {
 		return fmt.Errorf("更新域名失败：%w", err)
 	}
@@ -63,7 +64,13 @@ func (r *SQLDomainRepository) Update(ctx context.Context, item domain.Domain) er
 		return fmt.Errorf("读取更新结果失败：%w", err)
 	}
 	if count == 0 {
-		return sql.ErrNoRows
+		stored, err := r.GetByID(ctx, item.ID)
+		if err != nil {
+			return err
+		}
+		if stored.ProjectID != item.ResourceScope.Normalize().ProjectID {
+			return sql.ErrNoRows
+		}
 	}
 	return nil
 }
@@ -72,7 +79,7 @@ func (r *SQLDomainRepository) GetByID(ctx context.Context, id string) (domain.Do
 	if r == nil || r.db == nil {
 		return domain.Domain{}, errors.New("数据库连接不能为空")
 	}
-	row := r.db.QueryRowContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
+	row := r.db.QueryRowContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by
 		FROM domains WHERE id = ?`), id)
 	return scanDomain(row)
 }
@@ -81,7 +88,7 @@ func (r *SQLDomainRepository) List(ctx context.Context) ([]domain.Domain, error)
 	if r == nil || r.db == nil {
 		return nil, errors.New("数据库连接不能为空")
 	}
-	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by
 		FROM domains ORDER BY name`))
 	if err != nil {
 		return nil, fmt.Errorf("查询域名失败：%w", err)
@@ -168,7 +175,7 @@ func scanDomain(row scanner) (domain.Domain, error) {
 	var acmeEnvironment string
 	var dnsProvider string
 	var expiresAt sql.NullTime
-	if err := row.Scan(&item.ID, &item.Name, &certificateType, &sansJSON, &autoRenew, &acmeEnvironment, &dnsProvider, &item.Status, &expiresAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &certificateType, &sansJSON, &autoRenew, &acmeEnvironment, &dnsProvider, &item.Status, &expiresAt, &item.CreatedAt, &item.UpdatedAt, &item.ProjectID, &item.OwnerID, &item.CreatedBy, &item.UpdatedBy); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Domain{}, sql.ErrNoRows
 		}

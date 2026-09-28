@@ -342,6 +342,9 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 		t.Fatalf("服务器 API 未使用默认远程证书路径模板：%+v", created)
 	}
 
+	if created.ProjectID != "default" || created.OwnerID != "test-admin" || created.CreatedBy != "test-admin" || created.UpdatedBy != "test-admin" {
+		t.Fatalf("服务器未记录服务端会话归属：%+v", created.ResourceScope)
+	}
 	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/servers/"+created.ID, strings.NewReader(`{"name":"updated-server","address":"192.0.2.50","port":22,"username":"deploy","private_key_ref":"`+key.Reference+`","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
 	updateRequest.Header.Set("Content-Type", "application/json")
 	updateResponse := httptest.NewRecorder()
@@ -355,6 +358,9 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	}
 	if updated.Name != "updated-server" || updated.CreatedAt.IsZero() || updated.UpdatedAt.IsZero() {
 		t.Fatalf("updated server response is incomplete: %+v", updated)
+	}
+	if updated.ResourceScope != created.ResourceScope {
+		t.Fatalf("服务器更新丢失归属：%+v", updated.ResourceScope)
 	}
 
 	associationRequest := httptest.NewRequest(http.MethodPut, "/api/v1/domains/"+item.ID+"/servers", strings.NewReader(`{"server_ids":["`+created.ID+`"]}`))

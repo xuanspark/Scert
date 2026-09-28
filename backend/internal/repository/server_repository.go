@@ -58,9 +58,10 @@ func (r *SQLServerRepository) CreateServer(ctx context.Context, server deploymen
 		updatedAt = createdAt
 	}
 	_, err = r.db.ExecContext(ctx, r.query(`INSERT INTO servers
-		(id, name, address, port, username, auth_method, private_key_ref, password_ref, host_key_fingerprint, ssh_key_status, ssh_key_fingerprint, ssh_key_deployed_at, ssh_key_tested_at, ssh_key_error, certificate_path, private_key_path, certificate_chain_path, web_server, validation_command_json, reload_command_json, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), server.ID, server.Name, server.Address, server.Port, server.Username, server.AuthMethod, server.PrivateKeyRef, server.PasswordRef,
-		server.HostKeyFingerprint, server.SSHKeyStatus, server.SSHKeyFingerprint, server.SSHKeyDeployedAt, server.SSHKeyTestedAt, server.SSHKeyError, server.CertificatePath, server.PrivateKeyPath, server.CertificateChainPath, server.WebServer, string(validationCommand), string(command), createdAt, updatedAt)
+		(id, name, address, port, username, auth_method, private_key_ref, password_ref, host_key_fingerprint, ssh_key_status, ssh_key_fingerprint, ssh_key_deployed_at, ssh_key_tested_at, ssh_key_error, certificate_path, private_key_path, certificate_chain_path, web_server, validation_command_json, reload_command_json, created_at, updated_at, project_id, owner_id, created_by, updated_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), server.ID, server.Name, server.Address, server.Port, server.Username, server.AuthMethod, server.PrivateKeyRef, server.PasswordRef,
+		server.HostKeyFingerprint, server.SSHKeyStatus, server.SSHKeyFingerprint, server.SSHKeyDeployedAt, server.SSHKeyTestedAt, server.SSHKeyError, server.CertificatePath, server.PrivateKeyPath, server.CertificateChainPath, server.WebServer, string(validationCommand), string(command), createdAt, updatedAt,
+		server.ProjectID, server.OwnerID, server.CreatedBy, server.UpdatedBy)
 	if err != nil {
 		return fmt.Errorf("保存服务器失败：%w", err)
 	}
@@ -84,8 +85,8 @@ func (r *SQLServerRepository) UpdateServer(ctx context.Context, server deploymen
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
 	}
-	result, err := r.db.ExecContext(ctx, r.query(`UPDATE servers SET name = ?, address = ?, port = ?, username = ?, auth_method = ?, private_key_ref = ?, password_ref = ?, host_key_fingerprint = ?, ssh_key_status = ?, ssh_key_fingerprint = ?, ssh_key_deployed_at = ?, ssh_key_tested_at = ?, ssh_key_error = ?, certificate_path = ?, private_key_path = ?, certificate_chain_path = ?, web_server = ?, validation_command_json = ?, reload_command_json = ?, updated_at = ? WHERE id = ?`),
-		server.Name, server.Address, server.Port, server.Username, server.AuthMethod, server.PrivateKeyRef, server.PasswordRef, server.HostKeyFingerprint, server.SSHKeyStatus, server.SSHKeyFingerprint, server.SSHKeyDeployedAt, server.SSHKeyTestedAt, server.SSHKeyError, server.CertificatePath, server.PrivateKeyPath, server.CertificateChainPath, server.WebServer, string(validationCommand), string(command), updatedAt, server.ID)
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE servers SET name = ?, address = ?, port = ?, username = ?, auth_method = ?, private_key_ref = ?, password_ref = ?, host_key_fingerprint = ?, ssh_key_status = ?, ssh_key_fingerprint = ?, ssh_key_deployed_at = ?, ssh_key_tested_at = ?, ssh_key_error = ?, certificate_path = ?, private_key_path = ?, certificate_chain_path = ?, web_server = ?, validation_command_json = ?, reload_command_json = ?, updated_at = ?, updated_by = ? WHERE id = ? AND project_id = ?`),
+		server.Name, server.Address, server.Port, server.Username, server.AuthMethod, server.PrivateKeyRef, server.PasswordRef, server.HostKeyFingerprint, server.SSHKeyStatus, server.SSHKeyFingerprint, server.SSHKeyDeployedAt, server.SSHKeyTestedAt, server.SSHKeyError, server.CertificatePath, server.PrivateKeyPath, server.CertificateChainPath, server.WebServer, string(validationCommand), string(command), updatedAt, server.UpdatedBy, server.ID, server.ProjectID)
 	if err != nil {
 		return fmt.Errorf("更新服务器失败：%w", err)
 	}
@@ -94,7 +95,13 @@ func (r *SQLServerRepository) UpdateServer(ctx context.Context, server deploymen
 		return fmt.Errorf("读取服务器更新结果失败：%w", err)
 	}
 	if count == 0 {
-		return sql.ErrNoRows
+		stored, err := r.GetServerByID(ctx, server.ID)
+		if err != nil {
+			return err
+		}
+		if stored.ProjectID != server.ProjectID {
+			return sql.ErrNoRows
+		}
 	}
 	return nil
 }
@@ -190,6 +197,7 @@ func (r *SQLServerRepository) ListServersByDomainID(ctx context.Context, domainI
 }
 
 func (r *SQLServerRepository) ReplaceDomainServers(ctx context.Context, domainID string, serverIDs []string) error {
+	domainID = strings.TrimSpace(domainID)
 	if strings.TrimSpace(domainID) == "" {
 		return errors.New("域名 ID 不能为空")
 	}
@@ -214,18 +222,22 @@ func (r *SQLServerRepository) ReplaceDomainServers(ctx context.Context, domainID
 		_ = tx.Rollback()
 		return cause
 	}
+	var projectID string
+	if err := tx.QueryRowContext(ctx, r.query("SELECT project_id FROM domains WHERE id = ?"), domainID).Scan(&projectID); err != nil {
+		return rollback(fmt.Errorf("读取绑定域名项目失败：%w", err))
+	}
 	if _, err := tx.ExecContext(ctx, r.query("DELETE FROM domain_servers WHERE domain_id = ?"), domainID); err != nil {
 		return rollback(fmt.Errorf("清理域名服务器关联失败：%w", err))
 	}
 	for _, serverID := range cleaned {
 		var exists int
-		if err := tx.QueryRowContext(ctx, r.query("SELECT COUNT(*) FROM servers WHERE id = ?"), serverID).Scan(&exists); err != nil {
+		if err := tx.QueryRowContext(ctx, r.query("SELECT COUNT(*) FROM servers WHERE id = ? AND project_id = ?"), serverID, projectID).Scan(&exists); err != nil {
 			return rollback(fmt.Errorf("校验部署服务器失败：%w", err))
 		}
 		if exists == 0 {
-			return rollback(fmt.Errorf("部署服务器不存在：%s", serverID))
+			return rollback(fmt.Errorf("部署服务器不存在或不属于域名项目：%s", serverID))
 		}
-		if _, err := tx.ExecContext(ctx, r.query("INSERT INTO domain_servers (domain_id, server_id) VALUES (?, ?)"), domainID, serverID); err != nil {
+		if _, err := tx.ExecContext(ctx, r.query("INSERT INTO domain_servers (domain_id, server_id, project_id) VALUES (?, ?, ?)"), domainID, serverID, projectID); err != nil {
 			return rollback(fmt.Errorf("保存域名服务器关联失败：%w", err))
 		}
 	}
@@ -235,8 +247,8 @@ func (r *SQLServerRepository) ReplaceDomainServers(ctx context.Context, domainID
 	return nil
 }
 
-const serverSelect = `SELECT id, name, address, port, username, auth_method, private_key_ref, password_ref, host_key_fingerprint, ssh_key_status, ssh_key_fingerprint, ssh_key_deployed_at, ssh_key_tested_at, ssh_key_error, certificate_path, private_key_path, certificate_chain_path, web_server, validation_command_json, reload_command_json, created_at, updated_at FROM servers`
-const serverSelectQualified = `SELECT servers.id, servers.name, servers.address, servers.port, servers.username, servers.auth_method, servers.private_key_ref, servers.password_ref, servers.host_key_fingerprint, servers.ssh_key_status, servers.ssh_key_fingerprint, servers.ssh_key_deployed_at, servers.ssh_key_tested_at, servers.ssh_key_error, servers.certificate_path, servers.private_key_path, servers.certificate_chain_path, servers.web_server, servers.validation_command_json, servers.reload_command_json, servers.created_at, servers.updated_at FROM servers`
+const serverSelect = `SELECT id, name, address, port, username, auth_method, private_key_ref, password_ref, host_key_fingerprint, ssh_key_status, ssh_key_fingerprint, ssh_key_deployed_at, ssh_key_tested_at, ssh_key_error, certificate_path, private_key_path, certificate_chain_path, web_server, validation_command_json, reload_command_json, created_at, updated_at, project_id, owner_id, created_by, updated_by FROM servers`
+const serverSelectQualified = `SELECT servers.id, servers.name, servers.address, servers.port, servers.username, servers.auth_method, servers.private_key_ref, servers.password_ref, servers.host_key_fingerprint, servers.ssh_key_status, servers.ssh_key_fingerprint, servers.ssh_key_deployed_at, servers.ssh_key_tested_at, servers.ssh_key_error, servers.certificate_path, servers.private_key_path, servers.certificate_chain_path, servers.web_server, servers.validation_command_json, servers.reload_command_json, servers.created_at, servers.updated_at, servers.project_id, servers.owner_id, servers.created_by, servers.updated_by FROM servers`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -248,7 +260,7 @@ func scanServer(row rowScanner) (deployment.Server, error) {
 	var authMethod string
 	var validationCommandJSON string
 	var commandJSON string
-	if err := row.Scan(&server.ID, &server.Name, &server.Address, &server.Port, &server.Username, &authMethod, &server.PrivateKeyRef, &server.PasswordRef, &server.HostKeyFingerprint, &server.SSHKeyStatus, &server.SSHKeyFingerprint, &server.SSHKeyDeployedAt, &server.SSHKeyTestedAt, &server.SSHKeyError, &server.CertificatePath, &server.PrivateKeyPath, &server.CertificateChainPath, &webServer, &validationCommandJSON, &commandJSON, &server.CreatedAt, &server.UpdatedAt); err != nil {
+	if err := row.Scan(&server.ID, &server.Name, &server.Address, &server.Port, &server.Username, &authMethod, &server.PrivateKeyRef, &server.PasswordRef, &server.HostKeyFingerprint, &server.SSHKeyStatus, &server.SSHKeyFingerprint, &server.SSHKeyDeployedAt, &server.SSHKeyTestedAt, &server.SSHKeyError, &server.CertificatePath, &server.PrivateKeyPath, &server.CertificateChainPath, &webServer, &validationCommandJSON, &commandJSON, &server.CreatedAt, &server.UpdatedAt, &server.ProjectID, &server.OwnerID, &server.CreatedBy, &server.UpdatedBy); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return deployment.Server{}, sql.ErrNoRows
 		}

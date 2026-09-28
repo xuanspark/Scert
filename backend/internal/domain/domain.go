@@ -24,6 +24,7 @@ const (
 )
 
 type Domain struct {
+	ResourceScope
 	ID              string          `json:"id"`
 	Name            string          `json:"name"`
 	CertificateType CertificateType `json:"certificate_type"`
@@ -78,6 +79,7 @@ func NewDomainWithOptions(name string, certificateType CertificateType, sans []s
 	}
 	now := time.Now().UTC()
 	return Domain{
+		ResourceScope:   ResourceScope{ProjectID: DefaultProjectID},
 		ID:              NewID(),
 		Name:            name,
 		CertificateType: certificateType,

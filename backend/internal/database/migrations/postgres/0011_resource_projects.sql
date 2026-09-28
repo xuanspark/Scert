@@ -1,0 +1,16 @@
+ALTER TABLE domains ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE domains ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE domains ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE domains ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE servers ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE domain_servers ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';
+CREATE UNIQUE INDEX idx_domains_project_id ON domains(project_id, id);
+CREATE UNIQUE INDEX idx_servers_project_id ON servers(project_id, id);
+CREATE INDEX idx_domain_servers_project ON domain_servers(project_id);
+ALTER TABLE domains ADD CONSTRAINT fk_domains_project FOREIGN KEY (project_id) REFERENCES projects(id);
+ALTER TABLE servers ADD CONSTRAINT fk_servers_project FOREIGN KEY (project_id) REFERENCES projects(id);
+ALTER TABLE domain_servers ADD CONSTRAINT fk_binding_domain_project FOREIGN KEY (project_id, domain_id) REFERENCES domains(project_id, id);
+ALTER TABLE domain_servers ADD CONSTRAINT fk_binding_server_project FOREIGN KEY (project_id, server_id) REFERENCES servers(project_id, id);

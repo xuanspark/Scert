@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
 type WebServer string
@@ -45,6 +47,7 @@ const (
 var serverPathPlaceholderPattern = regexp.MustCompile(`\{[^{}]+\}`)
 
 type Server struct {
+	domain.ResourceScope
 	ID                   string        `json:"id"`
 	Name                 string        `json:"name"`
 	Address              string        `json:"address"`
@@ -71,6 +74,7 @@ type Server struct {
 }
 
 func (s Server) Normalize() Server {
+	s.ResourceScope = s.ResourceScope.Normalize()
 	s.ID = strings.TrimSpace(s.ID)
 	s.Name = strings.TrimSpace(s.Name)
 	s.Address = strings.TrimSpace(s.Address)

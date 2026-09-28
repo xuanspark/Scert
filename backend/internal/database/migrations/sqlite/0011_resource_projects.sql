@@ -1,0 +1,12 @@
+ALTER TABLE domains ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE domains ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE domains ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE domains ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE servers ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE servers ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE domain_servers ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';
+CREATE UNIQUE INDEX idx_domains_project_id ON domains(project_id, id);
+CREATE UNIQUE INDEX idx_servers_project_id ON servers(project_id, id);
+CREATE INDEX idx_domain_servers_project ON domain_servers(project_id);

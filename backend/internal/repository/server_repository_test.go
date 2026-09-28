@@ -8,6 +8,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
 func TestServerRepositoryCRUDAndDomainAssociations(t *testing.T) {
@@ -51,6 +52,14 @@ func TestServerRepositoryCRUDAndDomainAssociations(t *testing.T) {
 	}
 	if updated.CreatedAt.IsZero() || updated.UpdatedAt.IsZero() || updated.UpdatedAt.Before(updated.CreatedAt) {
 		t.Fatalf("updated server timestamps are invalid: %+v", updated)
+	}
+	item, err := domain.NewDomain("example.test", domain.CertificateSingle, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.ID = "domain-1"
+	if err := NewSQLDomainRepository(db.DB).Create(t.Context(), item); err != nil {
+		t.Fatal(err)
 	}
 	if err := repo.ReplaceDomainServers(context.Background(), "domain-1", []string{server.ID, server.ID}); err != nil {
 		t.Fatalf("保存域名服务器关联失败：%v", err)
@@ -126,6 +135,14 @@ func TestReplaceDomainServersRejectsUnknownServerWithoutChangingAssociations(t *
 	repo := NewSQLServerRepository(db.DB)
 	server := deployment.Server{ID: "server-1", Name: "服务器", Address: "192.0.2.20", Username: "deploy", PrivateKeyRef: "secret://ssh/1", HostKeyFingerprint: "SHA256:test", CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem", CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx}
 	if err := repo.CreateServer(context.Background(), server); err != nil {
+		t.Fatal(err)
+	}
+	item, err := domain.NewDomain("association.example.test", domain.CertificateSingle, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.ID = "domain-1"
+	if err := NewSQLDomainRepository(db.DB).Create(t.Context(), item); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.ReplaceDomainServers(context.Background(), "domain-1", []string{server.ID}); err != nil {

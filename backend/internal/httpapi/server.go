@@ -546,6 +546,7 @@ func (s *Server) createDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, err.Error(), err)
 		return
 	}
+	item.ResourceScope = s.newResourceScope(c)
 	if err := s.repository.Create(c.Request.Context(), item); err != nil {
 		if repository.IsConflict(err) {
 			s.writeError(c, http.StatusConflict, "域名已经存在", err)
@@ -585,6 +586,7 @@ func (s *Server) updateDomain(c *gin.Context) {
 		return
 	}
 	item.ID = existing.ID
+	item.ResourceScope = s.updatedResourceScope(c, existing.ResourceScope)
 	item.CreatedAt = existing.CreatedAt
 	item.Status = "pending"
 	item.ExpiresAt = nil
@@ -702,6 +704,7 @@ func (s *Server) createServer(c *gin.Context) {
 		return
 	}
 	item := serverFromRequest(request)
+	item.ResourceScope = s.newResourceScope(c)
 	item = item.Normalize()
 	now := time.Now().UTC()
 	item.CreatedAt = now
@@ -754,6 +757,7 @@ func (s *Server) updateServer(c *gin.Context) {
 		return
 	}
 	item.CreatedAt = existing.CreatedAt
+	item.ResourceScope = s.updatedResourceScope(c, existing.ResourceScope)
 	item.UpdatedAt = time.Now().UTC()
 	item, cleanup, err := s.prepareServerCredential(c.Request.Context(), item, request.Password, &existing)
 	if err != nil {
