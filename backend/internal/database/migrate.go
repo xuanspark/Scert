@@ -15,6 +15,7 @@ import (
 //go:embed migrations/sqlite/0011_resource_projects.sql migrations/mysql/0011_resource_projects.sql migrations/postgres/0011_resource_projects.sql
 //go:embed migrations/sqlite/0012_resource_replacement.sql migrations/mysql/0012_resource_replacement.sql migrations/postgres/0012_resource_replacement.sql
 //go:embed migrations/sqlite/0013_history_scope.sql migrations/mysql/0013_history_scope.sql migrations/postgres/0013_history_scope.sql
+//go:embed migrations/sqlite/0014_project_members.sql migrations/mysql/0014_project_members.sql migrations/postgres/0014_project_members.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -39,7 +40,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 13
+const latestMigrationVersion = 14
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -79,6 +80,11 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		return applySQLiteTaskMigration(ctx, db, statements, version)
 	}
 	if driver == "mysql" {
+		if version == 14 {
+			if err := installMySQLProjectMembers(ctx, db); err != nil {
+				return err
+			}
+		}
 		for _, statement := range statements {
 			skip, err := shouldSkipMySQLStatement(ctx, db, statement)
 			if err != nil {
@@ -125,6 +131,12 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 	}
 	if version == 13 {
 		if err := backfillHistoryScope(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if driver == "sqlite" && version == 14 {
+		if err := installSQLiteProjectMemberGuards(ctx, tx); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -206,6 +218,8 @@ func migrationName(version int) string {
 		return "resource_replacement"
 	case 13:
 		return "history_scope"
+	case 14:
+		return "project_members"
 	default:
 		return "unknown"
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,10 +130,41 @@ func TestSQLiteBusinessUpgradeStandaloneCLI(t *testing.T) {
 			// 从旧备份恢复后再次走正式应用入口升级，不由测试直接调用 Migrate。
 			runSQLiteProductCLI(t, binary, fixture, "certificate", "list")
 			assertSQLiteCLIUpgradeUsable(t, fixture)
+			assertSQLiteCLIMembersRestored(t, fixture, scenario.name == "upgraded_backup")
 			if err := validateBackupManifest(scenario.archive); err != nil {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func assertSQLiteCLIMembersRestored(t *testing.T, fixture sqliteBusinessFixture, present bool) {
+	t.Helper()
+	db, err := database.Open(t.Context(), fixture.config.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM project_members").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	want := 0
+	if present {
+		want = 2
+	}
+	if count != want {
+		t.Fatalf("恢复后的成员数量错误：%d，期望 %d", count, want)
+	}
+	members := repository.NewSQLProjectMemberRepository(db.DB)
+	for _, permission := range []domain.ProjectPermission{domain.PermissionCertificateRead, domain.PermissionDNSCredentialUse} {
+		err := members.AuthorizeProject(t.Context(), "backup-member", "backup-project", permission)
+		if (present && err != nil) || (!present && !errors.Is(err, repository.ErrProjectAccessDenied)) {
+			t.Fatalf("恢复后的成员权限错误：%s，%v", permission, err)
+		}
+	}
+	if err := members.AuthorizeProject(t.Context(), "backup-member", domain.DefaultProjectID, domain.PermissionCertificateRead); !errors.Is(err, repository.ErrProjectAccessDenied) {
+		t.Fatalf("恢复后出现跨项目访问：%v", err)
 	}
 }
 
@@ -169,6 +201,22 @@ func createSQLiteProjectForBackup(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	if err := servers.ReplaceDomainServers(t.Context(), resource.ID, []string{server.ID}); err != nil {
 		t.Fatal(err)
+	}
+	users := repository.NewSQLUserRepository(db.DB)
+	owner, err := users.FindByIdentifier(t.Context(), "upgrade-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member := repository.User{ID: "backup-member", Username: "backup-member", Email: "member@example.test",
+		PasswordHash: owner.PasswordHash, Role: repository.UserRoleUser, Status: repository.UserStatusActive}
+	if err := users.CreateUser(t.Context(), member); err != nil {
+		t.Fatal(err)
+	}
+	members := repository.NewSQLProjectMemberRepository(db.DB)
+	for _, role := range []domain.ProjectRole{domain.ProjectRoleReadOnly, domain.ProjectRoleDNSAdmin} {
+		if err := members.GrantProjectRole(t.Context(), owner.ID, item.ID, member.ID, role); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -241,7 +289,7 @@ func assertSQLiteCLIUpgradeUsable(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	defer db.Close()
 	var version, bindings int
-	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 13 {
+	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 14 {
 		t.Fatalf("正式应用入口未完成历史升级：%d，%v", version, err)
 	}
 	project, err := repository.NewSQLProjectRepository(db.DB).GetProject(t.Context(), domain.DefaultProjectID)

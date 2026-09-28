@@ -215,7 +215,7 @@ func TestHistoryScopeMySQLMigrationRetry(t *testing.T) {
 				}
 			}
 			assertHistoryScope(t, db.DB)
-			if version, err := currentMigrationVersion(ctx, db.DB); err != nil || version != 13 {
+			if version, err := currentMigrationVersion(ctx, db.DB); err != nil || version != latestMigrationVersion {
 				t.Fatalf("重试版本错误：%d，%v", version, err)
 			}
 		})
