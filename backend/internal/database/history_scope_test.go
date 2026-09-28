@@ -2,8 +2,11 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 func seedHistoryScope(t *testing.T, db *sql.DB, driver string) {
@@ -202,10 +205,17 @@ func TestHistoryScopeMySQLMigrationRetry(t *testing.T) {
 			}
 			if err := Migrate(ctx, db.DB, "mysql"); err == nil {
 				t.Fatal("故障未阻断迁移")
+			} else {
+				var mysqlErr *mysql.MySQLError
+				// 必须命中注入阶段，不能把索引损坏等其他错误误当作故障注入成功。
+				if !errors.As(err, &mysqlErr) || mysqlErr.Number != 1644 || mysqlErr.Message != "test-only" {
+					t.Fatalf("迁移在注入阶段 %s 之前意外失败，保留服务器日志供诊断：%v", phase, err)
+				}
 			}
 			if version, err := currentMigrationVersion(ctx, db.DB); err != nil || version != 12 {
 				t.Fatalf("失败版本错误：%d，%v", version, err)
 			}
+			assertMySQLHistoryIndexes(t, db.DB)
 			if _, err := fixture.admin.ExecContext(ctx, "DROP TRIGGER "+schema+".fail_history"); err != nil {
 				t.Fatal(err)
 			}
@@ -213,11 +223,29 @@ func TestHistoryScopeMySQLMigrationRetry(t *testing.T) {
 				if err := Migrate(ctx, db.DB, "mysql"); err != nil {
 					t.Fatal(err)
 				}
+				assertMySQLHistoryIndexes(t, db.DB)
 			}
 			assertHistoryScope(t, db.DB)
 			if version, err := currentMigrationVersion(ctx, db.DB); err != nil || version != latestMigrationVersion {
 				t.Fatalf("重试版本错误：%d，%v", version, err)
 			}
 		})
+	}
+}
+
+func assertMySQLHistoryIndexes(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, index := range []struct{ table, name, columns string }{
+		{"tasks", "idx_tasks_project_history", "project_id,created_at"},
+		{"audit_logs", "idx_audit_project_history", "project_id,created_at"},
+		{"audit_logs", "idx_audit_task_history", "task_id"},
+	} {
+		var columns sql.NullString
+		err := db.QueryRowContext(t.Context(), `SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index)
+			FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?`,
+			index.table, index.name).Scan(&columns)
+		if err != nil || !columns.Valid || columns.String != index.columns {
+			t.Fatalf("历史范围索引结构不完整：%s.%s，字段=%s，错误=%v", index.table, index.name, columns.String, err)
+		}
 	}
 }
