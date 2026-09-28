@@ -18,7 +18,8 @@ func (r *SQLAuditRepository) ListAuditLogs(ctx context.Context, limit int) ([]Au
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, action, resource_type, resource_id, status, message, created_at FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT `+fmt.Sprintf("%d", limit)))
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, action, resource_type, resource_id, status, message, created_at,
+		scope_type, project_id, task_id, operator_id FROM audit_logs ORDER BY created_at DESC, id DESC LIMIT `+fmt.Sprintf("%d", limit)))
 	if err != nil {
 		return nil, fmt.Errorf("查询审计日志失败：%w", err)
 	}
@@ -26,7 +27,8 @@ func (r *SQLAuditRepository) ListAuditLogs(ctx context.Context, limit int) ([]Au
 	logs := make([]AuditLog, 0)
 	for rows.Next() {
 		var item AuditLog
-		if err := rows.Scan(&item.ID, &item.Action, &item.ResourceType, &item.ResourceID, &item.Status, &item.Message, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Action, &item.ResourceType, &item.ResourceID, &item.Status, &item.Message, &item.CreatedAt,
+			&item.ScopeType, &item.ProjectID, &item.TaskID, &item.OperatorID); err != nil {
 			return nil, fmt.Errorf("读取审计日志失败：%w", err)
 		}
 		item.CreatedAt = item.CreatedAt.UTC()

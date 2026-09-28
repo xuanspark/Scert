@@ -241,7 +241,7 @@ func assertSQLiteCLIUpgradeUsable(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	defer db.Close()
 	var version, bindings int
-	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 12 {
+	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 13 {
 		t.Fatalf("正式应用入口未完成历史升级：%d，%v", version, err)
 	}
 	project, err := repository.NewSQLProjectRepository(db.DB).GetProject(t.Context(), domain.DefaultProjectID)
@@ -249,7 +249,7 @@ func assertSQLiteCLIUpgradeUsable(t *testing.T, fixture sqliteBusinessFixture) {
 		t.Fatalf("正式应用入口未保留默认项目：%+v，%v", project, err)
 	}
 	task, err := repository.NewSQLTaskRepository(db.DB).GetTask(t.Context(), "task")
-	if err != nil || task.Message != "历史任务" || task.DomainID != "domain" || task.Status != "success" {
+	if err != nil || task.Message != "历史任务" || task.DomainID != "domain" || task.Status != "success" || task.ScopeType != repository.ScopeProject || task.ProjectID != domain.DefaultProjectID {
 		t.Fatalf("历史任务不可用：%v", err)
 	}
 	if err := db.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM domain_servers WHERE domain_id = 'domain' AND server_id = 'server'").Scan(&bindings); err != nil || bindings != 1 {

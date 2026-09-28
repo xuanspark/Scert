@@ -24,6 +24,13 @@ func newTaskRepositoryTest(t *testing.T) (*SQLTaskRepository, *sql.DB) {
 		db.Close()
 		t.Fatalf("迁移测试数据库失败：%v", err)
 	}
+	for _, id := range []string{"domain-1", "domain-2", "domain-3"} {
+		if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO domains (id, name, certificate_type, sans_json, status)
+			VALUES (?, ?, 'single', '[]', 'pending')`, id, id+".example.test"); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
 	return NewSQLTaskRepository(db.DB), db.DB
 }
 

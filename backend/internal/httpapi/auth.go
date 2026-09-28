@@ -79,7 +79,7 @@ func (s *Server) authLogin(c *gin.Context) {
 	account, userID, passwordHash, err := s.authenticateAccount(c.Request.Context(), request, cfg)
 	if err != nil {
 		s.recordLoginFailure(key)
-		s.recordAuthAudit(c, "登录失败", "failed", "登录凭据校验失败")
+		s.recordAuthAudit(c, "", "登录失败", "failed", "登录凭据校验失败")
 		s.writeError(c, http.StatusUnauthorized, "账号或密码错误", nil)
 		return
 	}
@@ -120,7 +120,7 @@ func (s *Server) authLogin(c *gin.Context) {
 	}
 	s.authMu.Unlock()
 	s.setAuthCookie(c, token, expiresAt)
-	s.recordAuthAudit(c, "登录成功", "success", "用户登录成功")
+	s.recordAuthAudit(c, userID, "登录成功", "success", "用户登录成功")
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated":  true,
 		"account":        account.Username,
@@ -339,12 +339,13 @@ func (s *Server) clearLoginFailures(key string) {
 	s.loginMu.Unlock()
 }
 
-func (s *Server) recordAuthAudit(c *gin.Context, action, status, message string) {
+func (s *Server) recordAuthAudit(c *gin.Context, operatorID, action, status, message string) {
 	if s.audit == nil {
 		return
 	}
 	if err := s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
-		Action: action, ResourceType: "auth", ResourceID: "login", Status: status, Message: message,
+		OperatorID: operatorID,
+		Action:     action, ResourceType: "auth", ResourceID: "login", Status: status, Message: message,
 	}); err != nil && s.logger != nil {
 		s.logger.Warn("保存登录审计日志失败", "error", err)
 	}

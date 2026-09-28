@@ -23,7 +23,8 @@ func (s *Server) restoreCertificateVersion(c *gin.Context) {
 		}
 		if s.audit != nil {
 			_ = s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
-				Action: "certificate_version_restore", ResourceType: "certificate", ResourceID: c.Param("id"), Status: "failed",
+				OperatorID: s.currentOperatorID(c),
+				Action:     "certificate_version_restore", ResourceType: "certificate", ResourceID: c.Param("id"), Status: "failed",
 				Message: "恢复证书历史版本失败",
 			})
 		}
@@ -32,7 +33,8 @@ func (s *Server) restoreCertificateVersion(c *gin.Context) {
 	}
 	if s.audit != nil {
 		_ = s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
-			Action: "certificate_version_restore", ResourceType: "certificate", ResourceID: c.Param("id"), Status: "success",
+			OperatorID: s.currentOperatorID(c),
+			Action:     "certificate_version_restore", ResourceType: "certificate", ResourceID: c.Param("id"), Status: "success",
 			Message: "已恢复证书历史版本：" + version,
 		})
 	}

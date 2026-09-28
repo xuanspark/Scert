@@ -123,7 +123,7 @@ func (s *Server) createUser(c *gin.Context) {
 		s.writeError(c, userErrorStatus(err), "创建用户失败", err)
 		return
 	}
-	s.recordUserAudit(c, "创建用户", "success", item.ID)
+	s.recordUserAudit(c, s.currentOperatorID(c), "创建用户", "success", item.ID)
 	c.JSON(http.StatusCreated, item)
 }
 
@@ -183,12 +183,14 @@ func (s *Server) updateUser(c *gin.Context) {
 			return
 		}
 	}
+	// 更新自身账户会使原会话失效，审计身份必须在写入前从已验证会话读取。
+	operatorID := s.currentOperatorID(c)
 	if err := s.users.UpdateUser(c.Request.Context(), item); err != nil {
 		s.writeError(c, userErrorStatus(err), "更新用户失败", err)
 		return
 	}
 	s.invalidateUserSessions(id)
-	s.recordUserAudit(c, "更新用户", "success", id)
+	s.recordUserAudit(c, operatorID, "更新用户", "success", id)
 	c.JSON(http.StatusOK, item)
 }
 
@@ -222,6 +224,7 @@ func (s *Server) deleteUser(c *gin.Context) {
 			return
 		}
 	}
+	operatorID := s.currentOperatorID(c)
 	if err := s.users.DeleteUser(c.Request.Context(), id); err != nil {
 		if errors.Is(err, repository.ErrSuperAdminProtected) {
 			s.writeError(c, http.StatusBadRequest, err.Error(), err)
@@ -235,7 +238,7 @@ func (s *Server) deleteUser(c *gin.Context) {
 		return
 	}
 	s.invalidateUserSessions(id)
-	s.recordUserAudit(c, "删除用户", "success", id)
+	s.recordUserAudit(c, operatorID, "删除用户", "success", id)
 	c.Status(http.StatusNoContent)
 }
 
@@ -286,12 +289,13 @@ func userFromRequest(request userRequest, id string) (repository.User, error) {
 	return item, nil
 }
 
-func (s *Server) recordUserAudit(c *gin.Context, action, status, id string) {
+func (s *Server) recordUserAudit(c *gin.Context, operatorID, action, status, id string) {
 	if s.audit == nil {
 		return
 	}
 	if err := s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
-		Action: action, ResourceType: "user", ResourceID: id, Status: status, Message: action,
+		OperatorID: operatorID,
+		Action:     action, ResourceType: "user", ResourceID: id, Status: status, Message: action,
 	}); err != nil && s.logger != nil {
 		s.logger.Warn("保存用户审计日志失败", "error", err)
 	}

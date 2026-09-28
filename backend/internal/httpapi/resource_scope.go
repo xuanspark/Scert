@@ -6,6 +6,13 @@ import (
 )
 
 // 归属由服务端会话填写，不能从请求体接受操作者或项目授权声明。
+func (s *Server) currentOperatorID(c *gin.Context) string {
+	if session, ok := s.currentAuthSession(c); ok {
+		return session.UserID
+	}
+	return ""
+}
+
 func (s *Server) newResourceScope(c *gin.Context) domain.ResourceScope {
 	scope := domain.ResourceScope{ProjectID: domain.DefaultProjectID}
 	if session, ok := s.currentAuthSession(c); ok {

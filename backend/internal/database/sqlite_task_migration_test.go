@@ -50,6 +50,9 @@ func TestSQLiteBusinessUpgradePreservesDependentObjects(t *testing.T) {
 				t.Fatal("行号或生成列发生变化")
 			}
 			var count, actualForeignKeys int
+			if err := db.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM trigger_events").Scan(&count); err != nil || count != 2 {
+				t.Fatalf("范围回填应保留并调用两次历史更新触发器：%d，%v", count, err)
+			}
 			if err := db.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM task_links WHERE task_id = 'task'").Scan(&count); err != nil || count != 1 {
 				t.Fatalf("任务表重建触发了级联删除：%v", err)
 			}
@@ -59,7 +62,7 @@ func TestSQLiteBusinessUpgradePreservesDependentObjects(t *testing.T) {
 			if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO a_task_view VALUES ('task', '升级后视图写入'); INSERT INTO settings (key, value) VALUES ('after', '升级后外部触发器')`); err != nil {
 				t.Fatal(err)
 			}
-			if err := db.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM trigger_events").Scan(&count); err != nil || count != 2 {
+			if err := db.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM trigger_events").Scan(&count); err != nil || count != 4 {
 				t.Fatalf("触发器执行结果错误：%d，%v", count, err)
 			}
 		})

@@ -40,6 +40,9 @@ func assertCertificateTask(t *testing.T, a *App, status string, statuses ...stri
 		t.Fatalf("任务数量错误：%+v %v", items, err)
 	}
 	item := items[0]
+	if item.ScopeType != repository.ScopeProject || item.ProjectID != domain.DefaultProjectID || item.OperatorID != "" {
+		t.Fatalf("后台任务范围错误或伪造操作者：%+v", item)
+	}
 	if item.Status != status || item.StartedAt == nil || item.FinishedAt == nil {
 		t.Fatalf("任务未正确收尾：%+v", item)
 	}
@@ -58,6 +61,9 @@ func assertCertificateTask(t *testing.T, a *App, status string, statuses ...stri
 	var count int
 	if err := a.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE action = ? AND resource_id = ? AND status = ?", item.TaskType, item.DomainID, status).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("审计记录缺失：%d %v", count, err)
+	}
+	if err := a.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE task_id = ? AND scope_type = 'project' AND project_id = ? AND operator_id = '' AND status IN ('running', ?)", item.ID, item.ProjectID, status).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("后台任务开始与收尾审计关联缺失：%d，%v", count, err)
 	}
 	return item
 }

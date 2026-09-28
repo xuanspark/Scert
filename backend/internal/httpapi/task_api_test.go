@@ -47,6 +47,7 @@ func newTaskAPITestServer(t *testing.T, issue func(context.Context, string) (cer
 		IssueCertificate: issue,
 		Tasks:            taskRepo,
 		Audit:            auditRepo,
+		Users:            repository.NewSQLUserRepository(db.DB, cfg.Database.Driver),
 	})
 	return server, taskRepo, auditRepo, func() { _ = db.Close() }
 }
@@ -73,6 +74,13 @@ func TestTaskAPIRecordsSuccessfulIssueAndAudit(t *testing.T) {
 	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
 	if err != nil || len(logs) != 1 || logs[0].Status != "success" {
 		t.Fatalf("审计日志记录错误：%+v %v", logs, err)
+	}
+	wantScope := repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID}
+	if items[0].HistoryScope != wantScope || attempts[0].HistoryScope != wantScope || logs[0].HistoryScope != wantScope {
+		t.Fatalf("请求任务、尝试与审计范围不一致：%+v %+v %+v", items[0], attempts[0], logs[0])
+	}
+	if items[0].OperatorID != "test-admin" || logs[0].OperatorID != "test-admin" || logs[0].TaskID != items[0].ID {
+		t.Fatalf("服务端会话操作者或审计任务关联缺失：%+v %+v", items[0], logs[0])
 	}
 
 	list := httptest.NewRecorder()
@@ -215,7 +223,7 @@ func TestTaskAPICannotCancelManagementTaskWithoutExecutionControl(t *testing.T) 
 
 func TestTaskAPICanCancelRunningIssue(t *testing.T) {
 	started := make(chan struct{})
-	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(ctx context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(ctx context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
 		close(started)
 		<-ctx.Done()
 		return certificate.IssueResult{DomainID: id}, deployment.Report{}, ctx.Err()
@@ -253,6 +261,15 @@ func TestTaskAPICanCancelRunningIssue(t *testing.T) {
 	item, err := taskRepo.GetTask(context.Background(), items[0].ID)
 	if err != nil || item.Status != "cancelled" {
 		t.Fatalf("任务取消状态没有持久化：%+v %v", item, err)
+	}
+	logs, err := auditRepo.ListAuditLogs(t.Context(), 10)
+	if err != nil || len(logs) != 2 {
+		t.Fatalf("取消和申请收尾审计缺失：%+v，%v", logs, err)
+	}
+	for _, entry := range logs {
+		if entry.TaskID != item.ID || entry.OperatorID != "test-admin" || entry.HistoryScope != item.HistoryScope {
+			t.Fatalf("取消审计关联错误：%+v", entry)
+		}
 	}
 }
 
@@ -362,12 +379,12 @@ func TestAuditLogResponseUsesDashboardFieldNames(t *testing.T) {
 	}
 	var previousID int64
 	for i, item := range payload.Items {
-		for _, field := range []string{"id", "action", "resource_type", "resource_id", "status", "message", "created_at"} {
+		for _, field := range []string{"id", "action", "resource_type", "resource_id", "status", "message", "created_at", "scope_type", "project_id", "task_id", "operator_id"} {
 			if _, ok := item[field]; !ok {
 				t.Fatal(field, response.Body.String())
 			}
 		}
-		if len(item) != 7 {
+		if len(item) != 11 {
 			t.Fatal(response.Body.String())
 		}
 		var id int64
@@ -377,6 +394,7 @@ func TestAuditLogResponseUsesDashboardFieldNames(t *testing.T) {
 		previousID = id
 		for field, expected := range map[string]string{
 			"action": "login", "resource_type": "auth", "resource_id": "admin",
+			"scope_type": "system", "project_id": "", "task_id": "", "operator_id": "",
 			"status": []string{"error", "success"}[i], "message": "login", "created_at": createdAt.Format(time.RFC3339),
 		} {
 			var actual string

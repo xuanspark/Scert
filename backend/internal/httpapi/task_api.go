@@ -25,7 +25,8 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		return
 	}
 	domainID := strings.TrimSpace(c.Param("id"))
-	if _, err := s.repository.GetByID(c.Request.Context(), domainID); err != nil {
+	resource, err := s.repository.GetByID(c.Request.Context(), domainID)
+	if err != nil {
 		if repository.IsNotFound(err) {
 			s.writeError(c, http.StatusNotFound, "域名不存在", err)
 			return
@@ -66,7 +67,9 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 	}
 	now := time.Now().UTC()
 	task := repository.Task{
-		ID: domain.NewID(), DomainID: domainID, TaskType: "certificate_issue", Status: "queued", Stage: "queued",
+		HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: resource.ResourceScope.Normalize().ProjectID},
+		OperatorID:   s.currentOperatorID(c),
+		ID:           domain.NewID(), DomainID: domainID, TaskType: "certificate_issue", Status: "queued", Stage: "queued",
 		Message: "等待执行证书申请", IdempotencyKey: idempotencyKey, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.tasks.CreateTask(c.Request.Context(), task); err != nil {
@@ -91,6 +94,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
 		if s.audit != nil {
 			_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
+				TaskID: task.ID, OperatorID: task.OperatorID,
 				Action: "certificate_issue", ResourceType: "domain", ResourceID: domainID,
 				Status: "error", Message: failureMessage,
 			})
@@ -144,6 +148,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 			auditStatus = "error"
 		}
 		_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
+			TaskID: task.ID, OperatorID: task.OperatorID,
 			Action: "certificate_issue", ResourceType: "domain", ResourceID: domainID, Status: auditStatus, Message: message,
 		})
 	}
@@ -226,6 +231,7 @@ func (s *Server) cancelTask(c *gin.Context) {
 	item.UpdatedAt = finished
 	if s.audit != nil {
 		_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
+			TaskID: taskID, OperatorID: s.currentOperatorID(c),
 			Action: "task_cancel", ResourceType: "task", ResourceID: taskID, Status: "success", Message: item.Message,
 		})
 	}

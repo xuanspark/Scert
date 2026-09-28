@@ -137,7 +137,7 @@ func (s *Server) changeDatabaseUserPassword(c *gin.Context, session authSession,
 func (s *Server) finishPasswordChange(c *gin.Context, userID, message string) {
 	s.invalidateUserSessions(userID)
 	s.clearAuthCookie(c)
-	s.recordAuthAudit(c, "修改密码", "success", "当前登录账号修改密码成功")
+	s.recordAuthAudit(c, userID, "修改密码", "success", "当前登录账号修改密码成功")
 	c.JSON(http.StatusOK, gin.H{
 		"authenticated":  false,
 		"requires_login": true,

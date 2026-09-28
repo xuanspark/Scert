@@ -14,6 +14,7 @@ import (
 //go:embed migrations/sqlite/0010_projects.sql migrations/mysql/0010_projects.sql migrations/postgres/0010_projects.sql
 //go:embed migrations/sqlite/0011_resource_projects.sql migrations/mysql/0011_resource_projects.sql migrations/postgres/0011_resource_projects.sql
 //go:embed migrations/sqlite/0012_resource_replacement.sql migrations/mysql/0012_resource_replacement.sql migrations/postgres/0012_resource_replacement.sql
+//go:embed migrations/sqlite/0013_history_scope.sql migrations/mysql/0013_history_scope.sql migrations/postgres/0013_history_scope.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -38,7 +39,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 12
+const latestMigrationVersion = 13
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -90,6 +91,11 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 				return fmt.Errorf("执行数据库迁移失败：%w", err)
 			}
 		}
+		if version == 13 {
+			if err := backfillHistoryScope(ctx, db); err != nil {
+				return err
+			}
+		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
 			return fmt.Errorf("记录迁移版本失败：%w", err)
 		}
@@ -113,6 +119,12 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 	}
 	if driver == "sqlite" && version == 12 {
 		if err := installSQLiteReplacementGuards(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if version == 13 {
+		if err := backfillHistoryScope(ctx, tx); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -192,6 +204,8 @@ func migrationName(version int) string {
 		return "resource_projects"
 	case 12:
 		return "resource_replacement"
+	case 13:
+		return "history_scope"
 	default:
 		return "unknown"
 	}

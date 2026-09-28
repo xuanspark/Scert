@@ -94,6 +94,9 @@ func (f *managementFixture) assertTask(t *testing.T, status string, attempts int
 		t.Fatalf("管理任务未独立持久化：%+v %v", items, err)
 	}
 	item := items[0]
+	if item.ScopeType != repository.ScopeSystem || item.ProjectID != "" || item.OperatorID != "" {
+		t.Fatalf("管理任务没有保持系统范围：%+v", item)
+	}
 	if item.Status != status || item.FinishedAt == nil || item.TaskType != "management_renewal" {
 		t.Fatalf("管理任务终态异常：%+v", item)
 	}
@@ -110,6 +113,9 @@ func (f *managementFixture) assertTask(t *testing.T, status string, attempts int
 	if err := f.app.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE action = ? AND status = ?", "management_renewal", status).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("管理续期审计缺失：%d %v", count, err)
 	}
+	if err := f.app.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE action = 'management_renewal' AND (task_id <> ? OR scope_type <> 'system' OR project_id <> '' OR operator_id <> '')", item.ID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("管理续期审计范围或关联错误：%d，%v", count, err)
+	}
 	return item
 }
 
@@ -119,7 +125,11 @@ func TestManagementRenewalPersistsWithoutBusinessDomain(t *testing.T) {
 	if err != nil || report.Checked != 1 || report.Selected != 1 || report.Succeeded != 1 || f.issues != 1 || f.activator.calls != 1 {
 		t.Fatalf("管理续期未完成：%+v %v", report, err)
 	}
-	f.assertTask(t, "success", 1)
+	task := f.assertTask(t, "success", 1)
+	var count int
+	if err := f.app.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE task_id = ? AND status IN ('running', 'success')", task.ID).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("正常管理续期缺少开始或收尾审计：%d，%v", count, err)
+	}
 	items, err := f.app.Repository.List(t.Context())
 	if err != nil || len(items) != 0 {
 		t.Fatalf("管理续期不得创建业务域名：%+v %v", items, err)

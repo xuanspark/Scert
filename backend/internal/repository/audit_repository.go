@@ -10,6 +10,9 @@ import (
 )
 
 type AuditLog struct {
+	HistoryScope
+	TaskID       string    `json:"task_id"`
+	OperatorID   string    `json:"operator_id"`
 	ID           int64     `json:"id"`
 	Action       string    `json:"action"`
 	ResourceType string    `json:"resource_type"`
@@ -44,15 +47,28 @@ func (r *SQLAuditRepository) CreateAuditLog(ctx context.Context, item AuditLog) 
 	item.ResourceType = strings.TrimSpace(item.ResourceType)
 	item.ResourceID = strings.TrimSpace(item.ResourceID)
 	item.Status = strings.TrimSpace(item.Status)
+	item.TaskID = strings.TrimSpace(item.TaskID)
+	item.OperatorID = strings.TrimSpace(item.OperatorID)
 	if item.Action == "" || item.ResourceType == "" || item.Status == "" {
 		return errors.New("审计日志必要字段不能为空")
 	}
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = time.Now().UTC()
 	}
-	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO audit_logs
-		(action, resource_type, resource_id, status, message, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`), item.Action, item.ResourceType, item.ResourceID, item.Status, item.Message, item.CreatedAt.UTC())
+	if item.ResourceType == "task" && item.TaskID == "" {
+		item.TaskID = item.ResourceID
+	}
+	scope, err := r.resolveScope(ctx, item)
+	if err != nil {
+		return fmt.Errorf("解析审计范围失败：%w", err)
+	}
+	if !item.HistoryScope.matches(scope) {
+		return errors.New("审计项目与资源范围不匹配")
+	}
+	_, err = r.db.ExecContext(ctx, r.query(`INSERT INTO audit_logs
+		(action, resource_type, resource_id, status, message, created_at, scope_type, project_id, task_id, operator_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.Action, item.ResourceType, item.ResourceID, item.Status, item.Message,
+		item.CreatedAt.UTC(), scope.ScopeType, scope.ProjectID, item.TaskID, item.OperatorID)
 	if err != nil {
 		return fmt.Errorf("保存审计日志失败：%w", err)
 	}

@@ -14,7 +14,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
-const managementResourceID = "management-certificate"
+const managementResourceID = repository.ManagementResourceID
 
 type managementActivator interface {
 	Ready(context.Context, httpapi.ManagementCertificateState) error
@@ -106,12 +106,14 @@ func (m *managementRenewal) renew(ctx context.Context, state httpapi.ManagementC
 		finished := time.Now().UTC()
 		taskErr := m.tasks.UpdateTask(finishCtx, task.ID, status, stage, message, &started, &finished)
 		auditErr := m.audit.CreateAuditLog(finishCtx, repository.AuditLog{
+			TaskID: task.ID,
 			Action: "management_renewal", ResourceType: "management_certificate", ResourceID: managementResourceID,
 			Status: status, Message: state.Hostname + "：" + message,
 		})
 		resultErr = errors.Join(resultErr, taskErr, auditErr)
 	}()
 	if err := m.audit.CreateAuditLog(ctx, repository.AuditLog{
+		TaskID: task.ID,
 		Action: "management_renewal", ResourceType: "management_certificate", ResourceID: managementResourceID,
 		Status: "running", Message: state.Hostname + "：开始管理证书续期",
 	}); err != nil {

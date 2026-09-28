@@ -11,6 +11,7 @@ import (
 
 // Task 表示一项可持久化的证书或部署任务。
 type Task struct {
+	HistoryScope
 	ID                   string     `json:"id"`
 	DomainID             string     `json:"domain_id"`
 	TaskType             string     `json:"task_type"`
@@ -28,6 +29,7 @@ type Task struct {
 
 // TaskAttempt 表示任务的一次执行尝试。
 type TaskAttempt struct {
+	HistoryScope
 	ID            string     `json:"id"`
 	TaskID        string     `json:"task_id"`
 	AttemptNumber int        `json:"attempt_number"`
@@ -82,13 +84,34 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
 	if updated.IsZero() {
 		updated = now
 	}
-	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO tasks
-		(id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key, started_at, finished_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+	args := []any{
 		item.ID, item.DomainID, item.TaskType, item.Status, item.Stage, item.Message, item.OperatorID,
-		item.CertificateVersionID, item.IdempotencyKey, nullableTime(item.StartedAt), nullableTime(item.FinishedAt), now, updated)
+		item.CertificateVersionID, item.IdempotencyKey, nullableTime(item.StartedAt), nullableTime(item.FinishedAt), now, updated,
+	}
+	query := `INSERT INTO tasks
+		(id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key, started_at, finished_at, created_at, updated_at, scope_type, project_id) `
+	if item.TaskType == "management_renewal" {
+		if item.DomainID != ManagementResourceID || !item.HistoryScope.matches(HistoryScope{ScopeType: ScopeSystem}) {
+			return errors.New("管理证书任务范围无效")
+		}
+		query += `VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'system', '')`
+	} else {
+		if item.DomainID == ManagementResourceID || (item.ScopeType != "" && item.ScopeType != ScopeProject) {
+			return errors.New("业务任务必须归属于实际域名项目")
+		}
+		// 一条语句读取资源归属并写入快照，不能先检查再插入悬空任务。
+		query += `SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'project', d.project_id
+			FROM domains d JOIN projects p ON p.id = d.project_id WHERE d.id = ? AND (? = '' OR d.project_id = ?)`
+		args = append(args, item.DomainID, item.ProjectID, item.ProjectID)
+	}
+	result, err := r.db.ExecContext(ctx, r.query(query), args...)
 	if err != nil {
 		return fmt.Errorf("创建任务失败：%w", err)
+	}
+	if count, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("读取任务创建结果失败：%w", err)
+	} else if count != 1 {
+		return errors.New("任务资源不存在或项目不匹配")
 	}
 	return nil
 }
@@ -297,12 +320,22 @@ func (r *SQLTaskRepository) CreateAttempt(ctx context.Context, item TaskAttempt)
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = time.Now().UTC()
 	}
-	_, err := r.db.ExecContext(ctx, r.query(`INSERT INTO task_attempts
+	result, err := r.db.ExecContext(ctx, r.query(`INSERT INTO task_attempts
 		(id, task_id, attempt_number, stage, status, message, started_at, finished_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.TaskID, item.AttemptNumber, item.Stage, item.Status, item.Message,
-		nullableTime(item.StartedAt), nullableTime(item.FinishedAt), item.CreatedAt.UTC())
+		SELECT ?, id, ?, ?, ?, ?, ?, ?, ? FROM tasks t WHERE id = ?
+		AND (? = '' OR scope_type = ?) AND (? = '' OR project_id = ?)
+		AND ((t.scope_type = 'system' AND t.task_type = 'management_renewal' AND t.domain_id = 'management-certificate')
+		OR (t.scope_type = 'project' AND EXISTS (SELECT 1 FROM domains d JOIN projects p ON p.id = d.project_id
+			WHERE d.id = t.domain_id AND d.project_id = t.project_id)))`), item.ID, item.AttemptNumber, item.Stage, item.Status, item.Message,
+		nullableTime(item.StartedAt), nullableTime(item.FinishedAt), item.CreatedAt.UTC(), item.TaskID,
+		item.ScopeType, item.ScopeType, item.ProjectID, item.ProjectID)
 	if err != nil {
 		return fmt.Errorf("创建任务尝试失败：%w", err)
+	}
+	if count, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("读取任务尝试创建结果失败：%w", err)
+	} else if count != 1 {
+		return errors.New("任务尝试的父任务不存在或范围不匹配")
 	}
 	return nil
 }
@@ -345,7 +378,9 @@ func (r *SQLTaskRepository) ListAttempts(ctx context.Context, taskID string) ([]
 	if taskID == "" {
 		return nil, errors.New("任务 ID 不能为空")
 	}
-	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, task_id, attempt_number, stage, status, message, started_at, finished_at, created_at FROM task_attempts WHERE task_id = ? ORDER BY attempt_number`), taskID)
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT a.id, a.task_id, a.attempt_number, a.stage, a.status, a.message,
+		a.started_at, a.finished_at, a.created_at, COALESCE(t.scope_type, 'unknown'), COALESCE(t.project_id, '')
+		FROM task_attempts a LEFT JOIN tasks t ON t.id = a.task_id WHERE a.task_id = ? ORDER BY a.attempt_number`), taskID)
 	if err != nil {
 		return nil, fmt.Errorf("查询任务尝试失败：%w", err)
 	}
@@ -364,12 +399,12 @@ func (r *SQLTaskRepository) ListAttempts(ctx context.Context, taskID string) ([]
 	return result, nil
 }
 
-const taskSelect = `SELECT id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key, started_at, finished_at, created_at, updated_at FROM tasks`
+const taskSelect = `SELECT id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key, started_at, finished_at, created_at, updated_at, scope_type, project_id FROM tasks`
 
 func scanTask(row rowScanner) (Task, error) {
 	var item Task
 	var startedAt, finishedAt sql.NullTime
-	if err := row.Scan(&item.ID, &item.DomainID, &item.TaskType, &item.Status, &item.Stage, &item.Message, &item.OperatorID, &item.CertificateVersionID, &item.IdempotencyKey, &startedAt, &finishedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := row.Scan(&item.ID, &item.DomainID, &item.TaskType, &item.Status, &item.Stage, &item.Message, &item.OperatorID, &item.CertificateVersionID, &item.IdempotencyKey, &startedAt, &finishedAt, &item.CreatedAt, &item.UpdatedAt, &item.ScopeType, &item.ProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, sql.ErrNoRows
 		}
@@ -383,7 +418,7 @@ func scanTask(row rowScanner) (Task, error) {
 func scanAttempt(row rowScanner) (TaskAttempt, error) {
 	var item TaskAttempt
 	var startedAt, finishedAt sql.NullTime
-	if err := row.Scan(&item.ID, &item.TaskID, &item.AttemptNumber, &item.Stage, &item.Status, &item.Message, &startedAt, &finishedAt, &item.CreatedAt); err != nil {
+	if err := row.Scan(&item.ID, &item.TaskID, &item.AttemptNumber, &item.Stage, &item.Status, &item.Message, &startedAt, &finishedAt, &item.CreatedAt, &item.ScopeType, &item.ProjectID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return TaskAttempt{}, sql.ErrNoRows
 		}
