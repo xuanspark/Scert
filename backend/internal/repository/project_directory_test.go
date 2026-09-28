@@ -67,6 +67,9 @@ func checkProjectDirectory(t *testing.T, cfg config.DatabaseConfig) {
 				t.Fatalf("项目可见性错误：%s，%+v，%v", tc.actor, page, err)
 			}
 			for _, item := range page.Items {
+				if page.CanCreateProject != (tc.actor == "root") || item.CanManageProject != tc.manage || item.CanDeleteProject != (tc.manage && item.ID != domain.DefaultProjectID) {
+					t.Fatalf("生命周期能力错误：%s，%+v，%+v", tc.actor, page, item)
+				}
 				if item.CanManageMembers != tc.manage || (tc.actor != "root" && item.ID == domain.DefaultProjectID) {
 					t.Fatalf("全局身份被错误映射为项目权限：%s，%+v", tc.actor, item)
 				}
@@ -113,7 +116,7 @@ func checkProjectDirectory(t *testing.T, cfg config.DatabaseConfig) {
 			t.Fatal(err)
 		}
 		page, err := repo.ListVisibleProjects(t.Context(), "manager", "", 5)
-		if err != nil || len(page.Items) == 0 || page.Items[0].CanManageMembers {
+		if err != nil || len(page.Items) == 0 || page.Items[0].CanManageMembers || page.Items[0].CanManageProject || page.Items[0].CanDeleteProject || page.CanCreateProject {
 			t.Fatalf("撤销管理角色未生效：%+v，%v", page, err)
 		}
 		if err := repo.RevokeProjectRole(t.Context(), "root", "visible-00", "manager", domain.ProjectRoleReadOnly); err != nil {

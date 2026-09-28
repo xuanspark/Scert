@@ -17,13 +17,16 @@ type VisibleProject struct {
 	Name             string `json:"name"`
 	Description      string `json:"description"`
 	CanManageMembers bool   `json:"can_manage_members"`
+	CanManageProject bool   `json:"can_manage_project"`
+	CanDeleteProject bool   `json:"can_delete_project"`
 }
 
 type VisibleProjectPage struct {
-	Items      []VisibleProject `json:"items"`
-	PageSize   int              `json:"page_size"`
-	HasMore    bool             `json:"has_more"`
-	NextCursor string           `json:"next_cursor"`
+	Items            []VisibleProject `json:"items"`
+	PageSize         int              `json:"page_size"`
+	HasMore          bool             `json:"has_more"`
+	NextCursor       string           `json:"next_cursor"`
+	CanCreateProject bool             `json:"can_create_project"`
 }
 
 var _ ProjectDirectoryRepository = (*SQLProjectMemberRepository)(nil)
@@ -38,7 +41,7 @@ func (r *SQLProjectMemberRepository) ListVisibleProjects(ctx context.Context, ac
 	}
 	// 授权、可见性过滤与读取共用一条 SQL；有效账户没有项目时仍返回授权门行。
 	// 使用 EXISTS 避免一个账户的多个角色造成重复项目和错误分页。
-	rows, err := r.db.QueryContext(ctx, Rebind(r.driver, `SELECT a.id, p.id, p.name, p.description,
+	rows, err := r.db.QueryContext(ctx, Rebind(r.driver, `SELECT a.id, a.role, p.id, p.name, p.description,
 		CASE WHEN a.role = 'super_admin' OR EXISTS (
 			SELECT 1 FROM project_members manager WHERE manager.project_id = p.id
 			AND manager.user_id = a.id AND manager.role = 'project_admin'
@@ -57,16 +60,18 @@ func (r *SQLProjectMemberRepository) ListVisibleProjects(ctx context.Context, ac
 	defer rows.Close()
 	allowed := false
 	for rows.Next() {
-		var actor string
+		var actor, globalRole string
 		var id, name, description sql.NullString
 		var manager int
-		if err := rows.Scan(&actor, &id, &name, &description, &manager); err != nil {
+		if err := rows.Scan(&actor, &globalRole, &id, &name, &description, &manager); err != nil {
 			return page, fmt.Errorf("读取可见项目失败：%w", err)
 		}
 		allowed = true
+		page.CanCreateProject = globalRole == UserRoleSuperAdmin
 		if id.Valid {
 			page.Items = append(page.Items, VisibleProject{
 				ID: id.String, Name: name.String, Description: description.String, CanManageMembers: manager == 1,
+				CanManageProject: manager == 1, CanDeleteProject: manager == 1 && id.String != "default",
 			})
 		}
 	}

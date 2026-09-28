@@ -9,6 +9,9 @@ const {
   memberNotice, canManageMembers, memberPageSize, memberPage, memberHasMore,
   memberForm, projectRoles, pendingRevoke, loadMembers, changeMemberPageSize,
   nextMemberPage, previousMemberPage, grantMember, requestRevoke, confirmRevoke, roleLabel,
+  canCreateProject, projectEditor, pendingDeleteProject, savingProject,
+  lifecycleError, lifecycleNotice, canEditProject, canDeleteProject,
+  openProjectEditor, requestDeleteProject, cancelProjectAction, saveProject, confirmDeleteProject,
 } = useProjectManagement();
 </script>
 
@@ -16,10 +19,34 @@ const {
   <section class="project-management" aria-label="项目与成员">
     <header class="project-heading">
       <h2>项目与成员</h2>
-      <button type="button" :disabled="loadingProjects || savingMember" @click="loadProjects">刷新项目</button>
+      <div class="project-actions">
+        <button v-if="canCreateProject" class="project-primary" type="button" :disabled="loadingProjects || savingMember || savingProject" @click="openProjectEditor(true)">创建项目</button>
+        <button type="button" :disabled="loadingProjects || savingMember || savingProject" @click="loadProjects">刷新项目</button>
+      </div>
     </header>
     <p v-if="projectError" class="project-error" role="alert">{{ projectError }}</p>
-    <div class="project-layout">
+    <p v-if="lifecycleError" class="project-error" role="alert">{{ lifecycleError }}</p>
+    <p v-if="lifecycleNotice" class="project-notice" role="status">{{ lifecycleNotice }}</p>
+    <form v-if="projectEditor" class="project-editor" aria-label="项目资料" @submit.prevent="saveProject">
+      <h3>{{ projectEditor.create ? "创建项目" : "编辑项目" }}</h3>
+      <label>项目名称
+        <input v-model="projectEditor.name" required maxlength="128" autocomplete="off" :disabled="savingProject" />
+      </label>
+      <label>项目说明
+        <textarea v-model="projectEditor.description" maxlength="4096" rows="2" :disabled="savingProject"></textarea>
+      </label>
+      <div class="project-actions">
+        <button class="project-primary" type="submit" :disabled="savingProject || loadingProjects || savingMember">{{ savingProject ? "正在保存……" : "保存项目" }}</button>
+        <button type="button" :disabled="savingProject" @click="cancelProjectAction">取消</button>
+      </div>
+    </form>
+    <div v-if="pendingDeleteProject" class="project-confirm" role="alert">
+      <span>确认删除项目“{{ pendingDeleteProject.name }}”（{{ pendingDeleteProject.id }}）？</span>
+      <span class="project-help" tabindex="0" title="默认项目不能删除；存在域名、服务器、绑定或成员时会拒绝删除，不会自动删除关联资源。">ⓘ</span>
+      <button class="project-danger" type="button" :disabled="savingProject || loadingProjects || savingMember" @click="confirmDeleteProject">{{ savingProject ? "正在删除……" : "确认删除项目" }}</button>
+      <button type="button" :disabled="savingProject" @click="cancelProjectAction">取消</button>
+    </div>
+    <div class="project-layout" :inert="savingProject" :aria-busy="savingProject">
       <aside class="project-directory" aria-label="可见项目">
         <div class="project-toolbar">
           <h3>我的项目</h3>
@@ -56,7 +83,11 @@ const {
               <h3 :title="selectedProject.description">{{ selectedProject.name }}</h3>
               <small :title="selectedProject.id">项目 ID：{{ selectedProject.id }}</small>
             </div>
-            <button v-if="canManageMembers" type="button" :disabled="loadingMembers || savingMember" @click="loadMembers">刷新成员</button>
+            <div class="project-actions">
+              <button v-if="canEditProject" type="button" :disabled="loadingProjects || savingMember || savingProject" @click="openProjectEditor(false)">编辑项目</button>
+              <button v-if="canDeleteProject" class="project-danger" type="button" :disabled="loadingProjects || savingMember || savingProject" @click="requestDeleteProject">删除项目</button>
+              <button v-if="canManageMembers" type="button" :disabled="loadingMembers || savingMember || savingProject" @click="loadMembers">刷新成员</button>
+            </div>
           </div>
           <p v-if="memberError" class="project-error" role="alert">{{ memberError }}</p>
           <p v-if="memberNotice" class="project-notice" role="status">{{ memberNotice }}</p>

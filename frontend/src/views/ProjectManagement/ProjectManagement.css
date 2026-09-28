@@ -45,6 +45,7 @@
 
 .project-management button,
 .project-management input,
+.project-management textarea,
 .project-management select {
   min-height: 36px;
   padding: 7px 10px;
@@ -209,6 +210,45 @@
   background: #fff4df;
 }
 
+.project-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.project-editor {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(240px, 2fr);
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #dfe6f0;
+  border-radius: 10px;
+  background: #f8faff;
+}
+
+.project-editor h3,
+.project-editor .project-actions {
+  grid-column: 1 / -1;
+}
+
+.project-editor label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.project-editor textarea {
+  resize: vertical;
+}
+
+.project-management .project-danger {
+  color: #a12c3b;
+  border-color: #e2b8c0;
+}
+
 @media (max-width: 1000px) {
   .project-layout {
     grid-template-columns: 1fr;
@@ -225,6 +265,10 @@
   }
 
   .project-grant-form {
+    grid-template-columns: 1fr;
+  }
+
+  .project-editor {
     grid-template-columns: 1fr;
   }
 }

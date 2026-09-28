@@ -157,6 +157,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, SSHKeys: sshKeys, DeploymentFactory: deployment.SSHFactory{Secrets: secretStore},
 		ProjectMembers:   repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectDirectory: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
+		ProjectLifecycle: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		SetupDNS:         dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(), AliyunChecker: aliyunAuthChecker,
 		IssueCertificate: workflow.IssueForHTTP,
 		IssueSetupCertificate: func(ctx context.Context, request certificate.SetupCertificateRequest) (certificate.SavedResource, error) {

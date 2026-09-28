@@ -1,6 +1,7 @@
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { handleProjectSession, pageSizes, requestProjectAPI } from "./ProjectRequest.js";
 import { useProjectMembers } from "./ProjectMembers.js";
+import { useProjectLifecycle } from "./ProjectLifecycle.js";
 
 export function useProjectManagement() {
   const projects = ref([]);
@@ -12,11 +13,15 @@ export function useProjectManagement() {
   const projectPage = ref(0);
   const projectHasMore = ref(false);
   const projectNextCursor = ref("");
+  const canCreateProject = ref(false);
   const members = useProjectMembers(selectedProject);
+  const lifecycle = useProjectLifecycle(selectedProject, canCreateProject,
+    computed(() => loadingProjects.value || members.savingMember.value), refreshAfterMutation);
   let generation = 0;
   let controller;
 
-  async function loadProjects() {
+  async function loadProjects(options = {}) {
+    if (members.savingMember.value || (lifecycle.savingProject.value && options.internal !== true)) return;
     const current = ++generation;
     controller?.abort();
     controller = new AbortController();
@@ -27,6 +32,7 @@ export function useProjectManagement() {
     selectedProject.value = null;
     projectHasMore.value = false;
     projectNextCursor.value = "";
+    canCreateProject.value = false;
     const query = new URLSearchParams({
       page_size: String(projectPageSize.value),
       after: projectCursors.value[projectPage.value],
@@ -35,6 +41,7 @@ export function useProjectManagement() {
       const result = await requestProjectAPI(`/api/v1/projects?${query}`, { signal: controller.signal });
       if (current !== generation) return;
       projects.value = result.items || [];
+      canCreateProject.value = Boolean(result.can_create_project);
       projectHasMore.value = Boolean(result.has_more && result.next_cursor);
       projectNextCursor.value = result.next_cursor || "";
       selectedProject.value = projects.value.find((item) => item.id === selectedID) || projects.value[0] || null;
@@ -45,13 +52,21 @@ export function useProjectManagement() {
     }
   }
 
+  async function refreshAfterMutation(action) {
+    if (action === "create" || action === "delete") {
+      projectPage.value = 0;
+      projectCursors.value = [""];
+    }
+    await loadProjects({ internal: true });
+  }
+
   function selectProject(id) {
-    if (loadingProjects.value || selectedProject.value?.id === id) return;
+    if (loadingProjects.value || lifecycle.savingProject.value || members.savingMember.value || selectedProject.value?.id === id) return;
     selectedProject.value = projects.value.find((item) => item.id === id) || null;
   }
 
   async function changeProjectPageSize(value) {
-    if (!pageSizes.includes(Number(value))) return;
+    if (lifecycle.savingProject.value || members.savingMember.value || !pageSizes.includes(Number(value))) return;
     projectPageSize.value = Number(value);
     projectPage.value = 0;
     projectCursors.value = [""];
@@ -59,14 +74,14 @@ export function useProjectManagement() {
   }
 
   async function nextProjectPage() {
-    if (loadingProjects.value || !projectHasMore.value) return;
+    if (loadingProjects.value || lifecycle.savingProject.value || members.savingMember.value || !projectHasMore.value) return;
     projectCursors.value = [...projectCursors.value.slice(0, projectPage.value + 1), projectNextCursor.value];
     projectPage.value += 1;
     await loadProjects();
   }
 
   async function previousProjectPage() {
-    if (loadingProjects.value || projectPage.value === 0) return;
+    if (loadingProjects.value || lifecycle.savingProject.value || members.savingMember.value || projectPage.value === 0) return;
     projectPage.value -= 1;
     await loadProjects();
   }
@@ -78,7 +93,7 @@ export function useProjectManagement() {
   });
 
   return {
-    ...members, projects, selectedProject, loadingProjects, projectError,
+    ...members, ...lifecycle, canCreateProject, projects, selectedProject, loadingProjects, projectError,
     projectPageSize, projectPage, projectHasMore, pageSizes,
     loadProjects, selectProject, changeProjectPageSize, nextProjectPage, previousProjectPage,
   };

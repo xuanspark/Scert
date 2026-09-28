@@ -21,7 +21,7 @@
     }
   },
   "scripts": {
-    "test": "node --test ../build/toolchain.test.mjs src/App.test.js src/views/PasswordReset/PasswordReset.test.js src/views/SetupWizard/SetupWizard.test.js src/views/SetupWizard/SetupWizardBootstrap.test.js src/views/SetupWizard/DatabaseSetup.test.js src/views/SetupWizard/SetupWizardLayout.test.js src/views/SetupWizard/BootstrapPayload.test.js src/views/Dashboard/Dashboard.test.js src/views/Dashboard/SettingsModal.test.js src/views/UserManagement/UserManagement.test.js src/views/ProjectManagement/ProjectManagement.test.js src/views/components/HelpTip/HelpTip.test.js",
+    "test": "node --test ../build/toolchain.test.mjs src/App.test.js src/views/PasswordReset/PasswordReset.test.js src/views/SetupWizard/SetupWizard.test.js src/views/SetupWizard/SetupWizardBootstrap.test.js src/views/SetupWizard/DatabaseSetup.test.js src/views/SetupWizard/SetupWizardLayout.test.js src/views/SetupWizard/BootstrapPayload.test.js src/views/Dashboard/Dashboard.test.js src/views/Dashboard/SettingsModal.test.js src/views/UserManagement/UserManagement.test.js src/views/ProjectManagement/ProjectManagement.test.js src/views/ProjectManagement/ProjectLifecycle.test.js src/views/components/HelpTip/HelpTip.test.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
