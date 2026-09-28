@@ -235,6 +235,29 @@ func TestHistoryScopeMySQLMigrationRetry(t *testing.T) {
 
 func assertMySQLHistoryIndexes(t *testing.T, db *sql.DB) {
 	t.Helper()
+	// 元数据字段正确不代表 InnoDB 内部索引一致；检查引擎报告但不自动修复表。
+	for _, table := range []string{"tasks", "audit_logs"} {
+		rows, err := db.QueryContext(t.Context(), "CHECK TABLE "+table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ok := false
+		for rows.Next() {
+			var checkedTable, operation, kind, message string
+			if err := rows.Scan(&checkedTable, &operation, &kind, &message); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			if kind == "status" && message == "OK" {
+				ok = true
+			} else {
+				t.Errorf("迁移后的表完整性检查异常：%s %s %s %s", checkedTable, operation, kind, message)
+			}
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil || !ok {
+			t.Fatalf("迁移后的表完整性检查未通过：%s，%v", table, err)
+		}
+	}
 	for _, index := range []struct{ table, name, columns string }{
 		{"tasks", "idx_tasks_project_history", "project_id,created_at"},
 		{"audit_logs", "idx_audit_project_history", "project_id,created_at"},
