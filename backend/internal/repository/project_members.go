@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
@@ -90,50 +89,11 @@ const projectManagerPredicate = `EXISTS (SELECT 1 FROM users a WHERE a.id = ? AN
 		AND manager.user_id = a.id AND manager.role = 'project_admin'))))`
 
 func (r *SQLProjectMemberRepository) GrantProjectRole(ctx context.Context, actorID, projectID, userID string, role domain.ProjectRole) error {
-	if err := r.ensureDB(); err != nil {
-		return err
-	}
-	actorID, projectID, userID = strings.TrimSpace(actorID), strings.TrimSpace(projectID), strings.TrimSpace(userID)
-	if actorID == "" || projectID == "" || userID == "" || !role.Valid() {
-		return ErrProjectAccessDenied
-	}
-	result, err := r.db.ExecContext(ctx, Rebind(r.driver, `INSERT INTO project_members (project_id, user_id, role, created_at)
-		SELECT p.id, u.id, ?, ? FROM projects p JOIN users u ON u.id = ? AND u.status = 'active'
-		WHERE p.id = ? AND `+projectManagerPredicate), role, time.Now().UTC(), userID, projectID, actorID, projectID)
-	if err != nil {
-		return fmt.Errorf("授予项目角色失败：%w", err)
-	}
-	return projectMemberWriteResult(result)
+	return r.changeProjectRole(ctx, actorID, projectID, userID, role, true)
 }
 
 func (r *SQLProjectMemberRepository) RevokeProjectRole(ctx context.Context, actorID, projectID, userID string, role domain.ProjectRole) error {
-	if err := r.ensureDB(); err != nil {
-		return err
-	}
-	actorID, projectID, userID = strings.TrimSpace(actorID), strings.TrimSpace(projectID), strings.TrimSpace(userID)
-	if actorID == "" || projectID == "" || userID == "" || !role.Valid() {
-		return ErrProjectAccessDenied
-	}
-	query := `DELETE FROM project_members WHERE project_id = ? AND user_id = ? AND role = ? AND ` + projectManagerPredicate
-	if r.driver == "mysql" {
-		// MySQL 不允许普通子查询读取正在删除的表，使用自连接完成同一语句内的判权。
-		query = `DELETE target FROM project_members target
-			JOIN users a ON a.id = ? AND a.status = 'active'
-			LEFT JOIN project_members manager ON manager.project_id = target.project_id
-			AND manager.user_id = a.id AND manager.role = 'project_admin'
-			WHERE target.project_id = ? AND target.user_id = ? AND target.role = ?
-			AND (a.role = 'super_admin' OR (a.role IN ('admin', 'user') AND manager.user_id IS NOT NULL))`
-		result, err := r.db.ExecContext(ctx, query, actorID, projectID, userID, role)
-		if err != nil {
-			return fmt.Errorf("撤销项目角色失败：%w", err)
-		}
-		return projectMemberWriteResult(result)
-	}
-	result, err := r.db.ExecContext(ctx, Rebind(r.driver, query), projectID, userID, role, actorID, projectID)
-	if err != nil {
-		return fmt.Errorf("撤销项目角色失败：%w", err)
-	}
-	return projectMemberWriteResult(result)
+	return r.changeProjectRole(ctx, actorID, projectID, userID, role, false)
 }
 
 func projectMemberWriteResult(result sql.Result) error {
