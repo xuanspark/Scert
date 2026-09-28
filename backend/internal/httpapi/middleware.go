@@ -15,6 +15,7 @@ import (
 
 const requestIDHeader = "X-Scert-Request-ID"
 const jsonRequestBodyLimit = 64 * 1024
+const authenticatedActorKey = "authenticated_actor_id"
 
 func (s *Server) requestMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -85,13 +86,16 @@ func (s *Server) requireAuthenticated(c *gin.Context) {
 		})
 		return
 	}
-	if _, ok := s.currentAuthSession(c); !ok {
+	session, ok := s.currentAuthSession(c)
+	if !ok {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"error":      "请先登录管理后台",
 			"request_id": requestIDFromContext(c),
 		})
 		return
 	}
+	// 仅保存本次已验证身份，供失败审计使用；业务权限仍须在仓储内实时判定。
+	c.Set(authenticatedActorKey, session.UserID)
 	if !s.sameOriginForAPI(c.Request) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 			"error":      "请求来源校验失败",

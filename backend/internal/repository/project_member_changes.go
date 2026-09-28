@@ -3,12 +3,17 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
+
+var ErrProjectMemberConflict = errors.New("项目成员角色已存在")
 
 // 成员写入仍在单条语句内检查权限；审计与变更共用事务，任何一步失败都不留下成功变更。
 func (r *SQLProjectMemberRepository) changeProjectRole(ctx context.Context, actorID, projectID, userID string, role domain.ProjectRole, grant bool) error {
@@ -86,7 +91,24 @@ func (r *SQLProjectMemberRepository) writeProjectRole(ctx context.Context, tx *s
 	}
 	result, err := tx.ExecContext(ctx, Rebind(r.driver, query), args...)
 	if err != nil {
+		if grant && projectMemberUniqueViolation(err) {
+			return ErrProjectMemberConflict
+		}
 		return fmt.Errorf("变更项目角色失败：%w", err)
 	}
 	return projectMemberWriteResult(result)
+}
+
+// 只将成员写入的确定唯一键错误映射为冲突；审计触发器或其他约束失败不能伪装成重复授权。
+func projectMemberUniqueViolation(err error) bool {
+	var sqliteCode interface{ Code() int }
+	if errors.As(err, &sqliteCode) {
+		return sqliteCode.Code() == 1555 || sqliteCode.Code() == 2067
+	}
+	var mysqlError *mysql.MySQLError
+	if errors.As(err, &mysqlError) {
+		return mysqlError.Number == 1062
+	}
+	var sqlState interface{ SQLState() string }
+	return errors.As(err, &sqlState) && sqlState.SQLState() == "23505"
 }
