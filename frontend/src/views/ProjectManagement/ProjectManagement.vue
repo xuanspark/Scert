@@ -1,0 +1,124 @@
+<script setup>
+import { useProjectManagement } from "./ProjectManagement.js";
+
+const {
+  projects, selectedProject, loadingProjects, projectError, projectPageSize,
+  projectPage, projectHasMore, pageSizes, loadProjects, selectProject,
+  changeProjectPageSize, nextProjectPage, previousProjectPage,
+  members, accountChoices, loadingMembers, savingMember, memberError, accountError,
+  memberNotice, canManageMembers, memberPageSize, memberPage, memberHasMore,
+  memberForm, projectRoles, pendingRevoke, loadMembers, changeMemberPageSize,
+  nextMemberPage, previousMemberPage, grantMember, requestRevoke, confirmRevoke, roleLabel,
+} = useProjectManagement();
+</script>
+
+<template>
+  <section class="project-management" aria-label="项目与成员">
+    <header class="project-heading">
+      <h2>项目与成员</h2>
+      <button type="button" :disabled="loadingProjects || savingMember" @click="loadProjects">刷新项目</button>
+    </header>
+    <p v-if="projectError" class="project-error" role="alert">{{ projectError }}</p>
+    <div class="project-layout">
+      <aside class="project-directory" aria-label="可见项目">
+        <div class="project-toolbar">
+          <h3>我的项目</h3>
+          <label>每页
+            <select :value="projectPageSize" :disabled="loadingProjects || savingMember" @change="changeProjectPageSize($event.target.value)">
+              <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="loadingProjects" role="status">正在读取项目……</p>
+        <p v-else-if="!projects.length && !projectError" class="project-empty">暂无可见项目</p>
+        <nav class="project-list" aria-label="选择项目">
+          <button
+            v-for="project in projects" :key="project.id" type="button"
+            :aria-current="selectedProject?.id === project.id ? 'true' : undefined"
+            :title="project.description || project.name"
+            @click="selectProject(project.id)"
+          >
+            <strong>{{ project.name }}</strong>
+            <small>{{ project.can_manage_members ? "可管理成员" : "项目成员" }}</small>
+          </button>
+        </nav>
+        <div class="project-pagination">
+          <button type="button" :disabled="loadingProjects || savingMember || projectPage === 0" @click="previousProjectPage">上一页</button>
+          <span>第 {{ projectPage + 1 }} 页</span>
+          <button type="button" :disabled="loadingProjects || savingMember || !projectHasMore" @click="nextProjectPage">下一页</button>
+        </div>
+      </aside>
+
+      <section class="project-members" aria-label="项目成员管理">
+        <template v-if="selectedProject">
+          <div class="project-toolbar">
+            <div class="project-title">
+              <h3 :title="selectedProject.description">{{ selectedProject.name }}</h3>
+              <small :title="selectedProject.id">项目 ID：{{ selectedProject.id }}</small>
+            </div>
+            <button v-if="canManageMembers" type="button" :disabled="loadingMembers || savingMember" @click="loadMembers">刷新成员</button>
+          </div>
+          <p v-if="memberError" class="project-error" role="alert">{{ memberError }}</p>
+          <p v-if="memberNotice" class="project-notice" role="status">{{ memberNotice }}</p>
+          <p v-if="!canManageMembers" class="project-empty">当前没有成员管理权限。权限调整后请刷新项目。</p>
+          <template v-else>
+            <form class="project-grant-form" @submit.prevent="grantMember">
+              <label class="project-account-field">
+                <span>成员账户 <span class="project-help" tabindex="0" title="仅建议当前可见账户和本页已有成员；其他账户请填写对方提供的账户 ID。项目角色不改变账户的全局角色。">ⓘ</span></span>
+                <input v-model="memberForm.userID" list="project-account-options" autocomplete="off" required maxlength="128" placeholder="选择或填写账户 ID" :disabled="savingMember || loadingMembers" />
+                <datalist id="project-account-options">
+                  <option v-for="account in accountChoices" :key="account.id" :value="account.id">{{ account.username }}</option>
+                </datalist>
+              </label>
+              <label>项目角色
+                <select v-model="memberForm.role" :disabled="savingMember || loadingMembers">
+                  <option v-for="role in projectRoles" :key="role.value" :value="role.value">{{ role.label }}</option>
+                </select>
+              </label>
+              <button class="project-primary" type="submit" :disabled="savingMember || loadingMembers">{{ savingMember ? "正在保存……" : "授予角色" }}</button>
+            </form>
+            <p v-if="accountError" class="project-error" role="status">{{ accountError }}</p>
+            <div v-if="pendingRevoke" class="project-confirm" role="alert">
+              <span>确认撤销“{{ pendingRevoke.username }}”的“{{ roleLabel(pendingRevoke.role) }}”角色？</span>
+              <span class="project-help" tabindex="0" title="撤销自己的项目管理员角色后会立即失去成员管理权限；其他已授予的角色不受影响。">ⓘ</span>
+              <button type="button" :disabled="savingMember" @click="confirmRevoke">确认撤销</button>
+              <button type="button" :disabled="savingMember" @click="pendingRevoke = null">取消</button>
+            </div>
+            <div class="project-member-table" :aria-busy="loadingMembers">
+              <table>
+                <thead><tr><th scope="col">成员</th><th scope="col">状态</th><th scope="col">项目角色</th></tr></thead>
+                <tbody>
+                  <tr v-for="member in members" :key="member.user_id">
+                    <td><strong>{{ member.username }}</strong><small>{{ member.user_id }}</small></td>
+                    <td>{{ member.status === "active" ? "正常" : "已停用" }}</td>
+                    <td><div class="project-role-list">
+                      <span v-for="role in member.roles" :key="role" class="project-role">
+                        {{ roleLabel(role) }}
+                        <button type="button" :disabled="savingMember || loadingMembers" :aria-label="`撤销 ${member.username} 的${roleLabel(role)}角色`" @click="requestRevoke(member, role)">撤销</button>
+                      </span>
+                    </div></td>
+                  </tr>
+                  <tr v-if="!members.length"><td colspan="3" class="project-empty">{{ loadingMembers ? "正在读取成员……" : "本页暂无成员" }}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="project-pagination project-member-pagination">
+              <label>每页
+                <select :value="memberPageSize" :disabled="savingMember || loadingMembers" @change="changeMemberPageSize($event.target.value)">
+                  <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
+                </select>
+                位成员
+              </label>
+              <button type="button" :disabled="savingMember || loadingMembers || memberPage === 0" @click="previousMemberPage">上一页</button>
+              <span>第 {{ memberPage + 1 }} 页</span>
+              <button type="button" :disabled="savingMember || loadingMembers || !memberHasMore" @click="nextMemberPage">下一页</button>
+            </div>
+          </template>
+        </template>
+        <p v-else class="project-empty">请从左侧选择有权访问的项目</p>
+      </section>
+    </div>
+  </section>
+</template>
+
+<style scoped src="./ProjectManagement.css"></style>

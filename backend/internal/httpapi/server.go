@@ -49,6 +49,7 @@ type Dependencies struct {
 	Servers                   repository.ServerRepository
 	Users                     repository.UserRepository
 	ProjectMembers            repository.ProjectMemberRepository
+	ProjectDirectory          repository.ProjectDirectoryRepository
 	SSHKeys                   *sshkey.Service
 	DeploymentFactory         deployment.ClientFactory
 	SetupDNS                  setupDNSVerifier
@@ -81,6 +82,7 @@ type Server struct {
 	servers                  repository.ServerRepository
 	users                    repository.UserRepository
 	projectMembers           repository.ProjectMemberRepository
+	projectDirectory         repository.ProjectDirectoryRepository
 	sshKeys                  *sshkey.Service
 	deploymentFactory        deployment.ClientFactory
 	setupDNS                 setupDNSVerifier
@@ -142,6 +144,7 @@ func New(deps Dependencies) *Server {
 		servers:                  deps.Servers,
 		users:                    deps.Users,
 		projectMembers:           deps.ProjectMembers,
+		projectDirectory:         deps.ProjectDirectory,
 		sshKeys:                  deps.SSHKeys,
 		deploymentFactory:        deps.DeploymentFactory,
 		issueCertificate:         deps.IssueCertificate,
@@ -190,6 +193,7 @@ func (s *Server) registerRoutes() {
 	userAPI.PUT("/:id", s.requireSuperAdmin, s.updateUser)
 	userAPI.DELETE("/:id", s.requireSuperAdmin, s.deleteUser)
 	s.registerProjectMemberRoutes()
+	s.router.GET("/api/v1/projects", privateProjectResponse, s.requireAuthenticated, s.listVisibleProjects)
 	adminAPI.GET("/domains", s.listDomains)
 	adminAPI.POST("/domains", s.dnsOperation, s.createDomain)
 	adminAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)

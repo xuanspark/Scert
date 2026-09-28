@@ -24,7 +24,10 @@ defineEmits(["edit", "toggle", "delete"]);
       </thead>
       <tbody>
         <tr v-for="item in users" :key="item.id">
-          <td><strong>{{ item.username }}</strong></td>
+          <td>
+            <strong>{{ item.username }}</strong>
+            <small class="user-account-id" title="可将此账户 ID 提供给项目管理员，用于加入项目">账户 ID：{{ item.id }}</small>
+          </td>
           <td>{{ item.email || "未绑定" }}</td>
           <td><span class="user-badge">{{ roleLabels[item.role] || item.role }}</span></td>
           <td><span class="user-status" :class="item.status">{{ statusLabels[item.status] || item.status }}</span></td>

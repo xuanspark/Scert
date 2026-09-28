@@ -48,7 +48,7 @@ func newProjectMemberAPIFixture(t *testing.T) projectMemberAPIFixture {
 		db: db.DB, members: repository.NewSQLProjectMemberRepository(db.DB, cfg.Database.Driver),
 		audit: repository.NewSQLAuditRepository(db.DB, cfg.Database.Driver), cookies: make(map[string]*http.Cookie),
 	}
-	f.server = New(Dependencies{Config: cfg, Users: users, ProjectMembers: f.members, Audit: f.audit})
+	f.server = New(Dependencies{Config: cfg, Users: users, ProjectMembers: f.members, ProjectDirectory: f.members, Audit: f.audit})
 	for _, account := range []struct{ id, role string }{
 		{"primary-super-admin", repository.UserRoleSuperAdmin}, {"manager", repository.UserRoleUser},
 		{"global-admin", repository.UserRoleAdmin}, {"viewer", repository.UserRoleUser}, {"target", repository.UserRoleUser},

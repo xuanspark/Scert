@@ -24,3 +24,15 @@
   background: #fff;
   cursor: pointer;
 }
+
+.user-workspace-navigation {
+  display: flex;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.user-workspace-navigation button[aria-current="page"] {
+  color: #234d9d;
+  border-color: #4c74cc;
+  background: #edf3ff;
+}

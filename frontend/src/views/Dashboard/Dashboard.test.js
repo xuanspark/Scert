@@ -11,7 +11,7 @@ import { aliyunProvider, deferred, mountComposable, verifiedResponse } from "../
 test("板块导航默认只选中基本信息，超级管理员可切换全部板块", () => {
   const navigation = useDashboardNavigation(ref({ role: "super_admin" }));
   assert.equal(navigation.activeSection.value, "overview");
-  assert.equal(navigation.sections.value.length, 7);
+  assert.equal(navigation.sections.value.length, 8);
   for (const section of navigation.sections.value) {
     navigation.selectSection(section.id);
     assert.equal(navigation.activeSection.value, section.id);
@@ -32,17 +32,17 @@ test("用户管理导航按权限显示，权限变化后回到基本信息", ()
   assert.equal(navigation.activeSection.value, "users");
   user.value = { role: "admin" };
   assert.equal(navigation.activeSection.value, "users");
-  assert.equal(navigation.sections.value.length, 7);
+  assert.equal(navigation.sections.value.length, 8);
   user.value = null;
   assert.equal(navigation.activeSection.value, "overview");
-  assert.equal(navigation.sections.value.length, 5);
+  assert.equal(navigation.sections.value.length, 6);
 });
 
 test("单板块布局使用互斥条件，切换重置滚动且保留弹窗入口", async () => {
   const { readFile } = await import("node:fs/promises");
   const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
   const stylesheet = await readFile(new URL("./DashboardLayout.css", import.meta.url), "utf8");
-  for (const id of ["overview", "activity", "domains", "servers", "keys", "dns-accounts", "users"]) {
+  for (const id of ["overview", "activity", "projects", "domains", "servers", "keys", "dns-accounts", "users"]) {
     assert.ok(template.includes(`v-if="activeSection === '${id}'"`));
   }
   assert.match(template, /:key="activeSection"/);
@@ -95,6 +95,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
   const headings = {
     overview: "基本信息",
     activity: "运行概览",
+    projects: "项目与成员",
     domains: "托管域名",
     servers: "部署服务器",
     keys: "服务器 SSH 密钥",
@@ -111,6 +112,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
       app.component(name, { render: () => null });
     }
     app.component("UserManagement", { render: () => Vue.h("h2", headings.users) });
+    app.component("ProjectManagement", { render: () => Vue.h("h2", headings.projects) });
     app.component("DNSAccounts", { render: () => Vue.h("h2", headings["dns-accounts"]) });
     app.component("DeploymentResult", { render: () => null });
     const warnings = [];

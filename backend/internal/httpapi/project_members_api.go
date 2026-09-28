@@ -16,7 +16,7 @@ import (
 const projectMemberTargetKey = "project_member_target_id"
 
 func (s *Server) registerProjectMemberRoutes() {
-	api := s.router.Group("/api/v1/projects/:projectID/members")
+	api := s.router.Group("/api/v1/projects/:projectID/members", privateProjectResponse)
 	api.GET("", s.projectMemberFailureAudit("project_member.list"), s.requireAuthenticated, s.listProjectMembers)
 	api.POST("", s.projectMemberFailureAudit("project_member.grant"), s.requireAuthenticated, s.grantProjectMember)
 	api.DELETE("/:userID/roles/:role", s.projectMemberFailureAudit("project_member.revoke"), s.requireAuthenticated, s.revokeProjectMember)

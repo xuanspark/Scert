@@ -324,3 +324,12 @@ button:focus-visible {
     padding: 18px;
   }
 }
+.user-account-id {
+  display: block;
+  margin-top: 4px;
+  max-width: 300px;
+  color: #68788f;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

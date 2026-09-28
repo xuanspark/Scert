@@ -32,4 +32,13 @@ func TestApplicationWiresProjectMemberAPI(t *testing.T) {
 	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"items":[]`) {
 		t.Fatalf("实际应用未接入成员仓储或默认项目隐式增加成员：%d，%s", listed.Code, listed.Body.String())
 	}
+	directoryRequest := httptest.NewRequest(http.MethodGet, "/api/v1/projects?page_size=5", nil)
+	for _, cookie := range response.Result().Cookies() {
+		directoryRequest.AddCookie(cookie)
+	}
+	directoryResponse := httptest.NewRecorder()
+	application.HTTP.Handler().ServeHTTP(directoryResponse, directoryRequest)
+	if directoryResponse.Code != http.StatusOK || !strings.Contains(directoryResponse.Body.String(), `"id":"default"`) || !strings.Contains(directoryResponse.Body.String(), `"can_manage_members":true`) {
+		t.Fatalf("实际应用未接入项目入口：%d，%s", directoryResponse.Code, directoryResponse.Body.String())
+	}
 }

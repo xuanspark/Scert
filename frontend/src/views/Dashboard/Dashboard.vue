@@ -1,5 +1,6 @@
 <script setup>
 import UserManagement from "../UserManagement/UserManagement.vue";
+import ProjectManagement from "../ProjectManagement/ProjectManagement.vue";
 import DNSAccounts from "../DNSAccounts/DNSAccounts.vue";
 import SettingsModal from "./SettingsModal.vue";
 import DomainModal from "./DomainModal.vue";
@@ -328,6 +329,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
     </div>
 
     <UserManagement v-if="activeSection === 'users'" />
+    <ProjectManagement v-if="activeSection === 'projects'" />
     <DNSAccounts v-if="activeSection === 'dns-accounts'" :refresh-key="settings" />
 
     <section v-if="activeSection === 'activity'" class="panel operations-panel">
