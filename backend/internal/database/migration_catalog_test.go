@@ -58,7 +58,7 @@ func TestMigrationCatalogDetectsIncompleteChanges(t *testing.T) {
 		mutate func(fstest.MapFS, fstest.MapFS)
 	}{
 		{"unregistered_source", func(source, embedded fstest.MapFS) {
-			source["migrations/mysql/0010_extra.sql"] = &fstest.MapFile{Data: []byte("SELECT 1;")}
+			source[fmt.Sprintf("migrations/mysql/%04d_extra.sql", latestMigrationVersion+1)] = &fstest.MapFile{Data: []byte("SELECT 1;")}
 		}},
 		{"missing_embed", func(source, embedded fstest.MapFS) { delete(embedded, "migrations/postgres/0001_initial.sql") }},
 		{"missing_source", func(source, embedded fstest.MapFS) { delete(source, "migrations/sqlite/0001_initial.sql") }},
@@ -73,7 +73,7 @@ func TestMigrationCatalogDetectsIncompleteChanges(t *testing.T) {
 			delete(source, "migrations/mysql/0001_initial.sql")
 		}},
 		{"unregistered_embed", func(source, embedded fstest.MapFS) {
-			embedded["migrations/postgres/0010_extra.sql"] = &fstest.MapFile{Data: []byte("SELECT 1;")}
+			embedded[fmt.Sprintf("migrations/postgres/%04d_extra.sql", latestMigrationVersion+1)] = &fstest.MapFile{Data: []byte("SELECT 1;")}
 		}},
 	}
 	for _, tc := range cases {

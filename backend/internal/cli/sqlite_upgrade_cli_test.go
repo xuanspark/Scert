@@ -13,6 +13,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"golang.org/x/crypto/bcrypt"
@@ -82,6 +83,7 @@ func TestSQLiteBusinessUpgradeStandaloneCLI(t *testing.T) {
 	runSQLiteProductCLI(t, binary, fixture, "backup", "--output", archive)
 	runSQLiteProductCLI(t, binary, fixture, "certificate", "list")
 	assertSQLiteCLIUpgradeUsable(t, fixture)
+	createSQLiteProjectForBackup(t, fixture)
 	upgraded := snapshotSQLiteCLIState(t, *cfg)
 	currentArchive := filepath.Join(t.TempDir(), "upgraded-backup")
 	runSQLiteProductCLI(t, binary, fixture, "backup", "--output", currentArchive)
@@ -97,6 +99,10 @@ func TestSQLiteBusinessUpgradeStandaloneCLI(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			current, err := database.Open(t.Context(), cfg.Database)
 			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := current.DB.ExecContext(t.Context(), "UPDATE projects SET name = ?", "待恢复的项目名称"); err != nil {
+				_ = current.Close()
 				t.Fatal(err)
 			}
 			if _, err := current.DB.ExecContext(t.Context(), "UPDATE tasks SET message = '不应保留'; DELETE FROM domain_servers"); err != nil {
@@ -127,6 +133,19 @@ func TestSQLiteBusinessUpgradeStandaloneCLI(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func createSQLiteProjectForBackup(t *testing.T, fixture sqliteBusinessFixture) {
+	t.Helper()
+	db, err := database.Open(t.Context(), fixture.config.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	item := domain.Project{ID: "backup-project", Name: "独立程序备份项目", Description: "恢复时必须保留的项目说明"}
+	if err := repository.NewSQLProjectRepository(db.DB).CreateProject(t.Context(), item); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -199,8 +218,12 @@ func assertSQLiteCLIUpgradeUsable(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	defer db.Close()
 	var version, bindings int
-	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 9 {
+	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 10 {
 		t.Fatalf("正式应用入口未完成历史升级：%d，%v", version, err)
+	}
+	project, err := repository.NewSQLProjectRepository(db.DB).GetProject(t.Context(), domain.DefaultProjectID)
+	if err != nil || project.Name != "默认项目" {
+		t.Fatalf("正式应用入口未保留默认项目：%+v，%v", project, err)
 	}
 	task, err := repository.NewSQLTaskRepository(db.DB).GetTask(t.Context(), "task")
 	if err != nil || task.Message != "历史任务" || task.DomainID != "domain" || task.Status != "success" {

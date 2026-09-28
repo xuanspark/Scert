@@ -11,6 +11,7 @@ import (
 
 //go:embed migrations/sqlite/0001_initial.sql migrations/sqlite/0002_domain_options.sql migrations/sqlite/0003_deployment.sql migrations/sqlite/0004_task_attempts.sql migrations/sqlite/0005_users.sql migrations/sqlite/0006_server_validation.sql migrations/sqlite/0007_server_password_auth.sql migrations/sqlite/0009_server_ssh_key_status.sql migrations/mysql/0001_initial.sql migrations/mysql/0002_domain_options.sql migrations/mysql/0003_deployment.sql migrations/mysql/0004_task_attempts.sql migrations/mysql/0005_users.sql migrations/mysql/0006_server_validation.sql migrations/mysql/0007_server_password_auth.sql migrations/mysql/0009_server_ssh_key_status.sql migrations/postgres/0001_initial.sql migrations/postgres/0002_domain_options.sql migrations/postgres/0003_deployment.sql migrations/postgres/0004_task_attempts.sql migrations/postgres/0005_users.sql migrations/postgres/0006_server_validation.sql migrations/postgres/0007_server_password_auth.sql migrations/postgres/0009_server_ssh_key_status.sql
 //go:embed migrations/sqlite/0008_user_groups.sql migrations/mysql/0008_user_groups.sql migrations/postgres/0008_user_groups.sql
+//go:embed migrations/sqlite/0010_projects.sql migrations/mysql/0010_projects.sql migrations/postgres/0010_projects.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -35,7 +36,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 9
+const latestMigrationVersion = 10
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -164,6 +165,8 @@ func migrationName(version int) string {
 		return "user_groups"
 	case 9:
 		return "server_ssh_key_status"
+	case 10:
+		return "projects"
 	default:
 		return "unknown"
 	}
