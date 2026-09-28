@@ -13,6 +13,7 @@ import (
 //go:embed migrations/sqlite/0008_user_groups.sql migrations/mysql/0008_user_groups.sql migrations/postgres/0008_user_groups.sql
 //go:embed migrations/sqlite/0010_projects.sql migrations/mysql/0010_projects.sql migrations/postgres/0010_projects.sql
 //go:embed migrations/sqlite/0011_resource_projects.sql migrations/mysql/0011_resource_projects.sql migrations/postgres/0011_resource_projects.sql
+//go:embed migrations/sqlite/0012_resource_replacement.sql migrations/mysql/0012_resource_replacement.sql migrations/postgres/0012_resource_replacement.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -37,7 +38,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 11
+const latestMigrationVersion = 12
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -106,6 +107,12 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 	}
 	if driver == "sqlite" && version == 11 {
 		if err := installSQLiteResourceConstraints(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if driver == "sqlite" && version == 12 {
+		if err := installSQLiteReplacementGuards(ctx, tx); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -183,6 +190,8 @@ func migrationName(version int) string {
 		return "projects"
 	case 11:
 		return "resource_projects"
+	case 12:
+		return "resource_replacement"
 	default:
 		return "unknown"
 	}
