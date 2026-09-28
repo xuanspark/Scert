@@ -768,6 +768,10 @@ func (s *Server) updateServer(c *gin.Context) {
 	}
 	if err := s.servers.UpdateServer(c.Request.Context(), item); err != nil {
 		cleanup()
+		if errors.Is(err, deployment.ErrSharedPathConflict) {
+			s.writeError(c, http.StatusConflict, deployment.ErrSharedPathConflict.Error(), nil)
+			return
+		}
 		s.writeError(c, serverErrorStatus(err), "更新服务器失败", err)
 		return
 	}
@@ -974,6 +978,9 @@ func serverFromRequest(request serverRequest) deployment.Server {
 }
 
 func serverErrorStatus(err error) int {
+	if errors.Is(err, deployment.ErrSharedPathConflict) {
+		return http.StatusConflict
+	}
 	if repository.IsConflict(err) {
 		return http.StatusConflict
 	}

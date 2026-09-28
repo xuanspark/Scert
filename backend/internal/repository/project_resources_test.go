@@ -137,6 +137,9 @@ func checkProjectResources(t *testing.T, cfg config.DatabaseConfig, admin *sql.D
 		}
 	})
 	checkProjectBindings(t, db.DB, admin, repo, cfg.Driver)
+	t.Run("many_to_many_bindings", func(t *testing.T) {
+		checkManyToManyBindings(t, db.DB, admin, repo, cfg.Driver)
+	})
 	t.Run("revocation_and_disabled_account_are_not_cached", func(t *testing.T) {
 		if err := repo.RevokeProjectRole(t.Context(), "root", "project-a", "reader", domain.ProjectRoleReadOnly); err != nil {
 			t.Fatal(err)

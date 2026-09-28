@@ -72,11 +72,12 @@ func (r *SQLProjectMemberRepository) ReplaceProjectDomainServers(ctx context.Con
 			return nil, errors.New("项目绑定及授权审计相关表必须使用 InnoDB")
 		}
 	}
-	var projectID string
+	var candidate domain.Domain
 	if err := tx.QueryRowContext(ctx, Rebind(r.driver,
-		`SELECT project_id FROM domains WHERE id = ?`+r.resourceWriteLock()), domainID).Scan(&projectID); err != nil {
+		`SELECT id, project_id, name, certificate_type FROM domains WHERE id = ?`+r.resourceWriteLock()), domainID).Scan(&candidate.ID, &candidate.ProjectID, &candidate.Name, &candidate.CertificateType); err != nil {
 		return nil, projectBindingReadError(err)
 	}
+	projectID := candidate.ProjectID
 	if err := r.authorizeBindingTransaction(ctx, tx, actorID, projectID); err != nil {
 		return nil, err
 	}
@@ -91,6 +92,11 @@ func (r *SQLProjectMemberRepository) ReplaceProjectDomainServers(ctx context.Con
 			return nil, ErrProjectAccessDenied
 		}
 		items = append(items, item)
+	}
+	for _, item := range items {
+		if err := validateServerDomainPaths(ctx, tx, r.driver, item, &candidate); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, Rebind(r.driver, `DELETE FROM domain_servers WHERE domain_id = ?`), domainID); err != nil {
 		return nil, fmt.Errorf("清理项目绑定失败：%w", err)
@@ -166,8 +172,8 @@ func (r *SQLProjectMemberRepository) authorizeBindingTransaction(ctx context.Con
 	}
 	defer rows.Close()
 	permissions := map[domain.ProjectPermission]bool{
-		domain.PermissionCertificateRead: false,
-		domain.PermissionServerRead: false,
+		domain.PermissionCertificateRead:   false,
+		domain.PermissionServerRead:        false,
 		domain.PermissionDeploymentExecute: false,
 	}
 	for rows.Next() {

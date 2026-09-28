@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
@@ -41,6 +42,8 @@ func (s *Server) replaceProjectDomainServers(c *gin.Context) {
 		s.writeError(c, http.StatusForbidden, "无权修改此项目的服务器绑定", nil)
 	case errors.Is(err, repository.ErrProjectBindingInput):
 		s.writeError(c, http.StatusBadRequest, err.Error(), nil)
+	case errors.Is(err, deployment.ErrSharedPathConflict):
+		s.writeError(c, http.StatusConflict, deployment.ErrSharedPathConflict.Error(), nil)
 	case err != nil:
 		s.writeError(c, http.StatusInternalServerError, "保存项目服务器绑定失败，请刷新后核对", nil)
 	default:

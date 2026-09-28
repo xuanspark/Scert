@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
 type ServerRepository interface {
@@ -85,25 +87,27 @@ func (r *SQLServerRepository) UpdateServer(ctx context.Context, server deploymen
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
 	}
-	result, err := r.db.ExecContext(ctx, r.query(`UPDATE servers SET name = ?, address = ?, port = ?, username = ?, auth_method = ?, private_key_ref = ?, password_ref = ?, host_key_fingerprint = ?, ssh_key_status = ?, ssh_key_fingerprint = ?, ssh_key_deployed_at = ?, ssh_key_tested_at = ?, ssh_key_error = ?, certificate_path = ?, private_key_path = ?, certificate_chain_path = ?, web_server = ?, validation_command_json = ?, reload_command_json = ?, updated_at = ?, updated_by = ? WHERE id = ? AND project_id = ?`),
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var projectID string
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT project_id FROM servers WHERE id = ?`+serverResourceLock(r.driver)), server.ID).Scan(&projectID); err != nil {
+		return err
+	}
+	if projectID != server.ProjectID {
+		return sql.ErrNoRows
+	}
+	if err := validateServerDomainPaths(ctx, tx, r.driver, server, nil); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, r.query(`UPDATE servers SET name = ?, address = ?, port = ?, username = ?, auth_method = ?, private_key_ref = ?, password_ref = ?, host_key_fingerprint = ?, ssh_key_status = ?, ssh_key_fingerprint = ?, ssh_key_deployed_at = ?, ssh_key_tested_at = ?, ssh_key_error = ?, certificate_path = ?, private_key_path = ?, certificate_chain_path = ?, web_server = ?, validation_command_json = ?, reload_command_json = ?, updated_at = ?, updated_by = ? WHERE id = ? AND project_id = ?`),
 		server.Name, server.Address, server.Port, server.Username, server.AuthMethod, server.PrivateKeyRef, server.PasswordRef, server.HostKeyFingerprint, server.SSHKeyStatus, server.SSHKeyFingerprint, server.SSHKeyDeployedAt, server.SSHKeyTestedAt, server.SSHKeyError, server.CertificatePath, server.PrivateKeyPath, server.CertificateChainPath, server.WebServer, string(validationCommand), string(command), updatedAt, server.UpdatedBy, server.ID, server.ProjectID)
 	if err != nil {
 		return fmt.Errorf("更新服务器失败：%w", err)
 	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("读取服务器更新结果失败：%w", err)
-	}
-	if count == 0 {
-		stored, err := r.GetServerByID(ctx, server.ID)
-		if err != nil {
-			return err
-		}
-		if stored.ProjectID != server.ProjectID {
-			return sql.ErrNoRows
-		}
-	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *SQLServerRepository) GetServerByID(ctx context.Context, id string) (deployment.Server, error) {
@@ -214,28 +218,31 @@ func (r *SQLServerRepository) ReplaceDomainServers(ctx context.Context, domainID
 		seen[id] = struct{}{}
 		cleaned = append(cleaned, id)
 	}
+	sort.Strings(cleaned)
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("开始更新域名服务器关联失败：%w", err)
 	}
+	defer tx.Rollback()
 	rollback := func(cause error) error {
 		_ = tx.Rollback()
 		return cause
 	}
-	var projectID string
-	if err := tx.QueryRowContext(ctx, r.query("SELECT project_id FROM domains WHERE id = ?"), domainID).Scan(&projectID); err != nil {
+	var candidate domain.Domain
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT id, project_id, name, certificate_type FROM domains WHERE id = ?`+serverResourceLock(r.driver)), domainID).Scan(&candidate.ID, &candidate.ProjectID, &candidate.Name, &candidate.CertificateType); err != nil {
 		return rollback(fmt.Errorf("读取绑定域名项目失败：%w", err))
 	}
+	projectID := candidate.ProjectID
 	if _, err := tx.ExecContext(ctx, r.query("DELETE FROM domain_servers WHERE domain_id = ?"), domainID); err != nil {
 		return rollback(fmt.Errorf("清理域名服务器关联失败：%w", err))
 	}
 	for _, serverID := range cleaned {
-		var exists int
-		if err := tx.QueryRowContext(ctx, r.query("SELECT COUNT(*) FROM servers WHERE id = ? AND project_id = ?"), serverID, projectID).Scan(&exists); err != nil {
+		server, err := scanServer(tx.QueryRowContext(ctx, r.query(serverSelectQualified+` WHERE servers.id = ? AND servers.project_id = ?`+serverResourceLock(r.driver)), serverID, projectID))
+		if err != nil {
 			return rollback(fmt.Errorf("校验部署服务器失败：%w", err))
 		}
-		if exists == 0 {
-			return rollback(fmt.Errorf("部署服务器不存在或不属于域名项目：%s", serverID))
+		if err := validateServerDomainPaths(ctx, tx, r.driver, server, &candidate); err != nil {
+			return rollback(err)
 		}
 		if _, err := tx.ExecContext(ctx, r.query("INSERT INTO domain_servers (domain_id, server_id, project_id) VALUES (?, ?, ?)"), domainID, serverID, projectID); err != nil {
 			return rollback(fmt.Errorf("保存域名服务器关联失败：%w", err))

@@ -312,10 +312,15 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	server := New(Dependencies{
 		Config: cfg, Repository: repository.NewSQLDomainRepository(db.DB),
 		Servers: repository.NewSQLServerRepository(db.DB), SSHKeys: sshKeys,
-		ProjectResources: projectResourceReaderStub{
-			domains: repository.NewSQLDomainRepository(db.DB), servers: repository.NewSQLServerRepository(db.DB),
-		},
+		Users:            repository.NewSQLUserRepository(db.DB),
+		ProjectResources: repository.NewSQLProjectMemberRepository(db.DB),
+		ProjectBindings:  repository.NewSQLProjectMemberRepository(db.DB),
 	})
+	// 此旧格式用例同样使用真实账户与项目成员，不能依赖全局管理员绕过绑定权限。
+	_ = httpUserSessionCookie(server, "test-admin", repository.UserRoleAdmin)
+	if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO project_members (project_id, user_id, role) VALUES ('default', 'test-admin', 'project_admin')`); err != nil {
+		t.Fatal(err)
+	}
 
 	domainRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
 	domainRequest.Header.Set("Content-Type", "application/json")

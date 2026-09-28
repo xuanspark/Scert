@@ -117,7 +117,10 @@ const {
             ></label
           >
           <fieldset class="server-picker">
-            <legend>关联部署服务器</legend>
+            <legend>
+              关联部署服务器
+              <HelpTip>可多选；同一服务器可关联多个域名。取消选择只解除当前域名的关联，不删除服务器，也不影响其他域名。</HelpTip>
+            </legend>
             <label
               v-for="server in servers"
               :key="server.id"

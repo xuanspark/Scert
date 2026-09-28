@@ -38,7 +38,7 @@ type certificateService interface {
 }
 
 type serverLister interface {
-	ListServersByDomainID(context.Context, string) ([]deployment.Server, error)
+	ListDeploymentServersByDomainID(context.Context, string) ([]deployment.Server, error)
 }
 
 type savedDeployer interface {
@@ -191,7 +191,7 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 	if err != nil {
 		return deployment.Report{}, fmt.Errorf("查询域名配置失败：%w", err)
 	}
-	servers, err := w.Servers.ListServersByDomainID(ctx, result.DomainID)
+	servers, err := w.Servers.ListDeploymentServersByDomainID(ctx, result.DomainID)
 	if err != nil {
 		return deployment.Report{}, fmt.Errorf("查询域名部署服务器失败：%w", err)
 	}

@@ -29,10 +29,24 @@ func (s *workflowCertificateService) Import(context.Context, certificate.ImportR
 
 type workflowServerLister struct {
 	servers []deployment.Server
+	err     error
 }
 
-func (s workflowServerLister) ListServersByDomainID(context.Context, string) ([]deployment.Server, error) {
-	return s.servers, nil
+func (s workflowServerLister) ListDeploymentServersByDomainID(context.Context, string) ([]deployment.Server, error) {
+	return s.servers, s.err
+}
+
+func TestCertificateWorkflowStopsBeforeRemoteWriteOnSharedPathConflict(t *testing.T) {
+	deployer := &workflowDeployer{}
+	workflow := &CertificateWorkflow{
+		Domains:    &workflowDomainState{},
+		Servers:    workflowServerLister{err: deployment.ErrSharedPathConflict},
+		Deployment: deployer,
+	}
+	_, err := workflow.deploy(t.Context(), certificate.IssueResult{DomainID: "shared-domain"})
+	if !errors.Is(err, deployment.ErrSharedPathConflict) || deployer.targets != nil {
+		t.Fatalf("路径冲突后仍尝试远端部署：%v，%+v", err, deployer.targets)
+	}
 }
 
 type workflowDeployer struct {
