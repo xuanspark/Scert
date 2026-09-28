@@ -20,15 +20,15 @@ func TestProjectLifecycleSQLite(t *testing.T) {
 		cfg := config.Default(t.TempDir()).Database
 		cfg.DSN = filepath.Join(t.TempDir(), "project-lifecycle.db")
 		return cfg
-	})
+	}, nil)
 }
 
 func TestProjectLifecycleMySQLReal(t *testing.T) {
 	server := mysqltest.New(t)
-	checkProjectLifecycle(t, server.Database)
+	checkProjectLifecycle(t, server.Database, server.Admin())
 }
 
-func checkProjectLifecycle(t *testing.T, makeConfig func(*testing.T) config.DatabaseConfig) {
+func checkProjectLifecycle(t *testing.T, makeConfig func(*testing.T) config.DatabaseConfig, admin *sql.DB) {
 	t.Helper()
 	run := func(name string, check func(*testing.T, *sql.DB, *SQLProjectMemberRepository, string)) {
 		t.Run(name, func(t *testing.T) {
@@ -191,11 +191,19 @@ func checkProjectLifecycle(t *testing.T, makeConfig func(*testing.T) config.Data
 			if err != nil {
 				t.Fatal(err)
 			}
+			executor := db
 			trigger := `CREATE TRIGGER fail_project_audit BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit-failure'); END`
 			if driver == "mysql" {
-				trigger = `CREATE TRIGGER fail_project_audit BEFORE INSERT ON audit_logs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='audit-failure'`
+				// 故障注入由隔离实例管理员执行，不提高业务权限或放宽二进制日志策略。
+				var schema string
+				if err := db.QueryRowContext(t.Context(), "SELECT DATABASE()").Scan(&schema); err != nil {
+					t.Fatal(err)
+				}
+				schema = "`" + strings.ReplaceAll(schema, "`", "``") + "`"
+				executor = admin
+				trigger = `CREATE TRIGGER ` + schema + `.fail_project_audit BEFORE INSERT ON ` + schema + `.audit_logs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='audit-failure'`
 			}
-			if _, err := db.ExecContext(t.Context(), trigger); err != nil {
+			if _, err := executor.ExecContext(t.Context(), trigger); err != nil {
 				t.Fatal(err)
 			}
 			switch action {
