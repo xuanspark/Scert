@@ -13,6 +13,10 @@ const DefaultProjectID = "default"
 
 var projectIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,35}$`)
 
+func ValidProjectID(id string) bool {
+	return projectIDPattern.MatchString(id)
+}
+
 type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -41,7 +45,7 @@ func (p Project) Normalize() Project {
 }
 
 func (p Project) Validate() error {
-	if !projectIDPattern.MatchString(p.ID) {
+	if !ValidProjectID(p.ID) {
 		return errors.New("项目 ID 必须为 1～36 位小写字母、数字、连字符或下划线，并以字母或数字开头")
 	}
 	if !utf8.ValidString(p.Name) || strings.TrimSpace(p.Name) == "" || utf8.RuneCountInString(p.Name) > 128 {

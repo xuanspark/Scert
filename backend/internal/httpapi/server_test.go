@@ -43,7 +43,11 @@ func TestHealthAndDomainAPI(t *testing.T) {
 		t.Fatalf("初始化日志失败：%v", err)
 	}
 	defer logger.Close()
-	server := New(Dependencies{Config: cfg, Logger: logger, Repository: repository.NewSQLDomainRepository(db.DB)})
+	repo := repository.NewSQLDomainRepository(db.DB)
+	server := New(Dependencies{
+		Config: cfg, Logger: logger, Repository: repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+	})
 
 	health := httptest.NewRecorder()
 	serveAdminHTTP(server, health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -308,6 +312,9 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	server := New(Dependencies{
 		Config: cfg, Repository: repository.NewSQLDomainRepository(db.DB),
 		Servers: repository.NewSQLServerRepository(db.DB), SSHKeys: sshKeys,
+		ProjectResources: projectResourceReaderStub{
+			domains: repository.NewSQLDomainRepository(db.DB), servers: repository.NewSQLServerRepository(db.DB),
+		},
 	})
 
 	domainRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
@@ -668,10 +675,10 @@ func TestDomainAPIReportsMissingRepository(t *testing.T) {
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, request)
 
-	if response.Code != http.StatusNotImplemented {
-		t.Fatalf("域名仓储未配置时应返回 501：%d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("项目资源授权仓储未配置时应返回 503：%d %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "域名管理接口尚未配置") {
+	if !strings.Contains(response.Body.String(), "项目资源服务尚未就绪") {
 		t.Fatalf("缺少域名仓储错误提示：%s", response.Body.String())
 	}
 }

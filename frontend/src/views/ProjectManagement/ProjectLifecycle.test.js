@@ -4,9 +4,49 @@ import { ref } from "vue";
 import { mountComposable, deferred } from "../../test-support/mount.js";
 import { useProjectLifecycle } from "./ProjectLifecycle.js";
 import { useProjectManagement } from "./ProjectManagement.js";
+import { useProjectMembers } from "./ProjectMembers.js";
 
 const projectA = { id: "project-a", name: "项目甲", description: "说明", can_manage_project: true, can_delete_project: true, can_manage_members: false };
 const projectB = { ...projectA, id: "project-b", name: "项目乙" };
+
+test("项目保存期间，成员操作函数也拒绝变更和翻页", async (t) => {
+  const project = ref({ ...projectA, can_manage_members: true });
+  const busy = ref(false);
+  const calls = [];
+  const { state } = await mountComposable(t, () => useProjectMembers(project, busy), async (path, options) => {
+    calls.push([path, options.method]);
+    return Response.json({ items: [], has_more: true, next_cursor: "member-next" });
+  });
+  const before = calls.length;
+  busy.value = true;
+  state.memberForm.value = { userID: "target", role: "read_only" };
+  await state.grantMember();
+  state.requestRevoke({ user_id: "target", username: "目标", roles: ["read_only"] }, "read_only");
+  await state.nextMemberPage();
+  await state.changeMemberPageSize(30);
+  assert.equal(calls.length, before);
+  assert.equal(state.pendingRevoke.value, null);
+  assert.equal(state.memberPage.value, 0);
+  assert.equal(state.memberPageSize.value, 10);
+});
+
+test("项目资料拒绝控制字符但说明允许换行和制表符", async (t) => {
+  const calls = [];
+  const { state } = await setup(t, async (_path, options) => {
+    calls.push(JSON.parse(options.body));
+    return Response.json({ id: "created" }, { status: 201 });
+  });
+  state.openProjectEditor(true);
+  for (const [name, description] of [["项目\u0085名称", "说明"], ["项目", "说明\u000b内容"], ["项目", "说明\u009f内容"]]) {
+    Object.assign(state.projectEditor.value, { name, description });
+    await state.saveProject();
+    assert.equal(calls.length, 0);
+    assert.ok(state.lifecycleError.value);
+  }
+  Object.assign(state.projectEditor.value, { name: "项目", description: "第一行\n第二行\t内容" });
+  await state.saveProject();
+  assert.deepEqual(calls, [{ name: "项目", description: "第一行\n第二行\t内容" }]);
+});
 
 async function setup(t, fetcher, refresh = async () => {}) {
   const project = ref({ ...projectA });

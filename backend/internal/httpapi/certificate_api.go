@@ -30,13 +30,16 @@ type certificatePathRequest struct {
 }
 
 func (s *Server) listCertificates(c *gin.Context) {
-	if s.repository == nil || s.currentCertificate == nil {
+	if !s.requireProjectResourceReader(c) {
+		return
+	}
+	if s.currentCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书管理接口尚未配置", errors.New("证书服务未配置"))
 		return
 	}
-	items, err := s.repository.List(c.Request.Context())
+	items, err := s.projectResources.ListVisibleDomains(c.Request.Context(), c.GetString(authenticatedActorKey))
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, "查询域名证书失败", err)
+		s.writeProjectResourceError(c, err)
 		return
 	}
 	result := make([]gin.H, 0, len(items))
@@ -57,6 +60,9 @@ func (s *Server) listCertificates(c *gin.Context) {
 }
 
 func (s *Server) getCertificate(c *gin.Context) {
+	if !s.requireVisibleCertificateDomain(c) {
+		return
+	}
 	if s.currentCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书管理接口尚未配置", errors.New("证书服务未配置"))
 		return
@@ -70,6 +76,9 @@ func (s *Server) getCertificate(c *gin.Context) {
 }
 
 func (s *Server) listCertificateVersions(c *gin.Context) {
+	if !s.requireVisibleCertificateDomain(c) {
+		return
+	}
 	if s.currentCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书管理接口尚未配置", errors.New("证书服务未配置"))
 		return

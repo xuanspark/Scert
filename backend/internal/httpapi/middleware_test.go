@@ -77,7 +77,7 @@ func TestAdminAPIAcceptsAuthenticatedSessionAndRejectsCrossOrigin(t *testing.T) 
 		t.Fatal("登录响应未返回会话 Cookie")
 	}
 
-	authenticatedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	authenticatedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
 	authenticatedRequest.AddCookie(cookie[0])
 	authenticatedResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(authenticatedResponse, authenticatedRequest)
@@ -85,7 +85,7 @@ func TestAdminAPIAcceptsAuthenticatedSessionAndRejectsCrossOrigin(t *testing.T) 
 		t.Fatalf("登录后访问管理接口失败：%d %s", authenticatedResponse.Code, authenticatedResponse.Body.String())
 	}
 
-	crossOriginRequest := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	crossOriginRequest := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
 	crossOriginRequest.AddCookie(cookie[0])
 	crossOriginRequest.Host = "127.0.0.1:5200"
 	crossOriginRequest.Header.Set("Origin", "https://malicious.example")
@@ -108,7 +108,7 @@ func TestAdminAPIRejectsAuthenticatedRegularUser(t *testing.T) {
 	cfg.Admin.PasswordHash = string(hash)
 	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
 	cookie := httpUserSessionCookie(server, "user-1", repository.UserRoleUser)
-	response := serveUserRequest(server, cookie, http.MethodGet, "/api/v1/domains", "")
+	response := serveUserRequest(server, cookie, http.MethodGet, "/api/v1/settings", "")
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("普通用户访问管理接口应返回 403，实际为 %d：%s", response.Code, response.Body.String())
 	}

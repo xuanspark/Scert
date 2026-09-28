@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
@@ -17,7 +18,7 @@ func (s *Server) projectMemberFailureAudit(action string) gin.HandlerFunc {
 			return
 		}
 		projectID := c.Param("projectID")
-		if !validMemberIdentifier(projectID) {
+		if !domain.ValidProjectID(projectID) {
 			projectID = ""
 		}
 		target := c.GetString(projectMemberTargetKey)

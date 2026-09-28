@@ -22,6 +22,19 @@ func TestNewProject(t *testing.T) {
 	}
 }
 
+func TestValidProjectID(t *testing.T) {
+	for _, id := range []string{DefaultProjectID, "a", "1", "project_a-1", strings.Repeat("a", 36)} {
+		if !ValidProjectID(id) {
+			t.Fatalf("拒绝合法项目标识：%q", id)
+		}
+	}
+	for _, id := range []string{"", "UPPERCASE", strings.Repeat("a", 37), " project", "project ", "_project", "../project", "项目"} {
+		if ValidProjectID(id) {
+			t.Fatalf("接受无效项目标识：%q", id)
+		}
+	}
+}
+
 func TestProjectValidation(t *testing.T) {
 	cases := []struct {
 		name  string

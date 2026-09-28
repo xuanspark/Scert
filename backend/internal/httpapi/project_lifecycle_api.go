@@ -24,7 +24,7 @@ func (s *Server) projectLifecycleReady(c *gin.Context, creating bool) bool {
 		s.writeError(c, http.StatusServiceUnavailable, "项目管理服务尚未就绪", nil)
 		return false
 	}
-	if c.Request.URL.RawQuery != "" || (!creating && !validMemberIdentifier(c.Param("projectID"))) {
+	if c.Request.URL.RawQuery != "" || (!creating && !domain.ValidProjectID(c.Param("projectID"))) {
 		s.writeError(c, http.StatusBadRequest, "项目请求参数无效", nil)
 		return false
 	}
@@ -119,7 +119,7 @@ func (s *Server) projectFailureAudit(action string) gin.HandlerFunc {
 			return
 		}
 		projectID := c.Param("projectID")
-		if !validMemberIdentifier(projectID) {
+		if !domain.ValidProjectID(projectID) {
 			projectID = ""
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 3*time.Second)

@@ -14,9 +14,10 @@ export function useProjectManagement() {
   const projectHasMore = ref(false);
   const projectNextCursor = ref("");
   const canCreateProject = ref(false);
-  const members = useProjectMembers(selectedProject);
+  const savingProject = ref(false);
+  const members = useProjectMembers(selectedProject, savingProject);
   const lifecycle = useProjectLifecycle(selectedProject, canCreateProject,
-    computed(() => loadingProjects.value || members.savingMember.value), refreshAfterMutation);
+    computed(() => loadingProjects.value || members.savingMember.value), refreshAfterMutation, savingProject);
   let generation = 0;
   let controller;
 

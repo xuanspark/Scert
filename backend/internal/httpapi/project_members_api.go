@@ -27,7 +27,7 @@ func (s *Server) projectMemberRequestReady(c *gin.Context) bool {
 		s.writeError(c, http.StatusServiceUnavailable, "项目成员服务尚未就绪", nil)
 		return false
 	}
-	if !validMemberIdentifier(c.Param("projectID")) {
+	if !domain.ValidProjectID(c.Param("projectID")) {
 		s.writeError(c, http.StatusBadRequest, "项目标识无效", nil)
 		return false
 	}

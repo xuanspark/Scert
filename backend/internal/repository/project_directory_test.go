@@ -66,8 +66,11 @@ func checkProjectDirectory(t *testing.T, cfg config.DatabaseConfig) {
 			if err != nil || page.Items == nil || len(page.Items) != tc.count || page.HasMore || page.NextCursor != "" {
 				t.Fatalf("项目可见性错误：%s，%+v，%v", tc.actor, page, err)
 			}
+			if page.CanCreateProject != (tc.actor == "root") {
+				t.Fatalf("空目录也必须返回正确创建能力：%s，%+v", tc.actor, page)
+			}
 			for _, item := range page.Items {
-				if page.CanCreateProject != (tc.actor == "root") || item.CanManageProject != tc.manage || item.CanDeleteProject != (tc.manage && item.ID != domain.DefaultProjectID) {
+				if item.CanManageProject != tc.manage || item.CanDeleteProject != (tc.manage && item.ID != domain.DefaultProjectID) {
 					t.Fatalf("生命周期能力错误：%s，%+v，%+v", tc.actor, page, item)
 				}
 				if item.CanManageMembers != tc.manage || (tc.actor != "root" && item.ID == domain.DefaultProjectID) {

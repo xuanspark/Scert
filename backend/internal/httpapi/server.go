@@ -51,6 +51,7 @@ type Dependencies struct {
 	ProjectMembers            repository.ProjectMemberRepository
 	ProjectDirectory          repository.ProjectDirectoryRepository
 	ProjectLifecycle          repository.ProjectLifecycleRepository
+	ProjectResources          repository.ProjectResourceReader
 	SSHKeys                   *sshkey.Service
 	DeploymentFactory         deployment.ClientFactory
 	SetupDNS                  setupDNSVerifier
@@ -85,6 +86,7 @@ type Server struct {
 	projectMembers           repository.ProjectMemberRepository
 	projectDirectory         repository.ProjectDirectoryRepository
 	projectLifecycle         repository.ProjectLifecycleRepository
+	projectResources         repository.ProjectResourceReader
 	sshKeys                  *sshkey.Service
 	deploymentFactory        deployment.ClientFactory
 	setupDNS                 setupDNSVerifier
@@ -148,6 +150,7 @@ func New(deps Dependencies) *Server {
 		projectMembers:           deps.ProjectMembers,
 		projectDirectory:         deps.ProjectDirectory,
 		projectLifecycle:         deps.ProjectLifecycle,
+		projectResources:         deps.ProjectResources,
 		sshKeys:                  deps.SSHKeys,
 		deploymentFactory:        deps.DeploymentFactory,
 		issueCertificate:         deps.IssueCertificate,
@@ -197,8 +200,8 @@ func (s *Server) registerRoutes() {
 	userAPI.DELETE("/:id", s.requireSuperAdmin, s.deleteUser)
 	s.registerProjectMemberRoutes()
 	s.registerProjectLifecycleRoutes()
+	s.registerProjectResourceRoutes()
 	s.router.GET("/api/v1/projects", privateProjectResponse, s.requireAuthenticated, s.listVisibleProjects)
-	adminAPI.GET("/domains", s.listDomains)
 	adminAPI.POST("/domains", s.dnsOperation, s.createDomain)
 	adminAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)
 	adminAPI.DELETE("/domains/:id", s.deleteDomain)
@@ -215,18 +218,12 @@ func (s *Server) registerRoutes() {
 	adminAPI.POST("/dns/test", s.dnsOperation, s.testAdminDNS)
 	adminAPI.POST("/dns/aliyun/check", s.dnsOperation, s.checkAliyunDNSDomain)
 	adminAPI.POST("/renewal/run", s.longOperation(certificateTaskTimeout), s.runRenewalNow)
-	adminAPI.GET("/certificates", s.listCertificates)
-	adminAPI.GET("/certificates/:id", s.getCertificate)
 	adminAPI.POST("/domains/:id/certificate/import", s.longOperation(certificateTaskTimeout), s.importCertificateFiles)
 	adminAPI.POST("/domains/:id/certificate/validate", s.longOperation(certificateTaskTimeout), s.validateCertificate)
 	adminAPI.POST("/domains/:id/deploy", s.longOperation(certificateTaskTimeout), s.deployCertificateCurrent)
-	adminAPI.GET("/domains/:id/certificate/versions", s.listCertificateVersions)
 	adminAPI.POST("/domains/:id/certificate/versions/:version/restore", s.longOperation(certificateTaskTimeout), s.restoreCertificateVersion)
-	adminAPI.GET("/domains/:id/servers", s.listDomainServers)
 	adminAPI.PUT("/domains/:id/servers", s.replaceDomainServers)
-	adminAPI.GET("/servers", s.listServers)
 	adminAPI.POST("/servers", s.createServer)
-	adminAPI.GET("/servers/:id", s.getServer)
 	adminAPI.PUT("/servers/:id", s.updateServer)
 	adminAPI.DELETE("/servers/:id", s.deleteServer)
 	adminAPI.GET("/ssh-keys", s.listSSHKeys)
@@ -529,12 +526,12 @@ func (s *Server) requireDomainRepository(c *gin.Context) bool {
 }
 
 func (s *Server) listDomains(c *gin.Context) {
-	if !s.requireDomainRepository(c) {
+	if !s.requireProjectResourceReader(c) {
 		return
 	}
-	items, err := s.repository.List(c.Request.Context())
+	items, err := s.projectResources.ListVisibleDomains(c.Request.Context(), c.GetString(authenticatedActorKey))
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, "查询域名失败", err)
+		s.writeProjectResourceError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
@@ -676,30 +673,24 @@ func (s *Server) issueDomain(c *gin.Context) {
 }
 
 func (s *Server) listServers(c *gin.Context) {
-	if s.servers == nil {
-		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
+	if !s.requireProjectResourceReader(c) {
 		return
 	}
-	items, err := s.servers.ListServers(c.Request.Context())
+	items, err := s.projectResources.ListVisibleServers(c.Request.Context(), c.GetString(authenticatedActorKey))
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, "查询服务器失败", err)
+		s.writeProjectResourceError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 func (s *Server) getServer(c *gin.Context) {
-	if s.servers == nil {
-		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
+	if !s.requireProjectResourceReader(c) {
 		return
 	}
-	item, err := s.servers.GetServerByID(c.Request.Context(), c.Param("id"))
+	item, err := s.projectResources.GetVisibleServer(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
 	if err != nil {
-		if repository.IsNotFound(err) {
-			s.writeError(c, http.StatusNotFound, "服务器不存在", err)
-			return
-		}
-		s.writeError(c, http.StatusInternalServerError, "读取服务器失败", err)
+		s.writeProjectResourceError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, item)
@@ -962,24 +953,12 @@ func (s *Server) deleteServer(c *gin.Context) {
 }
 
 func (s *Server) listDomainServers(c *gin.Context) {
-	if !s.requireDomainRepository(c) {
+	if !s.requireProjectResourceReader(c) {
 		return
 	}
-	if s.servers == nil {
-		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
-		return
-	}
-	if _, err := s.repository.GetByID(c.Request.Context(), c.Param("id")); err != nil {
-		if repository.IsNotFound(err) {
-			s.writeError(c, http.StatusNotFound, "域名不存在", err)
-			return
-		}
-		s.writeError(c, http.StatusInternalServerError, "读取域名失败", err)
-		return
-	}
-	items, err := s.servers.ListServersByDomainID(c.Request.Context(), c.Param("id"))
+	items, err := s.projectResources.ListVisibleDomainServers(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, "查询域名部署服务器失败", err)
+		s.writeProjectResourceError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})

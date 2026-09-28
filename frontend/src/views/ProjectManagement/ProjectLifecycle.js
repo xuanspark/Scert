@@ -1,10 +1,9 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { handleProjectSession, requestProjectAPI } from "./ProjectRequest.js";
 
-export function useProjectLifecycle(project, canCreateProject, busy, refresh) {
+export function useProjectLifecycle(project, canCreateProject, busy, refresh, savingProject = ref(false)) {
   const projectEditor = ref(null);
   const pendingDeleteProject = ref(null);
-  const savingProject = ref(false);
   const lifecycleError = ref("");
   const lifecycleNotice = ref("");
   const canEditProject = computed(() => Boolean(project.value?.can_manage_project));
@@ -87,7 +86,9 @@ export function useProjectLifecycle(project, canCreateProject, busy, refresh) {
     if (!form || !(form.create ? canCreateProject.value : canEditProject.value && form.id === project.value?.id)) return;
     const name = form.name.trim();
     const description = form.description.trim();
-    if (!name || [...name].length > 128 || [...description].length > 4096 || /[\u0000-\u001f\u007f]/.test(name)) {
+    if (!name || [...name].length > 128 || [...description].length > 4096
+      || /[\u0000-\u001f\u007f-\u009f]/.test(name)
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(description)) {
       lifecycleError.value = "请填写有效项目名称（最多 128 字），说明最多 4096 字";
       return;
     }

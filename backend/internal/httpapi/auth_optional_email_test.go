@@ -57,7 +57,8 @@ func TestAuthSessionsSupportOptionalEmail(t *testing.T) {
 			if !payload.Authenticated || payload.Email != "" || payload.Role != role || payload.IsAdmin != (role == repository.UserRoleAdmin) {
 				t.Fatalf("unexpected session identity: %+v", payload)
 			}
-			request := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+			// 全局管理角色边界使用系统设置；域名读取现按项目成员身份判定。
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
 			request.AddCookie(cookies[0])
 			access := httptest.NewRecorder()
 			server.Handler().ServeHTTP(access, request)

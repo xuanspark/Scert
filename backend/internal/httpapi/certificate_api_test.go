@@ -49,7 +49,11 @@ func TestCertificateReadAPIs(t *testing.T) {
 		versions: []certificate.SavedResource{{Version: "20260827-120000.000000000"}},
 	}
 	repo := &stubDomainRepository{items: []domain.Domain{{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSAN}}}
-	server := New(Dependencies{Config: readyTestConfig(t.TempDir()), Repository: repo, CurrentCertificate: reader})
+	repo.loaded = repo.items[0]
+	server := New(Dependencies{
+		Config: readyTestConfig(t.TempDir()), Repository: repo, CurrentCertificate: reader,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+	})
 
 	list := httptest.NewRecorder()
 	serveAdminHTTP(server, list, httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil))
@@ -79,6 +83,7 @@ func TestCertificateListHidesReaderErrors(t *testing.T) {
 		Config:             readyTestConfig(t.TempDir()),
 		Repository:         repo,
 		CurrentCertificate: reader,
+		ProjectResources:   projectResourceReaderStub{domains: repo},
 	})
 
 	response := httptest.NewRecorder()

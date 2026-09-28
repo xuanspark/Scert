@@ -42,6 +42,36 @@ test("完整成员页面可渲染中文、多个角色、权限拒绝和确认�
   assert.match(html, /当前没有成员管理权限/);
   assert.doesNotMatch(html, /project-grant-form/);
   assert.doesNotMatch(html, /unexpected/);
+
+  state.canCreateProject.value = true;
+  state.openProjectEditor(true);
+  state.projectEditor.value.name = '<img src=x onerror="unexpected">';
+  state.projectEditor.value.description = "第一行\n第二行";
+  html = await renderPage();
+  assert.match(html, /aria-label="项目资料"/);
+  assert.match(html, /maxlength="128"/);
+  assert.match(html, /maxlength="4096"/);
+  assert.match(html, /第一行\n第二行/);
+  assert.match(html, /&lt;img/);
+  assert.doesNotMatch(html, /<img src=x/);
+  state.savingProject.value = true;
+  html = await renderPage();
+  assert.match(html, /正在保存……/);
+  assert.match(html, /<input[^>]*disabled/);
+  assert.match(html, /<textarea[^>]*disabled/);
+  state.savingProject.value = false;
+  state.cancelProjectAction();
+  state.selectedProject.value = { ...projectA, can_manage_project: true, can_delete_project: true };
+  state.requestDeleteProject();
+  html = await renderPage();
+  assert.match(html, /确认删除项目/);
+  assert.match(html, /默认项目不能删除/);
+  assert.doesNotMatch(html, /project-editor/);
+  state.selectedProject.value = { ...projectA, can_manage_project: false, can_delete_project: false };
+  state.openProjectEditor();
+  state.requestDeleteProject();
+  html = await renderPage();
+  assert.doesNotMatch(html, /确认删除项目|aria-label="项目资料"/);
 });
 
 test("账户页提供本人可分享的账户 ID，不要求用户查看数据库", async () => {

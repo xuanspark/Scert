@@ -118,7 +118,7 @@ func TestHTTPServerUsesProductionTimeoutsAndTLSMinimum(t *testing.T) {
 func TestDomainAPIValidatesSANAndHidesInternalErrors(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{}
-	server := New(Dependencies{Config: cfg, Repository: repo})
+	server := New(Dependencies{Config: cfg, Repository: repo, ProjectResources: projectResourceReaderStub{domains: repo}})
 
 	invalid := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["bad_domain"]}`))
 	invalid.Header.Set("Content-Type", "application/json")

@@ -10,7 +10,7 @@ export const projectRoles = [
   { value: "read_only", label: "只读用户" },
 ];
 
-export function useProjectMembers(project) {
+export function useProjectMembers(project, projectBusy = ref(false)) {
   const members = ref([]);
   const accounts = ref([]);
   const loadingMembers = ref(false);
@@ -95,7 +95,7 @@ export function useProjectMembers(project) {
   }
 
   async function changeMemberPageSize(value) {
-    if (savingMember.value || !pageSizes.includes(Number(value))) return;
+    if (projectBusy.value || savingMember.value || !pageSizes.includes(Number(value))) return;
     memberPageSize.value = Number(value);
     memberPage.value = 0;
     cursors.value = [""];
@@ -104,7 +104,7 @@ export function useProjectMembers(project) {
   }
 
   async function nextMemberPage() {
-    if (loadingMembers.value || savingMember.value || !memberHasMore.value) return;
+    if (projectBusy.value || loadingMembers.value || savingMember.value || !memberHasMore.value) return;
     cursors.value = [...cursors.value.slice(0, memberPage.value + 1), nextCursor.value];
     memberPage.value += 1;
     pendingRevoke.value = null;
@@ -112,14 +112,14 @@ export function useProjectMembers(project) {
   }
 
   async function previousMemberPage() {
-    if (loadingMembers.value || savingMember.value || memberPage.value === 0) return;
+    if (projectBusy.value || loadingMembers.value || savingMember.value || memberPage.value === 0) return;
     memberPage.value -= 1;
     pendingRevoke.value = null;
     await loadMembers();
   }
 
   async function mutateMember(userID, role, revoke) {
-    if (!canManageMembers.value || savingMember.value || loadingMembers.value) return;
+    if (projectBusy.value || !canManageMembers.value || savingMember.value || loadingMembers.value) return;
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(userID) || !projectRoles.some((item) => item.value === role)) {
       memberError.value = "请选择有效的账户 ID 和项目角色";
       return;
@@ -159,7 +159,7 @@ export function useProjectMembers(project) {
   }
 
   function requestRevoke(member, role) {
-    if (!canManageMembers.value || savingMember.value || loadingMembers.value || !member.roles.includes(role)) return;
+    if (projectBusy.value || !canManageMembers.value || savingMember.value || loadingMembers.value || !member.roles.includes(role)) return;
     pendingRevoke.value = { userID: member.user_id, username: member.username, role };
   }
 
