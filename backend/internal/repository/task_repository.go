@@ -127,6 +127,17 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
 	if err := validateTaskInsertResult(result); err != nil {
 		return err
 	}
+	if item.IdempotencyKey != "" {
+		idempotencyResult, idempotencyErr := tx.ExecContext(ctx, r.query(`INSERT INTO task_idempotency
+			(domain_id, idempotency_key, task_id, created_at) VALUES (?, ?, ?, ?)`),
+			item.DomainID, item.IdempotencyKey, item.ID, now)
+		if idempotencyErr != nil {
+			return fmt.Errorf("创建任务幂等记录失败：%w", idempotencyErr)
+		}
+		if err := validateTaskInsertResult(idempotencyResult); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("提交任务创建事务失败：%w", err)
 	}

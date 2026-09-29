@@ -209,3 +209,47 @@ func TestSQLTaskRepositoryRecoversInterruptedTasksAndAttempts(t *testing.T) {
 		t.Fatalf("\u5df2\u5b8c\u6210\u4efb\u52a1\u5c1d\u8bd5\u4e0d\u5e94\u88ab\u6062\u590d\u903b\u8f91\u4fee\u6539\uff1a%+v %v", completedAttempts, err)
 	}
 }
+
+func TestSQLTaskRepositoryRejectsConcurrentDuplicateIdempotencyKeys(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, taskID := range []string{"task-idempotency-a", "task-idempotency-b"} {
+		go func(taskID string) {
+			<-start
+			results <- repository.CreateTask(ctx, Task{
+				ID: taskID, DomainID: "domain-1", TaskType: "certificate_issue",
+				Status: "queued", Stage: "queued", Message: "test",
+				IdempotencyKey: "duplicate-key-20260929",
+			})
+		}(taskID)
+	}
+	close(start)
+
+	var succeeded, failed int
+	for range 2 {
+		if err := <-results; err == nil {
+			succeeded++
+		} else {
+			failed++
+		}
+	}
+	if succeeded != 1 || failed != 1 {
+		t.Fatalf("unexpected concurrent idempotency result: success=%d failure=%d", succeeded, failed)
+	}
+
+	items, err := repository.ListTasks(ctx, "domain-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].IdempotencyKey != "duplicate-key-20260929" {
+		t.Fatalf("duplicate idempotency key created multiple tasks: %+v", items)
+	}
+	stored, err := repository.FindTaskByIdempotencyKey(ctx, "domain-1", "duplicate-key-20260929")
+	if err != nil || stored.ID != items[0].ID {
+		t.Fatalf("idempotency lookup mismatch: %+v %v", stored, err)
+	}
+}

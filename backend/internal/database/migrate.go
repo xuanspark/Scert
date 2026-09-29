@@ -16,6 +16,7 @@ import (
 //go:embed migrations/sqlite/0012_resource_replacement.sql migrations/mysql/0012_resource_replacement.sql migrations/postgres/0012_resource_replacement.sql
 //go:embed migrations/sqlite/0013_history_scope.sql migrations/mysql/0013_history_scope.sql migrations/postgres/0013_history_scope.sql
 //go:embed migrations/sqlite/0014_project_members.sql migrations/mysql/0014_project_members.sql migrations/postgres/0014_project_members.sql
+//go:embed migrations/sqlite/0015_task_idempotency.sql migrations/mysql/0015_task_idempotency.sql migrations/postgres/0015_task_idempotency.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -40,7 +41,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 14
+const latestMigrationVersion = 15
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -220,6 +221,8 @@ func migrationName(version int) string {
 		return "history_scope"
 	case 14:
 		return "project_members"
+	case 15:
+		return "task_idempotency"
 	default:
 		return "unknown"
 	}

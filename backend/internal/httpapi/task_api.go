@@ -102,6 +102,17 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		Message: "等待执行证书申请", IdempotencyKey: idempotencyKey, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.tasks.CreateTask(c.Request.Context(), task); err != nil {
+		if idempotencyKey != "" {
+			if existing, lookupErr := s.tasks.FindTaskByIdempotencyKey(c.Request.Context(), domainID, idempotencyKey); lookupErr == nil {
+				status := http.StatusOK
+				if existing.Status == "queued" || existing.Status == "running" {
+					status = http.StatusConflict
+				}
+				c.JSON(status, gin.H{"task": existing, "replayed": true})
+				s.issueTaskMu.Unlock()
+				return
+			}
+		}
 		s.issueTaskMu.Unlock()
 		s.writeError(c, http.StatusInternalServerError, "创建证书任务失败", err)
 		return
