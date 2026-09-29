@@ -47,7 +47,7 @@ func (m *managementRenewal) RunRenewal(ctx context.Context, policy certificate.R
 	}
 	state, err := m.readState()
 	// 公网 IP 自签证书不进入域名的 ACME DNS 续期流程。
-	if state.Hostname == "" {
+	if err == nil && state.Hostname == "" {
 		return report, nil
 	}
 	report.Checked = 1

@@ -324,6 +324,18 @@ func TestManagementRenewalRecordsUnreadableCertificate(t *testing.T) {
 	}
 }
 
+func TestManagementRenewalRecordsUnreadableEmptyState(t *testing.T) {
+	f := newManagementFixture(t)
+	f.m.readState = func() (httpapi.ManagementCertificateState, error) {
+		return httpapi.ManagementCertificateState{}, errors.New("empty management certificate state read failure")
+	}
+	report, err := f.m.RunRenewal(t.Context(), f.policy, f.now)
+	if err == nil || report.Checked != 1 || report.Failed != 1 || f.issues != 0 {
+		t.Fatalf("empty state read failure was incorrectly skipped: %+v %v", report, err)
+	}
+	f.assertTask(t, "failed", 0)
+}
+
 type managementFailAudit struct {
 	repository.AuditRepository
 }
