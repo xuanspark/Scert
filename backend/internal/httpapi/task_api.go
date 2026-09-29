@@ -273,6 +273,9 @@ func (s *Server) cancelTask(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "管理证书任务由续期调度控制，不能单独修改取消状态", "task": item})
 		return
 	}
+	if !s.authorizeProjectPermissions(c, item.ProjectID, domain.PermissionTaskCancel) {
+		return
+	}
 	finished := time.Now().UTC()
 	if err := reader.CancelVisibleTask(c.Request.Context(), c.GetString(authenticatedActorKey), taskID, "任务已由用户取消", &finished); err != nil {
 		if errors.Is(err, repository.ErrProjectAccessDenied) || errors.Is(err, sql.ErrNoRows) {

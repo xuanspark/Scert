@@ -369,6 +369,45 @@ func TestTaskAPIReturnsNotImplementedWhenTaskDependenciesAreMissing(t *testing.T
 	}
 }
 
+type taskPermissionProjectMemberRepository struct {
+	repository.ProjectMemberRepository
+	authorize func(context.Context, string, string, domain.ProjectPermission) error
+}
+
+func (r taskPermissionProjectMemberRepository) AuthorizeProject(ctx context.Context, actorID, projectID string, permission domain.ProjectPermission) error {
+	if r.authorize != nil {
+		return r.authorize(ctx, actorID, projectID, permission)
+	}
+	return nil
+}
+
+func TestTaskAPIDeniesCancelWithoutProjectPermission(t *testing.T) {
+	server, tasks, _, closeDB := newTaskAPITestServer(t, nil)
+	defer closeDB()
+	server.projectMembers = taskPermissionProjectMemberRepository{
+		ProjectMemberRepository: server.projectMembers,
+		authorize: func(_ context.Context, _ string, _ string, permission domain.ProjectPermission) error {
+			if permission == domain.PermissionTaskCancel {
+				return repository.ErrProjectAccessDenied
+			}
+			return nil
+		},
+	}
+	item := repository.Task{
+		HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+		ID:           "cancel-permission-task", DomainID: "domain-1", TaskType: "certificate_issue", Status: "running", Stage: "certificate_issue",
+	}
+	if err := tasks.CreateTask(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+item.ID, nil))
+	stored, err := tasks.GetTask(t.Context(), item.ID)
+	if response.Code != http.StatusForbidden || err != nil || stored.Status != "running" {
+		t.Fatalf("cancel permission denial changed task: %d %+v %v", response.Code, stored, err)
+	}
+}
 func TestIssueDomainSanitizesDeploymentReportWithoutTaskRepository(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	server := New(Dependencies{
