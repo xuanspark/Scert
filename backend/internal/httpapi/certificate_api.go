@@ -103,7 +103,11 @@ func (s *Server) validateCertificate(c *gin.Context) {
 	if s.validateCertificateWorkflow != nil {
 		result, validation, err := s.validateCertificateWorkflow(s.taskWorkflowContext(c), strings.TrimSpace(c.Param("id")))
 		if err != nil {
-			s.writeError(c, http.StatusUnprocessableEntity, "\u8bc1\u4e66\u6821\u9a8c\u5931\u8d25", err)
+			status := http.StatusUnprocessableEntity
+			if errors.Is(err, repository.ErrTaskAlreadyRunning) {
+				status = http.StatusConflict
+			}
+			s.writeError(c, status, "证书校验失败", err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"certificate": result, "validation": validation})
@@ -144,7 +148,11 @@ func (s *Server) deployCertificateCurrent(c *gin.Context) {
 			s.logger.Error("证书部署失败", "error", err)
 		}
 		response["error"] = "证书部署失败"
-		c.JSON(http.StatusBadGateway, response)
+		status := http.StatusBadGateway
+		if errors.Is(err, repository.ErrTaskAlreadyRunning) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, response)
 		return
 	}
 	c.JSON(http.StatusOK, response)
@@ -180,7 +188,11 @@ func (s *Server) importCertificateFiles(c *gin.Context) {
 			s.logger.Error(message, "error", err)
 		}
 		response["error"] = message
-		c.JSON(http.StatusBadGateway, response)
+		status := http.StatusBadGateway
+		if errors.Is(err, repository.ErrTaskAlreadyRunning) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, response)
 		return
 	}
 	c.JSON(http.StatusOK, response)
@@ -287,6 +299,9 @@ func saveOptionalMultipartFile(form *multipart.Form, field string) (string, func
 }
 
 func certificateErrorStatus(err error) int {
+	if errors.Is(err, repository.ErrTaskAlreadyRunning) {
+		return http.StatusConflict
+	}
 	if repository.IsNotFound(err) || errors.Is(err, os.ErrNotExist) {
 		return http.StatusNotFound
 	}

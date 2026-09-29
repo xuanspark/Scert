@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
@@ -61,6 +63,11 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 	if w.tasks == nil || w.audit == nil {
 		return result, errors.New("证书任务记录服务未初始化")
 	}
+	if active, err := w.tasks.FindActiveTaskByDomain(ctx, id, taskType); err == nil {
+		return result, fmt.Errorf("%w：%s", repository.ErrTaskAlreadyRunning, active.ID)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return result, fmt.Errorf("检查活动证书任务失败：%w", err)
+	}
 	started := time.Now().UTC()
 	task := repository.Task{
 		ID: domain.NewID(), DomainID: id, TaskType: taskType,
@@ -77,6 +84,9 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		defer hooks.Unregister(task.ID)
 	}
 	defer taskCancel()
+	taskCtx = certificate.WithProgressReporter(taskCtx, func(progressCtx context.Context, progressStage, progressMessage string) error {
+		return w.tasks.UpdateTask(progressCtx, task.ID, "running", progressStage, progressMessage, &started, nil)
+	})
 	defer func() {
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()

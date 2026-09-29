@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
@@ -114,6 +115,10 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 			}
 		}
 		s.issueTaskMu.Unlock()
+		if errors.Is(err, repository.ErrTaskAlreadyRunning) {
+			c.JSON(http.StatusConflict, gin.H{"error": "该域名已有正在执行的同类证书任务"})
+			return
+		}
 		s.writeError(c, http.StatusInternalServerError, "创建证书任务失败", err)
 		return
 	}
@@ -167,6 +172,9 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 		cancel()
 		s.unregisterTaskCancel(task.ID)
 	}()
+	executionCtx = certificate.WithProgressReporter(executionCtx, func(progressCtx context.Context, progressStage, progressMessage string) error {
+		return s.tasks.UpdateTask(progressCtx, task.ID, "running", progressStage, progressMessage, &now, nil)
+	})
 	certificateResult, deploymentReport, issueErr := s.issueCertificate(executionCtx, task.DomainID)
 	deploymentReport = sanitizeDeploymentReport(deploymentReport)
 	finished := time.Now().UTC()

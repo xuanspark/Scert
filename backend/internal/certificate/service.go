@@ -39,6 +39,28 @@ type DNSAuthorizationCacheInvalidator interface {
 	InvalidateDomain(providerID, requestedDomain string, credentials map[string]string)
 }
 
+// ProgressReporter 用于把长耗时证书流程的阶段同步到任务中心。
+type ProgressReporter func(context.Context, string, string) error
+
+type progressReporterContextKey struct{}
+
+// WithProgressReporter 将任务进度回调绑定到证书工作流上下文。
+func WithProgressReporter(ctx context.Context, reporter ProgressReporter) context.Context {
+	if reporter == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, progressReporterContextKey{}, reporter)
+}
+
+// ReportProgress 报告证书工作流的当前阶段；未绑定任务时不执行任何操作。
+func ReportProgress(ctx context.Context, stage, message string) error {
+	reporter, _ := ctx.Value(progressReporterContextKey{}).(ProgressReporter)
+	if reporter == nil {
+		return nil
+	}
+	return reporter(ctx, strings.TrimSpace(stage), strings.TrimSpace(message))
+}
+
 type AccountManager interface {
 	LoadOrCreate(ctx context.Context, environment, email string) (*AccountUser, error)
 	Save(ctx context.Context, environment string, user *AccountUser) error
@@ -155,7 +177,13 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return fail(fmt.Errorf("读取 DNS 凭据失败：%w", err))
 	}
+	if err := ReportProgress(ctx, "dns_validation", "正在验证 DNS 凭据权限"); err != nil {
+		return fail(err)
+	}
 	if err := s.verifyDNSAuthorization(ctx, providerID, domains, credentials); err != nil {
+		return fail(err)
+	}
+	if err := ReportProgress(ctx, "certificate_issue", "DNS 凭据验证通过，正在申请证书"); err != nil {
 		return fail(err)
 	}
 	provider, err := s.providers.Create(providerID, credentials)
@@ -297,6 +325,9 @@ func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string,
 		return nil
 	}
 	for _, requestedDomain := range domains {
+		if err := ReportProgress(ctx, "dns_validation", fmt.Sprintf("正在验证域名 %s 的 DNS 权限", requestedDomain)); err != nil {
+			return err
+		}
 		if err := s.authorization.VerifyDomain(ctx, providerID, requestedDomain, credentials); err != nil {
 			return fmt.Errorf("DNS 凭据无权操作域名 %s：%w", requestedDomain, err)
 		}

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -96,6 +97,28 @@ func TestSQLTaskRepositoryRejectsInvalidStatus(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("无效任务状态应被拒绝")
+	}
+}
+
+func TestSQLTaskRepositoryRejectsConcurrentActiveTaskOfSameType(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	if err := repository.CreateTask(ctx, Task{
+		ID: "task-active", DomainID: "domain-1", TaskType: "certificate_validate",
+		Status: "running", Stage: "certificate_validate", Message: "正在校验证书",
+	}); err != nil {
+		t.Fatalf("创建活动任务失败：%v", err)
+	}
+	err := repository.CreateTask(ctx, Task{
+		ID: "task-duplicate", DomainID: "domain-1", TaskType: "certificate_validate",
+		Status: "queued", Stage: "queued", Message: "等待校验证书",
+	})
+	if !errors.Is(err, ErrTaskAlreadyRunning) {
+		t.Fatalf("同类活动任务应被拒绝：%v", err)
+	}
+	if _, err := repository.GetTask(ctx, "task-duplicate"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("拒绝并发任务后不应留下重复任务：%v", err)
 	}
 }
 

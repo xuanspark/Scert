@@ -41,6 +41,9 @@ type TaskAttempt struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
+// ErrTaskAlreadyRunning 表示同一域名的同类任务仍处于活动状态。
+var ErrTaskAlreadyRunning = errors.New("同一域名的同类任务正在执行")
+
 type TaskRepository interface {
 	CreateTask(context.Context, Task) error
 	GetTask(context.Context, string) (Task, error)
@@ -118,6 +121,14 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
 			return errors.New("任务资源不存在或项目不匹配")
 		}
 		return fmt.Errorf("读取任务所属域名失败：%w", err)
+	}
+	var activeTaskID string
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT id FROM tasks
+		WHERE domain_id = ? AND task_type = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling')
+		ORDER BY created_at DESC LIMIT 1`), item.DomainID, item.TaskType).Scan(&activeTaskID); err == nil {
+		return fmt.Errorf("%w：%s", ErrTaskAlreadyRunning, activeTaskID)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("检查活动任务失败：%w", err)
 	}
 	args = append(args, projectID)
 	result, err := tx.ExecContext(ctx, r.query(insertQuery+`VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'project', ?)`), args...)
