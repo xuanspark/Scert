@@ -130,7 +130,7 @@ func TestAliyunDomainCheckUsesOnlyCurrentTargetAndProtectsPCUX(t *testing.T) {
 		w := httptest.NewRecorder()
 		body := strings.NewReader(`{"domain":"pcux.cn"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/dns/aliyun/check", body)
-		serveAdminHTTP(server, w, req)
+		serveSuperAdminHTTP(server, w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("POST check pcux.cn 状态码 = %d，响应：%s", w.Code, w.Body.String())
 		}
