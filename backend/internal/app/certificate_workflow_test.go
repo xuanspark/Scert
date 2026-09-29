@@ -125,6 +125,24 @@ func TestCertificateWorkflowDeploysIssuedCertificateToAssociatedServers(t *testi
 	}
 }
 
+func TestCertificateWorkflowRejectsDomainWithoutDeploymentServers(t *testing.T) {
+	deployer := &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}}
+	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle}}
+	workflow := &CertificateWorkflow{
+		Domains:    state,
+		Servers:    workflowServerLister{},
+		Deployment: deployer,
+	}
+
+	report, err := workflow.deploy(context.Background(), certificate.IssueResult{DomainID: "domain-1"})
+	if err == nil || !strings.Contains(err.Error(), "\u5c1a\u672a\u5173\u8054\u4efb\u4f55\u90e8\u7f72\u670d\u52a1\u5668") {
+		t.Fatalf("\u672a\u5173\u8054\u670d\u52a1\u5668\u65f6\u5e94\u8fd4\u56de\u660e\u786e\u9519\u8bef\xef\xbc\x9a%v", err)
+	}
+	if report.Status != "failed" || deployer.targets != nil {
+		t.Fatalf("\u672a\u5173\u8054\u670d\u52a1\u5668\u65f6\u4e0d\u5f97\u6267\u884c\u8fdc\u7a0b\u90e8\u7f72\xef\xbc\x9a%+v %+v", report, deployer.targets)
+	}
+}
+
 func TestCertificateWorkflowReturnsPartialDeploymentError(t *testing.T) {
 	deployer := &workflowDeployer{report: deployment.Report{
 		Total: 2, Success: 1, Failed: 1, Status: "partial",

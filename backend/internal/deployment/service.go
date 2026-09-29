@@ -57,6 +57,10 @@ func NewService(factory ClientFactory) *Service {
 
 func (s *Service) Deploy(ctx context.Context, targets []Target, artifact Artifact) Report {
 	report := Report{Total: len(targets), Results: make([]Result, 0, len(targets))}
+	if len(targets) == 0 {
+		report.Status = "failed"
+		return report
+	}
 	if s == nil || s.factory == nil {
 		report.Status = "failed"
 		report.Failed = len(targets)

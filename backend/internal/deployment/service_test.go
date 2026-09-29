@@ -269,6 +269,14 @@ func TestDeployReportsPartialSuccess(t *testing.T) {
 	}
 }
 
+func TestDeployRejectsEmptyTargets(t *testing.T) {
+	service := NewService(fixedClientFactory{client: newMemoryClient()})
+	report := service.Deploy(context.Background(), nil, testArtifact(t))
+	if report.Status != "failed" || report.Total != 0 || report.Success != 0 || report.Failed != 0 {
+		t.Fatalf("\u7a7a\u90e8\u7f72\u76ee\u6807\u4e0d\u5f97\u88ab\u89c6\u4e3a\u6210\u529f\xef\xbc\x9a%+v", report)
+	}
+}
+
 func TestDeployCleansPartialPrivateKeyUploadWithoutReplacingCurrentFiles(t *testing.T) {
 	client := newMemoryClient()
 	client.uploadError = "key.pem"

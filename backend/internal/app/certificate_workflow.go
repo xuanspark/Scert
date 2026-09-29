@@ -231,6 +231,9 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 	if err != nil {
 		return deployment.Report{}, fmt.Errorf("查询域名部署服务器失败：%w", err)
 	}
+	if len(servers) == 0 {
+		return deployment.Report{Status: "failed"}, errors.New("\u57df\u540d\u5c1a\u672a\u5173\u8054\u4efb\u4f55\u90e8\u7f72\u670d\u52a1\u5668")
+	}
 	targets := make([]deployment.Target, 0, len(servers))
 	for _, server := range servers {
 		resolved, resolveErr := deployment.ResolveServerPaths(server, domainItem.Name, string(domainItem.CertificateType))
