@@ -8,6 +8,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
@@ -60,6 +61,39 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 	if _, err := NewSQLDomainRepository(db.DB, cfg.Driver).GetByID(t.Context(), item.ID); err != nil {
 		t.Fatal(err)
 	}
+	serverRepo := NewSQLServerRepository(db.DB, cfg.Driver)
+	server := deployment.Server{
+		ResourceScope:        domain.ResourceScope{ProjectID: item.ProjectID},
+		ID:                   "domain-delete-server",
+		Name:                 "domain delete test server",
+		Address:              "192.0.2.10",
+		Port:                 22,
+		Username:             "deploy",
+		HostKeyFingerprint:   "SHA256:test",
+		PasswordRef:          "secret://ssh/domain-delete-server",
+		CertificatePath:      "/etc/scert/{domain}/cert.pem",
+		PrivateKeyPath:       "/etc/scert/{domain}/key.pem",
+		CertificateChainPath: "/etc/scert/{domain}/fullchain.pem",
+		WebServer:            deployment.WebServerNginx,
+	}
+	if err := serverRepo.CreateServer(t.Context(), server); err != nil {
+		t.Fatal(err)
+	}
+	if err := serverRepo.ReplaceDomainServers(t.Context(), item.ID, []string{server.ID}); err != nil {
+		t.Fatal(err)
+	}
+	otherItem, err := domain.NewDomain("surviving.example.test", domain.CertificateSingle, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherItem.ID = "surviving-domain"
+	otherItem.ProjectID = item.ProjectID
+	if err := writer.CreateProjectDomain(t.Context(), "domain-manager", otherItem); err != nil {
+		t.Fatal(err)
+	}
+	if err := serverRepo.ReplaceDomainServers(t.Context(), otherItem.ID, []string{server.ID}); err != nil {
+		t.Fatal(err)
+	}
 	taskRepo := NewSQLTaskRepository(db.DB, cfg.Driver)
 	if err := taskRepo.CreateTask(t.Context(), Task{HistoryScope: HistoryScope{ProjectID: item.ProjectID, ScopeType: ScopeProject}, ID: "domain-active-task", DomainID: item.ID, TaskType: "certificate_issue", Status: "running"}); err != nil {
 		t.Fatal(err)
@@ -69,6 +103,35 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 	}
 	if _, err := db.DB.ExecContext(context.Background(), Rebind(cfg.Driver, `UPDATE tasks SET status = 'success' WHERE id = ?`), "domain-active-task"); err != nil {
 		t.Fatal(err)
+	}
+	activeStatuses := []string{"queued", "running", "retry_wait", "cancelling"}
+	taskTypes := []string{"certificate_issue", "certificate_validate", "certificate_deploy", "certificate_import", "certificate_restore"}
+	for _, taskType := range taskTypes {
+		for _, status := range activeStatuses {
+			taskID := "domain-matrix-task-" + taskType + "-" + status
+			if err := taskRepo.CreateTask(t.Context(), Task{HistoryScope: HistoryScope{ProjectID: item.ProjectID, ScopeType: ScopeProject}, ID: taskID, DomainID: item.ID, TaskType: taskType, Status: status}); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.DeleteProjectDomain(t.Context(), "domain-manager", item.ID); !errors.Is(err, ErrProjectDomainBusy) {
+				t.Fatalf("delete should reject for task type %s and status %s: %v", taskType, status, err)
+			}
+			if _, err := NewSQLDomainRepository(db.DB).GetByID(t.Context(), item.ID); err != nil {
+				t.Fatalf("domain disappeared after rejected delete: %v", err)
+			}
+			associated, err := serverRepo.ListServersByDomainID(t.Context(), item.ID)
+			if err != nil || len(associated) != 1 || associated[0].ID != server.ID {
+				t.Fatalf("server binding changed after rejected delete: %+v, %v", associated, err)
+			}
+			if _, err := db.DB.ExecContext(t.Context(), Rebind(cfg.Driver, "UPDATE tasks SET status = 'partial_success' WHERE id = ?"), taskID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, status := range []string{"failed", "cancelled"} {
+		taskID := "domain-terminal-task-" + status
+		if err := taskRepo.CreateTask(t.Context(), Task{HistoryScope: HistoryScope{ProjectID: item.ProjectID, ScopeType: ScopeProject}, ID: taskID, DomainID: item.ID, TaskType: "certificate_issue", Status: status}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	trigger := `CREATE TRIGGER reject_project_domain_audit BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit-failure'); END`
 	for _, status := range []string{"retry_wait", "cancelling"} {
@@ -132,5 +195,16 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 	}
 	if _, err := NewSQLDomainRepository(db.DB, cfg.Driver).GetByID(t.Context(), item.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("删除后域名应不存在：%v", err)
+	}
+
+	if _, err := NewSQLDomainRepository(db.DB).GetByID(t.Context(), otherItem.ID); err != nil {
+		t.Fatalf("surviving domain was removed with deleted domain: %v", err)
+	}
+	if _, err := serverRepo.GetServerByID(t.Context(), server.ID); err != nil {
+		t.Fatalf("server was removed with deleted domain: %v", err)
+	}
+	associated, err := serverRepo.ListServersByDomainID(t.Context(), otherItem.ID)
+	if err != nil || len(associated) != 1 || associated[0].ID != server.ID {
+		t.Fatalf("surviving domain binding was removed: %+v, %v", associated, err)
 	}
 }
