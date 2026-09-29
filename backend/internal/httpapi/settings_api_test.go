@@ -16,6 +16,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
