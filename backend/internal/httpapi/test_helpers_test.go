@@ -75,6 +75,15 @@ func readyTestConfig(directory string) config.Config {
 }
 
 func serveAdminHTTP(server *Server, recorder *httptest.ResponseRecorder, request *http.Request) {
+	if server.projectResources == nil {
+		if repo, ok := server.repository.(*stubDomainRepository); ok {
+			if repo.loaded.ID == "" {
+				repo.loaded = domain.Domain{ID: "domain-1", ResourceScope: domain.ResourceScope{ProjectID: domain.DefaultProjectID}}
+			}
+			server.projectResources = projectResourceReaderStub{domains: repo}
+			server.projectDomains = projectDomainRepositoryStub{DomainRepository: repo}
+		}
+	}
 	request.AddCookie(httpUserSessionCookie(server, "test-admin", repository.UserRoleAdmin))
 	server.Handler().ServeHTTP(recorder, request)
 }

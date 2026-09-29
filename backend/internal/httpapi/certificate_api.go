@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
@@ -92,6 +93,9 @@ func (s *Server) listCertificateVersions(c *gin.Context) {
 }
 
 func (s *Server) validateCertificate(c *gin.Context) {
+	if !s.authorizeVisibleDomainPermission(c, domain.PermissionPrivateKeyRead) {
+		return
+	}
 	if s.currentCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书校验接口尚未配置", errors.New("证书服务未配置"))
 		return
@@ -116,6 +120,9 @@ func (s *Server) validateCertificate(c *gin.Context) {
 }
 
 func (s *Server) deployCertificateCurrent(c *gin.Context) {
+	if !s.authorizeVisibleDomainPermission(c, domain.PermissionDeploymentExecute) {
+		return
+	}
 	if s.deployCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书部署接口尚未配置", errors.New("证书部署流程未配置"))
 		return
@@ -135,6 +142,9 @@ func (s *Server) deployCertificateCurrent(c *gin.Context) {
 }
 
 func (s *Server) importCertificateFiles(c *gin.Context) {
+	if !s.authorizeVisibleDomainPermission(c, domain.PermissionCertificateManage) {
+		return
+	}
 	if s.importCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书导入接口尚未配置", errors.New("证书导入流程未配置"))
 		return

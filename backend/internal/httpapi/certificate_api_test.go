@@ -17,6 +17,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
 type certificateReaderStub struct {
@@ -353,5 +354,54 @@ func TestCertificateImportAPISanitizesReportDetails(t *testing.T) {
 	}
 	if !strings.Contains(responseBody, "生产服务器") || !strings.Contains(responseBody, "server-1") {
 		t.Fatalf("证书导入响应缺少安全的服务器信息：%s", responseBody)
+	}
+}
+
+func TestCertificateMutationAPIsEnforceProjectPermissions(t *testing.T) {
+	repo := &stubDomainRepository{
+		loaded: domain.Domain{
+			ID:            "domain-1",
+			ResourceScope: domain.ResourceScope{ProjectID: domain.DefaultProjectID},
+		},
+	}
+	calls := 0
+	server := New(Dependencies{
+		Config:           readyTestConfig(t.TempDir()),
+		Repository:       repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains: projectDomainRepositoryStub{
+			DomainRepository: repo,
+			authorizeErr:     repository.ErrProjectAccessDenied,
+		},
+		CurrentCertificate: certificateReaderStub{},
+		DeployCertificate: func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+			calls++
+			return certificate.IssueResult{}, deployment.Report{}, nil
+		},
+		ImportCertificate: func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+			calls++
+			return certificate.IssueResult{}, deployment.Report{}, nil
+		},
+		RestoreCertificateVersion: func(context.Context, string, string) (certificate.IssueResult, error) {
+			calls++
+			return certificate.IssueResult{}, nil
+		},
+	})
+
+	requests := []*http.Request{
+		httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/deploy", nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/validate", nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/versions/v1/restore", nil),
+	}
+	for _, request := range requests {
+		response := httptest.NewRecorder()
+		serveAdminHTTP(server, response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("unauthorized certificate mutation returned %d: %s", response.Code, response.Body.String())
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("certificate workflow was called %d times after authorization failure", calls)
 	}
 }

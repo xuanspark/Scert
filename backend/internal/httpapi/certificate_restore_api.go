@@ -7,10 +7,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
 func (s *Server) restoreCertificateVersion(c *gin.Context) {
+	if !s.authorizeVisibleDomainPermission(c, domain.PermissionDeploymentRollback) {
+		return
+	}
 	if s.restoreVersion == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书恢复接口尚未配置", errors.New("证书恢复流程未配置"))
 		return

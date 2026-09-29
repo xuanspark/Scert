@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
@@ -43,6 +44,33 @@ func (s *Server) requireVisibleCertificateDomain(c *gin.Context) bool {
 		return false
 	}
 	if _, err := s.projectResources.GetVisibleDomain(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id")); err != nil {
+		s.writeProjectResourceError(c, err)
+		return false
+	}
+	return true
+}
+
+func (s *Server) authorizeVisibleDomainPermission(c *gin.Context, permission domain.ProjectPermission) bool {
+	if !s.requireProjectResourceReader(c) {
+		return false
+	}
+	item, err := s.projectResources.GetVisibleDomain(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
+	if err != nil {
+		s.writeProjectResourceError(c, err)
+		return false
+	}
+	authorizer, ok := s.projectDomains.(repository.ProjectAuthorizer)
+	if !ok {
+		if fallback, fallbackOK := s.projectMembers.(repository.ProjectAuthorizer); fallbackOK {
+			authorizer = fallback
+			ok = true
+		}
+	}
+	if !ok {
+		s.writeProjectResourceError(c, errors.New("project authorizer unavailable"))
+		return false
+	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), item.ProjectID, permission); err != nil {
 		s.writeProjectResourceError(c, err)
 		return false
 	}

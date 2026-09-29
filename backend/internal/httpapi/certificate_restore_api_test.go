@@ -44,9 +44,12 @@ func newRestoreAPITestServer(t *testing.T, restore func(context.Context, string,
 	cfg.Admin.Username = "admin"
 	cfg.Admin.Email = "admin@example.test"
 	cfg.Admin.PasswordHash = httpUserPasswordHash(t, "RestoreTest123")
+	repo := &stubDomainRepository{loaded: domain.Domain{ID: "domain-1", ResourceScope: domain.ResourceScope{ProjectID: domain.DefaultProjectID}}}
 	server := New(Dependencies{
 		Config:                    cfg,
-		Repository:                &stubDomainRepository{},
+		Repository:                repo,
+		ProjectResources:          projectResourceReaderStub{domains: repo},
+		ProjectDomains:            projectDomainRepositoryStub{DomainRepository: repo},
 		CurrentCertificate:        restoreCertificateReader{},
 		RestoreCertificateVersion: restore,
 		Audit:                     audit,
