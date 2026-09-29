@@ -259,6 +259,38 @@ func TestCertificateTerminalPersistenceFailureIsReturnedWithoutReissue(t *testin
 	}
 }
 
+func TestCertificateTasksBindCancellationHook(t *testing.T) {
+	w, a := newCertificateTaskFixture(t)
+	registerCh := make(chan context.CancelFunc, 1)
+	unregisterCh := make(chan string, 1)
+	ctx := repository.WithTaskCancellationHooks(t.Context(), repository.TaskCancellationHooks{
+		Register:   func(_ string, cancel context.CancelFunc) { registerCh <- cancel },
+		Unregister: func(taskID string) { unregisterCh <- taskID },
+	})
+	started := make(chan struct{})
+	finished := make(chan error, 1)
+	go func() {
+		_, err := w.run(ctx, "task-domain", "certificate_validate", "certificate_validate", 1, 0, func(ctx context.Context, _ string) (CertificateWorkflowResult, error) {
+			close(started)
+			<-ctx.Done()
+			return CertificateWorkflowResult{}, ctx.Err()
+		})
+		finished <- err
+	}()
+	<-started
+	cancel := <-registerCh
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("task cancellation error = %v", err)
+	}
+	select {
+	case <-unregisterCh:
+	case <-time.After(time.Second):
+		t.Fatal("task cancellation hook was not unregistered")
+	}
+	assertCertificateTask(t, a, "cancelled", "cancelled")
+}
+
 func TestCertificateTasksRecordPartialDeploymentFailure(t *testing.T) {
 	w, a := newCertificateTaskFixture(t)
 	_, err := w.run(t.Context(), "task-domain", "renewal_run", "certificate_issue", 1, 0, func(context.Context, string) (CertificateWorkflowResult, error) {

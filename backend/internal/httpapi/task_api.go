@@ -241,6 +241,13 @@ func (s *Server) unregisterTaskCancel(taskID string) {
 	delete(s.taskCancels, taskID)
 }
 
+func (s *Server) taskWorkflowContext(c *gin.Context) context.Context {
+	return repository.WithTaskCancellationHooks(c.Request.Context(), repository.TaskCancellationHooks{
+		Register:   s.registerTaskCancel,
+		Unregister: s.unregisterTaskCancel,
+	})
+}
+
 func taskRepositoryUnavailable(tasks repository.TaskRepository) bool {
 	if tasks == nil {
 		return true
@@ -285,7 +292,7 @@ func (s *Server) cancelTask(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "任务当前无法取消", "task": item})
 		return
 	}
-	if item.TaskType == "renewal_run" || item.TaskType == "certificate_deploy" {
+	if item.TaskType == "renewal_run" {
 		c.JSON(http.StatusConflict, gin.H{"error": "该任务由证书工作流控制，不能单独修改取消状态", "task": item})
 		return
 	}

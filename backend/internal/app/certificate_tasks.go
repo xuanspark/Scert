@@ -70,6 +70,12 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 	if err := w.tasks.CreateTask(ctx, task); err != nil {
 		return result, err
 	}
+	taskCtx, taskCancel := context.WithCancel(ctx)
+	if hooks, ok := repository.TaskCancellationHooksFromContext(ctx); ok {
+		hooks.Register(task.ID, taskCancel)
+		defer hooks.Unregister(task.ID)
+	}
+	defer taskCancel()
 	defer func() {
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -90,7 +96,7 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 			w.logError(resultErr)
 		}
 	}()
-	if err := w.audit.CreateAuditLog(ctx, repository.AuditLog{
+	if err := w.audit.CreateAuditLog(taskCtx, repository.AuditLog{
 		TaskID: task.ID,
 		Action: taskType, ResourceType: "domain", ResourceID: id,
 		Status: "running", Message: "开始执行证书工作流",
@@ -98,10 +104,10 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		return result, err
 	}
 	for number := 1; number <= attempts; number++ {
-		if err := ctx.Err(); err != nil {
+		if err := taskCtx.Err(); err != nil {
 			return result, err
 		}
-		if err := w.tasks.UpdateTask(ctx, task.ID, "running", stage, "正在执行证书工作流", &started, nil); err != nil {
+		if err := w.tasks.UpdateTask(taskCtx, task.ID, "running", stage, "正在执行证书工作流", &started, nil); err != nil {
 			return result, err
 		}
 		attemptStarted := time.Now().UTC()
@@ -110,10 +116,10 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 			Stage: stage, Status: "running", Message: "正在执行证书工作流",
 			StartedAt: &attemptStarted, CreatedAt: attemptStarted,
 		}
-		if err := w.tasks.CreateAttempt(ctx, attempt); err != nil {
+		if err := w.tasks.CreateAttempt(taskCtx, attempt); err != nil {
 			return result, err
 		}
-		issueCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		issueCtx, cancel := context.WithTimeout(taskCtx, 30*time.Minute)
 		result, resultErr = execute(issueCtx, id)
 		cancel()
 		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -127,10 +133,10 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		if resultErr == nil || number == attempts || result.Certificate.Saved.CertificatePath != "" || errors.Is(resultErr, context.Canceled) || errors.Is(resultErr, context.DeadlineExceeded) {
 			return result, resultErr
 		}
-		if err := w.tasks.UpdateTask(ctx, task.ID, "retry_wait", "retry_wait", "证书申请失败，等待重试", &started, nil); err != nil {
+		if err := w.tasks.UpdateTask(taskCtx, task.ID, "retry_wait", "retry_wait", "证书申请失败，等待重试", &started, nil); err != nil {
 			return result, errors.Join(resultErr, err)
 		}
-		if err := waitForManagementRetry(ctx, interval); err != nil {
+		if err := waitForManagementRetry(taskCtx, interval); err != nil {
 			return result, errors.Join(resultErr, err)
 		}
 	}

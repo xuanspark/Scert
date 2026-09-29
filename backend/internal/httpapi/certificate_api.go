@@ -96,13 +96,22 @@ func (s *Server) validateCertificate(c *gin.Context) {
 	if !s.authorizeVisibleDomainPermission(c, domain.PermissionPrivateKeyRead) {
 		return
 	}
-	if s.currentCertificate == nil {
+	if s.currentCertificate == nil && s.validateCertificateWorkflow == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书校验接口尚未配置", errors.New("证书服务未配置"))
+		return
+	}
+	if s.validateCertificateWorkflow != nil {
+		result, validation, err := s.validateCertificateWorkflow(s.taskWorkflowContext(c), strings.TrimSpace(c.Param("id")))
+		if err != nil {
+			s.writeError(c, http.StatusUnprocessableEntity, "\u8bc1\u4e66\u6821\u9a8c\u5931\u8d25", err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"certificate": result, "validation": validation})
 		return
 	}
 	result, err := s.currentCertificate.Current(c.Request.Context(), strings.TrimSpace(c.Param("id")))
 	if err != nil {
-		s.writeError(c, certificateErrorStatus(err), "读取当前证书失败", err)
+		s.writeError(c, certificateErrorStatus(err), "\u8bfb\u53d6\u5f53\u524d\u8bc1\u4e66\u5931\u8d25", err)
 		return
 	}
 	validation, err := (certificate.LocalValidator{VerifyChain: true}).ValidateFiles(
@@ -127,7 +136,7 @@ func (s *Server) deployCertificateCurrent(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "证书部署接口尚未配置", errors.New("证书部署流程未配置"))
 		return
 	}
-	result, report, err := s.deployCertificate(c.Request.Context(), strings.TrimSpace(c.Param("id")))
+	result, report, err := s.deployCertificate(s.taskWorkflowContext(c), strings.TrimSpace(c.Param("id")))
 	report = sanitizeDeploymentReport(report)
 	response := gin.H{"certificate": result, "deployment": report}
 	if err != nil {
@@ -156,7 +165,7 @@ func (s *Server) importCertificateFiles(c *gin.Context) {
 		return
 	}
 	defer cleanup()
-	result, report, err := s.importCertificate(c.Request.Context(), request)
+	result, report, err := s.importCertificate(s.taskWorkflowContext(c), request)
 	report = sanitizeDeploymentReport(report)
 	// 导入保存与远端部署是不同阶段；部署失败不能让用户误以为证书尚未保存。
 	imported := err == nil || (result.DomainID == request.DomainID &&

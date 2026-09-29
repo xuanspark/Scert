@@ -20,7 +20,7 @@ func (s *Server) restoreCertificateVersion(c *gin.Context) {
 		return
 	}
 	version := strings.TrimSpace(c.Param("version"))
-	result, err := s.restoreVersion(c.Request.Context(), strings.TrimSpace(c.Param("id")), version)
+	result, err := s.restoreVersion(s.taskWorkflowContext(c), strings.TrimSpace(c.Param("id")), version)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Error("恢复证书历史版本失败", "domain_id", c.Param("id"), "version", version, "error", err)
