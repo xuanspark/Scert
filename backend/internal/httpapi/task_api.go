@@ -74,7 +74,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		}
 		if existing, err := s.tasks.FindTaskByIdempotencyKey(c.Request.Context(), domainID, idempotencyKey); err == nil {
 			status := http.StatusOK
-			if existing.Status == "queued" || existing.Status == "running" {
+			if isActiveTaskStatus(existing.Status) {
 				status = http.StatusConflict
 			}
 			c.JSON(status, gin.H{"task": existing, "replayed": true})
@@ -106,7 +106,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		if idempotencyKey != "" {
 			if existing, lookupErr := s.tasks.FindTaskByIdempotencyKey(c.Request.Context(), domainID, idempotencyKey); lookupErr == nil {
 				status := http.StatusOK
-				if existing.Status == "queued" || existing.Status == "running" {
+				if isActiveTaskStatus(existing.Status) {
 					status = http.StatusConflict
 				}
 				c.JSON(status, gin.H{"task": existing, "replayed": true})
@@ -432,6 +432,23 @@ func validTaskIdempotencyKey(value string) bool {
 	}
 	return true
 }
+func isActiveTaskStatus(status string) bool {
+	
+switch status {
+	
+case "queued", "running", "retry_wait", "cancelling":
+	
+	
+return true
+	
+default:
+	
+	
+return false
+	
+}
+}
+
 func (s *Server) listTasks(c *gin.Context) {
 	reader, ok := s.projectTaskReader(c)
 	if !ok {
