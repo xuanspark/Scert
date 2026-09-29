@@ -65,7 +65,8 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 	task := repository.Task{
 		ID: domain.NewID(), DomainID: id, TaskType: taskType,
 		Status: "running", Stage: stage, Message: "正在执行证书工作流",
-		StartedAt: &started, CreatedAt: started,
+		OperatorID: repository.TaskOperatorFromContext(ctx),
+		StartedAt:  &started, CreatedAt: started,
 	}
 	if err := w.tasks.CreateTask(ctx, task); err != nil {
 		return result, err
@@ -84,7 +85,8 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		auditErr := w.audit.CreateAuditLog(finishCtx, repository.AuditLog{
 			TaskID: task.ID,
 			Action: taskType, ResourceType: "domain", ResourceID: id,
-			Status: status, Message: message,
+			OperatorID: task.OperatorID,
+			Status:     status, Message: message,
 		})
 		if auditErr != nil {
 			status, message = certificateTaskOutcome(result, auditErr)
@@ -99,7 +101,8 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 	if err := w.audit.CreateAuditLog(taskCtx, repository.AuditLog{
 		TaskID: task.ID,
 		Action: taskType, ResourceType: "domain", ResourceID: id,
-		Status: "running", Message: "开始执行证书工作流",
+		OperatorID: task.OperatorID,
+		Status:     "running", Message: "开始执行证书工作流",
 	}); err != nil {
 		return result, err
 	}

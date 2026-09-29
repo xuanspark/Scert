@@ -242,10 +242,11 @@ func (s *Server) unregisterTaskCancel(taskID string) {
 }
 
 func (s *Server) taskWorkflowContext(c *gin.Context) context.Context {
-	return repository.WithTaskCancellationHooks(c.Request.Context(), repository.TaskCancellationHooks{
+	ctx := repository.WithTaskCancellationHooks(c.Request.Context(), repository.TaskCancellationHooks{
 		Register:   s.registerTaskCancel,
 		Unregister: s.unregisterTaskCancel,
 	})
+	return repository.WithTaskOperator(ctx, s.currentOperatorID(c))
 }
 
 func taskRepositoryUnavailable(tasks repository.TaskRepository) bool {

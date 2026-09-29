@@ -92,6 +92,40 @@ func TestCertificateTasksRecordSuccessFailureAndCancellation(t *testing.T) {
 	}
 }
 
+func TestCertificateTasksRecordOperatorFromWorkflowContext(t *testing.T) {
+	w, a := newCertificateTaskFixture(t)
+	ctx := repository.WithTaskOperator(t.Context(), "operator-1")
+	_, err := w.run(ctx, "task-domain", "certificate_validate", "certificate_validate", 1, 0, func(context.Context, string) (CertificateWorkflowResult, error) {
+		return CertificateWorkflowResult{}, nil
+	})
+	if err != nil {
+		t.Fatalf("带操作者的证书任务执行失败：%v", err)
+	}
+	items, err := a.Tasks.ListTasks(t.Context(), "task-domain", 10)
+	if err != nil || len(items) != 1 || items[0].OperatorID != "operator-1" {
+		t.Fatalf("任务创建人记录错误：%+v %v", items, err)
+	}
+	var operators []string
+	rows, err := a.Database.DB.QueryContext(t.Context(), "SELECT operator_id FROM audit_logs WHERE task_id = ? ORDER BY created_at, id", items[0].ID)
+	if err != nil {
+		t.Fatalf("读取任务审计失败：%v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var operator string
+		if err := rows.Scan(&operator); err != nil {
+			t.Fatalf("读取任务审计操作者失败：%v", err)
+		}
+		operators = append(operators, operator)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("遍历任务审计失败：%v", err)
+	}
+	if len(operators) != 2 || operators[0] != "operator-1" || operators[1] != "operator-1" {
+		t.Fatalf("任务审计创建人记录错误：%v", operators)
+	}
+}
+
 func TestCertificateTasksKeepRetriesInOneTask(t *testing.T) {
 	w, a := newCertificateTaskFixture(t)
 	calls := 0
