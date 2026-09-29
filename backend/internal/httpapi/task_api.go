@@ -52,6 +52,9 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "检查证书任务权限失败", err)
 		return
 	}
+	if !s.authorizeDNSCredentialUse(c, resource.ResourceScope.Normalize().ProjectID) {
+		return
+	}
 	s.issueTaskMu.Lock()
 	idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
 	if idempotencyKey != "" {

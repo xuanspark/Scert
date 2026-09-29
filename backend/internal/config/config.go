@@ -90,6 +90,7 @@ type ACMEConfig struct {
 }
 
 type DNSConfig struct {
+	ProjectID         string `json:"project_id,omitempty"`
 	OwnerUserID       string `json:"owner_user_id,omitempty"`
 	Provider          string `json:"provider"`
 	CredentialRef     string `json:"credential_ref"`
@@ -149,7 +150,7 @@ func Default(baseDir string) Config {
 			PropagationTimeoutSecs:         300,
 			PropagationPollingIntervalSecs: 5,
 		},
-		DNS: DNSConfig{VerificationState: "not_configured"},
+		DNS: DNSConfig{ProjectID: "default", VerificationState: "not_configured"},
 		Notification: NotificationConfig{
 			HTTPHeaders:        map[string]string{},
 			HTTPPath:           "/api/email/send",
@@ -342,6 +343,9 @@ func (c *Config) Normalize() {
 	}
 	if c.DNS.VerificationState == "" {
 		c.DNS.VerificationState = "not_configured"
+	}
+	if strings.TrimSpace(c.DNS.ProjectID) == "" {
+		c.DNS.ProjectID = "default"
 	}
 	if c.ACME.PropagationTimeoutSecs == 0 {
 		c.ACME.PropagationTimeoutSecs = 300

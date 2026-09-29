@@ -18,6 +18,7 @@ type dnsAccountView struct {
 	Provider          string `json:"provider"`
 	ProviderName      string `json:"provider_name"`
 	AccountIdentifier string `json:"account_identifier"`
+	ProjectID         string `json:"project_id"`
 	OwnerUserID       string `json:"owner_user_id,omitempty"`
 	OwnerUsername     string `json:"owner_username"`
 	OwnerState        string `json:"owner_state"`
@@ -38,9 +39,13 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 	}
 	item := dnsAccountView{
 		ID: "system-dns", Name: "系统 DNS 账户", Provider: cfg.DNS.Provider,
+		ProjectID:    strings.TrimSpace(cfg.DNS.ProjectID),
 		ProviderName: "未知服务商", AccountIdentifier: "未提供账号标识",
 		OwnerUserID: cfg.DNS.OwnerUserID, OwnerState: "unassigned", OwnerUsername: "未分配",
 		VerificationState: cfg.DNS.VerificationState, CredentialState: "available",
+	}
+	if item.ProjectID == "" {
+		item.ProjectID = "default"
 	}
 	var owner repository.User
 	ownerID := strings.TrimSpace(cfg.DNS.OwnerUserID)

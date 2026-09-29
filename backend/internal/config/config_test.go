@@ -223,6 +223,15 @@ func TestNormalizeRestoresMissingRenewalPolicy(t *testing.T) {
 	}
 }
 
+func TestNormalizeRestoresDNSProjectScope(t *testing.T) {
+	cfg := Default(t.TempDir())
+	cfg.DNS.ProjectID = ""
+	cfg.Normalize()
+	if cfg.DNS.ProjectID != "default" {
+		t.Fatalf("旧配置的 DNS 项目归属未补齐：%q", cfg.DNS.ProjectID)
+	}
+}
+
 func TestValidateRejectsInvalidRenewalPolicy(t *testing.T) {
 	cases := []struct {
 		name string

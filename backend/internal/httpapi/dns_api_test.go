@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
@@ -35,6 +38,43 @@ func TestAdminDNSProvidersReturnsCatalog(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "Cloudflare") || !strings.Contains(response.Body.String(), "credential_fields") {
 		t.Fatalf("DNS 服务商目录内容不完整：%s", response.Body.String())
+	}
+}
+
+func TestAdminDNSAccountsExposeProjectScope(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	cfg.DNS.ProjectID = "project-a"
+	cfg.DNS.CredentialRef = "secret://dns/cloudflare/project-a"
+	secrets := &fakeSecretReaderStore{data: map[string]map[string]string{
+		cfg.DNS.CredentialRef: {"api_token": "test-token"},
+	}}
+	server := New(Dependencies{Config: cfg, Secrets: secrets})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/dns/accounts", nil)
+	serveAdminHTTP(server, response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("读取 DNS 账户失败：%d %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"project_id":"project-a"`) {
+		t.Fatalf("DNS 账户响应未包含项目归属：%s", response.Body.String())
+	}
+}
+
+func TestDNSCredentialUseRejectsUnauthorizedProject(t *testing.T) {
+	server := New(Dependencies{
+		ProjectDomains: projectDomainRepositoryStub{authorizeErr: repository.ErrProjectAccessDenied},
+	})
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	context.Set(authenticatedActorKey, "user-a")
+	if server.authorizeDNSCredentialUse(context, "project-a") {
+		t.Fatal("无 DNS 凭据使用权限的项目不应通过授权")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("无 DNS 凭据使用权限应返回 403，实际为 %d", recorder.Code)
 	}
 }
 

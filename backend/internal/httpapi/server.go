@@ -576,6 +576,14 @@ func (s *Server) authorizeServerMutation(c *gin.Context, projectID string) bool 
 	}
 	return true
 }
+
+func (s *Server) currentDNSProvider() string {
+	s.configMu.RLock()
+	provider := strings.ToLower(strings.TrimSpace(s.config.DNS.Provider))
+	s.configMu.RUnlock()
+	return provider
+}
+
 func (s *Server) listDomains(c *gin.Context) {
 	if !s.requireProjectResourceReader(c) {
 		return
@@ -604,6 +612,9 @@ func (s *Server) createDomain(c *gin.Context) {
 	}
 	item.ResourceScope = s.newResourceScope(c)
 	if !s.authorizeDomainMutation(c, item.ProjectID) {
+		return
+	}
+	if s.currentDNSProvider() == dnsprovider.Aliyun && !s.authorizeDNSCredentialUse(c, item.ProjectID) {
 		return
 	}
 	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), append([]string{item.Name}, item.SANs...)...); err != nil {
@@ -640,6 +651,9 @@ func (s *Server) updateDomain(c *gin.Context) {
 		return
 	}
 	if !s.authorizeDomainMutation(c, existing.ProjectID) {
+		return
+	}
+	if s.currentDNSProvider() == dnsprovider.Aliyun && !s.authorizeDNSCredentialUse(c, existing.ProjectID) {
 		return
 	}
 	item, err := newDomainFromRequest(request)

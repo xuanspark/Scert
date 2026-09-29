@@ -12,6 +12,8 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
 type settingsView struct {
@@ -55,6 +57,7 @@ type settingsACMEView struct {
 }
 
 type settingsDNSView struct {
+	ProjectID            string `json:"project_id"`
 	Provider             string `json:"provider"`
 	VerificationState    string `json:"verification_state"`
 	CredentialConfigured bool   `json:"credential_configured"`
@@ -128,6 +131,7 @@ type settingsACMERequest struct {
 }
 
 type settingsDNSRequest struct {
+	ProjectID         *string `json:"project_id"`
 	Provider          *string `json:"provider"`
 	CredentialRef     *string `json:"credential_ref"`
 	VerificationToken *string `json:"verification_token"`
@@ -195,6 +199,12 @@ func (s *Server) updateSettings(c *gin.Context) {
 	updated := s.config
 	applySettingsRequest(&updated, request)
 	updated.Normalize()
+	if request.DNS != nil && request.DNS.ProjectID != nil && updated.DNS.ProjectID != previous.DNS.ProjectID {
+		if !s.authorizeDNSProjectAssignment(c, updated.DNS.ProjectID) {
+			s.configMu.Unlock()
+			return
+		}
+	}
 	createdCredentialRefs, err := s.saveSettingsNotificationCredentials(c.Request.Context(), &updated, request)
 	if err != nil {
 		s.rollbackSetupCredentialsWithLog(createdCredentialRefs)
@@ -291,6 +301,26 @@ func (s *Server) updateSettings(c *gin.Context) {
 	})
 }
 
+func (s *Server) authorizeDNSProjectAssignment(c *gin.Context, projectID string) bool {
+	authorizer, ok := s.projectMembers.(repository.ProjectAuthorizer)
+	if !ok {
+		authorizer, ok = s.projectDomains.(repository.ProjectAuthorizer)
+	}
+	if !ok {
+		s.writeError(c, http.StatusServiceUnavailable, "项目 DNS 权限服务尚未就绪", nil)
+		return false
+	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), projectID, domain.PermissionDNSManage); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的 DNS 账户", nil)
+			return false
+		}
+		s.writeError(c, http.StatusInternalServerError, "检查项目 DNS 管理权限失败", err)
+		return false
+	}
+	return true
+}
+
 func (s *Server) applySettingsDNS(ctx context.Context, cfg *config.Config, previous config.Config, request *settingsDNSRequest) (string, string, string, error) {
 	if cfg == nil || request == nil {
 		return "", "", "", nil
@@ -358,7 +388,8 @@ func settingsViewFromConfig(cfg config.Config) settingsView {
 			PropagationTimeoutSecs: cfg.ACME.PropagationTimeoutSecs, PropagationPollingIntervalSecs: cfg.ACME.PropagationPollingIntervalSecs,
 		},
 		DNS: settingsDNSView{
-			Provider: cfg.DNS.Provider, VerificationState: cfg.DNS.VerificationState,
+			ProjectID: cfg.DNS.ProjectID,
+			Provider:  cfg.DNS.Provider, VerificationState: cfg.DNS.VerificationState,
 			CredentialConfigured: strings.TrimSpace(cfg.DNS.CredentialRef) != "",
 		},
 		Notification: settingsNotificationView{
@@ -446,6 +477,9 @@ func applySettingsRequest(cfg *config.Config, request settingsRequest) {
 	}
 	if request.DNS != nil && request.DNS.Provider != nil {
 		cfg.DNS.Provider = strings.TrimSpace(*request.DNS.Provider)
+	}
+	if request.DNS != nil && request.DNS.ProjectID != nil {
+		cfg.DNS.ProjectID = strings.TrimSpace(*request.DNS.ProjectID)
 	}
 	if request.Notification != nil {
 		item := request.Notification

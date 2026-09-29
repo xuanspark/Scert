@@ -76,3 +76,23 @@ func (s *Server) authorizeVisibleDomainPermission(c *gin.Context, permission dom
 	}
 	return true
 }
+
+func (s *Server) authorizeDNSCredentialUse(c *gin.Context, projectID string) bool {
+	authorizer, ok := s.projectMembers.(repository.ProjectAuthorizer)
+	if !ok {
+		authorizer, ok = s.projectDomains.(repository.ProjectAuthorizer)
+	}
+	if !ok {
+		s.writeError(c, http.StatusServiceUnavailable, "项目 DNS 权限服务尚未就绪", nil)
+		return false
+	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), projectID, domain.PermissionDNSCredentialUse); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权使用此项目的 DNS 凭据", nil)
+			return false
+		}
+		s.writeError(c, http.StatusInternalServerError, "检查项目 DNS 凭据权限失败", err)
+		return false
+	}
+	return true
+}
