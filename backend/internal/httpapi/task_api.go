@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
@@ -177,6 +178,9 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 	})
 	certificateResult, deploymentReport, issueErr := s.issueCertificate(executionCtx, task.DomainID)
 	deploymentReport = sanitizeDeploymentReport(deploymentReport)
+	if recordErr := s.tasks.RecordTaskDeploymentResults(context.Background(), task.ID, attempt.ID, attempt.AttemptNumber, taskDeploymentResults(deploymentReport)); recordErr != nil {
+		issueErr = errors.Join(issueErr, recordErr)
+	}
 	finished := time.Now().UTC()
 	status := "success"
 	message := "证书申请和部署完成"
@@ -503,6 +507,52 @@ func (s *Server) listTaskAttempts(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
+
+func (s *Server) listTaskDeploymentResults(c *gin.Context) {
+	reader, ok := s.projectTaskReader(c)
+	if !ok {
+		return
+	}
+	actorID := c.GetString(authenticatedActorKey)
+	if _, err := reader.GetVisibleTask(c.Request.Context(), actorID, c.Param("id")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权访问此任务", nil)
+			return
+		}
+		s.writeError(c, http.StatusInternalServerError, "读取任务失败", err)
+		return
+	}
+	items, err := reader.ListVisibleTaskDeploymentResults(c.Request.Context(), actorID, c.Param("id"))
+	if err != nil {
+		s.writeError(c, http.StatusInternalServerError, "查询任务部署结果失败", err)
+		return
+	}
+	for index := range items {
+		if items[index].Status == "failed" {
+			items[index].Message = "证书部署失败"
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func taskDeploymentResults(report deployment.Report) []repository.TaskDeploymentResult {
+	if len(report.Results) == 0 {
+		return nil
+	}
+	items := make([]repository.TaskDeploymentResult, 0, len(report.Results))
+	for index, item := range report.Results {
+		items = append(items, repository.TaskDeploymentResult{
+			ResultIndex: index,
+			ServerID:    item.ServerID,
+			Server:      item.Server,
+			Status:      item.Status,
+			Message:     item.Message,
+			BackupID:    item.BackupID,
+		})
+	}
+	return items
+}
+
 func (s *Server) listAuditLogs(c *gin.Context) {
 	if !s.requireProjectResourceReader(c) {
 		return

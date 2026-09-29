@@ -16,6 +16,7 @@ type ProjectTaskReader interface {
 	ListVisibleTasks(context.Context, string, string, int) ([]Task, error)
 	GetVisibleTask(context.Context, string, string) (Task, error)
 	ListVisibleTaskAttempts(context.Context, string, string) ([]TaskAttempt, error)
+	ListVisibleTaskDeploymentResults(context.Context, string, string) ([]TaskDeploymentResult, error)
 	CancelVisibleTask(context.Context, string, string, string, *time.Time) error
 	RetryVisibleTask(context.Context, string, string, *time.Time) (Task, TaskAttempt, error)
 }
@@ -127,6 +128,38 @@ func (r *SQLTaskRepository) ListVisibleTaskAttempts(ctx context.Context, actorID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("读取可见任务尝试失败：%w", err)
+	}
+	return items, nil
+}
+
+func (r *SQLTaskRepository) ListVisibleTaskDeploymentResults(ctx context.Context, actorID, taskID string) ([]TaskDeploymentResult, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("数据库连接不能为空")
+	}
+	predicate, args := taskVisibilityPredicate("tasks", domain.PermissionTaskRead)
+	args[0] = strings.TrimSpace(actorID)
+	args = append(args, strings.TrimSpace(taskID))
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT results.task_id, results.attempt_id, results.attempt_number,
+		results.result_index, results.server_id, results.server_name, results.status, results.message,
+		results.backup_id, results.created_at
+		FROM task_deployment_results results JOIN tasks ON tasks.id = results.task_id
+		WHERE `+predicate+` AND results.task_id = ? ORDER BY results.attempt_number, results.result_index`), args...)
+	if err != nil {
+		return nil, fmt.Errorf("查询可见部署结果失败：%w", err)
+	}
+	defer rows.Close()
+	items := make([]TaskDeploymentResult, 0)
+	for rows.Next() {
+		var item TaskDeploymentResult
+		if err := rows.Scan(&item.TaskID, &item.AttemptID, &item.AttemptNumber, &item.ResultIndex,
+			&item.ServerID, &item.Server, &item.Status, &item.Message, &item.BackupID, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("读取可见部署结果失败：%w", err)
+		}
+		item.CreatedAt = item.CreatedAt.UTC()
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("读取可见部署结果列表失败：%w", err)
 	}
 	return items, nil
 }

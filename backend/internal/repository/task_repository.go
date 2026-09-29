@@ -41,6 +41,19 @@ type TaskAttempt struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
+type TaskDeploymentResult struct {
+	TaskID        string    `json:"task_id"`
+	AttemptID     string    `json:"attempt_id"`
+	AttemptNumber int       `json:"attempt_number"`
+	ResultIndex   int       `json:"result_index"`
+	ServerID      string    `json:"server_id"`
+	Server        string    `json:"server"`
+	Status        string    `json:"status"`
+	Message       string    `json:"message"`
+	BackupID      string    `json:"backup_id,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 // ErrTaskAlreadyRunning 表示同一域名的同类任务仍处于活动状态。
 var ErrTaskAlreadyRunning = errors.New("同一域名的同类任务正在执行")
 
@@ -56,6 +69,8 @@ type TaskRepository interface {
 	CreateAttempt(context.Context, TaskAttempt) error
 	FinishAttempt(context.Context, string, string, string, *time.Time) error
 	ListAttempts(context.Context, string) ([]TaskAttempt, error)
+	RecordTaskDeploymentResults(context.Context, string, string, int, []TaskDeploymentResult) error
+	ListTaskDeploymentResults(context.Context, string) ([]TaskDeploymentResult, error)
 }
 
 type SQLTaskRepository struct {
@@ -496,6 +511,99 @@ func (r *SQLTaskRepository) ListAttempts(ctx context.Context, taskID string) ([]
 		return nil, fmt.Errorf("读取任务尝试列表失败：%w", err)
 	}
 	return result, nil
+}
+
+func (r *SQLTaskRepository) RecordTaskDeploymentResults(ctx context.Context, taskID, attemptID string, attemptNumber int, items []TaskDeploymentResult) error {
+	if r == nil || r.db == nil {
+		return errors.New("数据库连接不能为空")
+	}
+	taskID = strings.TrimSpace(taskID)
+	attemptID = strings.TrimSpace(attemptID)
+	if taskID == "" || attemptID == "" || attemptNumber <= 0 {
+		return errors.New("任务和任务尝试标识不能为空")
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("开始保存部署结果事务失败：%w", err)
+	}
+	rollback := func() {
+		_ = tx.Rollback()
+	}
+	var attemptCount int
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT COUNT(*) FROM task_attempts WHERE id = ? AND task_id = ? AND attempt_number = ?`), attemptID, taskID, attemptNumber).Scan(&attemptCount); err != nil {
+		rollback()
+		return fmt.Errorf("校验任务尝试失败：%w", err)
+	}
+	if attemptCount != 1 {
+		rollback()
+		return errors.New("任务尝试不存在或不匹配")
+	}
+	if _, err := tx.ExecContext(ctx, r.query(`DELETE FROM task_deployment_results WHERE task_id = ? AND attempt_id = ?`), taskID, attemptID); err != nil {
+		rollback()
+		return fmt.Errorf("清理旧部署结果失败：%w", err)
+	}
+	seen := make(map[int]struct{}, len(items))
+	for index, item := range items {
+		resultIndex := item.ResultIndex
+		if resultIndex < 0 {
+			resultIndex = index
+		}
+		if _, exists := seen[resultIndex]; exists {
+			rollback()
+			return errors.New("部署结果序号重复")
+		}
+		seen[resultIndex] = struct{}{}
+		createdAt := item.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = time.Now().UTC()
+		}
+		if _, err := tx.ExecContext(ctx, r.query(`INSERT INTO task_deployment_results
+			(task_id, attempt_id, attempt_number, result_index, server_id, server_name, status, message, backup_id, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+			taskID, attemptID, attemptNumber, resultIndex, strings.TrimSpace(item.ServerID), strings.TrimSpace(item.Server),
+			strings.TrimSpace(item.Status), item.Message, strings.TrimSpace(item.BackupID), createdAt.UTC()); err != nil {
+			rollback()
+			return fmt.Errorf("保存部署结果失败：%w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交部署结果事务失败：%w", err)
+	}
+	return nil
+}
+
+func (r *SQLTaskRepository) ListTaskDeploymentResults(ctx context.Context, taskID string) ([]TaskDeploymentResult, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("数据库连接不能为空")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, errors.New("任务 ID 不能为空")
+	}
+	rows, err := r.db.QueryContext(ctx, r.query(`SELECT task_id, attempt_id, attempt_number, result_index,
+		server_id, server_name, status, message, backup_id, created_at
+		FROM task_deployment_results WHERE task_id = ? ORDER BY attempt_number, result_index`), taskID)
+	if err != nil {
+		return nil, fmt.Errorf("查询部署结果失败：%w", err)
+	}
+	defer rows.Close()
+	items := make([]TaskDeploymentResult, 0)
+	for rows.Next() {
+		var item TaskDeploymentResult
+		if err := rows.Scan(&item.TaskID, &item.AttemptID, &item.AttemptNumber, &item.ResultIndex,
+			&item.ServerID, &item.Server, &item.Status, &item.Message, &item.BackupID, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("读取部署结果失败：%w", err)
+		}
+		item.CreatedAt = item.CreatedAt.UTC()
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("读取部署结果列表失败：%w", err)
+	}
+	return items, nil
 }
 
 const taskSelect = `SELECT id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key, started_at, finished_at, created_at, updated_at, scope_type, project_id FROM tasks`

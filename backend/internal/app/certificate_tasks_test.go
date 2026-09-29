@@ -421,3 +421,34 @@ func TestCertificateTasksRecordPartialDeploymentFailure(t *testing.T) {
 	}
 	assertCertificateTask(t, a, "partial_success", "partial_success")
 }
+
+func TestCertificateTaskPersistsDeploymentResults(t *testing.T) {
+	w, a := newCertificateTaskFixture(t)
+	w.workflow = &CertificateWorkflow{
+		Certificates: &workflowCertificateService{result: certificate.IssueResult{DomainID: "task-domain"}},
+		Domains:      &workflowDomainState{},
+		Servers:      workflowServerLister{servers: []deployment.Server{{ID: "server-1"}, {ID: "server-2"}}},
+		CurrentCertificate: func(context.Context, string) (certificate.IssueResult, error) {
+			return certificate.IssueResult{DomainID: "task-domain", Saved: certificate.SavedResource{CertificatePath: "cert.pem"}}, nil
+		},
+		Deployment: &workflowDeployer{report: deployment.Report{
+			Total: 2, Success: 1, Failed: 1, Status: "partial",
+			Results: []deployment.Result{
+				{ServerID: "server-1", Server: "第一台服务器", Status: "success", Message: "部署成功"},
+				{ServerID: "server-2", Server: "第二台服务器", Status: "failed", Message: "部署失败"},
+			},
+		}},
+	}
+	_, err := w.DeployCurrent(t.Context(), "task-domain")
+	if err == nil {
+		t.Fatal("部分部署失败应返回错误")
+	}
+	items, err := a.Tasks.ListTasks(t.Context(), "task-domain", 10)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("任务读取失败：%+v %v", items, err)
+	}
+	results, err := a.Tasks.ListTaskDeploymentResults(t.Context(), items[0].ID)
+	if err != nil || len(results) != 2 || results[0].AttemptID == "" || results[1].Status != "failed" {
+		t.Fatalf("部署结果未持久化：%+v %v", results, err)
+	}
+}

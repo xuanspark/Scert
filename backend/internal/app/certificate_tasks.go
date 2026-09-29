@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
@@ -148,6 +149,9 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		issueCtx, cancel := context.WithTimeout(taskCtx, 30*time.Minute)
 		result, resultErr = execute(issueCtx, id)
 		cancel()
+		if recordErr := w.tasks.RecordTaskDeploymentResults(taskCtx, task.ID, attempt.ID, number, taskDeploymentResults(result.Deployment)); recordErr != nil {
+			resultErr = errors.Join(resultErr, recordErr)
+		}
 		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		finished := time.Now().UTC()
 		status, message := certificateTaskOutcome(result, resultErr)
@@ -167,6 +171,24 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		}
 	}
 	return result, resultErr
+}
+
+func taskDeploymentResults(report deployment.Report) []repository.TaskDeploymentResult {
+	if len(report.Results) == 0 {
+		return nil
+	}
+	items := make([]repository.TaskDeploymentResult, 0, len(report.Results))
+	for index, item := range report.Results {
+		items = append(items, repository.TaskDeploymentResult{
+			ResultIndex: index,
+			ServerID:    item.ServerID,
+			Server:      item.Server,
+			Status:      item.Status,
+			Message:     item.Message,
+			BackupID:    item.BackupID,
+		})
+	}
+	return items
 }
 
 func certificateTaskOutcome(result CertificateWorkflowResult, err error) (string, string) {

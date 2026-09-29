@@ -89,6 +89,43 @@ func TestSQLTaskRepositoryLifecycle(t *testing.T) {
 	}
 }
 
+func TestSQLTaskRepositoryPersistsDeploymentResultsByAttempt(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	if err := repository.CreateTask(ctx, Task{
+		ID: "task-deployment-results", DomainID: "domain-1", TaskType: "certificate_issue",
+		Status: "running", Stage: "certificate_issue", Message: "正在执行证书工作流",
+	}); err != nil {
+		t.Fatalf("创建部署任务失败：%v", err)
+	}
+	if err := repository.CreateAttempt(ctx, TaskAttempt{
+		ID: "attempt-deployment-results", TaskID: "task-deployment-results", AttemptNumber: 1,
+		Stage: "certificate_issue", Status: "running", Message: "正在执行证书工作流",
+	}); err != nil {
+		t.Fatalf("创建部署任务尝试失败：%v", err)
+	}
+	created := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	if err := repository.RecordTaskDeploymentResults(ctx, "task-deployment-results", "attempt-deployment-results", 1, []TaskDeploymentResult{
+		{ResultIndex: 0, ServerID: "server-1", Server: "第一台服务器", Status: "success", Message: "部署成功", CreatedAt: created},
+		{ResultIndex: 1, ServerID: "server-2", Server: "第二台服务器", Status: "failed", Message: "部署失败", CreatedAt: created},
+	}); err != nil {
+		t.Fatalf("保存部署结果失败：%v", err)
+	}
+	items, err := repository.ListTaskDeploymentResults(ctx, "task-deployment-results")
+	if err != nil || len(items) != 2 || items[0].AttemptNumber != 1 || items[1].ServerID != "server-2" || items[1].Status != "failed" {
+		t.Fatalf("部署结果读取错误：%+v %v", items, err)
+	}
+	if err := repository.RecordTaskDeploymentResults(ctx, "task-deployment-results", "attempt-deployment-results", 1, []TaskDeploymentResult{
+		{ResultIndex: 0, ServerID: "server-1", Server: "第一台服务器", Status: "success", Message: "重新部署成功", CreatedAt: created},
+	}); err != nil {
+		t.Fatalf("替换部署结果失败：%v", err)
+	}
+	items, err = repository.ListTaskDeploymentResults(ctx, "task-deployment-results")
+	if err != nil || len(items) != 1 || items[0].Message != "重新部署成功" {
+		t.Fatalf("部署结果替换错误：%+v %v", items, err)
+	}
+}
 func TestSQLTaskRepositoryRejectsInvalidStatus(t *testing.T) {
 	repository, db := newTaskRepositoryTest(t)
 	defer db.Close()

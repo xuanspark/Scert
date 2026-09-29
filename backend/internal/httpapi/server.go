@@ -222,6 +222,7 @@ func (s *Server) registerRoutes() {
 	api.DELETE("/tasks/:id", s.cancelTask)
 	api.POST("/tasks/:id/retry", s.retryTask)
 	api.GET("/tasks/:id/attempts", s.listTaskAttempts)
+	api.GET("/tasks/:id/deployment-results", s.listTaskDeploymentResults)
 
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.requireSuperAdminSystemConfig, s.updateSettings)
