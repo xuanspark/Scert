@@ -52,6 +52,14 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "检查证书任务权限失败", err)
 		return
 	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), resource.ResourceScope.Normalize().ProjectID, domain.PermissionDeploymentExecute); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权执行此项目的证书部署任务", nil)
+			return
+		}
+		s.writeError(c, http.StatusInternalServerError, "检查证书部署权限失败", err)
+		return
+	}
 	if !s.authorizeDNSCredentialUse(c, resource.ResourceScope.Normalize().ProjectID) {
 		return
 	}

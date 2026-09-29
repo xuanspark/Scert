@@ -59,6 +59,22 @@ func (s *Server) authorizeVisibleDomainPermission(c *gin.Context, permission dom
 		s.writeProjectResourceError(c, err)
 		return false
 	}
+	return s.authorizeProjectPermissions(c, item.ProjectID, permission)
+}
+
+func (s *Server) authorizeVisibleDomainPermissions(c *gin.Context, permissions ...domain.ProjectPermission) bool {
+	if !s.requireProjectResourceReader(c) {
+		return false
+	}
+	item, err := s.projectResources.GetVisibleDomain(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
+	if err != nil {
+		s.writeProjectResourceError(c, err)
+		return false
+	}
+	return s.authorizeProjectPermissions(c, item.ProjectID, permissions...)
+}
+
+func (s *Server) authorizeProjectPermissions(c *gin.Context, projectID string, permissions ...domain.ProjectPermission) bool {
 	authorizer, ok := s.projectDomains.(repository.ProjectAuthorizer)
 	if !ok {
 		if fallback, fallbackOK := s.projectMembers.(repository.ProjectAuthorizer); fallbackOK {
@@ -70,9 +86,11 @@ func (s *Server) authorizeVisibleDomainPermission(c *gin.Context, permission dom
 		s.writeProjectResourceError(c, errors.New("project authorizer unavailable"))
 		return false
 	}
-	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), item.ProjectID, permission); err != nil {
-		s.writeProjectResourceError(c, err)
-		return false
+	for _, permission := range permissions {
+		if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), projectID, permission); err != nil {
+			s.writeProjectResourceError(c, err)
+			return false
+		}
 	}
 	return true
 }

@@ -405,3 +405,42 @@ func TestCertificateMutationAPIsEnforceProjectPermissions(t *testing.T) {
 		t.Fatalf("certificate workflow was called %d times after authorization failure", calls)
 	}
 }
+
+func TestCertificateImportRequiresDeploymentPermission(t *testing.T) {
+	repo := &stubDomainRepository{
+		loaded: domain.Domain{
+			ID:            "domain-1",
+			ResourceScope: domain.ResourceScope{ProjectID: domain.DefaultProjectID},
+		},
+	}
+	calls := 0
+	server := New(Dependencies{
+		Config:           readyTestConfig(t.TempDir()),
+		Repository:       repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains: projectDomainRepositoryStub{
+			DomainRepository: repo,
+			authorize: func(_ context.Context, _ string, _ string, permission domain.ProjectPermission) error {
+				if permission == domain.PermissionDeploymentExecute {
+					return repository.ErrProjectAccessDenied
+				}
+				return nil
+			},
+		},
+		ImportCertificate: func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+			calls++
+			return certificate.IssueResult{}, deployment.Report{}, nil
+		},
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/certificate/import", strings.NewReader(`{"certificate_path":"/ssl/cert.pem","private_key_path":"/ssl/key.pem"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("缺少部署权限时证书导入未拒绝：%d %s", response.Code, response.Body.String())
+	}
+	if calls != 0 {
+		t.Fatalf("权限拒绝后仍调用证书导入工作流：%d", calls)
+	}
+}

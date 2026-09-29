@@ -120,6 +120,43 @@ func TestTaskAPIRecordsSuccessfulIssueAndAudit(t *testing.T) {
 	}
 }
 
+func TestIssueTaskRequiresDeploymentPermission(t *testing.T) {
+	calls := 0
+	server, _, _, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		calls++
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer closeDB()
+
+	server.projectMembers = permissionProjectMemberRepository{
+		ProjectMemberRepository: server.projectMembers,
+		allow: func(permission domain.ProjectPermission) error {
+			if permission == domain.PermissionDeploymentExecute {
+				return repository.ErrProjectAccessDenied
+			}
+			return nil
+		},
+	}
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("缺少部署权限时证书任务未拒绝：%d %s", response.Code, response.Body.String())
+	}
+	if calls != 0 {
+		t.Fatalf("权限拒绝后仍调用证书申请工作流：%d", calls)
+	}
+}
+
+type permissionProjectMemberRepository struct {
+	repository.ProjectMemberRepository
+	allow func(domain.ProjectPermission) error
+}
+
+func (p permissionProjectMemberRepository) AuthorizeProject(_ context.Context, _ string, _ string, permission domain.ProjectPermission) error {
+	return p.allow(permission)
+}
+
 type failingTaskStartRepository struct {
 	repository.TaskRepository
 }

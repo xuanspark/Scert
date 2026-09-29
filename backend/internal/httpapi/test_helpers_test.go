@@ -16,9 +16,13 @@ import (
 type projectDomainRepositoryStub struct {
 	repository.DomainRepository
 	authorizeErr error
+	authorize    func(context.Context, string, string, domain.ProjectPermission) error
 }
 
-func (r projectDomainRepositoryStub) AuthorizeProject(context.Context, string, string, domain.ProjectPermission) error {
+func (r projectDomainRepositoryStub) AuthorizeProject(ctx context.Context, actorID, projectID string, permission domain.ProjectPermission) error {
+	if r.authorize != nil {
+		return r.authorize(ctx, actorID, projectID, permission)
+	}
 	return r.authorizeErr
 }
 

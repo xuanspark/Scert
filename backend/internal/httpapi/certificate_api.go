@@ -142,7 +142,7 @@ func (s *Server) deployCertificateCurrent(c *gin.Context) {
 }
 
 func (s *Server) importCertificateFiles(c *gin.Context) {
-	if !s.authorizeVisibleDomainPermission(c, domain.PermissionCertificateManage) {
+	if !s.authorizeVisibleDomainPermissions(c, domain.PermissionCertificateManage, domain.PermissionDeploymentExecute) {
 		return
 	}
 	if s.importCertificate == nil {
