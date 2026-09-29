@@ -1061,7 +1061,7 @@ test("dashboardLayout.usesSharedTooltipForUserManagementDescription", async () =
 });
 
 
-test("workflowTasks.renderOnlySupportedCancellation", async () => {
+test("workflowTasks.renderOnlySupportedActions", async () => {
   const { readFile } = await import("node:fs/promises");
   const { compileTemplate } = await import("@vue/compiler-sfc");
   const { renderToString } = await import("@vue/server-renderer");
@@ -1092,10 +1092,14 @@ test("workflowTasks.renderOnlySupportedCancellation", async () => {
           runtimeTime: () => "2026-09-26",
           openTaskDetails: () => {},
           cancelTask: () => {},
+          retryTask: () => {},
         }),
       }));
       const canCancel = taskType === "certificate_issue" && ["queued", "running"].includes(status);
-      assert.equal((html.match(/<button\b/g) || []).length, canCancel ? 2 : 1, `${taskType}:${status}`);
+      const canRetry = taskType === "certificate_issue" && ["failed", "cancelled"].includes(status);
+      const buttonCount = (html.match(/<button\b/g) || []).length;
+      assert.equal(buttonCount, canCancel || canRetry ? 2 : 1, `${taskType}:${status}`);
+      assert.equal(canCancel && canRetry, false, `${taskType}:${status} must not show cancel and retry together`);
     }
   }
 });
