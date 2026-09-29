@@ -208,6 +208,64 @@ func TestSQLTaskRepositoryRecoversInterruptedTasksAndAttempts(t *testing.T) {
 	if err != nil || len(completedAttempts) != 1 || completedAttempts[0].Status != "success" {
 		t.Fatalf("\u5df2\u5b8c\u6210\u4efb\u52a1\u5c1d\u8bd5\u4e0d\u5e94\u88ab\u6062\u590d\u903b\u8f91\u4fee\u6539\uff1a%+v %v", completedAttempts, err)
 	}
+	var auditCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_logs WHERE action = 'task_recovery'`).Scan(&auditCount); err != nil || auditCount != 2 {
+		t.Fatalf("\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u6570\u91cf\u9519\u8bef\uff1a%d %v", auditCount, err)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT resource_id, status, task_id, scope_type, project_id FROM audit_logs WHERE action = 'task_recovery' ORDER BY resource_id`)
+	if err != nil {
+		t.Fatalf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u5931\u8d25\uff1a%v", err)
+	}
+	defer rows.Close()
+	for _, expectedID := range []string{"task-queued", "task-running"} {
+		if !rows.Next() {
+			t.Fatalf("\u7f3a\u5c11\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\uff1a%s", expectedID)
+		}
+		var resourceID, status, taskID, scopeType, projectID string
+		if err := rows.Scan(&resourceID, &status, &taskID, &scopeType, &projectID); err != nil {
+			t.Fatalf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u5931\u8d25\uff1a%v", err)
+		}
+		if resourceID != expectedID || status != "failed" || taskID != expectedID || scopeType != "project" {
+			t.Fatalf("\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u5185\u5bb9\u9519\u8bef：id=%s status=%s task=%s scope=%s project=%s", resourceID, status, taskID, scopeType, projectID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u6d41\u5931\u8d25\uff1a%v", err)
+	}
+	count, err = repository.RecoverInterruptedTasks(ctx, finished.Add(time.Minute))
+	if err != nil || count != 0 {
+		t.Fatalf("\u670d\u52a1\u91cd\u542f\u6062\u590d\u4e0d\u5e94\u91cd\u590d\u6267\u884c\uff1a%d %v", count, err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_logs WHERE action = 'task_recovery'`).Scan(&auditCount); err != nil || auditCount != 2 {
+		t.Fatalf("\u91cd\u590d\u6062\u590d\u4e0d\u5e94\u65b0\u589e\u5ba1\u8ba1\uff1a%d %v", auditCount, err)
+	}
+}
+
+func TestSQLTaskRepositoryRecoveryAuditFailureRollsBack(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	if err := repository.CreateTask(ctx, Task{
+		ID: "task-recovery-audit-failure", DomainID: "domain-1", TaskType: "certificate_issue",
+		Status: "running", Stage: "certificate_issue", Message: "\u6b63\u5728\u6267\u884c",
+	}); err != nil {
+		t.Fatalf("\u521b\u5efa\u5ba1\u8ba1\u56de\u6eda\u6d4b\u8bd5\u4efb\u52a1\u5931\u8d25\uff1a%v", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TRIGGER reject_task_recovery_audit BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit-failure'); END`); err != nil {
+		t.Fatalf("\u521b\u5efa\u5ba1\u8ba1\u5931\u8d25\u89e6\u53d1\u5668\u5931\u8d25\uff1a%v", err)
+	}
+	defer db.ExecContext(context.Background(), `DROP TRIGGER reject_task_recovery_audit`)
+	if count, err := repository.RecoverInterruptedTasks(ctx, time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)); err == nil || count != 0 {
+		t.Fatalf("\u5ba1\u8ba1\u5931\u8d25\u65f6\u5e94\u56de\u6eda\u6062\u590d\uff1a%d %v", count, err)
+	}
+	item, err := repository.GetTask(ctx, "task-recovery-audit-failure")
+	if err != nil || item.Status != "running" || item.Stage != "certificate_issue" {
+		t.Fatalf("\u5ba1\u8ba1\u5931\u8d25\u540e\u4efb\u52a1\u72b6\u6001\u672a\u56de\u6eda\uff1a%+v %v", item, err)
+	}
+	var auditCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_logs`).Scan(&auditCount); err != nil || auditCount != 0 {
+		t.Fatalf("\u5ba1\u8ba1\u5931\u8d25\u540e\u4e0d\u5e94\u4fdd\u7559\u65e5\u5fd7\uff1a%d %v", auditCount, err)
+	}
 }
 
 func TestSQLTaskRepositoryRejectsConcurrentDuplicateIdempotencyKeys(t *testing.T) {

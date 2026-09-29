@@ -301,9 +301,24 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 	rollback := func() {
 		_ = tx.Rollback()
 	}
+	recoveryMessage := "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c"
+	auditResult, err := tx.ExecContext(ctx, r.query(`INSERT INTO audit_logs
+		(action, resource_type, resource_id, status, message, created_at, scope_type, project_id, task_id, operator_id)
+		SELECT 'task_recovery', 'task', id, 'failed', ?, ?, scope_type, project_id, id, operator_id
+		FROM tasks
+		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')`), recoveryMessage, finishedAt)
+	if err != nil {
+		rollback()
+		return 0, fmt.Errorf("\u5199\u5165\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u5931\u8d25\uff1a%w", err)
+	}
+	auditCount, err := auditResult.RowsAffected()
+	if err != nil {
+		rollback()
+		return 0, fmt.Errorf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u6570\u91cf\u5931\u8d25\uff1a%w", err)
+	}
 	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks
 		SET status = 'failed', stage = 'service_restart', message = ?, finished_at = ?, updated_at = ?
-		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')`), "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt, finishedAt)
+		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')`), recoveryMessage, finishedAt, finishedAt)
 	if err != nil {
 		rollback()
 		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5931\u8d25\uff1a%w", err)
@@ -313,9 +328,13 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 		rollback()
 		return 0, fmt.Errorf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u6570\u91cf\u5931\u8d25\uff1a%w", err)
 	}
+	if auditCount != count {
+		rollback()
+		return 0, fmt.Errorf("\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u6570\u91cf\u4e0e\u4efb\u52a1\u6570\u91cf\u4e0d\u4e00\u81f4\uff1a\u5ba1\u8ba1 %d，\u4efb\u52a1 %d", auditCount, count)
+	}
 	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts
 		SET status = 'failed', message = ?, finished_at = ?
-		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')`), "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c", finishedAt); err != nil {
+		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')`), recoveryMessage, finishedAt); err != nil {
 		rollback()
 		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5c1d\u8bd5\u5931\u8d25\uff1a%w", err)
 	}
