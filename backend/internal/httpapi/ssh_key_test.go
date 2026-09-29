@@ -38,7 +38,9 @@ func TestSSHKeyAPIHidesPrivateKeyAndBlocksDeletingUsedReference(t *testing.T) {
 	serverRepo := repository.NewSQLServerRepository(db.DB)
 	server := New(Dependencies{
 		Config: cfg, Repository: repository.NewSQLDomainRepository(db.DB), Servers: serverRepo,
-		SSHKeys: sshkey.NewService(store),
+		SSHKeys:          sshkey.NewService(store),
+		ProjectResources: projectResourceReaderStub{servers: serverRepo},
+		ProjectDomains:   projectDomainRepositoryStub{DomainRepository: repository.NewSQLDomainRepository(db.DB)},
 	})
 
 	privateKey := testSSHPrivateKey(t)

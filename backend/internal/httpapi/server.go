@@ -230,9 +230,9 @@ func (s *Server) registerRoutes() {
 	domainAPI.POST("/domains/:id/certificate/validate", s.longOperation(certificateTaskTimeout), s.validateCertificate)
 	domainAPI.POST("/domains/:id/deploy", s.longOperation(certificateTaskTimeout), s.deployCertificateCurrent)
 	domainAPI.POST("/domains/:id/certificate/versions/:version/restore", s.longOperation(certificateTaskTimeout), s.restoreCertificateVersion)
-	adminAPI.POST("/servers", s.createServer)
-	adminAPI.PUT("/servers/:id", s.updateServer)
-	adminAPI.DELETE("/servers/:id", s.deleteServer)
+	api.POST("/servers", s.createServer)
+	api.PUT("/servers/:id", s.updateServer)
+	api.DELETE("/servers/:id", s.deleteServer)
 	adminAPI.GET("/ssh-keys", s.listSSHKeys)
 	adminAPI.POST("/ssh-keys", s.createSSHKey)
 	adminAPI.DELETE("/ssh-keys/:id", s.deleteSSHKey)
@@ -407,6 +407,7 @@ type serverRequest struct {
 	WebServer            string   `json:"web_server" binding:"required"`
 	ValidationCommand    []string `json:"validation_command"`
 	ReloadCommand        []string `json:"reload_command"`
+	ProjectID            string   `json:"project_id"`
 }
 
 func (s *Server) health(c *gin.Context) {
@@ -553,6 +554,28 @@ func (s *Server) authorizeDomainMutation(c *gin.Context, projectID string) bool 
 	return true
 }
 
+func (s *Server) authorizeServerMutation(c *gin.Context, projectID string) bool {
+	authorizer, ok := s.projectDomains.(repository.ProjectAuthorizer)
+	if !ok {
+		if fallback, fallbackOK := s.projectMembers.(repository.ProjectAuthorizer); fallbackOK {
+			authorizer = fallback
+			ok = true
+		}
+	}
+	if !ok {
+		s.writeError(c, http.StatusServiceUnavailable, "项目权限服务尚未就绪", nil)
+		return false
+	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), projectID, domain.PermissionServerManage); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的服务器", nil)
+		} else {
+			s.writeError(c, http.StatusInternalServerError, "检查项目服务器权限失败", err)
+		}
+		return false
+	}
+	return true
+}
 func (s *Server) listDomains(c *gin.Context) {
 	if !s.requireProjectResourceReader(c) {
 		return
@@ -745,6 +768,13 @@ func (s *Server) createServer(c *gin.Context) {
 	}
 	item := serverFromRequest(request)
 	item.ResourceScope = s.newResourceScope(c)
+	if strings.TrimSpace(request.ProjectID) != "" {
+		item.ProjectID = strings.TrimSpace(request.ProjectID)
+	}
+	item.ResourceScope = item.ResourceScope.Normalize()
+	if !s.authorizeServerMutation(c, item.ProjectID) {
+		return
+	}
 	item = item.Normalize()
 	now := time.Now().UTC()
 	item.CreatedAt = now
@@ -779,6 +809,9 @@ func (s *Server) updateServer(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
 		return
 	}
+	if !s.requireProjectResourceReader(c) {
+		return
+	}
 	var request serverRequest
 	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
@@ -787,13 +820,20 @@ func (s *Server) updateServer(c *gin.Context) {
 	item := serverFromRequest(request)
 	item.ID = c.Param("id")
 	item = item.Normalize()
-	existing, err := s.servers.GetServerByID(c.Request.Context(), item.ID)
+	existing, err := s.projectResources.GetVisibleServer(c.Request.Context(), c.GetString(authenticatedActorKey), item.ID)
 	if err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeProjectResourceError(c, err)
+			return
+		}
 		if repository.IsNotFound(err) {
 			s.writeError(c, http.StatusNotFound, "服务器不存在", err)
 			return
 		}
 		s.writeError(c, http.StatusInternalServerError, "读取服务器失败", err)
+		return
+	}
+	if !s.authorizeServerMutation(c, existing.ProjectID) {
 		return
 	}
 	item.CreatedAt = existing.CreatedAt
@@ -968,13 +1008,23 @@ func (s *Server) deleteServer(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "服务器管理接口尚未配置", errors.New("服务器仓储未配置"))
 		return
 	}
-	item, err := s.servers.GetServerByID(c.Request.Context(), c.Param("id"))
+	if !s.requireProjectResourceReader(c) {
+		return
+	}
+	item, err := s.projectResources.GetVisibleServer(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
 	if err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeProjectResourceError(c, err)
+			return
+		}
 		if repository.IsNotFound(err) {
 			s.writeError(c, http.StatusNotFound, "服务器不存在", err)
 			return
 		}
 		s.writeError(c, http.StatusInternalServerError, "读取服务器失败", err)
+		return
+	}
+	if !s.authorizeServerMutation(c, item.ProjectID) {
 		return
 	}
 	if err := s.servers.DeleteServer(c.Request.Context(), c.Param("id")); err != nil {
