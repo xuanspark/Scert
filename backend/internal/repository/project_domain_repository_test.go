@@ -70,6 +70,44 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 	if _, err := db.DB.ExecContext(context.Background(), Rebind(cfg.Driver, `UPDATE tasks SET status = 'success' WHERE id = ?`), "domain-active-task"); err != nil {
 		t.Fatal(err)
 	}
+	trigger := `CREATE TRIGGER reject_project_domain_audit BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit-failure'); END`
+	if _, err := db.DB.ExecContext(t.Context(), trigger); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.UpdateProjectDomain(t.Context(), "domain-manager", item); err == nil {
+		t.Fatal("审计失败时更新域名不应成功")
+	}
+	stored, err = NewSQLDomainRepository(db.DB).GetByID(t.Context(), item.ID)
+	if err != nil || stored.Name != "updated.example.test" {
+		t.Fatalf("审计失败后域名更新未回滚：%+v，%v", stored, err)
+	}
+	newItem, err := domain.NewDomain("audit-create.example.test", domain.CertificateSingle, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newItem.ID = "audit-create-domain"
+	newItem.ProjectID = "domain-project"
+	if err := writer.CreateProjectDomain(t.Context(), "domain-manager", newItem); err == nil {
+		t.Fatal("审计失败时创建域名不应成功")
+	}
+	if _, err := NewSQLDomainRepository(db.DB).GetByID(t.Context(), newItem.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("审计失败后域名创建未回滚：%v", err)
+	}
+	if _, err := db.DB.ExecContext(t.Context(), `DROP TRIGGER reject_project_domain_audit`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.ExecContext(t.Context(), trigger); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.DeleteProjectDomain(t.Context(), "domain-manager", item.ID); err == nil {
+		t.Fatal("审计失败时删除域名不应成功")
+	}
+	if _, err := NewSQLDomainRepository(db.DB).GetByID(t.Context(), item.ID); err != nil {
+		t.Fatalf("审计失败后域名删除未回滚：%v", err)
+	}
+	if _, err := db.DB.ExecContext(t.Context(), `DROP TRIGGER reject_project_domain_audit`); err != nil {
+		t.Fatal(err)
+	}
 	if err := writer.DeleteProjectDomain(t.Context(), "domain-manager", item.ID); err != nil {
 		t.Fatal(err)
 	}
