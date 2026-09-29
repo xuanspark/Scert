@@ -20,18 +20,31 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
 		return
 	}
-	if s.repository == nil || s.tasks == nil {
-		s.writeError(c, http.StatusNotImplemented, "证书任务接口尚未配置", errors.New("域名仓储或任务仓储未配置"))
+	if s.tasks == nil || s.projectResources == nil || s.projectMembers == nil {
+		s.writeError(c, http.StatusServiceUnavailable, "证书任务权限服务尚未就绪", errors.New("任务、项目资源或项目权限服务未配置"))
 		return
 	}
 	domainID := strings.TrimSpace(c.Param("id"))
-	resource, err := s.repository.GetByID(c.Request.Context(), domainID)
+	resource, err := s.projectResources.GetVisibleDomain(c.Request.Context(), c.GetString(authenticatedActorKey), domainID)
 	if err != nil {
-		if repository.IsNotFound(err) {
-			s.writeError(c, http.StatusNotFound, "域名不存在", err)
+		if errors.Is(err, repository.ErrProjectAccessDenied) || errors.Is(err, sql.ErrNoRows) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的证书任务", nil)
 			return
 		}
 		s.writeError(c, http.StatusInternalServerError, "读取域名失败", err)
+		return
+	}
+	authorizer, ok := s.projectMembers.(repository.ProjectAuthorizer)
+	if !ok {
+		s.writeError(c, http.StatusServiceUnavailable, "证书任务权限服务尚未就绪", errors.New("项目授权服务未配置"))
+		return
+	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), resource.ResourceScope.Normalize().ProjectID, domain.PermissionCertificateManage); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的证书任务", nil)
+			return
+		}
+		s.writeError(c, http.StatusInternalServerError, "检查证书任务权限失败", err)
 		return
 	}
 	s.issueTaskMu.Lock()
@@ -187,16 +200,29 @@ func (s *Server) unregisterTaskCancel(taskID string) {
 	delete(s.taskCancels, taskID)
 }
 
-func (s *Server) cancelTask(c *gin.Context) {
+func (s *Server) projectTaskReader(c *gin.Context) (repository.ProjectTaskReader, bool) {
 	if s.tasks == nil {
 		s.writeError(c, http.StatusNotImplemented, "任务管理接口尚未配置", errors.New("任务仓储未配置"))
+		return nil, false
+	}
+	reader, ok := s.tasks.(repository.ProjectTaskReader)
+	if !ok {
+		s.writeError(c, http.StatusNotImplemented, "任务权限接口尚未配置", errors.New("项目任务读取服务未配置"))
+		return nil, false
+	}
+	return reader, true
+}
+
+func (s *Server) cancelTask(c *gin.Context) {
+	reader, ok := s.projectTaskReader(c)
+	if !ok {
 		return
 	}
 	taskID := strings.TrimSpace(c.Param("id"))
-	item, err := s.tasks.GetTask(c.Request.Context(), taskID)
+	item, err := reader.GetVisibleTask(c.Request.Context(), c.GetString(authenticatedActorKey), taskID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, "任务不存在", err)
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权访问此任务", nil)
 			return
 		}
 		s.writeError(c, http.StatusInternalServerError, "读取任务失败", err)
@@ -215,7 +241,11 @@ func (s *Server) cancelTask(c *gin.Context) {
 		return
 	}
 	finished := time.Now().UTC()
-	if err := s.tasks.CancelTask(c.Request.Context(), taskID, "任务已由用户取消", &finished); err != nil {
+	if err := reader.CancelVisibleTask(c.Request.Context(), c.GetString(authenticatedActorKey), taskID, "任务已由用户取消", &finished); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) || errors.Is(err, sql.ErrNoRows) {
+			s.writeError(c, http.StatusForbidden, "无权访问此任务", nil)
+			return
+		}
 		s.writeError(c, http.StatusConflict, "取消任务失败", err)
 		return
 	}
@@ -237,7 +267,6 @@ func (s *Server) cancelTask(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"task": item})
 }
-
 func validTaskIdempotencyKey(value string) bool {
 	if len(value) < 8 || len(value) > 128 {
 		return false
@@ -250,12 +279,12 @@ func validTaskIdempotencyKey(value string) bool {
 	return true
 }
 func (s *Server) listTasks(c *gin.Context) {
-	if s.tasks == nil {
-		s.writeError(c, http.StatusNotImplemented, "任务管理接口尚未配置", errors.New("任务仓储未配置"))
+	reader, ok := s.projectTaskReader(c)
+	if !ok {
 		return
 	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	items, err := s.tasks.ListTasks(c.Request.Context(), c.Query("domain_id"), limit)
+	items, err := reader.ListVisibleTasks(c.Request.Context(), c.GetString(authenticatedActorKey), c.Query("domain_id"), limit)
 	if err != nil {
 		s.writeError(c, http.StatusInternalServerError, "查询任务失败", err)
 		return
@@ -264,14 +293,14 @@ func (s *Server) listTasks(c *gin.Context) {
 }
 
 func (s *Server) getTask(c *gin.Context) {
-	if s.tasks == nil {
-		s.writeError(c, http.StatusNotImplemented, "任务管理接口尚未配置", errors.New("任务仓储未配置"))
+	reader, ok := s.projectTaskReader(c)
+	if !ok {
 		return
 	}
-	item, err := s.tasks.GetTask(c.Request.Context(), c.Param("id"))
+	item, err := reader.GetVisibleTask(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, "任务不存在", err)
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权访问此任务", nil)
 			return
 		}
 		s.writeError(c, http.StatusInternalServerError, "读取任务失败", err)
@@ -281,26 +310,26 @@ func (s *Server) getTask(c *gin.Context) {
 }
 
 func (s *Server) listTaskAttempts(c *gin.Context) {
-	if s.tasks == nil {
-		s.writeError(c, http.StatusNotImplemented, "任务管理接口尚未配置", errors.New("任务仓储未配置"))
+	reader, ok := s.projectTaskReader(c)
+	if !ok {
 		return
 	}
-	if _, err := s.tasks.GetTask(c.Request.Context(), c.Param("id")); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, "任务不存在", err)
+	actorID := c.GetString(authenticatedActorKey)
+	if _, err := reader.GetVisibleTask(c.Request.Context(), actorID, c.Param("id")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权访问此任务", nil)
 			return
 		}
 		s.writeError(c, http.StatusInternalServerError, "读取任务失败", err)
 		return
 	}
-	items, err := s.tasks.ListAttempts(c.Request.Context(), c.Param("id"))
+	items, err := reader.ListVisibleTaskAttempts(c.Request.Context(), actorID, c.Param("id"))
 	if err != nil {
 		s.writeError(c, http.StatusInternalServerError, "查询任务尝试失败", err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
-
 func (s *Server) listAuditLogs(c *gin.Context) {
 	if !s.requireProjectResourceReader(c) {
 		return

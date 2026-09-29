@@ -212,11 +212,7 @@ func (s *Server) registerRoutes() {
 	domainAPI.POST("/domains", s.dnsOperation, s.createDomain)
 	domainAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)
 	domainAPI.DELETE("/domains/:id", s.deleteDomain)
-	adminAPI.POST("/domains/:id/issue", s.longOperation(certificateTaskTimeout), s.issueDomain)
-	adminAPI.GET("/tasks", s.listTasks)
-	adminAPI.GET("/tasks/:id", s.getTask)
-	adminAPI.DELETE("/tasks/:id", s.cancelTask)
-	adminAPI.GET("/tasks/:id/attempts", s.listTaskAttempts)
+	domainAPI.POST("/domains/:id/issue", s.longOperation(certificateTaskTimeout), s.issueDomain)
 
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.updateSettings)
