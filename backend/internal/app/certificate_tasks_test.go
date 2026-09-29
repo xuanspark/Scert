@@ -218,6 +218,90 @@ func TestCertificateTaskEntryPointsRecordRenewalAndDeployment(t *testing.T) {
 	}
 }
 
+type restoringWorkflowCertificateService struct {
+	workflowCertificateService
+	restored certificate.IssueResult
+}
+
+func (s *restoringWorkflowCertificateService) RestoreVersion(context.Context, string, string) (certificate.IssueResult, error) {
+	s.called = true
+	return s.restored, nil
+}
+
+func TestCertificateTaskEntryPointsRecordImportRestoreAndValidate(t *testing.T) {
+	t.Run("import", func(t *testing.T) {
+		w, a := newCertificateTaskFixture(t)
+		service := &workflowCertificateService{result: certificate.IssueResult{
+			DomainID: "task-domain",
+			Domains:  []string{"task.example.test"},
+			Saved:    certificate.SavedResource{CertificatePath: "cert.pem"},
+		}}
+		w.workflow = &CertificateWorkflow{
+			Certificates: service,
+			Domains:      &workflowDomainState{},
+			Servers:      workflowServerLister{servers: []deployment.Server{{ID: "server"}}},
+			Deployment:   &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}},
+		}
+		_, err := w.Import(t.Context(), certificate.ImportRequest{DomainID: "task-domain", Certificate: "cert.pem", PrivateKey: "key.pem"})
+		if err != nil || !service.called {
+			t.Fatalf("证书导入任务入口执行错误：%v", err)
+		}
+		item := assertCertificateTask(t, a, "success", "success")
+		if item.TaskType != "certificate_import" {
+			t.Fatalf("证书导入任务类型错误：%+v", item)
+		}
+	})
+
+	t.Run("restore", func(t *testing.T) {
+		w, a := newCertificateTaskFixture(t)
+		service := &restoringWorkflowCertificateService{workflowCertificateService: workflowCertificateService{
+			result: certificate.IssueResult{DomainID: "task-domain"},
+		}, restored: certificate.IssueResult{DomainID: "task-domain"}}
+		w.workflow = &CertificateWorkflow{Certificates: service}
+		_, err := w.Restore(t.Context(), "task-domain", "version-1")
+		if err != nil || !service.called {
+			t.Fatalf("证书恢复任务入口执行错误：%v", err)
+		}
+		item := assertCertificateTask(t, a, "success", "success")
+		if item.TaskType != "certificate_restore" {
+			t.Fatalf("证书恢复任务类型错误：%+v", item)
+		}
+	})
+
+	t.Run("validate", func(t *testing.T) {
+		w, a := newCertificateTaskFixture(t)
+		service := &workflowCertificateService{}
+		w.workflow = &CertificateWorkflow{
+			CurrentCertificate: func(context.Context, string) (certificate.IssueResult, error) {
+				service.called = true
+				return certificate.IssueResult{DomainID: "task-domain"}, nil
+			},
+		}
+		_, _, err := w.Validate(t.Context(), "task-domain")
+		if err == nil || !service.called {
+			t.Fatal("证书校验任务入口未返回预期失败")
+		}
+		item := assertCertificateTask(t, a, "failed", "failed")
+		if item.TaskType != "certificate_validate" {
+			t.Fatalf("证书校验任务类型错误：%+v", item)
+		}
+	})
+}
+
+func TestCertificateTaskRejectsInvalidExecutionConfiguration(t *testing.T) {
+	w, a := newCertificateTaskFixture(t)
+	_, err := w.run(t.Context(), "task-domain", "certificate_validate", "certificate_validate", 0, 0, func(context.Context, string) (CertificateWorkflowResult, error) {
+		return CertificateWorkflowResult{}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "至少执行一次") {
+		t.Fatalf("无效执行次数未被拒绝：%v", err)
+	}
+	items, listErr := a.Tasks.ListTasks(t.Context(), "task-domain", 10)
+	if listErr != nil || len(items) != 0 {
+		t.Fatalf("无效任务配置不应创建任务：%+v，%v", items, listErr)
+	}
+}
+
 type failingCertificateAudit struct {
 	repository.AuditRepository
 	failStatus string

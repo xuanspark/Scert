@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
@@ -60,8 +61,20 @@ func (w *certificateTaskWorkflow) Validate(ctx context.Context, domainID string)
 }
 
 func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage string, attempts int, interval time.Duration, execute func(context.Context, string) (CertificateWorkflowResult, error)) (result CertificateWorkflowResult, resultErr error) {
-	if w.tasks == nil || w.audit == nil {
+	if w == nil || w.tasks == nil || w.audit == nil {
 		return result, errors.New("证书任务记录服务未初始化")
+	}
+	if strings.TrimSpace(id) == "" {
+		return result, errors.New("证书任务域名 ID 不能为空")
+	}
+	if strings.TrimSpace(taskType) == "" || strings.TrimSpace(stage) == "" {
+		return result, errors.New("证书任务类型和阶段不能为空")
+	}
+	if attempts < 1 {
+		return result, errors.New("证书任务至少执行一次")
+	}
+	if execute == nil {
+		return result, errors.New("证书任务执行器未配置")
 	}
 	if active, err := w.tasks.FindActiveTaskByDomain(ctx, id, taskType); err == nil {
 		return result, fmt.Errorf("%w：%s", repository.ErrTaskAlreadyRunning, active.ID)
