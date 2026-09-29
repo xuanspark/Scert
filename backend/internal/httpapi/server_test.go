@@ -47,6 +47,7 @@ func TestHealthAndDomainAPI(t *testing.T) {
 	server := New(Dependencies{
 		Config: cfg, Logger: logger, Repository: repo,
 		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains:   projectDomainRepositoryStub{DomainRepository: repo},
 	})
 
 	health := httptest.NewRecorder()
@@ -711,9 +712,9 @@ func TestDeleteDomainRejectsActiveCertificateTask(t *testing.T) {
 	domainRepo := repository.NewSQLDomainRepository(db.DB)
 	taskRepo := repository.NewSQLTaskRepository(db.DB)
 	server := New(Dependencies{
-		Config:     cfg,
-		Repository: domainRepo,
-		Tasks:      taskRepo,
+		Config:         cfg,
+		Repository:     domainRepo,
+		Tasks:          taskRepo,
 		ProjectDomains: repository.NewSQLProjectMemberRepository(db.DB),
 	})
 
@@ -754,7 +755,7 @@ func TestDeleteDomainRejectsActiveCertificateTask(t *testing.T) {
 	if blockedResponse.Code != http.StatusConflict {
 		t.Fatalf("活动证书任务期间删除域名应返回 409：%d %s", blockedResponse.Code, blockedResponse.Body.String())
 	}
-	if !strings.Contains(blockedResponse.Body.String(), "正在执行的证书任务") {
+	if !strings.Contains(blockedResponse.Body.String(), "正在执行的任务") {
 		t.Fatalf("活动证书任务期间的错误信息不正确：%s", blockedResponse.Body.String())
 	}
 
