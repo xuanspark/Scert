@@ -113,7 +113,7 @@ func TestAliyunDomainCheckUsesOnlyCurrentTargetAndProtectsPCUX(t *testing.T) {
 		w := httptest.NewRecorder()
 		body := strings.NewReader(`{"domain":"solit.cn"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/dns/aliyun/check", body)
-		serveAdminHTTP(server, w, req)
+		serveSuperAdminHTTP(server, w, req)
 		if w.Code != http.StatusOK {
 			t.Fatalf("POST check solit.cn status = %d; body=%s", w.Code, w.Body.String())
 		}

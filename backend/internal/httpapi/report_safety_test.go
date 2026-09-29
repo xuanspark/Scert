@@ -20,7 +20,7 @@ func TestRenewalReportHidesNestedWorkflowErrors(t *testing.T) {
 		},
 	})
 	response := httptest.NewRecorder()
-	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil))
+	serveSuperAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil))
 	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "internal-secret-sentinel") {
 		t.Fatalf("续期报告不得返回底层敏感错误：%d", response.Code)
 	}
@@ -50,7 +50,7 @@ func TestAliyunReportHidesSDKErrorAndPreservesCleanupFailure(t *testing.T) {
 		Secrets: &fakeSecretReaderStore{data: map[string]map[string]string{cfg.DNS.CredentialRef: {"access_key_id": "test-id", "access_key_secret": "test-secret", "managed_zones": "example.test", "allowed_domains": "example.test"}}},
 	})
 	response := httptest.NewRecorder()
-	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/dns/aliyun/check", strings.NewReader(`{"domain":"example.test"}`)))
+	serveSuperAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/dns/aliyun/check", strings.NewReader(`{"domain":"example.test"}`)))
 	body := response.Body.String()
 	if response.Code != http.StatusOK || strings.Contains(body, "internal-secret-sentinel") {
 		t.Fatalf("阿里云验证报告不得返回 SDK 敏感错误：%d", response.Code)
