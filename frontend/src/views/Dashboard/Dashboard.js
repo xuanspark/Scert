@@ -24,6 +24,14 @@ export function useDashboard() {
   const settings = ref(null);
   const dnsProviderCatalog = ref([]);
   const domainServers = ref({});
+  const serverDomains = computed(() => Object.fromEntries(
+    servers.value.map((server) => [
+      server.id,
+      domains.value.filter((domain) =>
+        (domainServers.value[domain.id] || []).some((item) => item.id === server.id),
+      ),
+    ]),
+  ));
   const domainPage = ref(1);
   const domainPageSize = ref(5);
   const domainPageSizeOptions = [5, 10, 15, 30];
@@ -1213,6 +1221,7 @@ export function useDashboard() {
     clearDNSCredentials,
     testDNS,
     domainServers,
+    serverDomains,
     domainPage,
     domainPageSize,
     domainPageSizeOptions,

@@ -18,6 +18,7 @@ type ProjectResourceReader interface {
 	ListVisibleServers(context.Context, string) ([]deployment.Server, error)
 	GetVisibleServer(context.Context, string, string) (deployment.Server, error)
 	ListVisibleDomainServers(context.Context, string, string) ([]deployment.Server, error)
+	ListVisibleServerDomains(context.Context, string, string) ([]domain.Domain, error)
 }
 
 var _ ProjectResourceReader = (*SQLProjectMemberRepository)(nil)
@@ -140,6 +141,36 @@ func (r *SQLProjectMemberRepository) ListVisibleDomainServers(ctx context.Contex
 		JOIN domain_servers visible_binding ON visible_binding.server_id = servers.id
 		JOIN domains ON domains.id = visible_binding.domain_id AND domains.project_id = servers.project_id
 		WHERE `+domainPredicate+` AND `+serverPredicate+` AND domains.id = ? ORDER BY servers.name, servers.id`, args)
+}
+
+func (r *SQLProjectMemberRepository) ListVisibleServerDomains(ctx context.Context, actorID, serverID string) ([]domain.Domain, error) {
+	if _, err := r.GetVisibleServer(ctx, actorID, serverID); err != nil {
+		return nil, err
+	}
+	domainPredicate, args := resourceReadPredicate("domains.project_id", actorID, domain.PermissionCertificateRead)
+	serverPredicate, serverArgs := resourceReadPredicate("servers.project_id", actorID, domain.PermissionServerRead)
+	args = append(args, serverArgs...)
+	args = append(args, serverID)
+	rows, err := r.db.QueryContext(ctx, Rebind(r.driver, visibleDomainSelect+`
+		JOIN domain_servers visible_binding ON visible_binding.domain_id = domains.id
+		JOIN servers ON servers.id = visible_binding.server_id AND servers.project_id = domains.project_id
+		WHERE `+domainPredicate+` AND `+serverPredicate+` AND servers.id = ? ORDER BY domains.name, domains.id`), args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query visible server domains: %w", err)
+	}
+	defer rows.Close()
+	items := make([]domain.Domain, 0)
+	for rows.Next() {
+		item, err := scanDomain(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read visible server domains: %w", err)
+	}
+	return items, nil
 }
 
 func (r *SQLProjectMemberRepository) readVisibleServers(ctx context.Context, query string, args []any) ([]deployment.Server, error) {

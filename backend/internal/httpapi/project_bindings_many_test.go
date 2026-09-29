@@ -44,6 +44,24 @@ func TestProjectBindingAPIManyToManyAndPathConflict(t *testing.T) {
 			t.Fatalf("冲突提示不明确或泄露其他域名：%s", response.Body.String())
 		}
 	}
+	assertServerDomains := func(id string, expected []string) {
+		t.Helper()
+		response := serveUserRequest(f.server, f.cookies["manager"], http.MethodGet, "/api/v1/servers/"+id+"/domains", "")
+		var result struct {
+			Items []domain.Domain `json:"items"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Items == nil {
+			t.Fatalf("服务器反向关联读取响应错误：%d，%s", response.Code, response.Body.String())
+		}
+		ids := make([]string, 0, len(result.Items))
+		for _, item := range result.Items {
+			ids = append(ids, item.ID)
+		}
+		slices.Sort(ids)
+		if !slices.Equal(ids, expected) {
+			t.Fatalf("服务器反向关联不正确：%s，%v，期望 %v", id, ids, expected)
+		}
+	}
 	assertBindings := func(id string, expected []string) {
 		t.Helper()
 		response := serveUserRequest(f.server, f.cookies["manager"], http.MethodGet, "/api/v1/domains/"+id+"/servers", "")
@@ -67,9 +85,13 @@ func TestProjectBindingAPIManyToManyAndPathConflict(t *testing.T) {
 	put("domain-c", `{"server_ids":["server-a","server-c"]}`, http.StatusOK)
 	assertBindings("domain-a", both)
 	assertBindings("domain-c", both)
+	assertServerDomains("server-a", []string{"domain-a", "domain-c"})
+	assertServerDomains("server-c", []string{"domain-a", "domain-c"})
 	put("domain-a", `{"server_ids":["server-c"]}`, http.StatusOK)
 	assertBindings("domain-a", both[1:])
 	assertBindings("domain-c", both)
+	assertServerDomains("server-a", []string{"domain-c"})
+	assertServerDomains("server-c", []string{"domain-a", "domain-c"})
 	put("domain-a", `{"server_ids":[]}`, http.StatusOK)
 	assertBindings("domain-a", []string{})
 	assertBindings("domain-c", both)

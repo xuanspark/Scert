@@ -25,6 +25,7 @@ const {
   settings,
   settingsForm,
   domainServers,
+  serverDomains,
   domainPage,
   domainPageSize,
   domainPageSizeOptions,
@@ -458,6 +459,15 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <span>{{ item.username }}@{{ item.address }}:{{ item.port }}</span>
             <span>主机指纹：{{ item.host_key_fingerprint || "未填写" }}</span>
             <span>认证：{{ serverAuthLabel(item) }}</span>
+          </div>
+          <div class="ssh-server-domain-bindings">
+            <span class="detail-label">托管域名</span>
+            <div v-if="(serverDomains[item.id] || []).length > 0" class="ssh-server-domain-list">
+              <span v-for="domain in serverDomains[item.id]" :key="domain.id" class="tag neutral">
+                {{ domain.name }}
+              </span>
+            </div>
+            <span v-else class="muted">未关联托管域名</span>
           </div>
           <div class="ssh-server-details">
             <div class="ssh-server-detail">

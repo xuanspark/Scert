@@ -65,6 +65,19 @@ func (r projectResourceReaderStub) ListVisibleDomainServers(ctx context.Context,
 	return r.servers.ListServersByDomainID(ctx, id)
 }
 
+func (r projectResourceReaderStub) ListVisibleServerDomains(ctx context.Context, _ string, id string) ([]domain.Domain, error) {
+	servers, err := r.servers.ListServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, server := range servers {
+		if server.ID == id {
+			return []domain.Domain{}, nil
+		}
+	}
+	return nil, repository.ErrProjectAccessDenied
+}
+
 func readyTestConfig(directory string) config.Config {
 	cfg := config.Default(directory)
 	// Linux 默认目录属于正式安装，测试必须显式隔离所有可写路径。

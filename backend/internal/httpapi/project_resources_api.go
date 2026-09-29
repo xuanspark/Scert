@@ -16,6 +16,7 @@ func (s *Server) registerProjectResourceRoutes() {
 	api.GET("/audit-logs", s.listAuditLogs)
 	api.GET("/servers", s.listServers)
 	api.GET("/servers/:id", s.getServer)
+	api.GET("/servers/:id/domains", s.listServerDomains)
 	api.GET("/domains/:id/servers", s.listDomainServers)
 	api.GET("/certificates", s.listCertificates)
 	api.GET("/certificates/:id", s.getCertificate)

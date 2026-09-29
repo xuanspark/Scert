@@ -465,6 +465,21 @@ code {
   font-size: 12px;
 }
 
+.ssh-server-domain-bindings {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e4ebf4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ssh-server-domain-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .ssh-server-details {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -552,7 +567,8 @@ code {
 }
 
 @media (max-width: 900px) {
-  .ssh-server-details {
+
+.ssh-server-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -565,7 +581,8 @@ code {
     flex-direction: column;
   }
 
-  .ssh-server-details {
+
+.ssh-server-details {
     grid-template-columns: minmax(0, 1fr);
   }
 

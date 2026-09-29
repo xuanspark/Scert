@@ -1069,6 +1069,18 @@ func (s *Server) listDomainServers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
+func (s *Server) listServerDomains(c *gin.Context) {
+	if !s.requireProjectResourceReader(c) {
+		return
+	}
+	items, err := s.projectResources.ListVisibleServerDomains(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
+	if err != nil {
+		s.writeProjectResourceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
 func serverFromRequest(request serverRequest) deployment.Server {
 	return deployment.Server{
 		ID: domain.NewID(), Name: request.Name, Address: request.Address, Port: request.Port,

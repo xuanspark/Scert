@@ -98,6 +98,7 @@ func TestProjectResourceAPIDetailsHideExistenceAndGateFiles(t *testing.T) {
 			"/api/v1/certificates/domain-" + suffix,
 			"/api/v1/domains/domain-" + suffix + "/certificate/versions",
 			"/api/v1/domains/domain-" + suffix + "/servers",
+			"/api/v1/servers/server-" + suffix + "/domains",
 		} {
 			reader.reads = nil
 			response := serveUserRequest(f.server, f.cookies["viewer"], http.MethodGet, path, "")
@@ -152,6 +153,7 @@ func TestProjectResourceAPIMissingDependencyFailsClosed(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/domains", "/api/v1/servers", "/api/v1/servers/server-a", "/api/v1/certificates",
 		"/api/v1/certificates/domain-a", "/api/v1/domains/domain-a/certificate/versions", "/api/v1/domains/domain-a/servers",
+		"/api/v1/servers/server-a/domains",
 	} {
 		response := serveUserRequest(f.server, f.cookies["primary-super-admin"], http.MethodGet, path, "")
 		if response.Code != http.StatusServiceUnavailable || len(reader.reads) != 0 {
