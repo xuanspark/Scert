@@ -36,6 +36,43 @@ func TestTaskAPICancelsTrackedCertificateWorkflowTask(t *testing.T) {
 	}
 }
 
+func TestTaskAPICanCancelRetryWaitAndCancellingTasks(t *testing.T) {
+	for _, status := range []string{"retry_wait", "cancelling"} {
+		t.Run(status, func(t *testing.T) {
+			server, tasks, _, closeDB := newTaskAPITestServer(t, nil)
+			defer closeDB()
+			started := time.Now().UTC().Add(-time.Minute)
+			item := repository.Task{
+				ID: "cancel-" + status, DomainID: "domain-1",
+				HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+				TaskType:     "certificate_deploy", Status: status, Stage: "certificate_deploy",
+				StartedAt: &started,
+			}
+			if err := tasks.CreateTask(t.Context(), item); err != nil {
+				t.Fatal(err)
+			}
+			attempt := repository.TaskAttempt{
+				ID: "attempt-" + status, TaskID: item.ID, AttemptNumber: 1,
+				Stage: item.Stage, Status: status, Message: "等待执行", StartedAt: &started, CreatedAt: started,
+			}
+			if err := tasks.CreateAttempt(t.Context(), attempt); err != nil {
+				t.Fatal(err)
+			}
+
+			response := httptest.NewRecorder()
+			serveAdminHTTP(server, response, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+item.ID, nil))
+			stored, err := tasks.GetTask(t.Context(), item.ID)
+			if response.Code != http.StatusOK || err != nil || stored.Status != "cancelled" {
+				t.Fatalf("%s 任务未能取消：%d %+v %v", status, response.Code, stored, err)
+			}
+			attempts, err := tasks.ListAttempts(t.Context(), item.ID)
+			if err != nil || len(attempts) != 1 || attempts[0].Status != "cancelled" {
+				t.Fatalf("%s 任务尝试状态未同步取消：%+v %v", status, attempts, err)
+			}
+		})
+	}
+}
+
 func TestTaskAPICannotFalselyCancelWorkflowTasks(t *testing.T) {
 	for _, kind := range []string{"renewal_run"} {
 		t.Run(kind, func(t *testing.T) {

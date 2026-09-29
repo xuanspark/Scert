@@ -311,7 +311,7 @@ func (s *Server) cancelTask(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "读取任务失败", err)
 		return
 	}
-	if item.Status != "queued" && item.Status != "running" {
+	if !isCancellableTaskStatus(item.Status) {
 		c.JSON(http.StatusConflict, gin.H{"error": "任务当前无法取消", "task": item})
 		return
 	}
@@ -434,6 +434,15 @@ func validTaskIdempotencyKey(value string) bool {
 }
 
 func isActiveTaskStatus(status string) bool {
+	switch status {
+	case "queued", "running", "retry_wait", "cancelling":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCancellableTaskStatus(status string) bool {
 	switch status {
 	case "queued", "running", "retry_wait", "cancelling":
 		return true
