@@ -819,6 +819,7 @@ func (s *Server) createServer(c *gin.Context) {
 		s.writeError(c, serverErrorStatus(err), "保存服务器失败", err)
 		return
 	}
+	s.recordServerHostKeyAudit(c, "server_host_key_fingerprint_register", item.ID)
 	item, provisionErr := s.provisionServerSSHKey(c.Request.Context(), item)
 	if provisionErr != nil {
 		if updateErr := s.servers.UpdateServer(c.Request.Context(), item); updateErr != nil && s.logger != nil {
@@ -882,6 +883,9 @@ func (s *Server) updateServer(c *gin.Context) {
 		}
 		s.writeError(c, serverErrorStatus(err), "更新服务器失败", err)
 		return
+	}
+	if existing.HostKeyFingerprint != item.HostKeyFingerprint {
+		s.recordServerHostKeyAudit(c, "server_host_key_fingerprint_update", item.ID)
 	}
 	item, provisionErr := s.provisionServerSSHKey(c.Request.Context(), item)
 	if provisionErr != nil {
@@ -1128,4 +1132,17 @@ func (s *Server) writeError(c *gin.Context, status int, message string, err erro
 		s.logger.Error(message, "error", err)
 	}
 	c.JSON(status, gin.H{"error": message})
+}
+
+func (s *Server) recordServerHostKeyAudit(c *gin.Context, action, serverID string) {
+	if s.audit == nil {
+		return
+	}
+	if err := s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
+		OperatorID: s.currentOperatorID(c),
+		Action:     action, ResourceType: "server", ResourceID: serverID, Status: "success",
+		Message: "已登记服务器主机指纹变更",
+	}); err != nil && s.logger != nil {
+		s.logger.Warn("保存服务器主机指纹审计日志失败", "server_id", serverID, "error", err)
+	}
 }

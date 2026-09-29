@@ -836,3 +836,66 @@ func TestServerMutationRequiresProjectPermission(t *testing.T) {
 		t.Fatalf("权限拒绝后服务器不应被删除：%v", err)
 	}
 }
+
+func TestServerHostKeyChangeCreatesAuditRecord(t *testing.T) {
+	directory := t.TempDir()
+	cfg := readyTestConfig(directory)
+	cfg.Database.DSN = filepath.Join(directory, "data", "host-key-audit.db")
+	db, err := database.Open(context.Background(), cfg.Database)
+	if err != nil {
+		t.Fatalf("打开数据库失败：%v", err)
+	}
+	defer db.Close()
+	if err := database.Migrate(context.Background(), db.DB, "sqlite"); err != nil {
+		t.Fatalf("数据库迁移失败：%v", err)
+	}
+	if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO users (id, username, password_hash, role, status) VALUES ('test-admin', 'test-admin', 'test-only-no-login', 'admin', 'active')`); err != nil {
+		t.Fatalf("创建测试账户失败：%v", err)
+	}
+	if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO project_members (project_id, user_id, role) VALUES ('default', 'test-admin', 'project_admin')`); err != nil {
+		t.Fatalf("创建项目成员失败：%v", err)
+	}
+	store, err := secretstore.Open(filepath.Join(directory, "config"))
+	if err != nil {
+		t.Fatalf("打开敏感信息存储失败：%v", err)
+	}
+	sshKeys := sshkey.NewService(store)
+	key, err := sshKeys.Create(t.Context(), "审计测试私钥", testSSHPrivateKey(t), "")
+	if err != nil {
+		t.Fatalf("创建测试私钥失败：%v", err)
+	}
+	serverRepo := repository.NewSQLServerRepository(db.DB)
+	resourceRepo := repository.NewSQLProjectMemberRepository(db.DB)
+	server := New(Dependencies{
+		Config: cfg, Repository: repository.NewSQLDomainRepository(db.DB), Servers: serverRepo,
+		SSHKeys: sshKeys, Audit: repository.NewSQLAuditRepository(db.DB),
+		ProjectResources: resourceRepo, ProjectBindings: resourceRepo, ProjectDomains: resourceRepo,
+	})
+	createBody := `{"name":"审计测试服务器","address":"192.0.2.80","port":22,"username":"deploy","private_key_ref":"` + key.Reference + `","host_key_fingerprint":"SHA256:first","web_server":"nginx"}`
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(createBody))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("创建测试服务器失败：%d %s", createResponse.Code, createResponse.Body.String())
+	}
+	var created deployment.Server
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil || created.ID == "" {
+		t.Fatalf("解析测试服务器响应失败：%v %s", err, createResponse.Body.String())
+	}
+	updateBody := `{"name":"审计测试服务器","address":"192.0.2.80","port":22,"username":"deploy","private_key_ref":"` + key.Reference + `","host_key_fingerprint":"SHA256:second","web_server":"nginx"}`
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/servers/"+created.ID, strings.NewReader(updateBody))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, updateResponse, updateRequest)
+	if updateResponse.Code != http.StatusOK {
+		t.Fatalf("更新服务器指纹失败：%d %s", updateResponse.Code, updateResponse.Body.String())
+	}
+	var action, status, message string
+	if err := db.DB.QueryRowContext(t.Context(), `SELECT action, status, message FROM audit_logs WHERE resource_type = 'server' AND resource_id = ? AND action = 'server_host_key_fingerprint_update' ORDER BY id DESC LIMIT 1`, created.ID).Scan(&action, &status, &message); err != nil {
+		t.Fatalf("读取服务器指纹审计记录失败：%v", err)
+	}
+	if action != "server_host_key_fingerprint_update" || status != "success" || message == "" {
+		t.Fatalf("服务器指纹审计记录不完整：%s %s %s", action, status, message)
+	}
+}
