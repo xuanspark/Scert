@@ -33,6 +33,11 @@ func newTaskAPITestServer(t *testing.T, issue func(context.Context, string) (cer
 		db.Close()
 		t.Fatalf("创建测试管理员失败：%v", err)
 	}
+	if _, err := db.DB.ExecContext(context.Background(), repository.Rebind(cfg.Database.Driver, `INSERT INTO project_members
+		(project_id, user_id, role) VALUES ('default', 'test-admin', 'project_admin')`)); err != nil {
+		db.Close()
+		t.Fatalf("创建测试项目成员失败：%v", err)
+	}
 	domainRepo := repository.NewSQLDomainRepository(db.DB)
 	taskRepo := repository.NewSQLTaskRepository(db.DB)
 	auditRepo := repository.NewSQLAuditRepository(db.DB)
@@ -52,6 +57,7 @@ func newTaskAPITestServer(t *testing.T, issue func(context.Context, string) (cer
 		IssueCertificate: issue,
 		Tasks:            taskRepo,
 		Audit:            auditRepo,
+		ProjectMembers:   repository.NewSQLProjectMemberRepository(db.DB, cfg.Database.Driver),
 		ProjectResources: repository.NewSQLProjectMemberRepository(db.DB, cfg.Database.Driver),
 		Users:            repository.NewSQLUserRepository(db.DB, cfg.Database.Driver),
 	})
@@ -204,8 +210,8 @@ func TestTaskAPIRejectsUnknownTask(t *testing.T) {
 	defer closeDB()
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodGet, "/api/v1/tasks/unknown", nil))
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("未知任务应返回 404：%d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("未知任务或无权任务应返回 403：%d %s", response.Code, response.Body.String())
 	}
 }
 

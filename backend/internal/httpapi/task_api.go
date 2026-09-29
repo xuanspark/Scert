@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
 		return
 	}
-	if s.tasks == nil {
+	if taskRepositoryUnavailable(s.tasks) {
 		s.writeError(c, http.StatusNotImplemented, "证书任务接口尚未配置", errors.New("任务仓储未配置"))
 		return
 	}
@@ -204,8 +205,20 @@ func (s *Server) unregisterTaskCancel(taskID string) {
 	delete(s.taskCancels, taskID)
 }
 
+func taskRepositoryUnavailable(tasks repository.TaskRepository) bool {
+	if tasks == nil {
+		return true
+	}
+	value := reflect.ValueOf(tasks)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
 func (s *Server) projectTaskReader(c *gin.Context) (repository.ProjectTaskReader, bool) {
-	if s.tasks == nil {
+	if taskRepositoryUnavailable(s.tasks) {
 		s.writeError(c, http.StatusNotImplemented, "任务管理接口尚未配置", errors.New("任务仓储未配置"))
 		return nil, false
 	}
