@@ -150,7 +150,11 @@ func TestDomainAPIValidatesSANAndHidesInternalErrors(t *testing.T) {
 func TestDeleteMissingDomainReturnsNotFound(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{deleteErr: sql.ErrNoRows}
-	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
+	server := New(Dependencies{
+		Config: cfg, Repository: repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains:   projectDomainRepositoryStub{DomainRepository: repo},
+	})
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodDelete, "/api/v1/domains/missing", nil))
 	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), "detail") {
@@ -162,7 +166,11 @@ func TestUpdateDomainAPI(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	loaded := domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle, SANs: []string{"example.com"}, Status: "active"}
 	repo := &stubDomainRepository{loaded: loaded}
-	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
+	server := New(Dependencies{
+		Config: cfg, Repository: repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains:   projectDomainRepositoryStub{DomainRepository: repo},
+	})
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["www.example.com"],"auto_renew":false,"acme_environment":"production","dns_provider":"cloudflare"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -192,7 +200,11 @@ func TestUpdateDomainRejectsInvalidEnvironment(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	loaded := domain.Domain{ID: "domain-1", Name: "example.com"}
 	repo := &stubDomainRepository{loaded: loaded}
-	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
+	server := New(Dependencies{
+		Config: cfg, Repository: repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains:   projectDomainRepositoryStub{DomainRepository: repo},
+	})
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"single","acme_environment":"invalid"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

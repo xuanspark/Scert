@@ -30,7 +30,12 @@ func TestDomainResourceScopeAPI(t *testing.T) {
 		}
 	}
 	repo := repository.NewSQLDomainRepository(db.DB)
-	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: repository.NewSQLProjectMemberRepository(db.DB)})
+	projectResources := repository.NewSQLProjectMemberRepository(db.DB)
+	server := New(Dependencies{
+		Config: cfg, Repository: repo,
+		ProjectResources: projectResources,
+		ProjectDomains:   projectResources,
+	})
 	request := func(method, path, body, user string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

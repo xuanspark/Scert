@@ -602,7 +602,7 @@ func (s *Server) createDomain(c *gin.Context) {
 }
 
 func (s *Server) updateDomain(c *gin.Context) {
-	if !s.requireProjectDomainRepository(c) || !s.requireDomainRepository(c) {
+	if !s.requireProjectDomainRepository(c) || !s.requireProjectResourceReader(c) {
 		return
 	}
 	var request domainRequest
@@ -610,13 +610,9 @@ func (s *Server) updateDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
 		return
 	}
-	existing, err := s.repository.GetByID(c.Request.Context(), c.Param("id"))
+	existing, err := s.projectResources.GetVisibleDomain(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
 	if err != nil {
-		if repository.IsNotFound(err) {
-			s.writeError(c, http.StatusNotFound, "域名不存在", err)
-			return
-		}
-		s.writeError(c, http.StatusInternalServerError, "读取域名失败", err)
+		s.writeProjectResourceError(c, err)
 		return
 	}
 	if !s.authorizeDomainMutation(c, existing.ProjectID) {
