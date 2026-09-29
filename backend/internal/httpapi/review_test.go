@@ -17,6 +17,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
 type stubDomainRepository struct {
@@ -216,9 +217,13 @@ func TestUpdateDomainRejectsInvalidEnvironment(t *testing.T) {
 
 func TestIssueDomainUsesCertificateWorkflow(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
+	repo := &stubDomainRepository{loaded: domain.Domain{ID: "domain-1", ResourceScope: domain.ResourceScope{ProjectID: domain.DefaultProjectID}}}
 	calledID := ""
 	server := New(Dependencies{
-		Config: cfg, Repository: &stubDomainRepository{},
+		Config:           cfg,
+		Repository:       repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains:   projectDomainRepositoryStub{DomainRepository: repo},
 		IssueCertificate: func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
 			calledID = id
 			return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
@@ -228,5 +233,71 @@ func TestIssueDomainUsesCertificateWorkflow(t *testing.T) {
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
 	if response.Code != http.StatusOK || calledID != "domain-1" || !strings.Contains(response.Body.String(), `"status":"success"`) {
 		t.Fatalf("证书申请接口响应错误：%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSynchronousIssueRequiresProjectPermissions(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	repo := &stubDomainRepository{loaded: domain.Domain{ID: "domain-1", ResourceScope: domain.ResourceScope{ProjectID: "project-a"}}}
+	calls := 0
+	server := New(Dependencies{
+		Config:           cfg,
+		Repository:       repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains: projectDomainRepositoryStub{
+			DomainRepository: repo,
+			authorize: func(_ context.Context, _ string, _ string, permission domain.ProjectPermission) error {
+				if permission == domain.PermissionCertificateManage {
+					return repository.ErrProjectAccessDenied
+				}
+				return nil
+			},
+		},
+		IssueCertificate: func(_ context.Context, _ string) (certificate.IssueResult, deployment.Report, error) {
+			calls++
+			return certificate.IssueResult{}, deployment.Report{}, nil
+		},
+	})
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("同步证书申请缺少项目权限时未拒绝：%d %s", response.Code, response.Body.String())
+	}
+	if calls != 0 {
+		t.Fatalf("同步证书申请权限拒绝后仍调用证书工作流：%d", calls)
+	}
+}
+
+func TestSynchronousIssueRequiresDNSCredentialPermission(t *testing.T) {
+	cfg := readyTestConfig(t.TempDir())
+	repo := &stubDomainRepository{loaded: domain.Domain{ID: "domain-1", ResourceScope: domain.ResourceScope{ProjectID: "project-a"}}}
+	calls := 0
+	server := New(Dependencies{
+		Config:           cfg,
+		Repository:       repo,
+		ProjectResources: projectResourceReaderStub{domains: repo},
+		ProjectDomains:   projectDomainRepositoryStub{DomainRepository: repo},
+		ProjectMembers: permissionProjectMemberRepository{
+			allow: func(permission domain.ProjectPermission) error {
+				if permission == domain.PermissionDNSCredentialUse {
+					return repository.ErrProjectAccessDenied
+				}
+				return nil
+			},
+		},
+		IssueCertificate: func(_ context.Context, _ string) (certificate.IssueResult, deployment.Report, error) {
+			calls++
+			return certificate.IssueResult{}, deployment.Report{}, nil
+		},
+	})
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("同步证书申请缺少 DNS 凭据权限时未拒绝：%d %s", response.Code, response.Body.String())
+	}
+	if calls != 0 {
+		t.Fatalf("DNS 凭据权限拒绝后仍调用证书工作流：%d", calls)
 	}
 }
