@@ -773,3 +773,66 @@ func TestDeleteDomainRejectsActiveCertificateTask(t *testing.T) {
 		t.Fatalf("删除成功后仍能读取域名：%v", err)
 	}
 }
+
+func TestServerMutationRequiresProjectPermission(t *testing.T) {
+	directory := t.TempDir()
+	cfg := readyTestConfig(directory)
+	cfg.Database.DSN = filepath.Join(directory, "data", "server-permission.db")
+	db, err := database.Open(context.Background(), cfg.Database)
+	if err != nil {
+		t.Fatalf("打开数据库失败：%v", err)
+	}
+	defer db.Close()
+	if err := database.Migrate(context.Background(), db.DB, "sqlite"); err != nil {
+		t.Fatalf("数据库迁移失败：%v", err)
+	}
+
+	domainRepo := repository.NewSQLDomainRepository(db.DB)
+	serverRepo := repository.NewSQLServerRepository(db.DB)
+	projectRepo := repository.NewSQLProjectMemberRepository(db.DB)
+	userRepo := repository.NewSQLUserRepository(db.DB)
+	server := New(Dependencies{
+		Config: cfg, Repository: domainRepo, Servers: serverRepo, Users: userRepo,
+		ProjectResources: projectRepo, ProjectDomains: projectRepo,
+	})
+	cookie := httpUserSessionCookie(server, "unassigned-admin", repository.UserRoleAdmin)
+
+	existing := (deployment.Server{
+		ResourceScope: domain.ResourceScope{ProjectID: "default", OwnerID: "unassigned-admin", CreatedBy: "unassigned-admin", UpdatedBy: "unassigned-admin"},
+		ID:            "server-permission", Name: "权限测试服务器", Address: "192.0.2.80", Port: 22,
+		Username: "deploy", AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password",
+		HostKeyFingerprint: "SHA256:test", WebServer: deployment.WebServerNginx,
+	}).Normalize()
+	if err := serverRepo.CreateServer(t.Context(), existing); err != nil {
+		t.Fatalf("创建权限测试服务器失败：%v", err)
+	}
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(`{"project_id":"default","name":"越权服务器","address":"192.0.2.81","port":22,"username":"deploy","web_server":"nginx"}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.AddCookie(cookie)
+	createResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusForbidden {
+		t.Fatalf("无项目权限新增服务器应返回 403：%d %s", createResponse.Code, createResponse.Body.String())
+	}
+
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/servers/"+existing.ID, strings.NewReader(`{"name":"越权修改","address":"192.0.2.82","port":22,"username":"deploy","web_server":"nginx"}`))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRequest.AddCookie(cookie)
+	updateResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(updateResponse, updateRequest)
+	if updateResponse.Code != http.StatusForbidden {
+		t.Fatalf("无项目权限修改服务器应返回 403：%d %s", updateResponse.Code, updateResponse.Body.String())
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/servers/"+existing.ID, nil)
+	deleteRequest.AddCookie(cookie)
+	deleteResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusForbidden {
+		t.Fatalf("无项目权限删除服务器应返回 403：%d %s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+	if _, err := serverRepo.GetServerByID(t.Context(), existing.ID); err != nil {
+		t.Fatalf("权限拒绝后服务器不应被删除：%v", err)
+	}
+}
