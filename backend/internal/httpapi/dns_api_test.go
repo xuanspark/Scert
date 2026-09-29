@@ -42,6 +42,47 @@ func TestAdminDNSProvidersReturnsCatalog(t *testing.T) {
 	}
 }
 
+func TestAdminDNSMutationRequiresSuperAdmin(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	server := New(Dependencies{Config: cfg, SetupDNS: &fakeSetupDNSVerifier{}})
+	cookie := httpUserSessionCookie(server, "dns-admin", repository.UserRoleAdmin)
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "在线测试",
+			method: http.MethodPost,
+			path:   "/api/v1/dns/test",
+			body:   `{"provider":"cloudflare","test_domain":"example.com","credentials":{"api_token":"test-token"}}`,
+		},
+		{
+			name:   "阿里云权限检查",
+			method: http.MethodPost,
+			path:   "/api/v1/dns/aliyun/check",
+			body:   `{"domain":"example.com"}`,
+		},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			request := httptest.NewRequest(item.method, item.path, strings.NewReader(item.body))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusForbidden {
+				t.Fatalf("普通管理员执行 DNS 变更操作应返回 403，实际为 %d：%s", response.Code, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), "只有超级管理员可以管理系统设置") {
+				t.Fatalf("DNS 权限错误提示不明确：%s", response.Body.String())
+			}
+		})
+	}
+}
+
 func TestAdminDNSAccountsExposeProjectScope(t *testing.T) {
 	cfg := config.Default(t.TempDir())
 	cfg.SetupReady = true
@@ -122,7 +163,7 @@ func TestAdminDNSTestReturnsVerificationResult(t *testing.T) {
 		"credentials":{"api_token":"test-token"}
 	}`))
 	request.Header.Set("Content-Type", "application/json")
-	serveAdminHTTP(server, response, request)
+	serveSuperAdminHTTP(server, response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("DNS 在线测试失败：%d %s", response.Code, response.Body.String())
 	}
@@ -152,7 +193,7 @@ func TestAdminAliyunDNSTestReportsFastVerificationTimeout(t *testing.T) {
 		"credentials":{"access_key_id":"test-id","access_key_secret":"test-secret","managed_zones":"example.com","allowed_domains":"example.com"}
 	}`))
 	request.Header.Set("Content-Type", "application/json")
-	serveAdminHTTP(server, response, request)
+	serveSuperAdminHTTP(server, response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"verification_timeout_secs":6`) {
 		t.Fatalf("管理端阿里云 DNS 在线测试未返回 6 秒等待上限：%d %s", response.Code, response.Body.String())
 	}
@@ -165,7 +206,7 @@ func TestAdminDNSTestRejectsUnavailableService(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/dns/test", strings.NewReader(`{"provider":"cloudflare","test_domain":"example.com","credentials":{"api_token":"test-token"}}`))
 	request.Header.Set("Content-Type", "application/json")
-	serveAdminHTTP(server, response, request)
+	serveSuperAdminHTTP(server, response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("DNS 服务未初始化时应返回 503，实际为 %d：%s", response.Code, response.Body.String())
 	}

@@ -104,3 +104,8 @@ func serveAdminHTTP(server *Server, recorder *httptest.ResponseRecorder, request
 	request.AddCookie(httpUserSessionCookie(server, "test-admin", repository.UserRoleAdmin))
 	server.Handler().ServeHTTP(recorder, request)
 }
+
+func serveSuperAdminHTTP(server *Server, recorder *httptest.ResponseRecorder, request *http.Request) {
+	request.AddCookie(httpUserSessionCookie(server, "test-super-admin", repository.UserRoleSuperAdmin))
+	server.Handler().ServeHTTP(recorder, request)
+}

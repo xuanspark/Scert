@@ -15,6 +15,8 @@ function dnsVerificationTimeoutFor(providerID) {
 export function useDashboard() {
   const status = ref(null);
   const currentUser = ref(null);
+  const canManageSystemSettings = computed(() => currentUser.value?.role === "super_admin");
+  const canRunRenewal = computed(() => currentUser.value?.role === "super_admin");
   const domains = ref([]);
   const servers = ref([]);
   const sshKeys = ref([]);
@@ -864,6 +866,10 @@ export function useDashboard() {
   }
 
   async function runRenewalNow() {
+    if (!canRunRenewal.value) {
+      error.value = "只有超级管理员可以执行续期检查";
+      return;
+    }
     error.value = "";
     notice.value = "";
     try {
@@ -904,6 +910,10 @@ export function useDashboard() {
   }
 
   async function testDNS() {
+    if (!canManageSystemSettings.value) {
+      dnsTestError.value = "只有超级管理员可以进行 DNS 在线测试";
+      return;
+    }
     handleDNSProviderChange();
     const dns = settingsForm.value.dns;
     const provider = selectedDNSProvider.value;
@@ -986,6 +996,10 @@ export function useDashboard() {
 
   async function saveSettings() {
     settingsError.value = "";
+    if (!canManageSystemSettings.value) {
+      settingsError.value = "只有超级管理员可以保存系统设置";
+      return;
+    }
     verificationClock.value = Date.now();
     if (!dnsReadyToSave.value) {
       settingsError.value = "DNS 服务商配置尚未通过在线测试，请先完成测试";
@@ -1216,6 +1230,8 @@ export function useDashboard() {
     ...domainForm,
     status,
     currentUser,
+    canManageSystemSettings,
+    canRunRenewal,
     domains,
     servers,
     sshKeys,

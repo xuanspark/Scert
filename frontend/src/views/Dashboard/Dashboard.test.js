@@ -276,10 +276,24 @@ async function setup(t, request) {
     return Response.json({ items: [] });
   });
   const { state } = mounted;
+  state.currentUser.value = { account: "test-admin", role: "super_admin" };
   state.openSettings();
   await nextTick();
   return mounted;
 }
+
+test("普通管理员不能在前端执行全局续期、DNS验证或保存系统设置", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  state.currentUser.value = { account: "operator", role: "admin" };
+  state.showSettings.value = true;
+
+  await state.testDNS();
+  assert.equal(state.dnsTestError.value, "只有超级管理员可以进行 DNS 在线测试");
+  await state.saveSettings();
+  assert.equal(state.settingsError.value, "只有超级管理员可以保存系统设置");
+  await state.runRenewalNow();
+  assert.equal(state.error.value, "只有超级管理员可以执行续期检查");
+});
 
 test("编辑服务器正确保留已有密码状态，新建和未配置密码仍要求输入", async (t) => {
   const { state } = await setup(t, () => verifiedResponse());
@@ -540,6 +554,7 @@ test("settingsReadEditSaveContract", async (t) => {
     }
     return Response.json({ items: [] });
   });
+  state.currentUser.value = { account: "test-admin", role: "super_admin" };
   state.openSettings();
   state.settingsForm.value.acme.renewal_threshold_days = 91;
   assert.equal(state.dnsReadyToSave.value, true);

@@ -16,6 +16,7 @@ const {
   dnsVerificationElapsedSeconds,
   dnsVerificationTimeoutSeconds,
   dnsReadyToSave,
+  canManageSystemSettings,
   handleDNSProviderChange,
   clearDNSCredentials,
   testDNS,
@@ -36,6 +37,9 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
           </div>
           <button class="close-button" type="button" aria-label="关闭" @click="closeSettings">×</button>
         </div>
+        <p v-if="!canManageSystemSettings" class="settings-readonly-notice">
+          当前账号仅可查看系统设置，修改配置和 DNS 在线验证需要超级管理员权限。
+        </p>
         <div class="settings-tabs" role="tablist" aria-labelledby="settings-title">
           <button
             id="settings-tab-service"
@@ -87,6 +91,7 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
           </button>
         </div>
         <form novalidate @submit.prevent="submitSettings">
+          <fieldset :disabled="!canManageSystemSettings" class="settings-fields">
           <section
             v-show="activeSection === 'service'"
             id="settings-panel-service"
@@ -381,6 +386,7 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
               {{ settingsSaving ? "保存中……" : "保存设置" }}
             </button>
           </div>
+          </fieldset>
         </form>
       </section>
     </div>

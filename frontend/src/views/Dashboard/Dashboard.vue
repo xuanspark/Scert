@@ -129,6 +129,7 @@ const {
   validateDomain,
   deployDomain,
   runRenewalNow,
+  canRunRenewal,
   cancelTask,
   openTaskDetails,
   closeTaskDetails,
@@ -158,7 +159,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
         <button class="secondary-button" type="button" @click="loadData">
           刷新状态
         </button>
-        <button v-if="activeSection === 'activity'" class="secondary-button" type="button" @click="runRenewalNow">
+        <button v-if="activeSection === 'activity' && canRunRenewal" class="secondary-button" type="button" @click="runRenewalNow">
           立即检查续期
         </button>
         <button

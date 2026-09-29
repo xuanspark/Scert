@@ -23,6 +23,14 @@ type userRequest struct {
 }
 
 func (s *Server) requireSuperAdmin(c *gin.Context) {
+	s.requireSuperAdminAction(c, "管理用户")
+}
+
+func (s *Server) requireSuperAdminSystemConfig(c *gin.Context) {
+	s.requireSuperAdminAction(c, "管理系统设置")
+}
+
+func (s *Server) requireSuperAdminAction(c *gin.Context, action string) {
 	s.configMu.RLock()
 	setupReady := s.config.SetupReady
 	s.configMu.RUnlock()
@@ -39,7 +47,7 @@ func (s *Server) requireSuperAdmin(c *gin.Context) {
 		return
 	}
 	if session.Role != repository.UserRoleSuperAdmin {
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "只有超级管理员可以管理用户", "request_id": requestIDFromContext(c)})
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "只有超级管理员可以" + action, "request_id": requestIDFromContext(c)})
 		return
 	}
 	if !s.sameOriginForAPI(c.Request) {

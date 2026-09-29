@@ -31,6 +31,23 @@ func TestSettingsAPIRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestSettingsAPIUpdateRequiresSuperAdmin(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	server := New(Dependencies{Config: cfg})
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"server":{"port":5443}}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(httpUserSessionCookie(server, "settings-admin", repository.UserRoleAdmin))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("普通管理员修改系统设置应返回 403，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "只有超级管理员可以管理系统设置") {
+		t.Fatalf("系统设置权限错误提示不明确：%s", response.Body.String())
+	}
+}
+
 func TestSettingsAPIUpdatesSafeFieldsWithoutReturningSecrets(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default(dir)

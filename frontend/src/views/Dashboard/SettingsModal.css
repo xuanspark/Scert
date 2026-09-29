@@ -161,3 +161,18 @@
     grid-template-columns: 1fr;
   }
 }
+.settings-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-readonly-notice {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #f1d48a;
+  border-radius: 8px;
+  color: #755b18;
+  background: #fff8e6;
+}
