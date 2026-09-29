@@ -147,6 +147,20 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 		s.writeError(c, http.StatusInternalServerError, "更新任务状态失败", err)
 		return
 	}
+	if s.audit != nil {
+		if err := s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
+			TaskID: task.ID, OperatorID: task.OperatorID,
+			Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID,
+			Status: "running", Message: "开始申请证书并部署",
+		}); err != nil {
+			finished := time.Now().UTC()
+			failureMessage := "任务启动审计记录失败"
+			_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", "record", failureMessage, &now, &finished)
+			_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
+			s.writeError(c, http.StatusInternalServerError, failureMessage, err)
+			return
+		}
+	}
 	executionCtx, cancel := context.WithTimeout(c.Request.Context(), certificateTaskTimeout)
 	s.registerTaskCancel(task.ID, cancel)
 	defer func() {

@@ -84,7 +84,7 @@ func TestTaskAPIRecordsSuccessfulIssueAndAudit(t *testing.T) {
 		t.Fatalf("任务尝试记录错误：%+v %v", attempts, err)
 	}
 	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
-	if err != nil || len(logs) != 1 || logs[0].Status != "success" {
+	if err != nil || len(logs) != 2 || logs[0].Status != "success" || logs[1].Status != "running" {
 		t.Fatalf("审计日志记录错误：%+v %v", logs, err)
 	}
 	wantScope := repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID}
@@ -168,6 +168,47 @@ func (r *failingTaskStartRepository) UpdateTask(ctx context.Context, id, status,
 	return r.TaskRepository.UpdateTask(ctx, id, status, stage, message, startedAt, finishedAt)
 }
 
+type failingTaskStartAuditRepository struct {
+	repository.AuditRepository
+	failure error
+}
+
+func (r failingTaskStartAuditRepository) CreateAuditLog(ctx context.Context, item repository.AuditLog) error {
+	if item.Status == "running" {
+		return r.failure
+	}
+	return r.AuditRepository.CreateAuditLog(ctx, item)
+}
+
+func TestTaskAPIClosesTaskWhenStartAuditFails(t *testing.T) {
+	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		t.Fatal("任务启动审计失败时不应执行证书申请")
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer closeDB()
+	server.audit = failingTaskStartAuditRepository{
+		AuditRepository: auditRepo,
+		failure:         errors.New("模拟任务启动审计失败"),
+	}
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "任务启动审计记录失败") {
+		t.Fatalf("任务启动审计失败响应错误：%d %s", response.Code, response.Body.String())
+	}
+	items, err := taskRepo.ListTasks(context.Background(), "", 10)
+	if err != nil || len(items) != 1 || items[0].Status != "failed" || items[0].Stage != "record" {
+		t.Fatalf("任务启动审计失败后任务未收敛：%+v %v", items, err)
+	}
+	attempts, err := taskRepo.ListAttempts(context.Background(), items[0].ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "failed" {
+		t.Fatalf("任务启动审计失败后尝试未收敛：%+v %v", attempts, err)
+	}
+	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
+	if err != nil || len(logs) != 0 {
+		t.Fatalf("启动审计写入失败时不应生成伪造终态审计：%+v %v", logs, err)
+	}
+}
 func TestTaskAPIClosesTaskWhenStartStateUpdateFails(t *testing.T) {
 	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
 		t.Fatal("任务启动失败时不应执行证书申请")
@@ -237,7 +278,7 @@ func TestTaskAPIReturnsFailureAndKeepsTaskTrace(t *testing.T) {
 		t.Fatalf("失败任务状态错误：%+v %v", items, err)
 	}
 	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
-	if err != nil || len(logs) != 1 || logs[0].Status != "error" {
+	if err != nil || len(logs) != 2 || logs[0].Status != "error" || logs[1].Status != "running" {
 		t.Fatalf("失败审计状态错误：%+v %v", logs, err)
 	}
 }
@@ -312,7 +353,7 @@ func TestTaskAPICanCancelRunningIssue(t *testing.T) {
 		t.Fatalf("任务取消状态没有持久化：%+v %v", item, err)
 	}
 	logs, err := auditRepo.ListAuditLogs(t.Context(), 10)
-	if err != nil || len(logs) != 2 {
+	if err != nil || len(logs) != 3 {
 		t.Fatalf("取消和申请收尾审计缺失：%+v，%v", logs, err)
 	}
 	for _, entry := range logs {
@@ -528,7 +569,7 @@ func TestTaskAPIRetriesFailedCertificateIssue(t *testing.T) {
 		t.Fatalf("retry attempts were not recorded correctly: %+v %v", attempts, err)
 	}
 	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
-	if err != nil || len(logs) != 2 || logs[0].Action != "certificate_issue_retry" || logs[0].OperatorID != "test-admin" {
+	if err != nil || len(logs) != 4 || logs[0].Action != "certificate_issue_retry" || logs[0].Status != "success" || logs[1].Action != "certificate_issue_retry" || logs[1].Status != "running" || logs[0].OperatorID != "test-admin" {
 		t.Fatalf("retry audit was not recorded correctly: %+v %v", logs, err)
 	}
 }
@@ -559,7 +600,7 @@ func TestTaskAPIRecordsPartialDeploymentSuccess(t *testing.T) {
 		t.Fatalf("partial attempt status: %+v %v", attempts, err)
 	}
 	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
-	if err != nil || len(logs) != 1 || logs[0].Status != "partial_success" {
+	if err != nil || len(logs) != 2 || logs[0].Status != "partial_success" || logs[1].Status != "running" {
 		t.Fatalf("partial audit status: %+v %v", logs, err)
 	}
 }
@@ -586,7 +627,7 @@ func TestTaskAPIRecordsPartialDeploymentFailureAsPartialSuccess(t *testing.T) {
 		t.Fatalf("partial failure attempt status: %+v %v", attempts, err)
 	}
 	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
-	if err != nil || len(logs) != 1 || logs[0].Status != "partial_success" {
+	if err != nil || len(logs) != 2 || logs[0].Status != "partial_success" || logs[1].Status != "running" {
 		t.Fatalf("partial failure audit status: %+v %v", logs, err)
 	}
 }
