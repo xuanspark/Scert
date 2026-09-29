@@ -72,6 +72,7 @@ func (s *Server) requireAdmin(c *gin.Context) {
 		})
 		return
 	}
+	c.Set(authenticatedActorKey, session.UserID)
 	c.Next()
 }
 

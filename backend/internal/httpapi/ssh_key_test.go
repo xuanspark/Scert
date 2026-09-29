@@ -19,6 +19,39 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/sshkey"
 )
 
+func TestSSHKeyAPIAllowsSuperAdminProjectAuthorization(t *testing.T) {
+	directory := t.TempDir()
+	cfg := readyTestConfig(directory)
+	cfg.Database.DSN = filepath.Join(directory, "data", "ssh-keys-super-admin.db")
+	db, err := database.Open(context.Background(), cfg.Database)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+	if err := database.Migrate(context.Background(), db.DB, "sqlite"); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+	if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO users (id, username, email, password_hash, role, status) VALUES ('super-admin', 'super-admin', 'super-admin@example.invalid', 'test-only-no-login', 'super_admin', 'active')`); err != nil {
+		t.Fatalf("create super admin: %v", err)
+	}
+	store, err := secretstore.Open(filepath.Join(directory, "config"))
+	if err != nil {
+		t.Fatalf("open secret store: %v", err)
+	}
+	server := New(Dependencies{
+		Config:         cfg,
+		Repository:     repository.NewSQLDomainRepository(db.DB),
+		ProjectDomains: repository.NewSQLProjectMemberRepository(db.DB),
+		SSHKeys:        sshkey.NewService(store),
+	})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/ssh-keys", nil)
+	request.AddCookie(httpUserSessionCookie(server, "super-admin", repository.UserRoleSuperAdmin))
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("super admin SSH key list failed: %d %s", response.Code, response.Body.String())
+	}
+}
 func TestSSHKeyAPIHidesPrivateKeyAndBlocksDeletingUsedReference(t *testing.T) {
 	directory := t.TempDir()
 	cfg := readyTestConfig(directory)
