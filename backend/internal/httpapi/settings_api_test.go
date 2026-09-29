@@ -397,6 +397,29 @@ func TestRenewalAPIHidesWorkflowErrors(t *testing.T) {
 		t.Fatalf("renewal API did not include the safe error message: %s", body)
 	}
 }
+func TestRenewalAPIRequiresSuperAdmin(t *testing.T) {
+	cfg := config.Default(t.TempDir())
+	cfg.SetupReady = true
+	runCalls := 0
+	server := New(Dependencies{
+		Config: cfg,
+		RunRenewal: func(context.Context) (certificate.RenewalReport, error) {
+			runCalls++
+			return certificate.RenewalReport{}, nil
+		},
+	})
+	cookie := httpUserSessionCookie(server, "renewal-admin", repository.UserRoleAdmin)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("non-super-admin renewal request returned %d: %s", response.Code, response.Body.String())
+	}
+	if runCalls != 0 {
+		t.Fatalf("renewal runner was called for a non-super-admin: %d", runCalls)
+	}
+}
 func loginForSettingsTest(t *testing.T, server *Server) *http.Cookie {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identifier":"admin","password":"Password123"}`))
