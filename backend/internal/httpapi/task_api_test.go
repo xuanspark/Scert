@@ -532,3 +532,34 @@ func TestTaskAPIRetriesFailedCertificateIssue(t *testing.T) {
 		t.Fatalf("retry audit was not recorded correctly: %+v %v", logs, err)
 	}
 }
+
+func TestTaskAPIRecordsPartialDeploymentSuccess(t *testing.T) {
+	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{DomainID: id}, deployment.Report{
+			Total: 2, Success: 1, Failed: 1, Status: "partial",
+			Results: []deployment.Result{
+				{ServerID: "server-success", Status: "success"},
+				{ServerID: "server-failed", Status: "failed", Message: "deployment failed"},
+			},
+		}, nil
+	})
+	defer closeDB()
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("partial response: %d %s", response.Code, response.Body.String())
+	}
+	items, err := taskRepo.ListTasks(context.Background(), "domain-1", 10)
+	if err != nil || len(items) != 1 || items[0].Status != "partial_success" {
+		t.Fatalf("partial task status: %+v %v", items, err)
+	}
+	attempts, err := taskRepo.ListAttempts(context.Background(), items[0].ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "partial_success" {
+		t.Fatalf("partial attempt status: %+v %v", attempts, err)
+	}
+	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "partial_success" {
+		t.Fatalf("partial audit status: %+v %v", logs, err)
+	}
+}

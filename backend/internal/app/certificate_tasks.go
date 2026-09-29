@@ -104,7 +104,7 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		if resultErr == nil || number == attempts || result.Certificate.Saved.CertificatePath != "" || errors.Is(resultErr, context.Canceled) || errors.Is(resultErr, context.DeadlineExceeded) {
 			return result, resultErr
 		}
-		if err := w.tasks.UpdateTask(ctx, task.ID, "running", "retry_wait", "证书申请失败，等待重试", &started, nil); err != nil {
+		if err := w.tasks.UpdateTask(ctx, task.ID, "retry_wait", "retry_wait", "证书申请失败，等待重试", &started, nil); err != nil {
 			return result, errors.Join(resultErr, err)
 		}
 		if err := waitForManagementRetry(ctx, interval); err != nil {

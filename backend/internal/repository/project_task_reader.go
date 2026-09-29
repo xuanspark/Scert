@@ -145,7 +145,7 @@ func (r *SQLTaskRepository) CancelVisibleTask(ctx context.Context, actorID, task
 	args := []any{message, nullableTime(finishedAt), time.Now().UTC(), strings.TrimSpace(taskID)}
 	args = append(args, predicateArgs...)
 	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks SET status = 'cancelled', message = ?, finished_at = ?, updated_at = ?
-		WHERE id = ? AND status IN ('queued', 'running') AND `+predicate), args...)
+		WHERE id = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling') AND `+predicate), args...)
 	if err != nil {
 		rollback()
 		return fmt.Errorf("取消任务失败：%w", err)
@@ -175,7 +175,7 @@ func (r *SQLTaskRepository) CancelVisibleTask(ctx context.Context, actorID, task
 		return ErrProjectAccessDenied
 	}
 	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts SET status = 'cancelled', message = ?, finished_at = ?
-		WHERE task_id = ? AND status IN ('queued', 'running')`), message, nullableTime(finishedAt), strings.TrimSpace(taskID)); err != nil {
+		WHERE task_id = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling')`), message, nullableTime(finishedAt), strings.TrimSpace(taskID)); err != nil {
 		rollback()
 		return fmt.Errorf("取消任务尝试失败：%w", err)
 	}

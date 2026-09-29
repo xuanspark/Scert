@@ -142,7 +142,7 @@ func (m *managementRenewal) renew(ctx context.Context, state httpapi.ManagementC
 			return saved, resultErr
 		}
 		stage = "retry_wait"
-		if err := m.tasks.UpdateTask(ctx, task.ID, "running", stage, "管理证书申请失败，等待重试", &started, nil); err != nil {
+		if err := m.tasks.UpdateTask(ctx, task.ID, "retry_wait", stage, "管理证书申请失败，等待重试", &started, nil); err != nil {
 			return saved, errors.Join(resultErr, err)
 		}
 		wait := m.wait

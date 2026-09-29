@@ -148,6 +148,7 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 	status := "success"
 	message := "证书申请和部署完成"
 	cancelled := false
+	partial := issueErr == nil && deploymentReport.Status == "partial"
 	if issueErr != nil {
 		status = "failed"
 		message = certificateTaskErrorMessage(issueErr)
@@ -157,6 +158,8 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 		if errors.Is(issueErr, context.Canceled) {
 			status = "cancelled"
 		}
+	} else if partial {
+		status = "partial_success"
 	}
 	if persisted, err := s.tasks.GetTask(context.Background(), task.ID); err == nil && persisted.Status == "cancelled" {
 		status = "cancelled"
