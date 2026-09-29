@@ -315,9 +315,13 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 		Users:            repository.NewSQLUserRepository(db.DB),
 		ProjectResources: repository.NewSQLProjectMemberRepository(db.DB),
 		ProjectBindings:  repository.NewSQLProjectMemberRepository(db.DB),
+		ProjectDomains:   repository.NewSQLProjectMemberRepository(db.DB),
 	})
 	// 此旧格式用例同样使用真实账户与项目成员，不能依赖全局管理员绕过绑定权限。
 	_ = httpUserSessionCookie(server, "test-admin", repository.UserRoleAdmin)
+	if _, err := db.DB.ExecContext(t.Context(), `INSERT OR IGNORE INTO users (id, username, password_hash, role, status) VALUES ('test-admin', 'test-admin', 'test-only-no-login', 'admin', 'active')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO project_members (project_id, user_id, role) VALUES ('default', 'test-admin', 'project_admin')`); err != nil {
 		t.Fatal(err)
 	}
@@ -700,6 +704,9 @@ func TestDeleteDomainRejectsActiveCertificateTask(t *testing.T) {
 	if err := database.Migrate(context.Background(), db.DB, "sqlite"); err != nil {
 		t.Fatalf("数据库迁移失败：%v", err)
 	}
+	if _, err := db.DB.ExecContext(context.Background(), `INSERT OR IGNORE INTO users (id, username, password_hash, role, status) VALUES ('test-admin', 'test-admin', 'test-only-no-login', 'super_admin', 'active')`); err != nil {
+		t.Fatalf("创建测试账户失败：%v", err)
+	}
 
 	domainRepo := repository.NewSQLDomainRepository(db.DB)
 	taskRepo := repository.NewSQLTaskRepository(db.DB)
@@ -707,6 +714,7 @@ func TestDeleteDomainRejectsActiveCertificateTask(t *testing.T) {
 		Config:     cfg,
 		Repository: domainRepo,
 		Tasks:      taskRepo,
+		ProjectDomains: repository.NewSQLProjectMemberRepository(db.DB),
 	})
 
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"active-task.example.com","certificate_type":"single"}`))

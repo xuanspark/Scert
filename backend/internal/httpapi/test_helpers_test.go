@@ -12,6 +12,28 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
+// projectDomainRepositoryStub 仅用于保留旧 HTTP 参数校验测试的存根行为；生产路由始终注入真实项目域名仓储。
+type projectDomainRepositoryStub struct {
+	repository.DomainRepository
+	authorizeErr error
+}
+
+func (r projectDomainRepositoryStub) AuthorizeProject(context.Context, string, string, domain.ProjectPermission) error {
+	return r.authorizeErr
+}
+
+func (r projectDomainRepositoryStub) CreateProjectDomain(ctx context.Context, actorID string, item domain.Domain) error {
+	return r.DomainRepository.Create(ctx, item)
+}
+
+func (r projectDomainRepositoryStub) UpdateProjectDomain(ctx context.Context, actorID string, item domain.Domain) error {
+	return r.DomainRepository.Update(ctx, item)
+}
+
+func (r projectDomainRepositoryStub) DeleteProjectDomain(ctx context.Context, actorID, id string) error {
+	return r.DomainRepository.Delete(ctx, id)
+}
+
 // 仅供旧的响应格式与错误脱敏单元测试显式注入；权限验证使用真实 SQL 资源夹具。
 // 不在产品构造器或通用请求帮助函数中自动补齐，缺失依赖测试必须保持拒绝。
 type projectResourceReaderStub struct {

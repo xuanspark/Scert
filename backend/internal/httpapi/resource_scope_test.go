@@ -24,8 +24,13 @@ func TestDomainResourceScopeAPI(t *testing.T) {
 	if err := database.Migrate(t.Context(), db.DB, "sqlite"); err != nil {
 		t.Fatal(err)
 	}
+	for _, userID := range []string{"creator", "editor"} {
+		if _, err := db.DB.ExecContext(t.Context(), `INSERT INTO users (id, username, password_hash, role, status) VALUES (?, ?, 'test-only-no-login', 'super_admin', 'active')`, userID, userID); err != nil {
+			t.Fatal(err)
+		}
+	}
 	repo := repository.NewSQLDomainRepository(db.DB)
-	server := New(Dependencies{Config: cfg, Repository: repo})
+	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: repository.NewSQLProjectMemberRepository(db.DB)})
 	request := func(method, path, body, user string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

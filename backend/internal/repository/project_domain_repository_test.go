@@ -1,0 +1,86 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"testing"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+)
+
+func TestProjectDomainRepositorySQLite(t *testing.T) {
+	cfg := config.Default(t.TempDir()).Database
+	db, err := database.Open(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(t.Context(), db.DB, cfg.Driver); err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []struct{ id, role string }{
+		{"root-domain", UserRoleSuperAdmin}, {"domain-manager", UserRoleUser}, {"domain-outsider", UserRoleUser},
+	} {
+		if _, err := db.DB.ExecContext(t.Context(), Rebind(cfg.Driver, `INSERT INTO users
+			(id, username, password_hash, role, status) VALUES (?, ?, 'test-only-no-login', ?, 'active')`), user.id, user.id, user.role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projects := NewSQLProjectRepository(db.DB, cfg.Driver)
+	if err := projects.CreateProject(t.Context(), domain.Project{ID: "domain-project", Name: "域名项目"}); err != nil {
+		t.Fatal(err)
+	}
+	writer := NewSQLProjectMemberRepository(db.DB, cfg.Driver)
+	if err := writer.GrantProjectRole(t.Context(), "root-domain", "domain-project", "domain-manager", domain.ProjectRoleCertificateAdmin); err != nil {
+		t.Fatal(err)
+	}
+	item, err := domain.NewDomain("managed.example.test", domain.CertificateSingle, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.ID = "managed-domain"
+	item.ProjectID = "domain-project"
+	if err := writer.CreateProjectDomain(t.Context(), "domain-manager", item); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := NewSQLDomainRepository(db.DB, cfg.Driver).GetByID(t.Context(), item.ID)
+	if err != nil || stored.ProjectID != item.ProjectID {
+		t.Fatalf("项目域名未按真实归属保存：%+v，%v", stored, err)
+	}
+	if err := writer.CreateProjectDomain(t.Context(), "domain-outsider", item); !errors.Is(err, ErrProjectAccessDenied) {
+		t.Fatalf("越权创建应拒绝：%v", err)
+	}
+	item.Name = "updated.example.test"
+	if err := writer.UpdateProjectDomain(t.Context(), "domain-manager", item); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSQLDomainRepository(db.DB, cfg.Driver).GetByID(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+	taskRepo := NewSQLTaskRepository(db.DB, cfg.Driver)
+	if err := taskRepo.CreateTask(t.Context(), Task{HistoryScope: HistoryScope{ProjectID: item.ProjectID, ScopeType: ScopeProject}, ID: "domain-active-task", DomainID: item.ID, TaskType: "certificate_issue", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.DeleteProjectDomain(t.Context(), "domain-manager", item.ID); !errors.Is(err, ErrProjectDomainBusy) {
+		t.Fatalf("在途任务下删除应拒绝：%v", err)
+	}
+	if _, err := db.DB.ExecContext(context.Background(), Rebind(cfg.Driver, `UPDATE tasks SET status = 'success' WHERE id = ?`), "domain-active-task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.DeleteProjectDomain(t.Context(), "domain-manager", item.ID); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.DB.QueryRowContext(t.Context(), Rebind(cfg.Driver, `SELECT COUNT(*) FROM audit_logs WHERE resource_id = ? AND status = 'success'`), item.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Fatalf("域名成功操作审计数量错误：%d", count)
+	}
+	if _, err := NewSQLDomainRepository(db.DB, cfg.Driver).GetByID(t.Context(), item.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("删除后域名应不存在：%v", err)
+	}
+}

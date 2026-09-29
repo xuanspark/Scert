@@ -194,7 +194,7 @@ func TestAliyunDomainAPIRejectsProtectedSANWithoutSideEffects(t *testing.T) {
 	checker := &fakeAliyunScopeChecker{allowedZones: []string{"example.com"}}
 	repo := &stubDomainRepository{}
 	server := New(Dependencies{
-		Config: cfg, Repository: repo, Secrets: store, AliyunChecker: checker,
+		Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}, Secrets: store, AliyunChecker: checker,
 	})
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["pcux.cn"]}`))

@@ -118,7 +118,7 @@ func TestHTTPServerUsesProductionTimeoutsAndTLSMinimum(t *testing.T) {
 func TestDomainAPIValidatesSANAndHidesInternalErrors(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{}
-	server := New(Dependencies{Config: cfg, Repository: repo, ProjectResources: projectResourceReaderStub{domains: repo}})
+	server := New(Dependencies{Config: cfg, Repository: repo, ProjectResources: projectResourceReaderStub{domains: repo}, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
 
 	invalid := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["bad_domain"]}`))
 	invalid.Header.Set("Content-Type", "application/json")
@@ -150,7 +150,7 @@ func TestDomainAPIValidatesSANAndHidesInternalErrors(t *testing.T) {
 func TestDeleteMissingDomainReturnsNotFound(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{deleteErr: sql.ErrNoRows}
-	server := New(Dependencies{Config: cfg, Repository: repo})
+	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodDelete, "/api/v1/domains/missing", nil))
 	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), "detail") {
@@ -162,7 +162,7 @@ func TestUpdateDomainAPI(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	loaded := domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle, SANs: []string{"example.com"}, Status: "active"}
 	repo := &stubDomainRepository{loaded: loaded}
-	server := New(Dependencies{Config: cfg, Repository: repo})
+	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"san","sans":["www.example.com"],"auto_renew":false,"acme_environment":"production","dns_provider":"cloudflare"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -178,7 +178,7 @@ func TestUpdateDomainAPI(t *testing.T) {
 func TestCreateDomainConflictReturnsConflict(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	repo := &stubDomainRepository{createErr: errors.New("UNIQUE constraint failed: domains.name")}
-	server := New(Dependencies{Config: cfg, Repository: repo})
+	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(`{"name":"example.com","certificate_type":"single"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -191,7 +191,8 @@ func TestCreateDomainConflictReturnsConflict(t *testing.T) {
 func TestUpdateDomainRejectsInvalidEnvironment(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	loaded := domain.Domain{ID: "domain-1", Name: "example.com"}
-	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{loaded: loaded}})
+	repo := &stubDomainRepository{loaded: loaded}
+	server := New(Dependencies{Config: cfg, Repository: repo, ProjectDomains: projectDomainRepositoryStub{DomainRepository: repo}})
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/domains/domain-1", strings.NewReader(`{"name":"example.com","certificate_type":"single","acme_environment":"invalid"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

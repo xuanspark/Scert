@@ -150,6 +150,12 @@ func projectBindingReadError(err error) error {
 // 使用事务内的当前读取并持有账户、项目和现有成员行锁，避免撤权或停用后继续写入。
 // SQLite 使用自身事务串行写入保证；遇到并发升级失败时回滚，不绕过授权重试。
 func (r *SQLProjectMemberRepository) authorizeBindingTransaction(ctx context.Context, tx *sql.Tx, actorID, projectID string) error {
+	return r.authorizeProjectTransaction(ctx, tx, actorID, projectID,
+		domain.PermissionCertificateRead, domain.PermissionServerRead, domain.PermissionDeploymentExecute)
+}
+
+// authorizeProjectTransaction 在同一事务内锁定账户、项目和成员关系，保证判权不会在业务写入前被撤回。
+func (r *SQLProjectMemberRepository) authorizeProjectTransaction(ctx context.Context, tx *sql.Tx, actorID, projectID string, required ...domain.ProjectPermission) error {
 	var status, userRole, existingProject string
 	if err := tx.QueryRowContext(ctx, Rebind(r.driver,
 		`SELECT status, role FROM users WHERE id = ?`+r.resourceWriteLock()), actorID).Scan(&status, &userRole); err != nil {
@@ -171,10 +177,12 @@ func (r *SQLProjectMemberRepository) authorizeBindingTransaction(ctx context.Con
 		return fmt.Errorf("读取绑定操作权限失败：%w", err)
 	}
 	defer rows.Close()
-	permissions := map[domain.ProjectPermission]bool{
-		domain.PermissionCertificateRead:   false,
-		domain.PermissionServerRead:        false,
-		domain.PermissionDeploymentExecute: false,
+	permissions := make(map[domain.ProjectPermission]bool, len(required))
+	for _, permission := range required {
+		if !permission.Valid() {
+			return ErrProjectAccessDenied
+		}
+		permissions[permission] = false
 	}
 	for rows.Next() {
 		var role domain.ProjectRole
@@ -188,8 +196,8 @@ func (r *SQLProjectMemberRepository) authorizeBindingTransaction(ctx context.Con
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, allowed := range permissions {
-		if !allowed {
+	for _, permission := range required {
+		if !permissions[permission] {
 			return ErrProjectAccessDenied
 		}
 	}

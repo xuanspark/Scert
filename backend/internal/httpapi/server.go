@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -53,6 +52,7 @@ type Dependencies struct {
 	ProjectLifecycle          repository.ProjectLifecycleRepository
 	ProjectResources          repository.ProjectResourceReader
 	ProjectBindings           repository.ProjectBindingRepository
+	ProjectDomains            repository.ProjectDomainRepository
 	SSHKeys                   *sshkey.Service
 	DeploymentFactory         deployment.ClientFactory
 	SetupDNS                  setupDNSVerifier
@@ -89,6 +89,7 @@ type Server struct {
 	projectLifecycle         repository.ProjectLifecycleRepository
 	projectResources         repository.ProjectResourceReader
 	projectBindings          repository.ProjectBindingRepository
+	projectDomains           repository.ProjectDomainRepository
 	sshKeys                  *sshkey.Service
 	deploymentFactory        deployment.ClientFactory
 	setupDNS                 setupDNSVerifier
@@ -154,6 +155,7 @@ func New(deps Dependencies) *Server {
 		projectLifecycle:         deps.ProjectLifecycle,
 		projectResources:         deps.ProjectResources,
 		projectBindings:          deps.ProjectBindings,
+		projectDomains:           deps.ProjectDomains,
 		sshKeys:                  deps.SSHKeys,
 		deploymentFactory:        deps.DeploymentFactory,
 		issueCertificate:         deps.IssueCertificate,
@@ -206,9 +208,10 @@ func (s *Server) registerRoutes() {
 	s.registerProjectResourceRoutes()
 	s.registerProjectBindingRoutes()
 	s.router.GET("/api/v1/projects", privateProjectResponse, s.requireAuthenticated, s.listVisibleProjects)
-	adminAPI.POST("/domains", s.dnsOperation, s.createDomain)
-	adminAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)
-	adminAPI.DELETE("/domains/:id", s.deleteDomain)
+	domainAPI := s.router.Group("/api/v1", privateProjectResponse, s.requireAuthenticated)
+	domainAPI.POST("/domains", s.dnsOperation, s.createDomain)
+	domainAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)
+	domainAPI.DELETE("/domains/:id", s.deleteDomain)
 	adminAPI.POST("/domains/:id/issue", s.longOperation(certificateTaskTimeout), s.issueDomain)
 	adminAPI.GET("/tasks", s.listTasks)
 	adminAPI.GET("/tasks/:id", s.getTask)
@@ -524,6 +527,31 @@ func (s *Server) requireDomainRepository(c *gin.Context) bool {
 	return false
 }
 
+func (s *Server) requireProjectDomainRepository(c *gin.Context) bool {
+	if s.projectDomains != nil {
+		return true
+	}
+	s.writeError(c, http.StatusServiceUnavailable, "项目域名服务尚未就绪", nil)
+	return false
+}
+
+func (s *Server) authorizeDomainMutation(c *gin.Context, projectID string) bool {
+	authorizer, ok := s.projectDomains.(repository.ProjectAuthorizer)
+	if !ok {
+		s.writeError(c, http.StatusServiceUnavailable, "项目权限服务尚未就绪", nil)
+		return false
+	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), projectID, domain.PermissionCertificateManage); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的域名", nil)
+		} else {
+			s.writeError(c, http.StatusInternalServerError, "检查项目域名权限失败", err)
+		}
+		return false
+	}
+	return true
+}
+
 func (s *Server) listDomains(c *gin.Context) {
 	if !s.requireProjectResourceReader(c) {
 		return
@@ -537,7 +565,7 @@ func (s *Server) listDomains(c *gin.Context) {
 }
 
 func (s *Server) createDomain(c *gin.Context) {
-	if !s.requireDomainRepository(c) {
+	if !s.requireProjectDomainRepository(c) {
 		return
 	}
 	var request domainRequest
@@ -550,12 +578,19 @@ func (s *Server) createDomain(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "域名配置无效", err)
 		return
 	}
+	item.ResourceScope = s.newResourceScope(c)
+	if !s.authorizeDomainMutation(c, item.ProjectID) {
+		return
+	}
 	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), append([]string{item.Name}, item.SANs...)...); err != nil {
 		s.writeError(c, http.StatusBadRequest, err.Error(), err)
 		return
 	}
-	item.ResourceScope = s.newResourceScope(c)
-	if err := s.repository.Create(c.Request.Context(), item); err != nil {
+	if err := s.projectDomains.CreateProjectDomain(c.Request.Context(), c.GetString(authenticatedActorKey), item); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的域名", nil)
+			return
+		}
 		if repository.IsConflict(err) {
 			s.writeError(c, http.StatusConflict, "域名已经存在", err)
 			return
@@ -567,7 +602,7 @@ func (s *Server) createDomain(c *gin.Context) {
 }
 
 func (s *Server) updateDomain(c *gin.Context) {
-	if !s.requireDomainRepository(c) {
+	if !s.requireProjectDomainRepository(c) || !s.requireDomainRepository(c) {
 		return
 	}
 	var request domainRequest
@@ -584,6 +619,9 @@ func (s *Server) updateDomain(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "读取域名失败", err)
 		return
 	}
+	if !s.authorizeDomainMutation(c, existing.ProjectID) {
+		return
+	}
 	item, err := newDomainFromRequest(request)
 	if err != nil {
 		s.writeError(c, http.StatusBadRequest, "域名配置无效", err)
@@ -598,7 +636,15 @@ func (s *Server) updateDomain(c *gin.Context) {
 	item.CreatedAt = existing.CreatedAt
 	item.Status = "pending"
 	item.ExpiresAt = nil
-	if err := s.repository.Update(c.Request.Context(), item); err != nil {
+	if err := s.projectDomains.UpdateProjectDomain(c.Request.Context(), c.GetString(authenticatedActorKey), item); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的域名", nil)
+			return
+		}
+		if errors.Is(err, deployment.ErrSharedPathConflict) {
+			s.writeError(c, http.StatusConflict, deployment.ErrSharedPathConflict.Error(), nil)
+			return
+		}
 		if repository.IsNotFound(err) {
 			s.writeError(c, http.StatusNotFound, "域名不存在", err)
 			return
@@ -626,24 +672,19 @@ func newDomainFromRequest(request domainRequest) (domain.Domain, error) {
 }
 
 func (s *Server) deleteDomain(c *gin.Context) {
-	if !s.requireDomainRepository(c) {
+	if !s.requireProjectDomainRepository(c) {
 		return
 	}
 	domainID := strings.TrimSpace(c.Param("id"))
-	if s.tasks != nil {
-		for _, taskType := range []string{"certificate_issue", "certificate_validate", "certificate_deploy", "certificate_import", "certificate_restore"} {
-			_, err := s.tasks.FindActiveTaskByDomain(c.Request.Context(), domainID, taskType)
-			if err == nil {
-				s.writeError(c, http.StatusConflict, "域名存在正在执行的证书任务，请等待任务完成或取消后再删除", nil)
-				return
-			}
-			if !errors.Is(err, sql.ErrNoRows) {
-				s.writeError(c, http.StatusInternalServerError, "检查域名任务状态失败", err)
-				return
-			}
+	if err := s.projectDomains.DeleteProjectDomain(c.Request.Context(), c.GetString(authenticatedActorKey), domainID); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权管理此项目的域名", nil)
+			return
 		}
-	}
-	if err := s.repository.Delete(c.Request.Context(), domainID); err != nil {
+		if errors.Is(err, repository.ErrProjectDomainBusy) {
+			s.writeError(c, http.StatusConflict, err.Error(), nil)
+			return
+		}
 		if repository.IsNotFound(err) {
 			s.writeError(c, http.StatusNotFound, "域名不存在", err)
 			return

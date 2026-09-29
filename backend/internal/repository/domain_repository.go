@@ -15,3 +15,10 @@ type DomainRepository interface {
 	Delete(ctx context.Context, id string) error
 	UpdateCertificateState(ctx context.Context, id, status string, expiresAt *time.Time) error
 }
+
+// ProjectDomainRepository 在项目边界内执行域名资料变更，并将成功审计与业务写入放在同一事务。
+type ProjectDomainRepository interface {
+	CreateProjectDomain(context.Context, string, domain.Domain) error
+	UpdateProjectDomain(context.Context, string, domain.Domain) error
+	DeleteProjectDomain(context.Context, string, string) error
+}
