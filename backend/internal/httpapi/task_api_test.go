@@ -418,6 +418,9 @@ func TestTaskAPIRejectsIdempotentIssueForAllActiveStatuses(t *testing.T) {
 		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), task.ID) {
 			t.Fatalf("%s幂等任务应返回冲突：%d %s", status, response.Code, response.Body.String())
 		}
+		if err := taskRepo.UpdateTask(t.Context(), task.ID, "success", "certificate_issue", "测试完成", nil, nil); err != nil {
+			t.Fatalf("清理%s幂等任务失败：%v", status, err)
+		}
 	}
 }
 
