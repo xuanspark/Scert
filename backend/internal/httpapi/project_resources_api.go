@@ -12,6 +12,7 @@ import (
 func (s *Server) registerProjectResourceRoutes() {
 	api := s.router.Group("/api/v1", privateProjectResponse, s.requireAuthenticated)
 	api.GET("/domains", s.listDomains)
+	api.GET("/audit-logs", s.listAuditLogs)
 	api.GET("/servers", s.listServers)
 	api.GET("/servers/:id", s.getServer)
 	api.GET("/domains/:id/servers", s.listDomainServers)

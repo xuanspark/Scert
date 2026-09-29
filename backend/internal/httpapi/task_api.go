@@ -302,13 +302,16 @@ func (s *Server) listTaskAttempts(c *gin.Context) {
 }
 
 func (s *Server) listAuditLogs(c *gin.Context) {
-	reader, ok := s.audit.(repository.AuditReader)
+	if !s.requireProjectResourceReader(c) {
+		return
+	}
+	reader, ok := s.projectResources.(repository.ProjectAuditReader)
 	if !ok {
 		s.writeError(c, http.StatusNotImplemented, "审计日志查询接口尚未配置", errors.New("审计日志读取服务未配置"))
 		return
 	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	items, err := reader.ListAuditLogs(c.Request.Context(), limit)
+	items, err := reader.ListVisibleAuditLogs(c.Request.Context(), c.GetString(authenticatedActorKey), limit)
 	if err != nil {
 		s.writeError(c, http.StatusInternalServerError, "查询审计日志失败", err)
 		return

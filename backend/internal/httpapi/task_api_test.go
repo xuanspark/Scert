@@ -28,6 +28,11 @@ func newTaskAPITestServer(t *testing.T, issue func(context.Context, string) (cer
 		db.Close()
 		t.Fatalf("迁移测试数据库失败：%v", err)
 	}
+	if _, err := db.DB.ExecContext(context.Background(), repository.Rebind(cfg.Database.Driver, `INSERT INTO users
+		(id, username, password_hash, role, status) VALUES ('test-admin', 'test-admin', 'test-only-no-login', 'admin', 'active')`)); err != nil {
+		db.Close()
+		t.Fatalf("创建测试管理员失败：%v", err)
+	}
 	domainRepo := repository.NewSQLDomainRepository(db.DB)
 	taskRepo := repository.NewSQLTaskRepository(db.DB)
 	auditRepo := repository.NewSQLAuditRepository(db.DB)
@@ -47,6 +52,7 @@ func newTaskAPITestServer(t *testing.T, issue func(context.Context, string) (cer
 		IssueCertificate: issue,
 		Tasks:            taskRepo,
 		Audit:            auditRepo,
+		ProjectResources: repository.NewSQLProjectMemberRepository(db.DB, cfg.Database.Driver),
 		Users:            repository.NewSQLUserRepository(db.DB, cfg.Database.Driver),
 	})
 	return server, taskRepo, auditRepo, func() { _ = db.Close() }
