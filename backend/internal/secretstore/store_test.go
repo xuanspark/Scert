@@ -158,3 +158,101 @@ func assertNoSecretTempFiles(t *testing.T, directory string) {
 		t.Fatalf("不应残留敏感信息临时文件：%v", matches)
 	}
 }
+
+func TestStoreDisablesAndEnablesValue(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	reference := "secret://dns/cloudflare/lifecycle"
+	value := map[string]string{"api_token": "lifecycle-token"}
+	if err := store.Put(t.Context(), reference, value); err != nil {
+		t.Fatalf("put secret: %v", err)
+	}
+	if err := store.Disable(t.Context(), reference); err != nil {
+		t.Fatalf("disable secret: %v", err)
+	}
+	if _, err := store.Get(t.Context(), reference); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("disabled secret should not be readable: %v", err)
+	}
+	items, err := store.List(t.Context(), reference)
+	if err != nil {
+		t.Fatalf("list metadata: %v", err)
+	}
+	if len(items) != 1 || items[0].Status != StatusDisabled {
+		t.Fatalf("disabled status was not persisted: %+v", items)
+	}
+	if err := store.Enable(t.Context(), reference); err != nil {
+		t.Fatalf("enable secret: %v", err)
+	}
+	loaded, err := store.Get(t.Context(), reference)
+	if err != nil {
+		t.Fatalf("read enabled secret: %v", err)
+	}
+	if loaded["api_token"] != value["api_token"] {
+		t.Fatalf("enabled secret value mismatch: %v", loaded)
+	}
+}
+
+func TestStoreRejectsMissingMasterKey(t *testing.T) {
+	directory := t.TempDir()
+	store, err := Open(directory)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := store.Put(t.Context(), "secret://dns/cloudflare/missing-key", map[string]string{"api_token": "token"}); err != nil {
+		t.Fatalf("put secret: %v", err)
+	}
+	if err := os.Remove(filepath.Join(directory, "master.key")); err != nil {
+		t.Fatalf("remove test key: %v", err)
+	}
+	if _, err := Open(directory); err == nil {
+		t.Fatal("store must reject missing key when secrets exist")
+	}
+}
+
+func TestStoreRotatesMasterKeyAndPreservesValues(t *testing.T) {
+	directory := t.TempDir()
+	store, err := Open(directory)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	reference := "secret://dns/cloudflare/rotated"
+	if err := store.Put(t.Context(), reference, map[string]string{"api_token": "rotated-token"}); err != nil {
+		t.Fatalf("put secret: %v", err)
+	}
+	if err := store.Disable(t.Context(), reference); err != nil {
+		t.Fatalf("disable secret: %v", err)
+	}
+	oldKey, err := os.ReadFile(filepath.Join(directory, "master.key"))
+	if err != nil {
+		t.Fatalf("read old key: %v", err)
+	}
+	if err := store.RotateMasterKey(t.Context()); err != nil {
+		t.Fatalf("rotate key: %v", err)
+	}
+	newKey, err := os.ReadFile(filepath.Join(directory, "master.key"))
+	if err != nil {
+		t.Fatalf("read new key: %v", err)
+	}
+	if string(oldKey) == string(newKey) {
+		t.Fatal("rotated key must differ from old key")
+	}
+	if _, err := store.Get(t.Context(), reference); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("disabled status was not preserved after rotation: %v", err)
+	}
+	if err := store.Enable(t.Context(), reference); err != nil {
+		t.Fatalf("enable rotated secret: %v", err)
+	}
+	reopened, err := Open(directory)
+	if err != nil {
+		t.Fatalf("reopen with new key: %v", err)
+	}
+	loaded, err := reopened.Get(t.Context(), reference)
+	if err != nil {
+		t.Fatalf("read with new key: %v", err)
+	}
+	if loaded["api_token"] != "rotated-token" {
+		t.Fatalf("rotated secret value mismatch: %v", loaded)
+	}
+}
