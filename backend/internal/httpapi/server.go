@@ -64,6 +64,7 @@ type Dependencies struct {
 	ImportCertificate         func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
 	DeployCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
+	ValidateCertificate       func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
 	RunRenewal          func(context.Context) (certificate.RenewalReport, error)
 	UpdateRenewalPolicy func(certificate.RenewalPolicy)
@@ -76,31 +77,32 @@ type Dependencies struct {
 }
 
 type Server struct {
-	configMu                 sync.RWMutex
-	config                   config.Config
-	configPath               string
-	frontendDir              string
-	logger                   *logging.Logger
-	repository               repository.DomainRepository
-	servers                  repository.ServerRepository
-	users                    repository.UserRepository
-	projectMembers           repository.ProjectMemberRepository
-	projectDirectory         repository.ProjectDirectoryRepository
-	projectLifecycle         repository.ProjectLifecycleRepository
-	projectResources         repository.ProjectResourceReader
-	projectBindings          repository.ProjectBindingRepository
-	projectDomains           repository.ProjectDomainRepository
-	sshKeys                  *sshkey.Service
-	deploymentFactory        deployment.ClientFactory
-	setupDNS                 setupDNSVerifier
-	secrets                  setupSecretWriter
-	firewall                 firewall.Manager
-	issueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	issueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
-	rollbackSetupCertificate func(context.Context, certificate.SavedResource) error
-	importCertificate        func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
-	deployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	restoreVersion           func(context.Context, string, string) (certificate.IssueResult, error)
+	configMu                    sync.RWMutex
+	config                      config.Config
+	configPath                  string
+	frontendDir                 string
+	logger                      *logging.Logger
+	repository                  repository.DomainRepository
+	servers                     repository.ServerRepository
+	users                       repository.UserRepository
+	projectMembers              repository.ProjectMemberRepository
+	projectDirectory            repository.ProjectDirectoryRepository
+	projectLifecycle            repository.ProjectLifecycleRepository
+	projectResources            repository.ProjectResourceReader
+	projectBindings             repository.ProjectBindingRepository
+	projectDomains              repository.ProjectDomainRepository
+	sshKeys                     *sshkey.Service
+	deploymentFactory           deployment.ClientFactory
+	setupDNS                    setupDNSVerifier
+	secrets                     setupSecretWriter
+	firewall                    firewall.Manager
+	issueCertificate            func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	issueSetupCertificate       func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
+	rollbackSetupCertificate    func(context.Context, certificate.SavedResource) error
+	importCertificate           func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
+	deployCertificate           func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	restoreVersion              func(context.Context, string, string) (certificate.IssueResult, error)
+	validateCertificateWorkflow func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
 	runRenewal          func(context.Context) (certificate.RenewalReport, error)
 	updateRenewalPolicy func(certificate.RenewalPolicy)
@@ -148,37 +150,38 @@ func New(deps Dependencies) *Server {
 		httpListening: make(chan struct{}),
 		config:        deps.Config, configPath: deps.ConfigPath, frontendDir: filepath.Clean(frontendDir), logger: deps.Logger,
 		repository: deps.Repository, setupDNS: deps.SetupDNS, secrets: deps.Secrets, firewall: deps.Firewall, router: router,
-		servers:                  deps.Servers,
-		users:                    deps.Users,
-		projectMembers:           deps.ProjectMembers,
-		projectDirectory:         deps.ProjectDirectory,
-		projectLifecycle:         deps.ProjectLifecycle,
-		projectResources:         deps.ProjectResources,
-		projectBindings:          deps.ProjectBindings,
-		projectDomains:           deps.ProjectDomains,
-		sshKeys:                  deps.SSHKeys,
-		deploymentFactory:        deps.DeploymentFactory,
-		issueCertificate:         deps.IssueCertificate,
-		issueSetupCertificate:    deps.IssueSetupCertificate,
-		rollbackSetupCertificate: deps.RollbackSetupCertificate,
-		importCertificate:        deps.ImportCertificate,
-		deployCertificate:        deps.DeployCertificate,
-		restoreVersion:           deps.RestoreCertificateVersion,
-		runRenewal:               deps.RunRenewal,
-		updateRenewalPolicy:      deps.UpdateRenewalPolicy,
-		currentCertificate:       deps.CurrentCertificate,
-		resetStatePath:           deps.ResetStatePath,
-		audit:                    deps.Audit,
-		tasks:                    deps.Tasks,
-		readinessCheck:           deps.ReadinessCheck,
-		aliyunChecker:            deps.AliyunChecker,
-		taskCancels:              make(map[string]context.CancelFunc),
-		resetLimiter:             newResetRateLimiter(),
-		authSessions:             make(map[string]authSession),
-		loginAttempts:            make(map[string]loginAttempt),
-		loginSources:             make(map[string]loginSource),
-		loginPending:             make(map[string]int),
-		now:                      time.Now,
+		servers:                     deps.Servers,
+		users:                       deps.Users,
+		projectMembers:              deps.ProjectMembers,
+		projectDirectory:            deps.ProjectDirectory,
+		projectLifecycle:            deps.ProjectLifecycle,
+		projectResources:            deps.ProjectResources,
+		projectBindings:             deps.ProjectBindings,
+		projectDomains:              deps.ProjectDomains,
+		sshKeys:                     deps.SSHKeys,
+		deploymentFactory:           deps.DeploymentFactory,
+		issueCertificate:            deps.IssueCertificate,
+		issueSetupCertificate:       deps.IssueSetupCertificate,
+		rollbackSetupCertificate:    deps.RollbackSetupCertificate,
+		importCertificate:           deps.ImportCertificate,
+		deployCertificate:           deps.DeployCertificate,
+		restoreVersion:              deps.RestoreCertificateVersion,
+		validateCertificateWorkflow: deps.ValidateCertificate,
+		runRenewal:                  deps.RunRenewal,
+		updateRenewalPolicy:         deps.UpdateRenewalPolicy,
+		currentCertificate:          deps.CurrentCertificate,
+		resetStatePath:              deps.ResetStatePath,
+		audit:                       deps.Audit,
+		tasks:                       deps.Tasks,
+		readinessCheck:              deps.ReadinessCheck,
+		aliyunChecker:               deps.AliyunChecker,
+		taskCancels:                 make(map[string]context.CancelFunc),
+		resetLimiter:                newResetRateLimiter(),
+		authSessions:                make(map[string]authSession),
+		loginAttempts:               make(map[string]loginAttempt),
+		loginSources:                make(map[string]loginSource),
+		loginPending:                make(map[string]int),
+		now:                         time.Now,
 	}
 	router.Use(server.requestMiddleware())
 	server.registerRoutes()

@@ -170,7 +170,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			return certificate.RollbackSavedResource(ctx, saved)
 		},
 		ImportCertificate: func(ctx context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
-			result, err := workflow.Import(ctx, request)
+			result, err := trackedWorkflow.Import(ctx, request)
 			return result.Certificate, result.Deployment, err
 		},
 		DeployCertificate: func(ctx context.Context, domainID string) (certificate.IssueResult, deployment.Report, error) {
@@ -178,7 +178,11 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			return result.Certificate, result.Deployment, err
 		},
 		RestoreCertificateVersion: func(ctx context.Context, domainID, version string) (certificate.IssueResult, error) {
-			return certificates.RestoreVersion(ctx, domainID, version)
+			result, err := trackedWorkflow.Restore(ctx, domainID, version)
+			return result.Certificate, err
+		},
+		ValidateCertificate: func(ctx context.Context, domainID string) (certificate.IssueResult, certificate.ValidationResult, error) {
+			return trackedWorkflow.Validate(ctx, domainID)
 		},
 		RunRenewal: func(ctx context.Context) (certificate.RenewalReport, error) {
 			return renewal.RunOnce(ctx)

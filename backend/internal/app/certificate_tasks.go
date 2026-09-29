@@ -34,6 +34,29 @@ func (w *certificateTaskWorkflow) DeployCurrent(ctx context.Context, id string) 
 	return w.run(ctx, id, "certificate_deploy", "certificate_deploy", 1, 0, w.workflow.DeployCurrent)
 }
 
+func (w *certificateTaskWorkflow) Import(ctx context.Context, request certificate.ImportRequest) (CertificateWorkflowResult, error) {
+	return w.run(ctx, request.DomainID, "certificate_import", "certificate_import", 1, 0, func(ctx context.Context, _ string) (CertificateWorkflowResult, error) {
+		return w.workflow.Import(ctx, request)
+	})
+}
+
+func (w *certificateTaskWorkflow) Restore(ctx context.Context, domainID, version string) (CertificateWorkflowResult, error) {
+	return w.run(ctx, domainID, "certificate_restore", "certificate_restore", 1, 0, func(ctx context.Context, id string) (CertificateWorkflowResult, error) {
+		result, err := w.workflow.RestoreVersion(ctx, id, version)
+		return CertificateWorkflowResult{Certificate: result}, err
+	})
+}
+
+func (w *certificateTaskWorkflow) Validate(ctx context.Context, domainID string) (certificate.IssueResult, certificate.ValidationResult, error) {
+	var validation certificate.ValidationResult
+	result, err := w.run(ctx, domainID, "certificate_validate", "certificate_validate", 1, 0, func(ctx context.Context, id string) (CertificateWorkflowResult, error) {
+		certificateResult, validationResult, err := w.workflow.ValidateCurrent(ctx, id)
+		validation = validationResult
+		return CertificateWorkflowResult{Certificate: certificateResult}, err
+	})
+	return result.Certificate, validation, err
+}
+
 func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage string, attempts int, interval time.Duration, execute func(context.Context, string) (CertificateWorkflowResult, error)) (result CertificateWorkflowResult, resultErr error) {
 	if w.tasks == nil || w.audit == nil {
 		return result, errors.New("证书任务记录服务未初始化")

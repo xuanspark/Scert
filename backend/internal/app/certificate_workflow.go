@@ -145,6 +145,42 @@ func (w *CertificateWorkflow) Import(ctx context.Context, request certificate.Im
 	return CertificateWorkflowResult{Certificate: certificateResult, Deployment: report}, err
 }
 
+// RestoreVersion restores a certificate version through the certificate service.
+func (w *CertificateWorkflow) RestoreVersion(ctx context.Context, domainID, version string) (certificate.IssueResult, error) {
+	if w == nil || w.Certificates == nil {
+		return certificate.IssueResult{}, errors.New("证书恢复流程未初始化")
+	}
+	restorer, ok := w.Certificates.(interface {
+		RestoreVersion(context.Context, string, string) (certificate.IssueResult, error)
+	})
+	if !ok {
+		return certificate.IssueResult{}, errors.New("证书恢复服务未配置")
+	}
+	return restorer.RestoreVersion(ctx, domainID, version)
+}
+
+// ValidateCurrent validates the active certificate through the workflow boundary.
+func (w *CertificateWorkflow) ValidateCurrent(ctx context.Context, domainID string) (certificate.IssueResult, certificate.ValidationResult, error) {
+	if w == nil || w.CurrentCertificate == nil {
+		return certificate.IssueResult{}, certificate.ValidationResult{}, errors.New("证书校验流程未初始化")
+	}
+	result, err := w.CurrentCertificate(ctx, domainID)
+	if err != nil {
+		return certificate.IssueResult{}, certificate.ValidationResult{}, err
+	}
+	validation, err := (certificate.LocalValidator{VerifyChain: true}).ValidateFiles(
+		ctx,
+		result.Saved.CertificatePath,
+		result.Saved.FullChainPath,
+		result.Saved.PrivateKeyPath,
+		result.Domains,
+	)
+	if err != nil {
+		return certificate.IssueResult{}, certificate.ValidationResult{}, fmt.Errorf("当前证书校验失败：%w", err)
+	}
+	return result, validation, nil
+}
+
 func (w *CertificateWorkflow) notify(ctx context.Context, event notification.Event) {
 	if w == nil || w.Notifier == nil {
 		return
