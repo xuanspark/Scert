@@ -32,6 +32,7 @@ const (
 	PermissionAuditRead          ProjectPermission = "audit.read"
 	PermissionTaskRead           ProjectPermission = "task.read"
 	PermissionTaskCancel         ProjectPermission = "task.cancel"
+	PermissionTaskRetry          ProjectPermission = "task.retry"
 )
 
 func (r ProjectRole) Valid() bool {
@@ -50,7 +51,7 @@ func (p ProjectPermission) Valid() bool {
 		PermissionServerRead, PermissionServerManage, PermissionDeploymentRead,
 		PermissionDeploymentExecute, PermissionDeploymentRollback, PermissionDNSRead,
 		PermissionDNSManage, PermissionDNSCredentialUse, PermissionAuditRead,
-		PermissionTaskRead, PermissionTaskCancel:
+		PermissionTaskRead, PermissionTaskCancel, PermissionTaskRetry:
 		return true
 	}
 	return false

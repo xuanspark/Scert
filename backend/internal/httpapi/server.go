@@ -217,6 +217,7 @@ func (s *Server) registerRoutes() {
 	api.GET("/tasks", s.listTasks)
 	api.GET("/tasks/:id", s.getTask)
 	api.DELETE("/tasks/:id", s.cancelTask)
+	api.POST("/tasks/:id/retry", s.retryTask)
 	api.GET("/tasks/:id/attempts", s.listTaskAttempts)
 
 	adminAPI.GET("/settings", s.getSettings)

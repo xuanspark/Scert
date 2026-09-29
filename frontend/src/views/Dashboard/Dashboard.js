@@ -848,6 +848,21 @@ export function useDashboard() {
       error.value = err.message || "取消任务失败";
     }
   }
+  async function retryTask(item) {
+    if (!window.confirm("确定重新执行这项失败的证书任务吗？")) return;
+    error.value = "";
+    notice.value = "";
+    try {
+      const response = await fetchAdmin(`/api/v1/tasks/${item.id}/retry`, { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "重试任务失败");
+      notice.value = "证书任务已重新执行";
+      await loadData();
+    } catch (err) {
+      error.value = err.message || "重试任务失败";
+    }
+  }
+
   async function runRenewalNow() {
     error.value = "";
     notice.value = "";
@@ -1313,6 +1328,7 @@ export function useDashboard() {
     validateDomain,
     deployDomain,
     cancelTask,
+    retryTask,
     openTaskDetails,
     closeTaskDetails,
     showTaskDetails,

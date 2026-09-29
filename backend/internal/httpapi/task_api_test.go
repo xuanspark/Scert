@@ -453,3 +453,43 @@ func TestAuditLogResponseUsesDashboardFieldNames(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskAPIRetriesFailedCertificateIssue(t *testing.T) {
+	calls := 0
+	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		calls++
+		if calls == 1 {
+			return certificate.IssueResult{DomainID: id}, deployment.Report{}, errors.New("temporary certificate failure")
+		}
+		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
+	})
+	defer closeDB()
+
+	first := httptest.NewRecorder()
+	serveAdminHTTP(server, first, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if first.Code != http.StatusBadGateway {
+		t.Fatalf("initial failure response: %d %s", first.Code, first.Body.String())
+	}
+	tasks, err := taskRepo.ListTasks(context.Background(), "domain-1", 10)
+	if err != nil || len(tasks) != 1 || tasks[0].Status != "failed" {
+		t.Fatalf("failed task was not persisted: %+v %v", tasks, err)
+	}
+
+	retry := httptest.NewRecorder()
+	serveAdminHTTP(server, retry, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+tasks[0].ID+"/retry", nil))
+	if retry.Code != http.StatusOK {
+		t.Fatalf("retry response: %d %s", retry.Code, retry.Body.String())
+	}
+	updated, err := taskRepo.GetTask(context.Background(), tasks[0].ID)
+	if err != nil || updated.Status != "success" || updated.OperatorID != "test-admin" {
+		t.Fatalf("retried task did not converge: %+v %v", updated, err)
+	}
+	attempts, err := taskRepo.ListAttempts(context.Background(), tasks[0].ID)
+	if err != nil || len(attempts) != 2 || attempts[0].AttemptNumber != 1 || attempts[0].Status != "failed" || attempts[1].AttemptNumber != 2 || attempts[1].Status != "success" {
+		t.Fatalf("retry attempts were not recorded correctly: %+v %v", attempts, err)
+	}
+	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
+	if err != nil || len(logs) != 2 || logs[0].Action != "certificate_issue_retry" || logs[0].OperatorID != "test-admin" {
+		t.Fatalf("retry audit was not recorded correctly: %+v %v", logs, err)
+	}
+}

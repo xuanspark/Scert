@@ -6,7 +6,7 @@ const props = defineProps({ state: { type: Object, required: true } });
 const emit = defineEmits(["navigate"]);
 const {
   loading, error, auditLogs, taskTypeLabel, taskStatusLabels,
-  statusClass, displayLabel, auditActionLabel, openTaskDetails, cancelTask,
+  statusClass, displayLabel, auditActionLabel, openTaskDetails, cancelTask, retryTask,
 } = props.state;
 const { detailView, summary, visibleTasks, taskDomain } = useRuntimeOverview(props.state);
 </script>
@@ -96,6 +96,11 @@ const { detailView, summary, visibleTasks, taskDomain } = useRuntimeOverview(pro
                     type="button"
                     @click="cancelTask(item)"
                   >取消任务</button>
+                   <button
+                     v-if="item.task_type === 'certificate_issue' && (item.status === 'failed' || item.status === 'cancelled')"
+                     type="button"
+                     @click="retryTask(item)"
+                   >重试任务</button>
                 </td>
               </tr>
             </tbody>

@@ -116,6 +116,11 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "创建任务尝试失败", err)
 		return
 	}
+	s.executeCertificateIssueTask(c, task, attempt, "certificate_issue")
+}
+
+func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
+	now := time.Now().UTC()
 	if err := s.tasks.UpdateTask(c.Request.Context(), task.ID, "running", "certificate_issue", "正在申请证书并部署", &now, nil); err != nil {
 		finished := time.Now().UTC()
 		failureMessage := "任务启动失败"
@@ -124,7 +129,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		if s.audit != nil {
 			_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
 				TaskID: task.ID, OperatorID: task.OperatorID,
-				Action: "certificate_issue", ResourceType: "domain", ResourceID: domainID,
+				Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID,
 				Status: "error", Message: failureMessage,
 			})
 		}
@@ -137,7 +142,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		cancel()
 		s.unregisterTaskCancel(task.ID)
 	}()
-	certificateResult, deploymentReport, issueErr := s.issueCertificate(executionCtx, domainID)
+	certificateResult, deploymentReport, issueErr := s.issueCertificate(executionCtx, task.DomainID)
 	deploymentReport = sanitizeDeploymentReport(deploymentReport)
 	finished := time.Now().UTC()
 	status := "success"
@@ -147,7 +152,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		status = "failed"
 		message = certificateTaskErrorMessage(issueErr)
 		if s.logger != nil {
-			s.logger.Error("证书任务执行失败", "task_id", task.ID, "domain_id", domainID, "error", issueErr)
+			s.logger.Error("证书任务执行失败", "task_id", task.ID, "domain_id", task.DomainID, "error", issueErr)
 		}
 		if errors.Is(issueErr, context.Canceled) {
 			status = "cancelled"
@@ -178,7 +183,7 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		}
 		_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
 			TaskID: task.ID, OperatorID: task.OperatorID,
-			Action: "certificate_issue", ResourceType: "domain", ResourceID: domainID, Status: auditStatus, Message: message,
+			Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID, Status: auditStatus, Message: message,
 		})
 	}
 	response := gin.H{
@@ -295,6 +300,74 @@ func (s *Server) cancelTask(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"task": item})
 }
+
+func (s *Server) retryTask(c *gin.Context) {
+	if s.issueCertificate == nil {
+		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
+		return
+	}
+	reader, ok := s.projectTaskReader(c)
+	if !ok {
+		return
+	}
+	actorID := c.GetString(authenticatedActorKey)
+	taskID := strings.TrimSpace(c.Param("id"))
+	item, err := reader.GetVisibleTask(c.Request.Context(), actorID, taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, repository.ErrProjectAccessDenied) {
+			s.writeError(c, http.StatusForbidden, "无权访问此任务", nil)
+			return
+		}
+		s.writeError(c, http.StatusInternalServerError, "读取任务失败", err)
+		return
+	}
+	if item.TaskType != "certificate_issue" {
+		c.JSON(http.StatusConflict, gin.H{"error": "当前任务类型不支持手动重试", "task": item})
+		return
+	}
+	if item.Status != "failed" && item.Status != "cancelled" {
+		c.JSON(http.StatusConflict, gin.H{"error": "仅失败或已取消的证书申请任务可以重试", "task": item})
+		return
+	}
+	authorizer, ok := s.projectMembers.(repository.ProjectAuthorizer)
+	if !ok {
+		s.writeError(c, http.StatusServiceUnavailable, "任务重试权限服务尚未就绪", errors.New("项目授权服务未配置"))
+		return
+	}
+	projectID := item.ProjectID
+	for _, permission := range []domain.ProjectPermission{
+		domain.PermissionTaskRetry,
+		domain.PermissionCertificateManage,
+		domain.PermissionDeploymentExecute,
+	} {
+		if err := authorizer.AuthorizeProject(c.Request.Context(), actorID, projectID, permission); err != nil {
+			if errors.Is(err, repository.ErrProjectAccessDenied) {
+				s.writeError(c, http.StatusForbidden, "无权重试此项目的证书任务", nil)
+				return
+			}
+			s.writeError(c, http.StatusInternalServerError, "检查任务重试权限失败", err)
+			return
+		}
+	}
+	if !s.authorizeDNSCredentialUse(c, projectID) {
+		return
+	}
+	startedAt := time.Now().UTC()
+	retryTask, attempt, err := reader.RetryVisibleTask(c.Request.Context(), actorID, taskID, &startedAt)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrProjectAccessDenied), errors.Is(err, sql.ErrNoRows):
+			s.writeError(c, http.StatusForbidden, "无权重试此任务", nil)
+		case errors.Is(err, repository.ErrTaskNotRetryable):
+			s.writeError(c, http.StatusConflict, "任务状态已变化，当前无法重试", nil)
+		default:
+			s.writeError(c, http.StatusInternalServerError, "创建任务重试失败", err)
+		}
+		return
+	}
+	s.executeCertificateIssueTask(c, retryTask, attempt, "certificate_issue_retry")
+}
+
 func validTaskIdempotencyKey(value string) bool {
 	if len(value) < 8 || len(value) > 128 {
 		return false

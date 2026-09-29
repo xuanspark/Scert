@@ -17,7 +17,10 @@ type ProjectTaskReader interface {
 	GetVisibleTask(context.Context, string, string) (Task, error)
 	ListVisibleTaskAttempts(context.Context, string, string) ([]TaskAttempt, error)
 	CancelVisibleTask(context.Context, string, string, string, *time.Time) error
+	RetryVisibleTask(context.Context, string, string, *time.Time) (Task, TaskAttempt, error)
 }
+
+var ErrTaskNotRetryable = errors.New("任务当前不可重试")
 
 var _ ProjectTaskReader = (*SQLTaskRepository)(nil)
 
@@ -29,6 +32,9 @@ func taskVisibilityPredicate(alias string, permission domain.ProjectPermission) 
 			domain.ProjectRoleAuditViewer,
 			domain.ProjectRoleReadOnly,
 		}
+	}
+	if permission == domain.PermissionTaskRetry {
+		roles = []domain.ProjectRole{domain.ProjectRoleAdmin}
 	}
 	placeholders := make([]string, 0, len(roles))
 	args := []any{""}
@@ -177,4 +183,103 @@ func (r *SQLTaskRepository) CancelVisibleTask(ctx context.Context, actorID, task
 		return fmt.Errorf("提交取消任务事务失败：%w", err)
 	}
 	return nil
+}
+
+func (r *SQLTaskRepository) RetryVisibleTask(ctx context.Context, actorID, taskID string, startedAt *time.Time) (Task, TaskAttempt, error) {
+	if r == nil || r.db == nil {
+		return Task{}, TaskAttempt{}, errors.New("数据库连接不能为空")
+	}
+	actorID = strings.TrimSpace(actorID)
+	taskID = strings.TrimSpace(taskID)
+	if actorID == "" || taskID == "" {
+		return Task{}, TaskAttempt{}, ErrProjectAccessDenied
+	}
+	if startedAt == nil {
+		now := time.Now().UTC()
+		startedAt = &now
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, TaskAttempt{}, fmt.Errorf("开始重试任务事务失败：%w", err)
+	}
+	rollback := func() {
+		_ = tx.Rollback()
+	}
+	predicate, predicateArgs := taskVisibilityPredicate("tasks", domain.PermissionTaskRetry)
+	predicateArgs[0] = actorID
+	updateArgs := []any{
+		actorID, "certificate_issue", "正在重试证书申请", nullableTime(startedAt), time.Now().UTC(), taskID,
+	}
+	updateArgs = append(updateArgs, predicateArgs...)
+	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks SET operator_id = ?, status = 'running', stage = ?, message = ?,
+		started_at = ?, finished_at = NULL, updated_at = ?
+		WHERE id = ? AND task_type = 'certificate_issue' AND status IN ('failed', 'cancelled') AND `+predicate), updateArgs...)
+	if err != nil {
+		rollback()
+		return Task{}, TaskAttempt{}, fmt.Errorf("更新重试任务状态失败：%w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		rollback()
+		return Task{}, TaskAttempt{}, fmt.Errorf("读取重试任务更新结果失败：%w", err)
+	}
+	if count != 1 {
+		item, getErr := scanTask(tx.QueryRowContext(ctx, r.query(taskSelect+` WHERE id = ?`), taskID))
+		rollback()
+		if errors.Is(getErr, sql.ErrNoRows) {
+			return Task{}, TaskAttempt{}, sql.ErrNoRows
+		}
+		if getErr != nil {
+			return Task{}, TaskAttempt{}, getErr
+		}
+		if item.Status != "failed" && item.Status != "cancelled" {
+			return Task{}, TaskAttempt{}, ErrTaskNotRetryable
+		}
+		return Task{}, TaskAttempt{}, ErrProjectAccessDenied
+	}
+
+	var attemptNumber int
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM task_attempts WHERE task_id = ?`), taskID).Scan(&attemptNumber); err != nil {
+		rollback()
+		return Task{}, TaskAttempt{}, fmt.Errorf("读取任务重试次数失败：%w", err)
+	}
+	attempt := TaskAttempt{
+		HistoryScope:  HistoryScope{ScopeType: ScopeProject},
+		ID:            domain.NewID(),
+		TaskID:        taskID,
+		AttemptNumber: attemptNumber,
+		Stage:         "certificate_issue",
+		Status:        "running",
+		Message:       "开始重试证书申请",
+		StartedAt:     startedAt,
+		CreatedAt:     startedAt.UTC(),
+	}
+	insertResult, err := tx.ExecContext(ctx, r.query(`INSERT INTO task_attempts
+		(id, task_id, attempt_number, stage, status, message, started_at, finished_at, created_at)
+		SELECT ?, id, ?, ?, ?, ?, ?, NULL, ? FROM tasks WHERE id = ?`),
+		attempt.ID, attempt.AttemptNumber, attempt.Stage, attempt.Status, attempt.Message,
+		nullableTime(attempt.StartedAt), attempt.CreatedAt, taskID)
+	if err != nil {
+		rollback()
+		return Task{}, TaskAttempt{}, fmt.Errorf("创建重试任务尝试失败：%w", err)
+	}
+	if count, err := insertResult.RowsAffected(); err != nil {
+		rollback()
+		return Task{}, TaskAttempt{}, fmt.Errorf("读取重试任务尝试创建结果失败：%w", err)
+	} else if count != 1 {
+		rollback()
+		return Task{}, TaskAttempt{}, ErrTaskNotRetryable
+	}
+
+	task, err := scanTask(tx.QueryRowContext(ctx, r.query(taskSelect+` WHERE id = ?`), taskID))
+	if err != nil {
+		rollback()
+		return Task{}, TaskAttempt{}, err
+	}
+	attempt.HistoryScope = task.HistoryScope
+	if err := tx.Commit(); err != nil {
+		return Task{}, TaskAttempt{}, fmt.Errorf("提交重试任务事务失败：%w", err)
+	}
+	return task, attempt, nil
 }
