@@ -3,8 +3,11 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
 const maxSSHKeyRequestBytes = 2 * 1024 * 1024
@@ -13,6 +16,7 @@ type sshKeyRequest struct {
 	Name       string `json:"name" binding:"required"`
 	PrivateKey string `json:"private_key" binding:"required"`
 	Passphrase string `json:"passphrase"`
+	ProjectID  string `json:"project_id"`
 }
 
 func (s *Server) listSSHKeys(c *gin.Context) {
@@ -20,7 +24,14 @@ func (s *Server) listSSHKeys(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "SSH 私钥管理接口尚未配置", errors.New("SSH 私钥管理服务未配置"))
 		return
 	}
-	items, err := s.sshKeys.List(c.Request.Context())
+	projectID := strings.TrimSpace(c.Query("project_id"))
+	if projectID == "" {
+		projectID = domain.DefaultProjectID
+	}
+	if !s.authorizeServerMutation(c, projectID) {
+		return
+	}
+	items, err := s.sshKeys.ListForProject(c.Request.Context(), projectID)
 	if err != nil {
 		s.writeError(c, http.StatusInternalServerError, "查询 SSH 私钥失败", err)
 		return
@@ -43,7 +54,14 @@ func (s *Server) createSSHKey(c *gin.Context) {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
 		return
 	}
-	item, err := s.sshKeys.Create(c.Request.Context(), request.Name, request.PrivateKey, request.Passphrase)
+	projectID := strings.TrimSpace(request.ProjectID)
+	if projectID == "" {
+		projectID = domain.DefaultProjectID
+	}
+	if !s.authorizeServerMutation(c, projectID) {
+		return
+	}
+	item, err := s.sshKeys.CreateForProject(c.Request.Context(), request.Name, request.PrivateKey, request.Passphrase, projectID)
 	if err != nil {
 		s.writeError(c, http.StatusBadRequest, "SSH 私钥无效", err)
 		return
@@ -59,6 +77,14 @@ func (s *Server) deleteSSHKey(c *gin.Context) {
 	reference, err := s.sshKeys.Reference(c.Param("id"))
 	if err != nil {
 		s.writeError(c, http.StatusBadRequest, "SSH 私钥 ID 无效", err)
+		return
+	}
+	metadata, err := s.sshKeys.ValidateReference(c.Request.Context(), reference)
+	if err != nil {
+		s.writeError(c, http.StatusBadRequest, "SSH 私钥引用无效", err)
+		return
+	}
+	if !s.authorizeServerMutation(c, metadata.ProjectID) {
 		return
 	}
 	used, err := s.servers.IsPrivateKeyRefUsed(c.Request.Context(), reference)

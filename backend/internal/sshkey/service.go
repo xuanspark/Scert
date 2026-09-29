@@ -39,6 +39,7 @@ type Metadata struct {
 	Algorithm   string    `json:"algorithm"`
 	Fingerprint string    `json:"fingerprint"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	ProjectID   string    `json:"project_id,omitempty"`
 }
 
 type Service struct {
@@ -50,9 +51,14 @@ func NewService(store Store) *Service {
 }
 
 func (s *Service) Create(ctx context.Context, name, privateKey, passphrase string) (Metadata, error) {
+	return s.CreateForProject(ctx, name, privateKey, passphrase, domain.DefaultProjectID)
+}
+
+func (s *Service) CreateForProject(ctx context.Context, name, privateKey, passphrase, projectID string) (Metadata, error) {
 	if s == nil || s.store == nil {
 		return Metadata{}, errors.New("SSH 私钥存储未初始化")
 	}
+	projectID = normalizeProjectID(projectID)
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Metadata{}, errors.New("SSH 私钥名称不能为空")
@@ -83,17 +89,22 @@ func (s *Service) Create(ctx context.Context, name, privateKey, passphrase strin
 		"passphrase":  passphrase,
 		"algorithm":   signer.PublicKey().Type(),
 		"fingerprint": ssh.FingerprintSHA256(signer.PublicKey()),
+		"project_id":  projectID,
 	}
 	if err := s.store.Put(ctx, reference, payload); err != nil {
 		return Metadata{}, fmt.Errorf("保存 SSH 私钥失败：%w", err)
 	}
 	return Metadata{
 		ID: id, Name: name, Reference: reference, Algorithm: payload["algorithm"],
-		Fingerprint: payload["fingerprint"], UpdatedAt: time.Now().UTC(),
+		Fingerprint: payload["fingerprint"], UpdatedAt: time.Now().UTC(), ProjectID: projectID,
 	}, nil
 }
 
 func (s *Service) CreateGenerated(ctx context.Context, name string) (Metadata, string, error) {
+	return s.CreateGeneratedForProject(ctx, name, domain.DefaultProjectID)
+}
+
+func (s *Service) CreateGeneratedForProject(ctx context.Context, name, projectID string) (Metadata, string, error) {
 	if s == nil || s.store == nil {
 		return Metadata{}, "", errors.New("SSH 私钥存储未初始化")
 	}
@@ -109,7 +120,7 @@ func (s *Service) CreateGenerated(ctx context.Context, name string) (Metadata, s
 	if err != nil {
 		return Metadata{}, "", fmt.Errorf("编码 SSH 私钥失败：%w", err)
 	}
-	metadata, err := s.Create(ctx, name, string(pem.EncodeToMemory(privatePEM)), "")
+	metadata, err := s.CreateForProject(ctx, name, string(pem.EncodeToMemory(privatePEM)), "", projectID)
 	if err != nil {
 		return Metadata{}, "", err
 	}
@@ -164,11 +175,36 @@ func (s *Service) List(ctx context.Context) ([]Metadata, error) {
 	return result, nil
 }
 
+func (s *Service) ListForProject(ctx context.Context, projectID string) ([]Metadata, error) {
+	items, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	projectID = normalizeProjectID(projectID)
+	visible := make([]Metadata, 0, len(items))
+	for _, item := range items {
+		if normalizeProjectID(item.ProjectID) == projectID {
+			visible = append(visible, item)
+		}
+	}
+	return visible, nil
+}
 func (s *Service) ValidateReference(ctx context.Context, reference string) (Metadata, error) {
 	if s == nil || s.store == nil {
 		return Metadata{}, errors.New("SSH 私钥存储未初始化")
 	}
 	return s.metadata(ctx, strings.TrimSpace(reference), time.Time{}, true)
+}
+
+func (s *Service) ValidateReferenceForProject(ctx context.Context, reference, projectID string) (Metadata, error) {
+	metadata, err := s.ValidateReference(ctx, reference)
+	if err != nil {
+		return Metadata{}, err
+	}
+	if normalizeProjectID(metadata.ProjectID) != normalizeProjectID(projectID) {
+		return Metadata{}, errors.New("SSH 私钥不属于当前项目")
+	}
+	return metadata, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
@@ -220,7 +256,16 @@ func (s *Service) metadata(ctx context.Context, reference string, updatedAt time
 	return Metadata{
 		ID: id, Name: payload["name"], Reference: reference,
 		Algorithm: algorithm, Fingerprint: fingerprint, UpdatedAt: updatedAt,
+		ProjectID: normalizeProjectID(payload["project_id"]),
 	}, nil
+}
+
+func normalizeProjectID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return domain.DefaultProjectID
+	}
+	return value
 }
 
 func parsePrivateKey(privateKey, passphrase string) (ssh.Signer, error) {

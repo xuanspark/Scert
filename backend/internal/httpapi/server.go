@@ -873,11 +873,11 @@ func (s *Server) updateServer(c *gin.Context) {
 	c.JSON(http.StatusOK, item)
 }
 
-func (s *Server) validateSSHKeyReference(ctx context.Context, reference string) error {
+func (s *Server) validateSSHKeyReference(ctx context.Context, reference, projectID string) error {
 	if s.sshKeys == nil {
 		return errors.New("SSH 私钥管理服务未配置")
 	}
-	_, err := s.sshKeys.ValidateReference(ctx, reference)
+	_, err := s.sshKeys.ValidateReferenceForProject(ctx, reference, projectID)
 	return err
 }
 
@@ -885,7 +885,7 @@ func (s *Server) prepareServerCredential(ctx context.Context, item deployment.Se
 	item = item.Normalize()
 	cleanup := func() {}
 	if item.AuthMethod == deployment.SSHAuthPrivateKey {
-		if err := s.validateSSHKeyReference(ctx, item.PrivateKeyRef); err != nil {
+		if err := s.validateSSHKeyReference(ctx, item.PrivateKeyRef, item.ProjectID); err != nil {
 			return deployment.Server{}, cleanup, err
 		}
 		if existing != nil && item.PasswordRef == "" {
@@ -915,7 +915,7 @@ func (s *Server) prepareServerCredential(ctx context.Context, item deployment.Se
 		}
 	}
 	if item.PrivateKeyRef == "" && s.sshKeys != nil && s.deploymentFactory != nil {
-		metadata, _, err := s.sshKeys.CreateGenerated(ctx, "服务器 "+item.Name+" SSH密钥")
+		metadata, _, err := s.sshKeys.CreateGeneratedForProject(ctx, "服务器 "+item.Name+" SSH密钥", item.ProjectID)
 		if err != nil {
 			return deployment.Server{}, cleanup, fmt.Errorf("生成 SSH 密钥失败：%w", err)
 		}

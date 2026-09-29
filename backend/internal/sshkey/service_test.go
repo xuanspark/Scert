@@ -141,3 +141,24 @@ func testEncryptedPrivateKey(t *testing.T, passphrase string) string {
 	}
 	return string(pem.EncodeToMemory(block))
 }
+
+func TestServiceScopesSSHKeyToProject(t *testing.T) {
+	store, err := secretstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("打开敏感信息存储失败：%v", err)
+	}
+	service := NewService(store)
+	created, err := service.CreateForProject(t.Context(), "项目部署私钥", testPrivateKey(t), "", "project-a")
+	if err != nil {
+		t.Fatalf("创建项目 SSH 私钥失败：%v", err)
+	}
+	if created.ProjectID != "project-a" {
+		t.Fatalf("SSH 私钥项目归属错误：%+v", created)
+	}
+	if _, err := service.ValidateReferenceForProject(t.Context(), created.Reference, "project-a"); err != nil {
+		t.Fatalf("同项目 SSH 私钥校验失败：%v", err)
+	}
+	if _, err := service.ValidateReferenceForProject(t.Context(), created.Reference, "project-b"); err == nil {
+		t.Fatal("跨项目 SSH 私钥引用不应通过校验")
+	}
+}
