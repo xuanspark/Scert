@@ -258,3 +258,16 @@ func TestCertificateTerminalPersistenceFailureIsReturnedWithoutReissue(t *testin
 		t.Fatalf("calls=%d error=%v logged=%v", calls, err, logged)
 	}
 }
+
+func TestCertificateTasksRecordPartialDeploymentFailure(t *testing.T) {
+	w, a := newCertificateTaskFixture(t)
+	_, err := w.run(t.Context(), "task-domain", "renewal_run", "certificate_issue", 1, 0, func(context.Context, string) (CertificateWorkflowResult, error) {
+		return CertificateWorkflowResult{
+			Deployment: deployment.Report{Total: 2, Success: 1, Failed: 1, Status: "partial"},
+		}, errors.New("partial deployment")
+	})
+	if err == nil {
+		t.Fatal("partial deployment error should remain visible to the caller")
+	}
+	assertCertificateTask(t, a, "partial_success", "partial_success")
+}

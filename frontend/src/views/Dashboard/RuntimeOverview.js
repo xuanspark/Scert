@@ -53,7 +53,7 @@ export function summarizeRuntime(data, now = Date.now()) {
     autoRenew: domains.filter((item) => item.auto_renew === true).length,
     configuredServers: (data.servers || []).length,
     boundDomains: domains.filter((item) => (data.domainServers?.[item.id] || []).length > 0).length,
-    activeTasks: tasks.filter((item) => item.status === "queued" || item.status === "running").length,
+    activeTasks: tasks.filter((item) => ["queued", "running", "retry_wait", "cancelling"].includes(item.status)).length,
     failedTasks: tasks.filter((item) => item.status === "failed" || item.status === "error").length,
     tasks,
   };

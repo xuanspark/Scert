@@ -51,14 +51,14 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		finished := time.Now().UTC()
-		status, message := certificateTaskOutcome(resultErr)
+		status, message := certificateTaskOutcome(result, resultErr)
 		auditErr := w.audit.CreateAuditLog(finishCtx, repository.AuditLog{
 			TaskID: task.ID,
 			Action: taskType, ResourceType: "domain", ResourceID: id,
 			Status: status, Message: message,
 		})
 		if auditErr != nil {
-			status, message = certificateTaskOutcome(auditErr)
+			status, message = certificateTaskOutcome(result, auditErr)
 			stage = "record"
 		}
 		taskErr := w.tasks.UpdateTask(finishCtx, task.ID, status, stage, message, &started, &finished)
@@ -95,7 +95,7 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		cancel()
 		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		finished := time.Now().UTC()
-		status, message := certificateTaskOutcome(resultErr)
+		status, message := certificateTaskOutcome(result, resultErr)
 		recordErr := w.tasks.FinishAttempt(finishCtx, attempt.ID, status, message, &finished)
 		finishCancel()
 		if recordErr != nil {
@@ -114,14 +114,17 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 	return result, resultErr
 }
 
-func certificateTaskOutcome(err error) (string, string) {
+func certificateTaskOutcome(result CertificateWorkflowResult, err error) (string, string) {
 	if errors.Is(err, context.Canceled) {
-		return "cancelled", "证书工作流已取消"
+		return "cancelled", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u5df2\u53d6\u6d88"
+	}
+	if result.Deployment.Status == "partial" {
+		return "partial_success", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u5df2\u5b8c\u6210\u90e8\u5206\u90e8\u7f72"
 	}
 	if err != nil {
-		return "failed", "证书工作流未完成，请检查受保护的服务日志"
+		return "failed", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u672a\u5b8c\u6210\uff0c\u8bf7\u68c0\u67e5\u53d7\u4fdd\u62a4\u7684\u670d\u52a1\u65e5\u5fd7"
 	}
-	return "success", "证书工作流执行完成"
+	return "success", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u6267\u884c\u5b8c\u6210"
 }
 
 var _ certificate.CertificateIssuer = (*certificateTaskWorkflow)(nil)

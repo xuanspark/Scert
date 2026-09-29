@@ -341,6 +341,8 @@ test("管理续期的任务类型、审计和阶段使用中文", async (t) => {
   assert.equal(state.auditActionLabel("management_renewal"), "管理证书续期");
   assert.equal(state.taskStageLabel("activate"), "激活管理证书");
   assert.equal(state.taskStageLabel("retry_wait"), "等待续期重试");
+  assert.equal(state.taskStatusLabels.partial_success, "\u90e8\u5206\u6210\u529f");
+  assert.equal(state.attemptStatusLabels.retry_wait, "\u7b49\u5f85\u91cd\u8bd5");
 });
 
 test("已保存凭据不变可保存，输入新凭据必须重新验证", async (t) => {
@@ -946,12 +948,12 @@ test("runtimeOverview.handlesEmptyDataThresholdsAndTaskOrdering", () => {
   for (const key of ["total", "valid", "expiring", "expired", "missing", "autoRenew", "configuredServers", "boundDomains", "activeTasks", "failedTasks"]) assert.equal(empty[key], 0);
   for (const value of [0, -1, "invalid"]) assert.equal(summarizeRuntime({ settings: { acme: { renewal_near_expiry_days: value } } }).threshold, 10);
   assert.equal(summarizeRuntime({ settings: { acme: { renewal_near_expiry_days: 30 } } }).threshold, 30);
-  const tasks = ["queued", "running", "failed", "error", "success", "cancelled"].map((status, index) => ({ id: index, status, created_at: `2026-09-25T12:0${index}:00Z` }));
+  const tasks = ["queued", "running", "retry_wait", "cancelling", "failed", "error", "success", "cancelled"].map((status, index) => ({ id: index, status, created_at: `2026-09-25T12:0${index}:00Z` }));
   const original = structuredClone(tasks);
   const result = summarizeRuntime({ tasks });
-  assert.equal(result.activeTasks, 2);
+  assert.equal(result.activeTasks, 4);
   assert.equal(result.failedTasks, 2);
-  assert.deepEqual(result.tasks.map((item) => item.id), [5, 4, 3, 2, 1, 0]);
+  assert.deepEqual(result.tasks.map((item) => item.id), [7, 6, 5, 4, 3, 2, 1, 0]);
   assert.deepEqual(tasks, original);
   assert.equal(runtimeTime(null), runtimeTime("invalid"));
   assert.doesNotMatch(runtimeTime("2026-09-25T12:00:00Z"), /Invalid/);

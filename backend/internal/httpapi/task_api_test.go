@@ -563,3 +563,30 @@ func TestTaskAPIRecordsPartialDeploymentSuccess(t *testing.T) {
 		t.Fatalf("partial audit status: %+v %v", logs, err)
 	}
 }
+
+func TestTaskAPIRecordsPartialDeploymentFailureAsPartialSuccess(t *testing.T) {
+	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{DomainID: id}, deployment.Report{
+			Total: 2, Success: 1, Failed: 1, Status: "partial",
+		}, errors.New("deployment partially failed")
+	})
+	defer closeDB()
+
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusMultiStatus {
+		t.Fatalf("partial failure response: %d %s", response.Code, response.Body.String())
+	}
+	items, err := taskRepo.ListTasks(context.Background(), "domain-1", 10)
+	if err != nil || len(items) != 1 || items[0].Status != "partial_success" {
+		t.Fatalf("partial failure task status: %+v %v", items, err)
+	}
+	attempts, err := taskRepo.ListAttempts(context.Background(), items[0].ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "partial_success" {
+		t.Fatalf("partial failure attempt status: %+v %v", attempts, err)
+	}
+	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "partial_success" {
+		t.Fatalf("partial failure audit status: %+v %v", logs, err)
+	}
+}

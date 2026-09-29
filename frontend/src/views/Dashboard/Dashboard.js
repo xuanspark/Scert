@@ -163,6 +163,9 @@ export function useDashboard() {
     success: "已完成",
     failed: "失败",
     cancelled: "已取消",
+    cancelling: "\u53d6\u6d88\u4e2d",
+    retry_wait: "\u7b49\u5f85\u91cd\u8bd5",
+    partial_success: "\u90e8\u5206\u6210\u529f",
   };
   taskStatusLabels.error = taskStatusLabels.failed;
   const taskTypeLabels = {
@@ -216,6 +219,9 @@ export function useDashboard() {
     success: "已完成",
     failed: "失败",
     cancelled: "已取消",
+    cancelling: "\u53d6\u6d88\u4e2d",
+    retry_wait: "\u7b49\u5f85\u91cd\u8bd5",
+    partial_success: "\u90e8\u5206\u6210\u529f",
   };
   const domainStatusLabels = {
     pending: "等待申请",

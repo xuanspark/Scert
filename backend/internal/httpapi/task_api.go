@@ -148,10 +148,14 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 	status := "success"
 	message := "证书申请和部署完成"
 	cancelled := false
-	partial := issueErr == nil && deploymentReport.Status == "partial"
+	partial := deploymentReport.Status == "partial"
 	if issueErr != nil {
 		status = "failed"
 		message = certificateTaskErrorMessage(issueErr)
+		if partial {
+			status = "partial_success"
+			message = "\u8bc1\u4e66\u5df2\u7b7e\u53d1\uff0c\u4f46\u4ec5\u90e8\u5206\u670d\u52a1\u5668\u90e8\u7f72\u6210\u529f"
+		}
 		if s.logger != nil {
 			s.logger.Error("证书任务执行失败", "task_id", task.ID, "domain_id", task.DomainID, "error", issueErr)
 		}
@@ -181,7 +185,7 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 	task.UpdatedAt = finished
 	if s.audit != nil {
 		auditStatus := status
-		if issueErr != nil && status != "cancelled" {
+		if issueErr != nil && status != "cancelled" && status != "partial_success" {
 			auditStatus = "error"
 		}
 		_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
@@ -198,6 +202,8 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 		responseStatus := http.StatusBadGateway
 		if status == "cancelled" {
 			responseStatus = http.StatusConflict
+		} else if status == "partial_success" {
+			responseStatus = http.StatusMultiStatus
 		} else if errors.Is(issueErr, context.DeadlineExceeded) {
 			responseStatus = http.StatusGatewayTimeout
 		}
