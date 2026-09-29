@@ -730,9 +730,24 @@ func (s *Server) deleteDomain(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (s *Server) authorizeSynchronousCertificateIssue(c *gin.Context) bool {
+	if !s.authorizeVisibleDomainPermissions(c, domain.PermissionCertificateManage, domain.PermissionDeploymentExecute) {
+		return false
+	}
+	resource, err := s.projectResources.GetVisibleDomain(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))
+	if err != nil {
+		s.writeProjectResourceError(c, err)
+		return false
+	}
+	return s.authorizeDNSCredentialUse(c, resource.ResourceScope.Normalize().ProjectID)
+}
+
 func (s *Server) issueDomain(c *gin.Context) {
 	if s.tasks != nil {
 		s.issueDomainAsTask(c)
+		return
+	}
+	if !s.authorizeSynchronousCertificateIssue(c) {
 		return
 	}
 	if s.issueCertificate == nil {
