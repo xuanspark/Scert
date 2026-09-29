@@ -71,6 +71,18 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	trigger := `CREATE TRIGGER reject_project_domain_audit BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit-failure'); END`
+	for _, status := range []string{"retry_wait", "cancelling"} {
+		taskID := "domain-active-task-" + status
+		if err := taskRepo.CreateTask(t.Context(), Task{HistoryScope: HistoryScope{ProjectID: item.ProjectID, ScopeType: ScopeProject}, ID: taskID, DomainID: item.ID, TaskType: "certificate_deploy", Status: status}); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.DeleteProjectDomain(t.Context(), "domain-manager", item.ID); !errors.Is(err, ErrProjectDomainBusy) {
+			t.Fatalf("任务状态 %s 下删除应拒绝：%v", status, err)
+		}
+		if _, err := db.DB.ExecContext(t.Context(), Rebind(cfg.Driver, "UPDATE tasks SET status = 'partial_success' WHERE id = ?"), taskID); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := db.DB.ExecContext(t.Context(), trigger); err != nil {
 		t.Fatal(err)
 	}

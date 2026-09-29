@@ -113,7 +113,7 @@ func (r *SQLProjectMemberRepository) DeleteProjectDomain(ctx context.Context, ac
 	}
 	rows, err := tx.QueryContext(ctx, Rebind(r.driver, `SELECT id FROM tasks
 		WHERE domain_id = ? AND task_type IN ('certificate_issue', 'certificate_validate', 'certificate_deploy', 'certificate_import', 'certificate_restore')
-		AND status IN ('queued', 'running')`+r.resourceWriteLock()), domainID)
+		AND status IN ('queued', 'running', 'retry_wait', 'cancelling')`+r.resourceWriteLock()), domainID)
 	if err != nil {
 		return fmt.Errorf("检查域名任务失败：%w", err)
 	}
