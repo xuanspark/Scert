@@ -304,7 +304,7 @@ func (r *SQLTaskRepository) CancelTask(ctx context.Context, id, message string, 
 		rollback()
 		return errors.New("任务当前无法取消")
 	}
-	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts SET status = 'cancelled', message = ?, finished_at = ? WHERE task_id = ? AND status IN ('queued', 'running')`), message, nullableTime(finishedAt), id); err != nil {
+	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts SET status = 'cancelled', message = ?, finished_at = ? WHERE task_id = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling')`), message, nullableTime(finishedAt), id); err != nil {
 		rollback()
 		return fmt.Errorf("取消任务尝试失败：%w", err)
 	}

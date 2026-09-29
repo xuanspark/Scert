@@ -182,6 +182,39 @@ func TestSQLTaskRepositoryCancelMarksRunningAttempt(t *testing.T) {
 	}
 }
 
+func TestSQLTaskRepositoryCancelMarksAllActiveAttempts(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	activeStatuses := []string{"queued", "running", "retry_wait", "cancelling"}
+	domainIDs := []string{"domain-1", "domain-2", "domain-3", "domain-1"}
+	for index, status := range activeStatuses {
+		taskID := "task-cancel-active-" + status
+		attemptID := "attempt-cancel-active-" + status
+		if err := repository.CreateTask(ctx, Task{
+			ID: taskID, DomainID: domainIDs[index], TaskType: "certificate_issue",
+			Status: status, Stage: "certificate_issue", Message: "\u6b63\u5728\u6267\u884c", CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			t.Fatalf("create %s task: %v", status, err)
+		}
+		if err := repository.CreateAttempt(ctx, TaskAttempt{
+			ID: attemptID, TaskID: taskID, AttemptNumber: 1,
+			Stage: "certificate_issue", Status: status, Message: "\u6b63\u5728\u6267\u884c", StartedAt: &now, CreatedAt: now,
+		}); err != nil {
+			t.Fatalf("create %s attempt: %v", status, err)
+		}
+
+		finished := now.Add(time.Second)
+		if err := repository.CancelTask(ctx, taskID, "\u4efb\u52a1\u5df2\u7531\u7528\u6237\u53d6\u6d88", &finished); err != nil {
+			t.Fatalf("cancel %s task: %v", status, err)
+		}
+		attempts, err := repository.ListAttempts(ctx, taskID)
+		if err != nil || len(attempts) != 1 || attempts[0].Status != "cancelled" || attempts[0].FinishedAt == nil {
+			t.Fatalf("cancel %s attempt state: %+v %v", status, attempts, err)
+		}
+	}
+}
 func TestSQLTaskRepositoryDoesNotOverwriteCancelledTask(t *testing.T) {
 	repository, db := newTaskRepositoryTest(t)
 	defer db.Close()
