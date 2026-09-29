@@ -432,21 +432,14 @@ func validTaskIdempotencyKey(value string) bool {
 	}
 	return true
 }
+
 func isActiveTaskStatus(status string) bool {
-	
-switch status {
-	
-case "queued", "running", "retry_wait", "cancelling":
-	
-	
-return true
-	
-default:
-	
-	
-return false
-	
-}
+	switch status {
+	case "queued", "running", "retry_wait", "cancelling":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) listTasks(c *gin.Context) {

@@ -97,11 +97,30 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
 		if item.DomainID != ManagementResourceID || !item.HistoryScope.matches(HistoryScope{ScopeType: ScopeSystem}) {
 			return errors.New("管理证书任务范围无效")
 		}
-		result, err := r.db.ExecContext(ctx, r.query(insertQuery+`VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'system', '')`), args...)
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("开始管理证书任务事务失败：%w", err)
+		}
+		defer tx.Rollback()
+		var activeTaskID string
+		if err := tx.QueryRowContext(ctx, r.query(`SELECT id FROM tasks
+			WHERE domain_id = ? AND task_type = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling')
+			ORDER BY created_at DESC LIMIT 1`), item.DomainID, item.TaskType).Scan(&activeTaskID); err == nil {
+			return fmt.Errorf("%w：%s", ErrTaskAlreadyRunning, activeTaskID)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("检查管理证书活动任务失败：%w", err)
+		}
+		result, err := tx.ExecContext(ctx, r.query(insertQuery+`VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'system', '')`), args...)
 		if err != nil {
 			return fmt.Errorf("创建任务失败：%w", err)
 		}
-		return validateTaskInsertResult(result)
+		if err := validateTaskInsertResult(result); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("提交管理证书任务事务失败：%w", err)
+		}
+		return nil
 	}
 	if item.DomainID == ManagementResourceID || (item.ScopeType != "" && item.ScopeType != ScopeProject) {
 		return errors.New("业务任务必须归属于实际域名项目")
@@ -345,7 +364,11 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 	}
 	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts
 		SET status = 'failed', message = ?, finished_at = ?
-		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')`), recoveryMessage, finishedAt); err != nil {
+		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')
+		AND task_id IN (
+			SELECT id FROM tasks
+			WHERE status = 'failed' AND stage = 'service_restart' AND finished_at = ?
+		)`), recoveryMessage, finishedAt, finishedAt); err != nil {
 		rollback()
 		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5c1d\u8bd5\u5931\u8d25\uff1a%w", err)
 	}

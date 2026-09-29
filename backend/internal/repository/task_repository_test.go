@@ -122,6 +122,28 @@ func TestSQLTaskRepositoryRejectsConcurrentActiveTaskOfSameType(t *testing.T) {
 	}
 }
 
+func TestSQLTaskRepositoryRejectsConcurrentManagementRenewal(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	if err := repository.CreateTask(ctx, Task{
+		ID: "management-renewal-active", DomainID: ManagementResourceID, TaskType: "management_renewal",
+		Status: "running", Stage: "certificate_issue",
+	}); err != nil {
+		t.Fatalf("创建管理证书活动任务失败：%v", err)
+	}
+	err := repository.CreateTask(ctx, Task{
+		ID: "management-renewal-duplicate", DomainID: ManagementResourceID, TaskType: "management_renewal",
+		Status: "queued", Stage: "queued",
+	})
+	if !errors.Is(err, ErrTaskAlreadyRunning) {
+		t.Fatalf("管理证书活动任务应被拒绝：%v", err)
+	}
+	if _, err := repository.GetTask(ctx, "management-renewal-duplicate"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("拒绝管理证书并发任务后不应留下重复任务：%v", err)
+	}
+}
+
 func TestSQLTaskRepositoryCancelMarksRunningAttempt(t *testing.T) {
 	repository, db := newTaskRepositoryTest(t)
 	defer db.Close()
@@ -208,6 +230,11 @@ func TestSQLTaskRepositoryRecoversInterruptedTasksAndAttempts(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("\u521b\u5efa\u5df2\u5b8c\u6210\u6d4b\u8bd5\u5c1d\u8bd5\u5931\u8d25\uff1a%v", err)
 	}
+	if err := repository.CreateAttempt(ctx, TaskAttempt{
+		ID: "attempt-success-stale", TaskID: "task-success", AttemptNumber: 2, Stage: "certificate_issue", Status: "running", Message: "\u5386\u53f2\u5c1d\u8bd5", CreatedAt: created,
+	}); err != nil {
+		t.Fatalf("\u521b\u5efa\u5386\u53f2\u6d3b\u52a8\u5c1d\u8bd5\u5931\u8d25\uff1a%v", err)
+	}
 	finished := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
 	count, err := repository.RecoverInterruptedTasks(ctx, finished)
 	if err != nil || count != 2 {
@@ -228,7 +255,7 @@ func TestSQLTaskRepositoryRecoversInterruptedTasksAndAttempts(t *testing.T) {
 		t.Fatalf("\u8fd0\u884c\u4e2d\u4efb\u52a1\u5c1d\u8bd5\u6062\u590d\u7ed3\u679c\u9519\u8bef\uff1a%+v %v", attempts, err)
 	}
 	completedAttempts, err := repository.ListAttempts(ctx, "task-success")
-	if err != nil || len(completedAttempts) != 1 || completedAttempts[0].Status != "success" {
+	if err != nil || len(completedAttempts) != 2 || completedAttempts[0].Status != "success" || completedAttempts[1].Status != "running" {
 		t.Fatalf("\u5df2\u5b8c\u6210\u4efb\u52a1\u5c1d\u8bd5\u4e0d\u5e94\u88ab\u6062\u590d\u903b\u8f91\u4fee\u6539\uff1a%+v %v", completedAttempts, err)
 	}
 	var auditCount int

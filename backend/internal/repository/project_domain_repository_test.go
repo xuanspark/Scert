@@ -105,7 +105,7 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	activeStatuses := []string{"queued", "running", "retry_wait", "cancelling"}
-	taskTypes := []string{"certificate_issue", "certificate_validate", "certificate_deploy", "certificate_import", "certificate_restore"}
+	taskTypes := []string{"certificate_issue", "certificate_validate", "certificate_deploy", "certificate_import", "certificate_restore", "renewal_run"}
 	for _, taskType := range taskTypes {
 		for _, status := range activeStatuses {
 			taskID := "domain-matrix-task-" + taskType + "-" + status

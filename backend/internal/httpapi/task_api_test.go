@@ -394,6 +394,33 @@ func TestTaskAPIReplaysIdempotentIssue(t *testing.T) {
 	}
 }
 
+func TestTaskAPIRejectsIdempotentIssueForAllActiveStatuses(t *testing.T) {
+	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		t.Fatal("活动幂等任务不应重复执行证书申请")
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer closeDB()
+
+	for _, status := range []string{"retry_wait", "cancelling"} {
+		key := "issue-active-" + status
+		task := repository.Task{
+			HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+			ID:           "task-active-" + status, DomainID: "domain-1", TaskType: "certificate_issue",
+			Status: status, Stage: "certificate_issue", IdempotencyKey: key,
+		}
+		if err := taskRepo.CreateTask(t.Context(), task); err != nil {
+			t.Fatalf("创建%s幂等任务失败：%v", status, err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil)
+		request.Header.Set("Idempotency-Key", key)
+		response := httptest.NewRecorder()
+		serveAdminHTTP(server, response, request)
+		if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), task.ID) {
+			t.Fatalf("%s幂等任务应返回冲突：%d %s", status, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestTaskAPIReturnsNotImplementedWhenTaskDependenciesAreMissing(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	server := New(Dependencies{
