@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,6 +76,37 @@ func TestDNSCredentialUseRejectsUnauthorizedProject(t *testing.T) {
 	}
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("无 DNS 凭据使用权限应返回 403，实际为 %d", recorder.Code)
+	}
+}
+
+func TestSettingsDNSProjectAssignmentRequiresDNSManagePermission(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default(dir)
+	cfg.SetupReady = true
+	cfg.DNS.VerificationState = "verified"
+	cfg.Web.Hostname = "scert.example.test"
+	cfg.Admin.Username = "admin"
+	cfg.Admin.Email = "admin@example.test"
+	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
+	configPath := filepath.Join(dir, "config", "scert.json")
+	if err := cfg.Save(configPath); err != nil {
+		t.Fatalf("保存测试配置失败：%v", err)
+	}
+	server := New(Dependencies{
+		Config: cfg, ConfigPath: configPath,
+		ProjectDomains: projectDomainRepositoryStub{authorizeErr: repository.ErrProjectAccessDenied},
+	})
+	cookie := loginForSettingsTest(t, server)
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"dns":{"project_id":"project-a"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("无 DNS 管理权限修改项目归属应返回 403，实际为 %d：%s", response.Code, response.Body.String())
+	}
+	if server.config.DNS.ProjectID != "default" {
+		t.Fatalf("拒绝修改后 DNS 项目归属不应变化：%q", server.config.DNS.ProjectID)
 	}
 }
 

@@ -6,6 +6,11 @@ export function dnsVerificationLabel(item) {
   return item.verification_state === "verified" ? "已验证" : "待验证";
 }
 
+export function dnsProjectLabel(item) {
+  const projectID = typeof item?.project_id === "string" ? item.project_id.trim() : "";
+  return projectID === "" || projectID === "default" ? "默认项目" : projectID;
+}
+
 export function useDNSAccounts() {
   const accounts = ref([]);
   const loading = ref(false);

@@ -1,6 +1,6 @@
 <script setup>
 import { watch } from "vue";
-import { dnsVerificationLabel, useDNSAccounts } from "./DNSAccounts.js";
+import { dnsProjectLabel, dnsVerificationLabel, useDNSAccounts } from "./DNSAccounts.js";
 
 const props = defineProps({ refreshKey: { type: Object, default: null } });
 const {
@@ -33,6 +33,7 @@ watch(() => props.refreshKey, loadAccounts);
             <tr>
               <th scope="col">账户名称</th>
               <th scope="col">DNS 服务商</th>
+              <th scope="col">项目归属</th>
               <th scope="col" title="仅展示脱敏后的公开账号标识，不展示密钥或令牌">账号标识</th>
               <th scope="col" title="归属来自已保存的用户记录；历史配置未记录归属时显示未分配">归属用户</th>
               <th scope="col" title="已验证表示保存配置时通过验证，不代表此刻云端权限仍然有效">验证状态</th>
@@ -42,6 +43,7 @@ watch(() => props.refreshKey, loadAccounts);
             <tr v-for="account in visibleAccounts" :key="account.id">
               <td>{{ account.name }}</td>
               <td>{{ account.provider_name }}</td>
+              <td>{{ dnsProjectLabel(account) }}</td>
               <td class="dns-identifier">{{ account.account_identifier }}</td>
               <td :class="{ 'dns-muted': account.owner_state !== 'assigned' }">{{ account.owner_username }}</td>
               <td>
