@@ -21,11 +21,14 @@ type ProjectTaskReader interface {
 
 var _ ProjectTaskReader = (*SQLTaskRepository)(nil)
 
-func taskVisibilityPredicate(alias string) (string, []any) {
-	roles := []domain.ProjectRole{
-		domain.ProjectRoleAdmin,
-		domain.ProjectRoleAuditViewer,
-		domain.ProjectRoleReadOnly,
+func taskVisibilityPredicate(alias string, permission domain.ProjectPermission) (string, []any) {
+	roles := []domain.ProjectRole{domain.ProjectRoleAdmin}
+	if permission == domain.PermissionTaskRead {
+		roles = []domain.ProjectRole{
+			domain.ProjectRoleAdmin,
+			domain.ProjectRoleAuditViewer,
+			domain.ProjectRoleReadOnly,
+		}
 	}
 	placeholders := make([]string, 0, len(roles))
 	args := []any{""}
@@ -55,7 +58,7 @@ func (r *SQLTaskRepository) ListVisibleTasks(ctx context.Context, actorID, domai
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	predicate, args := taskVisibilityPredicate("tasks")
+	predicate, args := taskVisibilityPredicate("tasks", domain.PermissionTaskRead)
 	args[0] = strings.TrimSpace(actorID)
 	query := taskSelect + ` WHERE ` + predicate
 	if domainID = strings.TrimSpace(domainID); domainID != "" {
@@ -86,7 +89,7 @@ func (r *SQLTaskRepository) GetVisibleTask(ctx context.Context, actorID, taskID 
 	if r == nil || r.db == nil {
 		return Task{}, errors.New("数据库连接不能为空")
 	}
-	predicate, args := taskVisibilityPredicate("tasks")
+	predicate, args := taskVisibilityPredicate("tasks", domain.PermissionTaskRead)
 	args[0] = strings.TrimSpace(actorID)
 	args = append(args, strings.TrimSpace(taskID))
 	return scanTask(r.db.QueryRowContext(ctx, r.query(taskSelect+` WHERE `+predicate+` AND tasks.id = ?`), args...))
@@ -96,7 +99,7 @@ func (r *SQLTaskRepository) ListVisibleTaskAttempts(ctx context.Context, actorID
 	if r == nil || r.db == nil {
 		return nil, errors.New("数据库连接不能为空")
 	}
-	predicate, args := taskVisibilityPredicate("tasks")
+	predicate, args := taskVisibilityPredicate("tasks", domain.PermissionTaskRead)
 	args[0] = strings.TrimSpace(actorID)
 	args = append(args, strings.TrimSpace(taskID))
 	rows, err := r.db.QueryContext(ctx, r.query(`SELECT attempts.id, attempts.task_id, attempts.attempt_number,
@@ -131,7 +134,7 @@ func (r *SQLTaskRepository) CancelVisibleTask(ctx context.Context, actorID, task
 		return fmt.Errorf("开始取消任务事务失败：%w", err)
 	}
 	rollback := func() { _ = tx.Rollback() }
-	predicate, predicateArgs := taskVisibilityPredicate("tasks")
+	predicate, predicateArgs := taskVisibilityPredicate("tasks", domain.PermissionTaskCancel)
 	predicateArgs[0] = strings.TrimSpace(actorID)
 	args := []any{message, nullableTime(finishedAt), time.Now().UTC(), strings.TrimSpace(taskID)}
 	args = append(args, predicateArgs...)

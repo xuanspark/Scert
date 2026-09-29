@@ -20,8 +20,12 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
 		return
 	}
-	if s.tasks == nil || s.projectResources == nil || s.projectMembers == nil {
-		s.writeError(c, http.StatusServiceUnavailable, "证书任务权限服务尚未就绪", errors.New("任务、项目资源或项目权限服务未配置"))
+	if s.tasks == nil {
+		s.writeError(c, http.StatusNotImplemented, "证书任务接口尚未配置", errors.New("任务仓储未配置"))
+		return
+	}
+	if s.projectResources == nil || s.projectMembers == nil {
+		s.writeError(c, http.StatusServiceUnavailable, "证书任务权限服务尚未就绪", errors.New("项目资源或项目权限服务未配置"))
 		return
 	}
 	domainID := strings.TrimSpace(c.Param("id"))

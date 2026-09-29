@@ -213,6 +213,11 @@ func (s *Server) registerRoutes() {
 	domainAPI.PUT("/domains/:id", s.dnsOperation, s.updateDomain)
 	domainAPI.DELETE("/domains/:id", s.deleteDomain)
 	domainAPI.POST("/domains/:id/issue", s.longOperation(certificateTaskTimeout), s.issueDomain)
+	api := s.router.Group("/api/v1", privateProjectResponse, s.requireAuthenticated)
+	api.GET("/tasks", s.listTasks)
+	api.GET("/tasks/:id", s.getTask)
+	api.DELETE("/tasks/:id", s.cancelTask)
+	api.GET("/tasks/:id/attempts", s.listTaskAttempts)
 
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.updateSettings)
