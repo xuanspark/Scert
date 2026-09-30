@@ -371,6 +371,50 @@ chmod 600 "$HOME/.ssh/authorized_keys"
 decoded="$(printf '%%s' '%s' | base64 -d)"
 if ! grep -Fqx -- "$decoded" "$HOME/.ssh/authorized_keys"; then
 	printf '%%s\n' "$decoded" >> "$HOME/.ssh/authorized_keys"
+fi
+
+if [ "$(id -u)" -eq 0 ] && command -v sshd >/dev/null 2>&1; then
+	sshd_config_dir="/etc/ssh/sshd_config.d"
+	sshd_dropin="$sshd_config_dir/99-scert-pubkey.conf"
+	install -d -m 755 "$sshd_config_dir"
+	had_existing=0
+	old_config=""
+	if [ -f "$sshd_dropin" ]; then
+		had_existing=1
+		old_config="$(cat "$sshd_dropin")"
+	fi
+	temp_config="$(mktemp "$sshd_config_dir/.scert-pubkey.XXXXXX")"
+	restore_sshd_config() {
+		if [ "$had_existing" -eq 1 ]; then
+			printf '%%s\n' "$old_config" > "$sshd_dropin"
+			chmod 644 "$sshd_dropin"
+		else
+			rm -f "$sshd_dropin"
+		fi
+	}
+	printf '%%s\n' 'PubkeyAuthentication yes' 'AuthorizedKeysFile .ssh/authorized_keys' > "$temp_config"
+	chmod 644 "$temp_config"
+	mv -f "$temp_config" "$sshd_dropin"
+	if ! sshd -t; then
+		restore_sshd_config
+		exit 1
+	fi
+	if command -v systemctl >/dev/null 2>&1; then
+		if ! systemctl reload ssh 2>/dev/null && ! systemctl reload sshd 2>/dev/null; then
+			restore_sshd_config
+			! systemctl reload ssh 2>/dev/null && ! systemctl reload sshd 2>/dev/null
+			exit 1
+		fi
+	elif command -v service >/dev/null 2>&1; then
+		if ! service ssh reload 2>/dev/null && ! service sshd reload 2>/dev/null; then
+			restore_sshd_config
+			! service ssh reload 2>/dev/null && ! service sshd reload 2>/dev/null
+			exit 1
+		fi
+	else
+		restore_sshd_config
+		exit 1
+	fi
 fi`, encoded)
 }
 func (c *sshClientAdapter) Run(ctx context.Context, command []string) (CommandResult, error) {

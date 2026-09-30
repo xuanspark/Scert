@@ -86,3 +86,16 @@ func TestAuthorizedKeyInstallScriptUsesRealNewline(t *testing.T) {
 		t.Fatalf("authorized key script still writes a literal backslash-n: %s", script)
 	}
 }
+func TestAuthorizedKeyInstallScriptEnablesRootPublicKeyAuthentication(t *testing.T) {
+	script := authorizedKeyInstallScript("encoded-public-key")
+	for _, required := range []string{
+		"PubkeyAuthentication yes",
+		"AuthorizedKeysFile .ssh/authorized_keys",
+		"sshd -t",
+		"systemctl reload ssh",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("authorized key script is missing %q: %s", required, script)
+		}
+	}
+}
