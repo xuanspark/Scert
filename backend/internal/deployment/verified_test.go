@@ -6,9 +6,67 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
+type lateCancellationContext struct {
+	context.Context
+	errCalls atomic.Int32
+}
+
+func (c *lateCancellationContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (c *lateCancellationContext) Err() error {
+	if c.errCalls.Add(1) > 2 {
+		return context.Canceled
+	}
+	return nil
+}
+
+type contextCheckingTransactionJournal struct {
+	memoryTransactionJournal
+	commitContextOK bool
+}
+
+func (j *contextCheckingTransactionJournal) UpdateDeploymentTransaction(ctx context.Context, item TransactionRecord) error {
+	if item.Phase == "committing" {
+		j.commitContextOK = ctx.Err() == nil
+	}
+	return j.memoryTransactionJournal.UpdateDeploymentTransaction(ctx, item)
+}
+
+func TestVerifiedDeploymentCommitUsesIndependentContextAfterCancellationRace(t *testing.T) {
+	client, server := newMemoryClient(), testServer("commit-context")
+	seedVerifiedFiles(client, server)
+	journal := &contextCheckingTransactionJournal{}
+	parent := &lateCancellationContext{Context: t.Context()}
+	ctx := WithTransactionContext(parent, TransactionContext{
+		TaskID: "task", AttemptID: "attempt", AttemptNumber: 1,
+	})
+	artifact := testArtifact(t)
+	service := NewServiceWithJournal(fixedClientFactory{client}, journal)
+	report, err := service.DeployVerified(ctx, []Target{{Server: server}}, artifact, Verification{
+		Verify: func(context.Context) error { return nil },
+	})
+	if err != nil || report.Status != "success" || !journal.commitContextOK {
+		t.Fatalf("unexpected deployment result: %+v, %v", report, err)
+	}
+	if parent.Err() != context.Canceled {
+		t.Fatal("parent context was not cancelled after verification")
+	}
+	if len(journal.finished) != 1 || journal.finished[0].status != TransactionStatusCommitted {
+		t.Fatalf("unexpected journal completion: %+v", journal.finished)
+	}
+	assertVerifiedLocks(t, client, server, false)
+	for path := range client.files {
+		if strings.Contains(path, ".scert-backup-") || strings.Contains(path, ".scert-tmp-") {
+			t.Fatalf("transaction artifact remains: %s", path)
+		}
+	}
+}
 func seedVerifiedFiles(client *memoryClient, server Server) map[string]memoryFile {
 	files := map[string]memoryFile{
 		server.CertificatePath:      {data: []byte("原证书"), mode: 0o644},

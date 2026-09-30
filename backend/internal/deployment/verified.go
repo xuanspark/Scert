@@ -65,8 +65,10 @@ func (s *Service) DeployVerified(ctx context.Context, targets []Target, artifact
 		report.Status = "failed"
 		return report, deployErr
 	}
+	commitContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), deploymentRollbackTimeout)
+	defer cancel()
 	for _, transaction := range pending {
-		result := transaction.commit(ctx)
+		result := transaction.commit(commitContext)
 		report.Results[transaction.index] = transaction.finish(result.Status != "success")
 	}
 	summarizeReport(&report)

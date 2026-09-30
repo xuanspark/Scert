@@ -231,13 +231,13 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return result
 		}
 	}
-	persistTransaction := func(phase string) error {
+	persistTransaction := func(persistContext context.Context, phase string) error {
 		if !transactionEnabled {
 			return nil
 		}
 		journalRecord.Phase = phase
 		journalRecord.UpdatedAt = s.now().UTC()
-		return s.journal.UpdateDeploymentTransaction(ctx, *journalRecord)
+		return s.journal.UpdateDeploymentTransaction(persistContext, *journalRecord)
 	}
 	finishTransaction := func(status, message string) {
 		if !transactionEnabled {
@@ -329,7 +329,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return failed(fmt.Sprintf("上传远程证书失败：%v", err))
 		}
 	}
-	if err := persistTransaction(TransactionPhaseUploaded); err != nil {
+	if err := persistTransaction(ctx, TransactionPhaseUploaded); err != nil {
 		return failed(fmt.Sprintf("保存上传阶段失败：%v", err))
 	}
 	// 所有文件上传完成后才触碰当前版本，避免上传失败造成不必要的证书替换。
@@ -345,7 +345,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		}
 		if transactionEnabled {
 			journalRecord.Backups = append(journalRecord.Backups, TransactionBackup{Original: file.path, Saved: backupPath, OriginalExists: exists})
-			if err := persistTransaction(TransactionPhaseReplacing); err != nil {
+			if err := persistTransaction(ctx, TransactionPhaseReplacing); err != nil {
 				return failed(fmt.Sprintf("保存替换阶段失败：%v", err))
 			}
 		}
@@ -354,7 +354,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			if err := client.Rename(ctx, file.path, backupPath); err != nil {
 				return failed(fmt.Sprintf("备份远程证书失败：%v", err))
 			}
-			if err := persistTransaction(TransactionPhaseReplacing); err != nil {
+			if err := persistTransaction(ctx, TransactionPhaseReplacing); err != nil {
 				return failed(fmt.Sprintf("保存备份阶段失败：%v", err))
 			}
 		}
@@ -362,19 +362,19 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		installed = append(installed, file.path)
 		if transactionEnabled {
 			journalRecord.InstalledPaths = append(journalRecord.InstalledPaths, file.path)
-			if err := persistTransaction(TransactionPhaseReplacing); err != nil {
+			if err := persistTransaction(ctx, TransactionPhaseReplacing); err != nil {
 				return failed(fmt.Sprintf("保存安装阶段失败：%v", err))
 			}
 		}
 		if err := client.Rename(ctx, temporaryPath, file.path); err != nil {
 			return failed(fmt.Sprintf("替换远程证书失败：%v", err))
 		}
-		if err := persistTransaction(TransactionPhaseInstalled); err != nil {
+		if err := persistTransaction(ctx, TransactionPhaseInstalled); err != nil {
 			return failed(fmt.Sprintf("保存已安装阶段失败：%v", err))
 		}
 	}
 	result.FailureCode = FailureValidation
-	if err := persistTransaction(TransactionPhaseInstalled); err != nil {
+	if err := persistTransaction(ctx, TransactionPhaseInstalled); err != nil {
 		return failed(fmt.Sprintf("保存校验前阶段失败：%v", err))
 	}
 	validationResult, err := client.Run(ctx, server.ValidationCommand)
@@ -387,7 +387,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	reloadAttempted = true
 	if transactionEnabled {
 		journalRecord.ReloadAttempted = true
-		if err := persistTransaction(TransactionPhaseReloadAttempted); err != nil {
+		if err := persistTransaction(ctx, TransactionPhaseReloadAttempted); err != nil {
 			return failed(fmt.Sprintf("保存重载前阶段失败：%v", err))
 		}
 	}
@@ -429,7 +429,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return result
 		}
 		transaction.commit = func(commitContext context.Context) Result {
-			if err := persistTransaction("committing"); err != nil {
+			if err := persistTransaction(commitContext, "committing"); err != nil {
 				result.Status = "failed"
 				result.FailureCode = FailureCleanup
 				result.Message = fmt.Sprintf("保存提交阶段失败：%v", err)
