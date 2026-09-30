@@ -97,6 +97,21 @@ func (d *workflowDeployer) DeploySaved(_ context.Context, targets []deployment.T
 	return d.report, nil
 }
 
+// 工作流替身只模拟推送和校验，不伪造远端事务恢复；恢复边界由部署包实测。
+func (d *workflowDeployer) DeploySavedVerified(ctx context.Context, targets []deployment.Target, files deployment.SavedFiles, verification deployment.Verification) (deployment.Report, error) {
+	report, err := d.DeploySaved(ctx, targets, files)
+	if err != nil || report.Status != "success" {
+		return report, err
+	}
+	report.VerificationStatus = "failed"
+	if err := verification.Verify(ctx); err != nil {
+		report.Status = "failed"
+		return report, err
+	}
+	report.VerificationStatus = "success"
+	return report, nil
+}
+
 func TestCertificateWorkflowDeploysIssuedCertificateToAssociatedServers(t *testing.T) {
 	certificateService := &workflowCertificateService{result: certificate.IssueResult{
 		DomainID: "domain-1",
@@ -223,7 +238,7 @@ func TestCertificateWorkflowRetriesRemoteVerificationUntilSuccess(t *testing.T) 
 			if endpoint != "https://example.com" || len(expectedDomains) != 1 || expectedDomains[0] != "example.com" {
 				t.Fatalf("HTTPS 校验参数错误：%s %+v", endpoint, expectedDomains)
 			}
-			if verificationCalls < 3 {
+			if verificationCalls < 4 {
 				return certificate.ValidationResult{}, errors.New("仍返回旧证书")
 			}
 			return certificate.ValidationResult{FingerprintSHA256: saved.FingerprintSHA256}, nil
@@ -233,7 +248,7 @@ func TestCertificateWorkflowRetriesRemoteVerificationUntilSuccess(t *testing.T) 
 	if _, err := workflow.IssueWithReport(context.Background(), "domain-1"); err != nil {
 		t.Fatalf("HTTPS 校验重试后应成功：%v", err)
 	}
-	if verificationCalls != 3 || waitCalls != 2 {
+	if verificationCalls != 4 || waitCalls != 2 {
 		t.Fatalf("HTTPS 校验重试次数错误：校验 %d 次，等待 %d 次", verificationCalls, waitCalls)
 	}
 }
@@ -264,7 +279,7 @@ func TestCertificateWorkflowRemoteVerificationStopsAfterConfiguredAttempts(t *te
 	if err == nil || !strings.Contains(err.Error(), "重试 3 次后仍未通过") {
 		t.Fatalf("永久校验错误应在有限重试后返回：%v", err)
 	}
-	if verificationCalls != 3 || waitCalls != 2 {
+	if verificationCalls != 4 || waitCalls != 2 {
 		t.Fatalf("永久错误的重试次数错误：校验 %d 次，等待 %d 次", verificationCalls, waitCalls)
 	}
 }
@@ -284,6 +299,9 @@ func TestCertificateWorkflowRemoteVerificationWaitHonorsContextCancellation(t *t
 		RemoteVerificationInterval: time.Minute,
 		RemoteVerifier: func(context.Context, string, []string) (certificate.ValidationResult, error) {
 			verificationCalls++
+			if verificationCalls == 1 {
+				return certificate.ValidationResult{FingerprintSHA256: saved.FingerprintSHA256}, nil
+			}
 			cancel()
 			return certificate.ValidationResult{}, errors.New("等待新证书")
 		},
@@ -293,7 +311,7 @@ func TestCertificateWorkflowRemoteVerificationWaitHonorsContextCancellation(t *t
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("取消上下文后应立即终止 HTTPS 校验重试：%v", err)
 	}
-	if verificationCalls != 1 {
+	if verificationCalls != 2 {
 		t.Fatalf("取消后不应继续校验，实际调用 %d 次", verificationCalls)
 	}
 }

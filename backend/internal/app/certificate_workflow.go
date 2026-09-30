@@ -43,6 +43,7 @@ type serverLister interface {
 
 type savedDeployer interface {
 	DeploySaved(context.Context, []deployment.Target, deployment.SavedFiles) (deployment.Report, error)
+	DeploySavedVerified(context.Context, []deployment.Target, deployment.SavedFiles, deployment.Verification) (deployment.Report, error)
 }
 
 type domainDeploymentRepository interface {
@@ -253,30 +254,40 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 		}
 		expectedFingerprint = validation.FingerprintSHA256
 	}
-	report, err := w.Deployment.DeploySaved(ctx, targets, deployment.SavedFiles{
+	saved := deployment.SavedFiles{
 		CertificatePath: result.Saved.CertificatePath,
 		FullChainPath:   result.Saved.FullChainPath,
 		PrivateKeyPath:  result.Saved.PrivateKeyPath,
-	})
+	}
+	if w.RemoteVerifier != nil {
+		verificationDomain := verificationName(domainItem, result.Domains)
+		if verificationDomain == "" {
+			return deployment.Report{Status: "failed"}, errors.New("无法确定部署后的 HTTPS 校验域名，未执行推送")
+		}
+		endpoint := "https://" + verificationDomain
+		// 首次部署允许不存在旧站点，但不得在缺少可信基线时宣称运行态已恢复。
+		baseline, baselineErr := w.RemoteVerifier(ctx, endpoint, result.Domains)
+		if err := ctx.Err(); err != nil {
+			return deployment.Report{Status: "failed"}, err
+		}
+		verification := deployment.Verification{
+			Verify: func(verificationContext context.Context) error {
+				return w.verifyRemoteDeployment(verificationContext, endpoint, result.Domains, expectedFingerprint)
+			},
+		}
+		if baselineErr == nil && baseline.FingerprintSHA256 != "" {
+			verification.VerifyRecovery = func(recoveryContext context.Context) error {
+				return w.verifyRemoteDeployment(recoveryContext, endpoint, result.Domains, baseline.FingerprintSHA256)
+			}
+		}
+		return w.Deployment.DeploySavedVerified(ctx, targets, saved, verification)
+	}
+	report, err := w.Deployment.DeploySaved(ctx, targets, saved)
 	if err != nil {
 		return report, err
 	}
 	if report.Status != "success" {
 		return report, fmt.Errorf("证书部署未全部成功：成功 %d 台，失败 %d 台", report.Success, report.Failed)
-	}
-	if w.RemoteVerifier != nil {
-		verificationDomain := verificationName(domainItem, result.Domains)
-		// 单台结果保留真实文件推送结果，站点生效校验单独记录，不能宣称已回滚。
-		report.VerificationStatus = "failed"
-		report.Status = "failed"
-		if verificationDomain == "" {
-			return report, errors.New("无法确定部署后的 HTTPS 校验域名")
-		}
-		if err := w.verifyRemoteDeployment(ctx, "https://"+verificationDomain, result.Domains, expectedFingerprint); err != nil {
-			return report, fmt.Errorf("部署后 HTTPS 校验失败：%w", err)
-		}
-		report.VerificationStatus = "success"
-		report.Status = "success"
 	}
 	return report, nil
 }

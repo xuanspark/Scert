@@ -26,6 +26,11 @@ func (d forbiddenDeployer) DeploySaved(context.Context, []deployment.Target, dep
 	return deployment.Report{}, nil
 }
 
+func (d forbiddenDeployer) DeploySavedVerified(context.Context, []deployment.Target, deployment.SavedFiles, deployment.Verification) (deployment.Report, error) {
+	d.t.Fatal("权限检查失败后不得发起事务部署")
+	return deployment.Report{}, nil
+}
+
 func TestWorkflowDoesNotDeployAfterDNSPermissionDenied(t *testing.T) {
 	workflow := &CertificateWorkflow{
 		Certificates: &deniedWorkflowCertificateService{},

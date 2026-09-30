@@ -63,6 +63,19 @@ test("手动部署展示真实返回结果并阻止执行期间重复提交", as
   assert.equal(state.notice.value, "证书部署完成：1 台成功");
 });
 
+test("失败部署区分已恢复旧站点与恢复未确认，不再统一显示未自动回滚", () => {
+  const failed = { ...report, status: "failed", success: 0, failed: 1, verification_status: "failed" };
+  const restored = deploymentSummary({ ...failed, recovery_status: "success" });
+  assert.match(restored, /本次部署失败/);
+  assert.match(restored, /站点已恢复部署前证书/);
+  assert.doesNotMatch(restored, /未自动回滚|部署完成/);
+  for (const recovery_status of ["failed", "unconfirmed"]) {
+    const message = deploymentSummary({ ...failed, recovery_status });
+    assert.match(message, /勿直接重试/);
+    assert.doesNotMatch(message, /站点已恢复部署前证书|部署完成/);
+  }
+});
+
 test("部署失败仍保留各服务器结果，网络失败不会残留执行中状态", async (t) => {
   let failNetwork = false;
   const failed = { ...report, status: "failed", success: 0, failed: 1, results: [{ ...report.results[0], status: "failed" }] };

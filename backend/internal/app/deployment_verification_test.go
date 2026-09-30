@@ -199,14 +199,14 @@ func TestDeploymentVerificationRetriesRealValidOldCertificate(t *testing.T) {
 		RemoteVerifier: func(ctx context.Context, _ string, domains []string) (certificate.ValidationResult, error) {
 			calls++
 			endpoint := oldServer.URL
-			if calls > 1 {
+			if calls > 2 {
 				endpoint = newServer.URL
 			}
 			return validator.ValidateHTTPS(ctx, endpoint, domains)
 		},
 	}
 	report, err := workflow.deploy(t.Context(), certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}, Saved: newSaved})
-	if err != nil || report.VerificationStatus != "success" || calls != 2 || waits != 1 {
+	if err != nil || report.VerificationStatus != "success" || calls != 3 || waits != 1 {
 		t.Fatalf("有效旧证书必须重试，只有实际新证书才能通过：%+v，调用 %d，等待 %d，%v", report, calls, waits, err)
 	}
 }
@@ -215,11 +215,15 @@ func TestDeploymentVerificationCancellationCannotBecomeSuccess(t *testing.T) {
 	saved := workflowSavedCertificate(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	calls := 0
 	workflow := &CertificateWorkflow{
 		Domains: &workflowDomainState{}, Servers: workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
 		Deployment: &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}},
 		RemoteVerifier: func(context.Context, string, []string) (certificate.ValidationResult, error) {
-			cancel()
+			calls++
+			if calls > 1 {
+				cancel()
+			}
 			return certificate.ValidationResult{FingerprintSHA256: saved.FingerprintSHA256}, nil
 		},
 	}

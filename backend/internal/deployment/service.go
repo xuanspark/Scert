@@ -47,6 +47,7 @@ type Report struct {
 	Results []Result `json:"results"`
 	// 站点校验与各服务器文件推送分开记录，不表示所有服务器均完成独立 HTTPS 验证。
 	VerificationStatus string `json:"verification_status,omitempty"`
+	RecoveryStatus     string `json:"recovery_status,omitempty"`
 }
 
 type Service struct {
@@ -59,6 +60,10 @@ func NewService(factory ClientFactory) *Service {
 }
 
 func (s *Service) Deploy(ctx context.Context, targets []Target, artifact Artifact) Report {
+	return s.deploy(ctx, targets, artifact, nil)
+}
+
+func (s *Service) deploy(ctx context.Context, targets []Target, artifact Artifact, pending *[]*pendingDeployment) Report {
 	report := Report{Total: len(targets), Results: make([]Result, 0, len(targets))}
 	if len(targets) == 0 {
 		report.Status = "failed"
@@ -80,8 +85,8 @@ func (s *Service) Deploy(ctx context.Context, targets []Target, artifact Artifac
 		}
 		return report
 	}
-	for _, target := range targets {
-		result := s.deployOne(ctx, target.Server, artifact)
+	for index, target := range targets {
+		result := s.deployOne(ctx, target.Server, artifact, pending, index)
 		report.Results = append(report.Results, result)
 		if result.Status == "success" {
 			report.Success++
@@ -101,22 +106,30 @@ func (s *Service) Deploy(ctx context.Context, targets []Target, artifact Artifac
 }
 
 func (s *Service) DeploySaved(ctx context.Context, targets []Target, saved SavedFiles) (Report, error) {
+	artifact, err := loadArtifact(saved)
+	if err != nil {
+		return Report{}, err
+	}
+	return s.Deploy(ctx, targets, artifact), nil
+}
+
+func loadArtifact(saved SavedFiles) (Artifact, error) {
 	certificateData, err := os.ReadFile(saved.CertificatePath)
 	if err != nil {
-		return Report{}, fmt.Errorf("读取证书文件失败：%w", err)
+		return Artifact{}, fmt.Errorf("读取证书文件失败：%w", err)
 	}
 	fullChainData, err := os.ReadFile(saved.FullChainPath)
 	if err != nil {
-		return Report{}, fmt.Errorf("读取完整证书链失败：%w", err)
+		return Artifact{}, fmt.Errorf("读取完整证书链失败：%w", err)
 	}
 	privateKeyData, err := os.ReadFile(saved.PrivateKeyPath)
 	if err != nil {
-		return Report{}, fmt.Errorf("读取私钥文件失败：%w", err)
+		return Artifact{}, fmt.Errorf("读取私钥文件失败：%w", err)
 	}
-	return s.Deploy(ctx, targets, Artifact{Certificate: certificateData, FullChain: fullChainData, PrivateKey: privateKeyData}), nil
+	return Artifact{Certificate: certificateData, FullChain: fullChainData, PrivateKey: privateKeyData}, nil
 }
 
-func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifact) (result Result) {
+func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifact, pending *[]*pendingDeployment, index int) (result Result) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	server = server.Normalize()
@@ -131,7 +144,12 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		result.Message = fmt.Sprintf("连接服务器失败：%v", err)
 		return result
 	}
-	defer func() { _ = client.Close() }()
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			_ = client.Close()
+		}
+	}()
 	paths := []remoteFile{
 		{path: RemotePath(server.CertificatePath), data: artifact.Certificate, mode: 0o644},
 		{path: RemotePath(server.CertificateChainPath), data: artifact.FullChain, mode: 0o644},
@@ -160,7 +178,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	sort.Strings(lockPaths)
 	heldLocks := make([]string, 0, len(lockPaths))
 	retainLocks := false
-	defer func() {
+	releaseLocks := func() {
 		if len(heldLocks) == 0 || retainLocks {
 			return
 		}
@@ -178,6 +196,11 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 				result.FailureCode = FailureLockRelease
 				result.Message += fmt.Sprintf("；释放部署锁 %s 失败，需人工检查：%v", heldLocks[index], err)
 			}
+		}
+	}
+	defer func() {
+		if !handedOff {
+			releaseLocks()
 		}
 	}()
 	for _, lockPath := range lockPaths {
@@ -299,6 +322,59 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			err = fmt.Errorf("退出码 %d", commandResult.ExitCode)
 		}
 		return failed(fmt.Sprintf("reload 失败：%v", err))
+	}
+	if pending != nil {
+		// 旧文件与锁在所有目标及站点校验结束前始终保留，禁止提前提交。
+		result.Status = "success"
+		result.FailureCode = ""
+		result.Message = "证书已推送并重载，等待站点校验"
+		closed := false
+		transaction := &pendingDeployment{index: index}
+		transaction.restore = func(recoveryContext context.Context) Result {
+			result.Status = "failed"
+			if err := rollback(); err != nil {
+				result.FailureCode = FailureRollback
+				result.Message = fmt.Sprintf("部署未提交，自动回滚失败：%v", err)
+				return result
+			}
+			result.FailureCode = FailureRecoveryUnknown
+			if err := reconnectDeploymentClient(recoveryContext, s.factory, server, &client); err != nil {
+				result.Message = fmt.Sprintf("旧文件已恢复，重新连接以恢复服务失败：%v", err)
+				return result
+			}
+			for _, command := range [][]string{server.ValidationCommand, server.ReloadCommand} {
+				outcome, err := client.Run(recoveryContext, command)
+				if err != nil || outcome.ExitCode != 0 {
+					result.Message = fmt.Sprintf("旧文件已恢复，但恢复配置校验或重载失败，退出码 %d：%v", outcome.ExitCode, err)
+					return result
+				}
+			}
+			result.FailureCode = FailureRecoveryPending
+			result.Message = "本次部署未提交，旧文件已恢复并通过配置校验及重载，等待站点恢复核验"
+			return result
+		}
+		transaction.commit = func(commitContext context.Context) Result {
+			if err := cleanupBackups(commitContext, client, backups, paths); err != nil {
+				result.Status = "failed"
+				result.FailureCode = FailureCleanup
+				result.Message = fmt.Sprintf("站点校验通过，但事务旧文件清理失败：%v", err)
+				return result
+			}
+			result.Message = "证书部署、配置校验并 reload 成功"
+			return result
+		}
+		transaction.finish = func(retain bool) Result {
+			if !closed {
+				retainLocks = retain
+				releaseLocks()
+				_ = client.Close()
+				closed = true
+			}
+			return result
+		}
+		handedOff = true
+		*pending = append(*pending, transaction)
+		return result
 	}
 	if err := cleanupBackups(ctx, client, backups, paths); err != nil {
 		result.Status = "failed"
