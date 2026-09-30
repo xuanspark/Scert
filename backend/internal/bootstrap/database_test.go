@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,8 +14,10 @@ import (
 )
 
 type memoryDatabaseStore struct {
-	mu     sync.Mutex
-	values map[string]map[string]string
+	mu             sync.Mutex
+	values         map[string]map[string]string
+	putFailure     bool
+	deleteFailures int
 }
 
 func (s *memoryDatabaseStore) Put(_ context.Context, reference string, value map[string]string) error {
@@ -24,6 +27,9 @@ func (s *memoryDatabaseStore) Put(_ context.Context, reference string, value map
 		s.values = make(map[string]map[string]string)
 	}
 	s.values[reference] = map[string]string{"username": value["username"], "password": value["password"]}
+	if s.putFailure {
+		return errors.New("simulated put failure")
+	}
 	return nil
 }
 
@@ -36,6 +42,10 @@ func (s *memoryDatabaseStore) Get(_ context.Context, reference string) (map[stri
 func (s *memoryDatabaseStore) Delete(_ context.Context, reference string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.deleteFailures > 0 {
+		s.deleteFailures--
+		return errors.New("simulated delete failure")
+	}
 	delete(s.values, reference)
 	return nil
 }
