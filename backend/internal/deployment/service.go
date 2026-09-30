@@ -404,6 +404,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		result.FailureCode = ""
 		result.Message = "证书已推送并重载，等待站点校验"
 		closed := false
+		finished := false
 		transaction := &pendingDeployment{index: index}
 		transaction.restore = func(recoveryContext context.Context) Result {
 			result.Status = "failed"
@@ -445,6 +446,10 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return result
 		}
 		transaction.finish = func(retain bool) Result {
+			if finished {
+				return result
+			}
+			finished = true
 			if !closed {
 				retainLocks = retain
 				releaseLocks()
