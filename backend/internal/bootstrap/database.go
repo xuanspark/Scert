@@ -215,7 +215,7 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 	if !ok {
 		return errors.New("数据库验证令牌无效或已经过期")
 	}
-	if err := m.deleteOrQueueCredential(session.CredentialRef); err != nil {
+	if err := m.deleteCredential(session.CredentialRef); err != nil {
 		m.restoreSession(token, session)
 		return errors.New("数据库临时凭据回收失败")
 	}

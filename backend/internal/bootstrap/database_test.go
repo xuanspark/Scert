@@ -393,8 +393,14 @@ func TestDatabaseVerificationExpiredCleanupFailureRestoresTokenForRetry(t *testi
 		t.Fatal(err)
 	}
 	manager.now = func() time.Time { return result.ExpiresAt }
-	if _, err := manager.Check(result.VerificationToken, result.CredentialRef); err != nil {
-		t.Fatalf("expected failed expiry cleanup to preserve the session for retry: %v", err)
+	if _, err := manager.Check(result.VerificationToken, result.CredentialRef); err == nil {
+		t.Fatal("expired token must be rejected even when its credential cleanup fails")
+	}
+	manager.mu.Lock()
+	_, restored := manager.sessions[result.VerificationToken]
+	manager.mu.Unlock()
+	if !restored {
+		t.Fatal("failed expiry cleanup must restore the session for a later retry")
 	}
 	store.mu.Lock()
 	_, retained := store.values[result.CredentialRef]
