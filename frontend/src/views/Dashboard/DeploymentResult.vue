@@ -49,7 +49,7 @@ defineEmits(["close"]);
             </span>
           </article>
         </div>
-        <p class="muted">此处显示本次推送结果；远程站点是否使用新证书，仍需访问站点验证。</p>
+        <p class="muted">各服务器结果记录文件推送、配置校验与重载；站点 HTTPS 校验单独汇总，不代表逐台服务器均已验证。</p>
       </template>
       <div class="modal-actions">
         <button class="secondary-button" type="button" :disabled="result.running" @click="$emit('close')">

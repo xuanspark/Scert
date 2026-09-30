@@ -30,6 +30,18 @@ test("部署汇总不把空目标、缺失结果或部分失败称为成功", ()
   assert.match(deploymentSummary({ ...report, status: "partial", failed: 1 }), /未全部成功/);
 });
 
+test("站点生效校验与单台推送分开展示，不把旧证书或校验失败宣称为部署成功", () => {
+  const failed = { ...report, status: "failed", verification_status: "failed" };
+  assert.match(deploymentSummary(failed), /HTTPS 校验失败/);
+  assert.match(deploymentSummary(failed), /未自动回滚/);
+  assert.doesNotMatch(deploymentSummary(failed), /部署完成/);
+  assert.match(deploymentSummary({ ...report, verification_status: "failed" }), /尚未确认/);
+  assert.equal(
+    deploymentSummary({ ...report, verification_status: "success" }),
+    "证书部署完成：1 台推送成功，站点 HTTPS 校验通过",
+  );
+});
+
 test("手动部署展示真实返回结果并阻止执行期间重复提交", async (t) => {
   const pending = deferred();
   let requests = 0;
@@ -70,6 +82,22 @@ test("部署失败仍保留各服务器结果，网络失败不会残留执行�
   assert.equal(state.deploymentResult.value.running, false);
   assert.equal(state.deploymentResult.value.report, null);
   assert.equal(state.deploymentResult.value.error, "network-test-failure");
+});
+
+test("HTTPS 校验失败响应保留推送明细，但不弹出成功通知", async (t) => {
+  const failed = { ...report, status: "failed", verification_status: "failed" };
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/deploy")) {
+      return Response.json({ error: "证书部署失败", deployment: failed }, { status: 502 });
+    }
+    return Response.json({ items: [] });
+  });
+  await state.deployDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(state.deploymentResult.value.running, false);
+  assert.equal(state.deploymentResult.value.error, "证书部署失败");
+  assert.deepEqual(state.deploymentResult.value.report, failed);
+  assert.match(deploymentSummary(state.deploymentResult.value.report), /尚未确认新证书生效/);
+  assert.equal(state.notice.value, "");
 });
 
 test("部署结果组件可编译且认证提示绑定真实配置", async () => {

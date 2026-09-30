@@ -242,6 +242,17 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 		}
 		targets = append(targets, deployment.Target{Server: resolved})
 	}
+	expectedFingerprint := ""
+	if w.RemoteVerifier != nil {
+		// 从即将部署的文件读取身份，不信任可能缺失或陈旧的元数据；远端仍必须验证可信证书链。
+		validation, validationErr := (certificate.LocalValidator{}).ValidateFiles(
+			ctx, result.Saved.CertificatePath, result.Saved.FullChainPath, result.Saved.PrivateKeyPath, result.Domains,
+		)
+		if validationErr != nil {
+			return deployment.Report{Status: "failed"}, fmt.Errorf("部署前证书文件校验失败：%w", validationErr)
+		}
+		expectedFingerprint = validation.FingerprintSHA256
+	}
 	report, err := w.Deployment.DeploySaved(ctx, targets, deployment.SavedFiles{
 		CertificatePath: result.Saved.CertificatePath,
 		FullChainPath:   result.Saved.FullChainPath,
@@ -255,17 +266,22 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 	}
 	if w.RemoteVerifier != nil {
 		verificationDomain := verificationName(domainItem, result.Domains)
+		// 单台结果保留真实文件推送结果，站点生效校验单独记录，不能宣称已回滚。
+		report.VerificationStatus = "failed"
+		report.Status = "failed"
 		if verificationDomain == "" {
 			return report, errors.New("无法确定部署后的 HTTPS 校验域名")
 		}
-		if err := w.verifyRemoteDeployment(ctx, "https://"+verificationDomain, result.Domains); err != nil {
+		if err := w.verifyRemoteDeployment(ctx, "https://"+verificationDomain, result.Domains, expectedFingerprint); err != nil {
 			return report, fmt.Errorf("部署后 HTTPS 校验失败：%w", err)
 		}
+		report.VerificationStatus = "success"
+		report.Status = "success"
 	}
 	return report, nil
 }
 
-func (w *CertificateWorkflow) verifyRemoteDeployment(ctx context.Context, endpoint string, expectedDomains []string) error {
+func (w *CertificateWorkflow) verifyRemoteDeployment(ctx context.Context, endpoint string, expectedDomains []string, expectedFingerprint string) error {
 	attempts := w.RemoteVerificationAttempts
 	if attempts <= 0 {
 		attempts = defaultRemoteVerificationAttempts
@@ -284,11 +300,17 @@ func (w *CertificateWorkflow) verifyRemoteDeployment(ctx context.Context, endpoi
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, err := w.RemoteVerifier(ctx, endpoint, expectedDomains); err == nil {
-			return nil
-		} else {
-			lastErr = err
+		validation, err := w.RemoteVerifier(ctx, endpoint, expectedDomains)
+		if err == nil {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return contextErr
+			}
+			if expectedFingerprint != "" && strings.EqualFold(validation.FingerprintSHA256, expectedFingerprint) {
+				return nil
+			}
+			err = errors.New("站点证书指纹与本次部署的证书不一致，尚未确认新证书生效")
 		}
+		lastErr = err
 		if attempt == attempts {
 			break
 		}

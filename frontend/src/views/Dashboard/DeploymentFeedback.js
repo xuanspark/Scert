@@ -10,11 +10,17 @@ export function serverAuthLabel(server) {
 
 export function deploymentSummary(report) {
   if (!report || !Array.isArray(report.results)) return "未收到有效部署结果";
+  if (report.verification_status === "failed") {
+    return "证书已推送，但站点 HTTPS 校验失败，尚未确认新证书生效；未自动回滚";
+  }
   if (report.total === 0 && report.results.length === 0) return "未配置部署目标，未执行推送";
   if (report.status === "success" && report.total > 0 &&
       report.success === report.total && report.failed === 0 &&
       report.results.length === report.total &&
       report.results.every((item) => item.status === "success")) {
+    if (report.verification_status === "success") {
+      return `证书部署完成：${report.success} 台推送成功，站点 HTTPS 校验通过`;
+    }
     return `证书部署完成：${report.success} 台成功`;
   }
   return "证书部署未全部成功，请检查各服务器结果";

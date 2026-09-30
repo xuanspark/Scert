@@ -78,6 +78,42 @@ func TestTaskDeploymentResultsIssueAndRead(t *testing.T) {
 	}
 }
 
+func TestTaskDeploymentResultsHTTPSFailurePreservesTransferEvidence(t *testing.T) {
+	server, tasks, _, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{DomainID: id}, deployment.Report{
+			Total: 1, Success: 1, Status: "failed", VerificationStatus: "failed",
+			Results: []deployment.Result{{ServerID: "server-a", Status: "success", Message: "文件已推送并重载"}},
+		}, errors.New("HTTPS 校验失败：/secret-path 不应返回客户端")
+	})
+	defer closeDB()
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("HTTPS 校验失败应返回失败响应：%d %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Deployment deployment.Report `json:"deployment"`
+		TaskStatus string            `json:"task_status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.TaskStatus != "failed" || payload.Deployment.Status != "failed" || payload.Deployment.VerificationStatus != "failed" {
+		t.Fatalf("接口未保留整体失败与站点校验失败：%+v", payload)
+	}
+	if payload.Deployment.Success != 1 || payload.Deployment.Results[0].Status != "success" || strings.Contains(response.Body.String(), "/secret-path") {
+		t.Fatalf("接口丢失真实推送结果或泄露底层错误：%s", response.Body.String())
+	}
+	items, err := tasks.ListTasks(t.Context(), "", 10)
+	if err != nil || len(items) != 1 || items[0].Status != "failed" {
+		t.Fatalf("任务持久化状态错误：%+v，%v", items, err)
+	}
+	results, err := tasks.ListTaskDeploymentResults(t.Context(), items[0].ID)
+	if err != nil || len(results) != 1 || results[0].Status != "success" {
+		t.Fatalf("持久化单台推送结果错误：%+v，%v", results, err)
+	}
+}
+
 func TestTaskDeploymentResultsVisibility(t *testing.T) {
 	server, tasks, _, closeDB := newTaskAPITestServer(t, nil)
 	defer closeDB()

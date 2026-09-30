@@ -44,6 +44,8 @@ type Report struct {
 	Failed  int      `json:"failed"`
 	Status  string   `json:"status"`
 	Results []Result `json:"results"`
+	// 站点校验与各服务器文件推送分开记录，不表示所有服务器均完成独立 HTTPS 验证。
+	VerificationStatus string `json:"verification_status,omitempty"`
 }
 
 type Service struct {

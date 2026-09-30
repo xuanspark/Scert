@@ -199,12 +199,13 @@ func TestCertificateWorkflowResolvesSameServerForDifferentDomains(t *testing.T) 
 }
 
 func TestCertificateWorkflowRetriesRemoteVerificationUntilSuccess(t *testing.T) {
+	saved := workflowSavedCertificate(t)
 	deployer := &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}}
 	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle}}
 	verificationCalls := 0
 	waitCalls := 0
 	workflow := &CertificateWorkflow{
-		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}}},
+		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}, Saved: saved}},
 		Domains:                    state,
 		Servers:                    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
 		Deployment:                 deployer,
@@ -225,7 +226,7 @@ func TestCertificateWorkflowRetriesRemoteVerificationUntilSuccess(t *testing.T) 
 			if verificationCalls < 3 {
 				return certificate.ValidationResult{}, errors.New("仍返回旧证书")
 			}
-			return certificate.ValidationResult{}, nil
+			return certificate.ValidationResult{FingerprintSHA256: saved.FingerprintSHA256}, nil
 		},
 	}
 
@@ -238,12 +239,13 @@ func TestCertificateWorkflowRetriesRemoteVerificationUntilSuccess(t *testing.T) 
 }
 
 func TestCertificateWorkflowRemoteVerificationStopsAfterConfiguredAttempts(t *testing.T) {
+	saved := workflowSavedCertificate(t)
 	deployer := &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}}
 	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle}}
 	verificationCalls := 0
 	waitCalls := 0
 	workflow := &CertificateWorkflow{
-		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}}},
+		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}, Saved: saved}},
 		Domains:                    state,
 		Servers:                    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
 		Deployment:                 deployer,
@@ -268,12 +270,13 @@ func TestCertificateWorkflowRemoteVerificationStopsAfterConfiguredAttempts(t *te
 }
 
 func TestCertificateWorkflowRemoteVerificationWaitHonorsContextCancellation(t *testing.T) {
+	saved := workflowSavedCertificate(t)
 	deployer := &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}}
 	state := &workflowDomainState{item: domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle}}
 	ctx, cancel := context.WithCancel(context.Background())
 	verificationCalls := 0
 	workflow := &CertificateWorkflow{
-		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}}},
+		Certificates:               &workflowCertificateService{result: certificate.IssueResult{DomainID: "domain-1", Domains: []string{"example.com"}, Saved: saved}},
 		Domains:                    state,
 		Servers:                    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
 		Deployment:                 deployer,
@@ -297,6 +300,8 @@ func TestCertificateWorkflowRemoteVerificationWaitHonorsContextCancellation(t *t
 
 func TestCertificateWorkflowDeployCurrentRestoresValidState(t *testing.T) {
 	notAfter := time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	saved := workflowSavedCertificate(t)
+	saved.NotAfter = notAfter
 	state := &workflowDomainState{
 		status: "error",
 		item:   domain.Domain{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSingle},
@@ -306,14 +311,14 @@ func TestCertificateWorkflowDeployCurrentRestoresValidState(t *testing.T) {
 			return certificate.IssueResult{
 				DomainID: "domain-1",
 				Domains:  []string{"example.com"},
-				Saved:    certificate.SavedResource{NotAfter: notAfter},
+				Saved:    saved,
 			}, nil
 		},
 		Domains:    state,
 		Servers:    workflowServerLister{servers: []deployment.Server{{ID: "server-1"}}},
 		Deployment: &workflowDeployer{report: deployment.Report{Total: 1, Success: 1, Status: "success"}},
 		RemoteVerifier: func(context.Context, string, []string) (certificate.ValidationResult, error) {
-			return certificate.ValidationResult{}, nil
+			return certificate.ValidationResult{FingerprintSHA256: saved.FingerprintSHA256}, nil
 		},
 	}
 
