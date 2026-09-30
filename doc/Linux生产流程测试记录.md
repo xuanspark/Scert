@@ -1,4 +1,12 @@
 # Linux 生产流程测试记录
+## SSH 密码部署公钥、密钥回连及后续部署复测（2026-09-30 23:55）
+
+- 通过正式服务器配置页面临时使用已授权的密码保存服务器配置；Scert 自动生成服务器专属托管密钥，通过密码 SSH 将公钥写入远端 `/root/.ssh/authorized_keys`，随后关闭密码连接并使用托管私钥执行 `true` 回连验证。
+- 页面服务器状态由“已配置，待验证”更新为“已部署并验证”；托管私钥指纹为 `SHA256:iDWSQY7LgGdy6aYb47C0TMvZfktJxrfjVSGYLFrqhoc`，远端 `ssh-keygen -lf /root/.ssh/authorized_keys -E sha256` 查询到相同指纹。
+- 远端授权目录权限为 700，`authorized_keys` 权限为 600；主机指纹仍为已核对的 `SHA256:cVoSXsYmhALjAdN2Gso3JvbnvYQCQBFuRv3IZjFvzsE`，未关闭 SSH 主机校验。
+- 自动切换为私钥认证后，通过正式页面再次部署 `scert-multi-20260930.apmmk.cn`，页面显示 1 台推送成功、站点 HTTPS 校验通过；配置校验、reload 和两个域名 HTTPS 200 均保持正常。
+- 结论：单服务器“密码首次接入—自动部署公钥—私钥回连—后续密钥部署”闭环通过；不证明第二台真实服务器、多服务器任务、后置 HTTPS 失败自动恢复或最终首次生产流程已通过。
+
 ## 3cc8fb6 正式候选双域名正常部署复测（2026-09-30 23:42）
 
 - 使用密码 SSH 连接 45.136.13.241，未使用密钥登录，未创建辅助验收脚本；线上运行程序为 3cc8fb6，管理入口重新登录成功。
