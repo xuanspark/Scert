@@ -60,6 +60,8 @@ powershell -ExecutionPolicy Bypass -File .\build\build-release.ps1 -OutputDirect
 
 ## 固定工具链与安装策略
 
+正式入口在安装依赖前以及构建结束时检查后端、前端受跟踪文件的实际换行，要求文本采用 LF，二进制和无换行文件不受影响。Git 干净状态可能忽略 CRLF/LF 差异，不能单独证明构建输入一致；发现 CRLF 或混合换行即拒绝发布，不自动改写源码。遇到此提示请从当前已提交版本重新克隆后构建，不要使用终端批量替换中文文件。检查结果及文件数量写入 manifest 的 build_environment.source_line_endings。
+
 `toolchain.mjs` 是正式发布入口调用的构建检查器，`toolchain.test.mjs` 是纳入前端测试命令的正式回归，不是临时验收脚本。
 
 1. Go 精确版本以 `backend/go.mod` 为唯一来源；实际工具链不符则失败。`go.sum`、`go.mod` 固定 Go 依赖和数据库驱动，构建及归档使用 `-mod=readonly`；禁用外部 Go 工作区及 `GOFLAGS` 覆盖。

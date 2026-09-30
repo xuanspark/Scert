@@ -119,6 +119,29 @@ export function inputHashes(backend, frontend) {
   ]));
 }
 
+export function validateSourceLineEndings(output) {
+  const records = output.split('\0');
+  requireCondition(records.pop() === '', '源码换行检查输出不完整。');
+  requireCondition(records.length > 0, '源码目录没有受跟踪文件，不能确认构建输入。');
+  const invalid = [];
+  for (const record of records) {
+    const match = /^i\/\S+\s+w\/(\S+)\s+attr\/[^\t]*\t([\s\S]+)$/.exec(record);
+    requireCondition(match, '无法解析源码换行检查结果。');
+    const [, ending, path] = match;
+    requireCondition(['lf', 'crlf', 'mixed', 'none', '-text'].includes(ending), '源码换行检查返回未知文件状态。');
+    if (ending === 'crlf' || ending === 'mixed') invalid.push(path);
+  }
+  requireCondition(invalid.length === 0,
+    `源码文件存在非规范换行，拒绝构建：${invalid.slice(0, 5).join('、')}。请从当前提交重新克隆后构建；工具不会改写源文件。`);
+  return { policy: 'lf', tracked_files: records.length };
+}
+
+export function inspectSourceLineEndings(directory) {
+  // Git 干净状态会忽略 CRLF/LF 差异；必须读取工作树的实际换行状态。
+  const result = execute('git', ['ls-files', '--eol', '-z', '--', '.'], directory);
+  return validateSourceLineEndings(result.stdout);
+}
+
 export function installDependencies(frontend) {
   // 不信任使用者的 npm 全局/用户设置，命令行参数显式覆盖；保留构建所需的可选平台包。
   const result = execute(npmCommand, [
@@ -132,6 +155,10 @@ export function installDependencies(frontend) {
 export function inspectToolchain(backend, frontend, install = false) {
   const host = { platform: platform(), arch: arch(), release: release(), version: version() };
   validateEnvironment(process.env, host);
+  const sourceLineEndings = {
+    backend: inspectSourceLineEndings(backend),
+    frontend: inspectSourceLineEndings(frontend),
+  };
   const pkg = JSON.parse(readFileSync(join(frontend, 'package.json'), 'utf8'));
   const lock = JSON.parse(readFileSync(join(frontend, 'package-lock.json'), 'utf8'));
   const npmrc = readFileSync(join(frontend, '.npmrc'), 'utf8');
@@ -153,6 +180,7 @@ export function inspectToolchain(backend, frontend, install = false) {
     dependency_scripts: 'disabled',
     dependency_install: install ? 'npm-ci' : 'not-run',
     input_sha256: hashes,
+    source_line_endings: sourceLineEndings,
   };
 }
 
