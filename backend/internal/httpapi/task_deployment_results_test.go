@@ -78,6 +78,34 @@ func TestTaskDeploymentResultsIssueAndRead(t *testing.T) {
 	}
 }
 
+func TestTaskDeploymentResultsKeepAllowlistedLockDiagnosis(t *testing.T) {
+	raw := deployment.Result{ServerID: "server-a", Status: "failed", FailureCode: deployment.FailureLock, Message: "secret-path remote-command-output"}
+	server, tasks, _, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "failed", Total: 1, Failed: 1, Results: []deployment.Result{raw}}, errors.New("部署失败")
+	})
+	defer closeDB()
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusBadGateway || strings.Contains(response.Body.String(), "secret-path") || !strings.Contains(response.Body.String(), "lock_unavailable") {
+		t.Fatalf("部署接口缺少安全的锁诊断：%d %s", response.Code, response.Body.String())
+	}
+	items, err := tasks.ListTasks(t.Context(), "", 10)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("任务未保存：%+v %v", items, err)
+	}
+	response = httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodGet, "/api/v1/tasks/"+items[0].ID+"/deployment-results", nil))
+	var payload struct {
+		Items []repository.TaskDeploymentResult `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(payload.Items) != 1 || payload.Items[0].Message != deployment.PublicResult(raw).Message {
+		t.Fatalf("任务查询丢失固定锁诊断：%d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestTaskDeploymentResultsHTTPSFailurePreservesTransferEvidence(t *testing.T) {
 	server, tasks, _, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
 		return certificate.IssueResult{DomainID: id}, deployment.Report{

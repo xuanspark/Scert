@@ -26,9 +26,7 @@ func sanitizeDeploymentReport(report deployment.Report) deployment.Report {
 	result := report
 	result.Results = append([]deployment.Result(nil), report.Results...)
 	for index := range result.Results {
-		if result.Results[index].Status == "failed" {
-			result.Results[index].Message = "证书部署失败"
-		}
+		result.Results[index] = deployment.PublicResult(result.Results[index])
 	}
 	return result
 }

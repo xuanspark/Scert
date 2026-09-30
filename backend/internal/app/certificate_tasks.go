@@ -179,6 +179,7 @@ func taskDeploymentResults(report deployment.Report) []repository.TaskDeployment
 	}
 	items := make([]repository.TaskDeploymentResult, 0, len(report.Results))
 	for index, item := range report.Results {
+		item = deployment.PublicResult(item)
 		items = append(items, repository.TaskDeploymentResult{
 			ResultIndex: index,
 			ServerID:    item.ServerID,

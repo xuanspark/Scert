@@ -553,7 +553,7 @@ func (s *Server) listTaskDeploymentResults(c *gin.Context) {
 	}
 	for index := range items {
 		if items[index].Status == "failed" {
-			items[index].Message = "证书部署失败"
+			items[index].Message = deployment.PublicStoredFailureMessage(items[index].Message)
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
@@ -565,6 +565,7 @@ func taskDeploymentResults(report deployment.Report) []repository.TaskDeployment
 	}
 	items := make([]repository.TaskDeploymentResult, 0, len(report.Results))
 	for index, item := range report.Results {
+		item = deployment.PublicResult(item)
 		items = append(items, repository.TaskDeploymentResult{
 			ResultIndex: index,
 			ServerID:    item.ServerID,

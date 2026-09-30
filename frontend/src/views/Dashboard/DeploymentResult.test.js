@@ -100,6 +100,28 @@ test("HTTPS 校验失败响应保留推送明细，但不弹出成功通知", as
   assert.equal(state.notice.value, "");
 });
 
+test("遗留锁的安全诊断保留在失败明细中，不提示部署成功", async (t) => {
+  const message = "无法取得部署锁，可能有任务正在执行或存在中断遗留；请管理员核查远端文件、部署锁及服务状态后再重试，勿直接删除锁";
+  const failed = {
+    total: 1,
+    success: 0,
+    failed: 1,
+    status: "failed",
+    results: [{ server_id: "server-1", server: "测试服务器", status: "failed", failure_code: "lock_unavailable", message }],
+  };
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/deploy")) {
+      return Response.json({ error: "证书部署失败", deployment: failed }, { status: 502 });
+    }
+    return Response.json({ items: [] });
+  });
+  await state.deployDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(state.deploymentResult.value.report.results[0].message, message);
+  assert.equal(state.deploymentResult.value.report.results[0].failure_code, "lock_unavailable");
+  assert.equal(state.notice.value, "");
+  assert.equal(state.deploymentResult.value.running, false);
+});
+
 test("部署结果组件可编译且认证提示绑定真实配置", async () => {
   const source = await readFile(new URL("./DeploymentResult.vue", import.meta.url), "utf8");
   const { descriptor, errors } = parse(source);

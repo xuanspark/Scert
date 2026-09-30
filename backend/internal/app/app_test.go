@@ -87,7 +87,7 @@ func TestNewWithConfigPathRecoversInterruptedTasks(t *testing.T) {
 		if task.Status != "failed" || task.Stage != "service_restart" || task.FinishedAt == nil {
 			t.Fatalf("任务 %s 未按服务重启恢复：%+v", expectedID, task)
 		}
-		if task.Message != "服务重启导致任务中断，请重新执行" {
+		if task.Message != "服务重启导致任务中断，执行结果未确认；请先核查关联资源，证书部署需检查远端文件、部署锁及服务状态，确认安全后再重试" {
 			t.Fatalf("任务 %s 中断说明不正确：%s", expectedID, task.Message)
 		}
 	}

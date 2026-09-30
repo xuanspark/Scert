@@ -346,7 +346,7 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 	rollback := func() {
 		_ = tx.Rollback()
 	}
-	recoveryMessage := "\u670d\u52a1\u91cd\u542f\u5bfc\u81f4\u4efb\u52a1\u4e2d\u65ad\uff0c\u8bf7\u91cd\u65b0\u6267\u884c"
+	recoveryMessage := "服务重启导致任务中断，执行结果未确认；请先核查关联资源，证书部署需检查远端文件、部署锁及服务状态，确认安全后再重试"
 	auditResult, err := tx.ExecContext(ctx, r.query(`INSERT INTO audit_logs
 		(action, resource_type, resource_id, status, message, created_at, scope_type, project_id, task_id, operator_id)
 		SELECT 'task_recovery', 'task', id, 'failed', ?, ?, scope_type, project_id, id, operator_id

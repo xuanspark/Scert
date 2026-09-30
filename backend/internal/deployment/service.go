@@ -29,11 +29,12 @@ type SavedFiles struct {
 }
 
 type Result struct {
-	ServerID string `json:"server_id"`
-	Server   string `json:"server"`
-	Status   string `json:"status"`
-	Message  string `json:"message"`
-	BackupID string `json:"backup_id,omitempty"`
+	ServerID    string      `json:"server_id"`
+	Server      string      `json:"server"`
+	Status      string      `json:"status"`
+	Message     string      `json:"message"`
+	BackupID    string      `json:"backup_id,omitempty"`
+	FailureCode FailureCode `json:"failure_code,omitempty"`
 }
 
 const deploymentRollbackTimeout = 30 * time.Second
@@ -67,7 +68,7 @@ func (s *Service) Deploy(ctx context.Context, targets []Target, artifact Artifac
 		report.Status = "failed"
 		report.Failed = len(targets)
 		for _, target := range targets {
-			report.Results = append(report.Results, Result{ServerID: target.Server.ID, Server: target.Server.Name, Status: "failed", Message: "部署服务未初始化"})
+			report.Results = append(report.Results, Result{ServerID: target.Server.ID, Server: target.Server.Name, Status: "failed", Message: "部署服务未初始化", FailureCode: FailureUnavailable})
 		}
 		return report
 	}
@@ -75,7 +76,7 @@ func (s *Service) Deploy(ctx context.Context, targets []Target, artifact Artifac
 		report.Status = "failed"
 		report.Failed = len(targets)
 		for _, target := range targets {
-			report.Results = append(report.Results, Result{ServerID: target.Server.ID, Server: target.Server.Name, Status: "failed", Message: err.Error()})
+			report.Results = append(report.Results, Result{ServerID: target.Server.ID, Server: target.Server.Name, Status: "failed", Message: err.Error(), FailureCode: FailureArtifact})
 		}
 		return report
 	}
@@ -119,13 +120,14 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	server = server.Normalize()
-	result = Result{ServerID: server.ID, Server: server.Name, Status: "failed"}
+	result = Result{ServerID: server.ID, Server: server.Name, Status: "failed", FailureCode: FailureConfiguration}
 	if err := server.Validate(); err != nil {
 		result.Message = err.Error()
 		return result
 	}
 	client, err := s.factory.Connect(ctx, server)
 	if err != nil {
+		result.FailureCode = FailureConnection
 		result.Message = fmt.Sprintf("连接服务器失败：%v", err)
 		return result
 	}
@@ -149,6 +151,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	lockPaths := make([]string, 0, len(paths))
 	for _, file := range paths {
 		if err := client.MkdirAll(ctx, parentPath(file.path)); err != nil {
+			result.FailureCode = FailureDirectory
 			result.Message = fmt.Sprintf("创建远程目录失败：%v", err)
 			return result
 		}
@@ -165,18 +168,21 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		defer cancel()
 		if err := reconnectDeploymentClient(releaseCtx, s.factory, server, &client); err != nil {
 			result.Status = "failed"
+			result.FailureCode = FailureLockRelease
 			result.Message += fmt.Sprintf("；释放部署锁失败，需人工检查：%v", err)
 			return
 		}
 		for index := len(heldLocks) - 1; index >= 0; index-- {
 			if err := client.Unlock(releaseCtx, heldLocks[index]); err != nil {
 				result.Status = "failed"
+				result.FailureCode = FailureLockRelease
 				result.Message += fmt.Sprintf("；释放部署锁 %s 失败，需人工检查：%v", heldLocks[index], err)
 			}
 		}
 	}()
 	for _, lockPath := range lockPaths {
 		if err := client.Lock(ctx, lockPath); err != nil {
+			result.FailureCode = FailureLock
 			result.Message = fmt.Sprintf("无法取得部署锁 %s，可能存在并发部署或遗留锁；未修改当前证书，请人工核查：%v", lockPath, err)
 			return result
 		}
@@ -224,6 +230,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	reloadAttempted := false
 	failed := func(message string) Result {
 		if rollbackErr := rollback(); rollbackErr != nil {
+			result.FailureCode = FailureRollback
 			message += fmt.Sprintf("；自动回滚失败：%v", rollbackErr)
 			retainLocks = true
 			message += "；已保留本次部署锁，修复并确认文件状态后再由管理员释放"
@@ -231,12 +238,16 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			message += "；文件已回滚"
 		}
 		if reloadAttempted {
+			if !retainLocks {
+				result.FailureCode = FailureRuntimeUnknown
+			}
 			// 命令可能已部分执行；文件回滚并不证明运行中的服务已经恢复。
 			message += "；服务运行状态未确认，请检查服务并在确认旧配置后重新加载"
 		}
 		result.Message = message
 		return result
 	}
+	result.FailureCode = FailureUpload
 	for _, file := range paths {
 		temporaryPath := file.path + ".scert-tmp-" + backupID
 		// 上传失败也可能留下半份私钥，必须在开始上传前登记清理路径。
@@ -251,6 +262,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		}
 	}
 	// 所有文件上传完成后才触碰当前版本，避免上传失败造成不必要的证书替换。
+	result.FailureCode = FailureReplace
 	for _, file := range paths {
 		exists, err := client.Exists(ctx, file.path)
 		if err != nil {
@@ -272,6 +284,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return failed(fmt.Sprintf("替换远程证书失败：%v", err))
 		}
 	}
+	result.FailureCode = FailureValidation
 	validationResult, err := client.Run(ctx, server.ValidationCommand)
 	if err != nil || validationResult.ExitCode != 0 {
 		if err == nil {
@@ -289,10 +302,12 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	}
 	if err := cleanupBackups(ctx, client, backups, paths); err != nil {
 		result.Status = "failed"
+		result.FailureCode = FailureCleanup
 		result.Message = fmt.Sprintf("\u8bc1\u4e66\u5df2\u90e8\u7f72\u5e76 reload \u6210\u529f\uff0c\u4f46\u65e7\u8bc1\u4e66\u5907\u4efd\u6e05\u7406\u5931\u8d25\uff1a%v", err)
 		return result
 	}
 	result.Status = "success"
+	result.FailureCode = ""
 	result.Message = "证书部署、配置校验并 reload 成功"
 	result.BackupID = backupID
 	return result
