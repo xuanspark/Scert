@@ -101,6 +101,7 @@ type DNSVerificationManager struct {
 	now            func() time.Time
 	sessions       map[string]dnsVerificationSession
 	expiredSession map[string]expiredDNSVerificationSession
+	pendingCleanup map[string]struct{}
 	inFlight       int
 }
 
@@ -108,7 +109,9 @@ func NewDNSVerificationManager(tester DNSCredentialTester, store SecretWriter) *
 	deleter, _ := store.(SecretDeleter)
 	return &DNSVerificationManager{
 		tester: tester, store: store, deleter: deleter, now: time.Now,
-		sessions: make(map[string]dnsVerificationSession), expiredSession: make(map[string]expiredDNSVerificationSession),
+		sessions:       make(map[string]dnsVerificationSession),
+		expiredSession: make(map[string]expiredDNSVerificationSession),
+		pendingCleanup: make(map[string]struct{}),
 	}
 }
 
@@ -116,6 +119,7 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 	if m == nil || m.tester == nil || m.store == nil {
 		return DNSVerificationResult{}, errors.New("DNS 在线验证服务未初始化")
 	}
+	m.retryPendingCredentialCleanup()
 	providerID := strings.ToLower(strings.TrimSpace(input.ProviderID))
 	testDomain := normalizeTestDomain(input.TestDomain)
 	if providerID == "" {
@@ -164,7 +168,7 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 	}
 	credentialRef := fmt.Sprintf("secret://dns/%s/%s", providerID, credentialID)
 	if err := m.store.Put(ctx, credentialRef, cleanedCredentials); err != nil {
-		cleanupErr := m.deleteCredential(credentialRef)
+		cleanupErr := m.deleteOrQueueCredential(credentialRef)
 		if cleanupErr != nil {
 			m.logCleanupFailure()
 			return DNSVerificationResult{}, errors.New("加密保存 DNS 凭据失败，临时凭据回收未确认")
@@ -172,7 +176,7 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 		return DNSVerificationResult{}, fmt.Errorf("加密保存 DNS 凭据失败：%w", err)
 	}
 	if err := ctx.Err(); err != nil {
-		cleanupErr := m.deleteCredential(credentialRef)
+		cleanupErr := m.deleteOrQueueCredential(credentialRef)
 		if cleanupErr != nil {
 			m.logCleanupFailure()
 			return DNSVerificationResult{TestReport: testReport}, errors.Join(
@@ -243,6 +247,7 @@ func (m *DNSVerificationManager) Discard(token string) error {
 	if m == nil {
 		return errors.New("DNS 在线验证服务未初始化")
 	}
+	m.retryPendingCredentialCleanup()
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return errors.New("DNS 验证令牌不能为空")
@@ -277,6 +282,7 @@ func (m *DNSVerificationManager) DiscardAllExcept(protectedReferences ...string)
 	if m == nil {
 		return
 	}
+	m.retryPendingCredentialCleanup()
 	protected := make(map[string]bool, len(protectedReferences))
 	for _, reference := range protectedReferences {
 		if reference = strings.TrimSpace(reference); reference != "" {
@@ -309,6 +315,7 @@ func (m *DNSVerificationManager) validateSession(token, providerID, credentialRe
 	if token == "" {
 		return errors.New("必须先完成 DNS API 在线验证")
 	}
+	m.retryPendingCredentialCleanup()
 	now := m.now().UTC()
 	m.mu.Lock()
 	expiredRefs := m.clearExpiredLocked(now)
@@ -341,6 +348,7 @@ func (m *DNSVerificationManager) resolveSession(token string, claim bool) (dnsVe
 	if token == "" {
 		return dnsVerificationSession{}, errors.New("必须先完成 DNS API 在线验证")
 	}
+	m.retryPendingCredentialCleanup()
 	now := m.now().UTC()
 	m.mu.Lock()
 	expiredRefs := m.clearExpiredLocked(now)
@@ -368,7 +376,7 @@ func (m *DNSVerificationManager) reserveVerificationSlot() error {
 		m.deleteCredentials(expiredRefs)
 		return errors.New("DNS 在线验证请求过多，请稍后重试")
 	}
-	if len(m.sessions)+m.inFlight >= dnsVerificationSessionCapacity {
+	if len(m.sessions)+len(m.expiredSession)+m.inFlight >= dnsVerificationSessionCapacity {
 		m.mu.Unlock()
 		m.deleteCredentials(expiredRefs)
 		return errors.New("DNS 验证令牌数量已达上限，请等待现有验证完成或过期后重试")
@@ -456,6 +464,52 @@ func (m *DNSVerificationManager) forgetExpiredSession(reference string) {
 	m.mu.Lock()
 	delete(m.expiredSession, reference)
 	m.mu.Unlock()
+}
+
+func (m *DNSVerificationManager) rememberPendingCleanup(reference string) {
+	if m == nil || strings.TrimSpace(reference) == "" {
+		return
+	}
+	m.mu.Lock()
+	m.pendingCleanup[reference] = struct{}{}
+	m.mu.Unlock()
+}
+
+func (m *DNSVerificationManager) forgetPendingCleanup(reference string) {
+	if m == nil || strings.TrimSpace(reference) == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.pendingCleanup, reference)
+	m.mu.Unlock()
+}
+
+func (m *DNSVerificationManager) retryPendingCredentialCleanup() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	references := make([]string, 0, len(m.pendingCleanup))
+	for reference := range m.pendingCleanup {
+		references = append(references, reference)
+	}
+	m.mu.Unlock()
+	for _, reference := range references {
+		if err := m.deleteCredential(reference); err != nil {
+			m.logCleanupFailure()
+			continue
+		}
+		m.forgetPendingCleanup(reference)
+	}
+}
+
+func (m *DNSVerificationManager) deleteOrQueueCredential(reference string) error {
+	if err := m.deleteCredential(reference); err != nil {
+		m.rememberPendingCleanup(reference)
+		return err
+	}
+	m.forgetPendingCleanup(reference)
+	return nil
 }
 
 func (m *DNSVerificationManager) logCleanupFailure() {

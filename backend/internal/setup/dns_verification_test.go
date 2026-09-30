@@ -66,6 +66,11 @@ type retryableSecretWriter struct {
 	failDelete bool
 }
 
+type cancellingRetryableSecretWriter struct {
+	retryableSecretWriter
+	cancel context.CancelFunc
+}
+
 func (s *cancellingSecretWriter) Put(ctx context.Context, reference string, value map[string]string) error {
 	if err := s.memorySecretWriter.Put(ctx, reference, value); err != nil {
 		return err
@@ -79,6 +84,14 @@ func (s *retryableSecretWriter) Delete(ctx context.Context, reference string) er
 		return errors.New("delete failed")
 	}
 	return s.memorySecretWriter.Delete(ctx, reference)
+}
+
+func (s *cancellingRetryableSecretWriter) Put(ctx context.Context, reference string, value map[string]string) error {
+	if err := s.retryableSecretWriter.Put(ctx, reference, value); err != nil {
+		return err
+	}
+	s.cancel()
+	return nil
 }
 
 func (m *memorySecretWriter) Put(_ context.Context, reference string, value map[string]string) error {
@@ -290,6 +303,62 @@ func TestDNSVerificationManagerDeletesCredentialWhenPutReportsFailure(t *testing
 	}
 }
 
+func TestDNSVerificationManagerRetriesCleanupAfterPutFailure(t *testing.T) {
+	store := &retryableSecretWriter{failDelete: true}
+	store.putErr = errors.New("write failed")
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	_, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com",
+		Credentials: map[string]string{"api_token": "secret"},
+	})
+	if err == nil {
+		t.Fatal("保存失败时应返回错误")
+	}
+	if len(store.values) != 1 || len(manager.pendingCleanup) != 1 {
+		t.Fatalf("删除失败后应保留待清理凭据：values=%d pending=%d", len(store.values), len(manager.pendingCleanup))
+	}
+
+	store.putErr = nil
+	store.failDelete = false
+	if _, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com",
+		Credentials: map[string]string{"api_token": "next-secret"},
+	}); err != nil {
+		t.Fatalf("下一次验证应先重试待清理凭据：%v", err)
+	}
+	if len(manager.pendingCleanup) != 0 || len(store.values) != 1 {
+		t.Fatalf("待清理凭据重试后状态错误：pending=%d values=%d", len(manager.pendingCleanup), len(store.values))
+	}
+}
+
+func TestDNSVerificationManagerRetriesCleanupAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	store := &cancellingRetryableSecretWriter{
+		retryableSecretWriter: retryableSecretWriter{failDelete: true},
+		cancel:                cancel,
+	}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+
+	_, err := manager.Verify(ctx, DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com",
+		Credentials: map[string]string{"api_token": "secret"},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("保存后取消应返回 context.Canceled：%v", err)
+	}
+	if len(store.values) != 1 || len(manager.pendingCleanup) != 1 {
+		t.Fatalf("取消后的删除失败应进入待清理状态：values=%d pending=%d", len(store.values), len(manager.pendingCleanup))
+	}
+
+	store.failDelete = false
+	if _, err := manager.Resolve("missing-token"); err == nil {
+		t.Fatal("不存在的令牌应返回错误")
+	}
+	if len(store.values) != 0 || len(manager.pendingCleanup) != 0 {
+		t.Fatalf("取消后的凭据重试未完成：values=%d pending=%d", len(store.values), len(manager.pendingCleanup))
+	}
+}
+
 func TestDNSVerificationManagerRejectsAlreadyCancelledContextBeforeTesting(t *testing.T) {
 	tester := &countingDNSTester{}
 	store := &memorySecretWriter{}
@@ -420,6 +489,29 @@ func TestDNSVerificationManagerRejectsCapacityBeforeTestingOrStoring(t *testing.
 	})
 	if err == nil || tester.CallCount() != 0 || len(store.values) != 0 {
 		t.Fatalf("capacity rejection must precede testing and storage: err=%v calls=%d values=%v", err, tester.CallCount(), store.values)
+	}
+}
+
+func TestDNSVerificationManagerCountsExpiredCleanupAgainstCapacity(t *testing.T) {
+	tester := &countingDNSTester{}
+	store := &memorySecretWriter{}
+	manager := NewDNSVerificationManager(tester, store)
+	manager.sessions = make(map[string]dnsVerificationSession, dnsVerificationSessionCapacity-1)
+	manager.expiredSession = make(map[string]expiredDNSVerificationSession, 1)
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	for index := 0; index < dnsVerificationSessionCapacity-1; index++ {
+		manager.sessions[string(rune(index))] = dnsVerificationSession{CredentialRef: "secret://existing", ExpiresAt: expiresAt}
+	}
+	manager.expiredSession["secret://pending"] = expiredDNSVerificationSession{
+		Token:   "pending-token",
+		Session: dnsVerificationSession{CredentialRef: "secret://pending", ExpiresAt: expiresAt},
+	}
+
+	_, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com", Credentials: map[string]string{"api_token": "secret"},
+	})
+	if err == nil || tester.CallCount() != 0 || len(store.values) != 0 {
+		t.Fatalf("待清理凭据应计入容量限制：err=%v calls=%d values=%v", err, tester.CallCount(), store.values)
 	}
 }
 
