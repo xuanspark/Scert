@@ -76,6 +76,7 @@ type DatabaseVerificationSession struct {
 
 type DatabaseVerificationManager struct {
 	mu             sync.Mutex
+	cleanupMu      sync.Mutex
 	base           config.Config
 	store          DatabaseSecretStore
 	verify         func(context.Context, config.DatabaseConfig) error
@@ -99,6 +100,9 @@ func (m *DatabaseVerificationManager) Verify(ctx context.Context, input Database
 	if m == nil || m.verify == nil || m.store == nil {
 		return DatabaseVerificationResult{}, errors.New("数据库验证服务尚未初始化")
 	}
+	if err := ctx.Err(); err != nil {
+		return DatabaseVerificationResult{}, err
+	}
 	m.retryPendingCredentialCleanup()
 	if err := m.reserve(); err != nil {
 		return DatabaseVerificationResult{}, err
@@ -110,6 +114,9 @@ func (m *DatabaseVerificationManager) Verify(ctx context.Context, input Database
 		}
 	}()
 
+	if err := ctx.Err(); err != nil {
+		return DatabaseVerificationResult{}, err
+	}
 	persisted, credentials, err := buildDatabaseConfig(m.base, input)
 	if err != nil {
 		return DatabaseVerificationResult{}, err
@@ -131,12 +138,18 @@ func (m *DatabaseVerificationManager) Verify(ctx context.Context, input Database
 			return DatabaseVerificationResult{}, fmt.Errorf("加密保存数据库凭据失败：%w", err)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return DatabaseVerificationResult{}, err
+	}
 	resolved, err := database.ResolveConfig(ctx, persisted, m.store)
 	if err != nil {
 		return DatabaseVerificationResult{}, err
 	}
 	if err := m.verify(ctx, resolved); err != nil {
 		return DatabaseVerificationResult{}, fmt.Errorf("数据库连接或写权限验证失败：%w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return DatabaseVerificationResult{}, err
 	}
 	token, err := randomToken(32)
 	if err != nil {
@@ -207,8 +220,10 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 	m.mu.Lock()
 	expired := m.clearExpiredLocked(now)
 	session, ok := m.sessions[token]
+	entry := expiredDatabaseVerificationSession{Token: token, Session: session}
 	if ok {
 		delete(m.sessions, token)
+		m.expiredSession[token] = entry
 	}
 	m.mu.Unlock()
 	m.deleteExpiredSessions(expired)
@@ -216,7 +231,7 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 		return errors.New("数据库验证令牌无效或已经过期")
 	}
 	if err := m.deleteCredential(session.CredentialRef); err != nil {
-		m.restoreSession(token, session)
+		m.restoreExpiredSession(entry)
 		return errors.New("数据库临时凭据回收失败")
 	}
 	return nil
@@ -485,6 +500,8 @@ func (m *DatabaseVerificationManager) deleteCredential(reference string) error {
 	if strings.TrimSpace(reference) == "" || m == nil || m.store == nil {
 		return nil
 	}
+	m.cleanupMu.Lock()
+	defer m.cleanupMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), databaseVerificationCleanupTimeout)
 	defer cancel()
 	return m.store.Delete(ctx, reference)
