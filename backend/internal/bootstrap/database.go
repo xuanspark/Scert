@@ -234,6 +234,7 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 		m.restoreExpiredSession(entry)
 		return errors.New("数据库临时凭据回收失败")
 	}
+	m.removeExpiredSession(entry)
 	return nil
 }
 
