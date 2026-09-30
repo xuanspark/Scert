@@ -361,6 +361,16 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 		rollback()
 		return 0, fmt.Errorf("\u8bfb\u53d6\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u6570\u91cf\u5931\u8d25\uff1a%w", err)
 	}
+	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts
+		SET status = 'failed', message = ?, finished_at = ?
+		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')
+		AND task_id IN (
+			SELECT id FROM tasks
+			WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')
+		)`), recoveryMessage, finishedAt); err != nil {
+		rollback()
+		return 0, fmt.Errorf("恢复中断任务尝试失败：%w", err)
+	}
 	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks
 		SET status = 'failed', stage = 'service_restart', message = ?, finished_at = ?, updated_at = ?
 		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')`), recoveryMessage, finishedAt, finishedAt)
@@ -376,16 +386,6 @@ func (r *SQLTaskRepository) RecoverInterruptedTasks(ctx context.Context, finishe
 	if auditCount != count {
 		rollback()
 		return 0, fmt.Errorf("\u4e2d\u65ad\u4efb\u52a1\u5ba1\u8ba1\u6570\u91cf\u4e0e\u4efb\u52a1\u6570\u91cf\u4e0d\u4e00\u81f4\uff1a\u5ba1\u8ba1 %d，\u4efb\u52a1 %d", auditCount, count)
-	}
-	if _, err := tx.ExecContext(ctx, r.query(`UPDATE task_attempts
-		SET status = 'failed', message = ?, finished_at = ?
-		WHERE status IN ('queued', 'running', 'retry_wait', 'cancelling')
-		AND task_id IN (
-			SELECT id FROM tasks
-			WHERE status = 'failed' AND stage = 'service_restart' AND finished_at = ?
-		)`), recoveryMessage, finishedAt, finishedAt); err != nil {
-		rollback()
-		return 0, fmt.Errorf("\u6062\u590d\u4e2d\u65ad\u4efb\u52a1\u5c1d\u8bd5\u5931\u8d25\uff1a%w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("\u63d0\u4ea4\u4e2d\u65ad\u4efb\u52a1\u6062\u590d\u4e8b\u52a1\u5931\u8d25\uff1a%w", err)

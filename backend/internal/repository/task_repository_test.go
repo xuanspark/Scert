@@ -361,6 +361,42 @@ func TestSQLTaskRepositoryRecoversInterruptedTasksAndAttempts(t *testing.T) {
 	}
 }
 
+func TestSQLTaskRepositoryRecoveryDoesNotTouchHistoricalRestartTaskAttempts(t *testing.T) {
+	repository, db := newTaskRepositoryTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	finished := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+
+	for _, item := range []Task{
+		{ID: "task-active-recovery", DomainID: "domain-1", TaskType: "certificate_issue", Status: "running", Stage: "certificate_issue"},
+		{ID: "task-historical-restart", DomainID: "domain-2", TaskType: "certificate_deploy", Status: "failed", Stage: "service_restart", Message: "历史恢复失败", FinishedAt: &finished},
+	} {
+		if err := repository.CreateTask(ctx, item); err != nil {
+			t.Fatalf("创建恢复边界任务失败：%v", err)
+		}
+	}
+	for _, attempt := range []TaskAttempt{
+		{ID: "attempt-active-recovery", TaskID: "task-active-recovery", AttemptNumber: 1, Stage: "certificate_issue", Status: "running"},
+		{ID: "attempt-historical-restart", TaskID: "task-historical-restart", AttemptNumber: 1, Stage: "certificate_deploy", Status: "running"},
+	} {
+		if err := repository.CreateAttempt(ctx, attempt); err != nil {
+			t.Fatalf("创建恢复边界任务尝试失败：%v", err)
+		}
+	}
+
+	if count, err := repository.RecoverInterruptedTasks(ctx, finished); err != nil || count != 1 {
+		t.Fatalf("恢复中断任务数量错误：%d %v", count, err)
+	}
+	recovered, err := repository.ListAttempts(ctx, "task-active-recovery")
+	if err != nil || len(recovered) != 1 || recovered[0].Status != "failed" {
+		t.Fatalf("活动任务尝试未被恢复：%+v %v", recovered, err)
+	}
+	historical, err := repository.ListAttempts(ctx, "task-historical-restart")
+	if err != nil || len(historical) != 1 || historical[0].Status != "running" || historical[0].FinishedAt != nil {
+		t.Fatalf("历史恢复任务尝试被错误修改：%+v %v", historical, err)
+	}
+}
+
 func TestSQLTaskRepositoryRecoveryAuditFailureRollsBack(t *testing.T) {
 	repository, db := newTaskRepositoryTest(t)
 	defer db.Close()
