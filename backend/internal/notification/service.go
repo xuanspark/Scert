@@ -122,6 +122,9 @@ func (s *Service) sendHTTP(ctx context.Context, event Event) error {
 	if !s.config.HTTPEnabled {
 		return nil
 	}
+	if s.config.UsesSmailSystemAccount() {
+		return errors.New("Smail 系统通知账号只能通过 SMTP 通道发送")
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

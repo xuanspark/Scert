@@ -144,3 +144,22 @@ func TestSecurityCodeSMTPAndHTTPFallback(t *testing.T) {
 		})
 	}
 }
+
+func TestSecurityCodeSmailSystemAccountRequiresSMTP(t *testing.T) {
+	var calls atomic.Int32
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer endpoint.Close()
+	cfg := newTestConfig(endpoint.URL)
+	cfg.SMTPUsername = "notify:scert@example.test"
+	cfg.SMTPEnabled = false
+	service := New(cfg, nil)
+	if err := service.SendSecurityCode(t.Context(), "bound@example.test", "12345678"); err == nil || !strings.Contains(err.Error(), "必须启用 SMTP") {
+		t.Fatalf("Smail 系统通知未拒绝 HTTP-only 配置：%v", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("Smail 系统通知账号禁止调用 HTTP 通道")
+	}
+}

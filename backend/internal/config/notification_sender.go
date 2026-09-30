@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// UsesSmailSystemAccount 判断通知账号是否为 Smail 系统通知账号。
+func (c NotificationConfig) UsesSmailSystemAccount() bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.SMTPUsername)), "notify:")
+}
+
 // SenderIdentity 根据系统通知账号确定发件人，不能将管理员邮箱当作 SMTP 发件人。
 func (c NotificationConfig) SenderIdentity() (string, string, error) {
 	name := strings.TrimSpace(c.SenderName)
@@ -14,7 +19,7 @@ func (c NotificationConfig) SenderIdentity() (string, string, error) {
 		return name, email, nil
 	}
 	username := strings.ToLower(strings.TrimSpace(c.SMTPUsername))
-	if strings.HasPrefix(username, "notify:") {
+	if c.UsesSmailSystemAccount() {
 		account := strings.TrimPrefix(username, "notify:")
 		parsed, err := mail.ParseAddress(account)
 		parts := strings.Split(account, "@")

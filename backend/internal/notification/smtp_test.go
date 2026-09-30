@@ -12,6 +12,8 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -310,6 +312,35 @@ func TestSmailSystemSenderUsesSameEnvelopeAndHeader(t *testing.T) {
 				t.Fatal("验证码不得发送给普通通知收件人")
 			}
 		})
+	}
+}
+
+func TestSmailSystemNotificationUsesSMTPOnly(t *testing.T) {
+	server := newSMTPTestServer(t, true, false)
+	host, port := server.address()
+	calls := 0
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer endpoint.Close()
+	cfg := smtpTestConfig(host, port, "implicit_tls")
+	cfg.SMTPUsername = "notify:scert@example.test"
+	cfg.HTTPEnabled = true
+	cfg.Endpoint = endpoint.URL
+	cfg.HTTPPath = "/api/email/send"
+	service := New(cfg, credentialReaderStub{values: map[string]string{"password": "test-only-notification-credential"}})
+	service.smtpTLSConfig = server.clientTLSConfig
+	if err := service.Send(context.Background(), Event{Type: "certificate_issue", Status: "success", Domain: "example.test"}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("Smail 系统通知不应调用 HTTP 通道，调用次数：%d", calls)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if len(server.messages) != 1 {
+		t.Fatalf("SMTP 系统通知数量错误：%d", len(server.messages))
 	}
 }
 

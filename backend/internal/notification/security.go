@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"errors"
+	"fmt"
 	"html"
 	"net/mail"
 )
@@ -41,6 +42,15 @@ func (s *Service) SendSecurityCode(ctx context.Context, recipient, code string) 
 		Subject: "[Scert] 超级管理员密码重置验证",
 		Text:    text, HTML: "<pre>" + html.EscapeString(text) + "</pre>",
 		CC: []address{}, BCC: []address{}, Attrs: []any{},
+	}
+	if s.config.UsesSmailSystemAccount() {
+		if !s.config.SMTPEnabled {
+			return errors.New("Smail 系统通知账号必须启用 SMTP 通道")
+		}
+		if err := s.sendSMTPWithRetry(ctx, payload); err != nil {
+			return fmt.Errorf("SMTP 验证码邮件发送失败：%w", err)
+		}
+		return nil
 	}
 	if s.config.HTTPEnabled {
 		if err := s.sendHTTPPayload(ctx, payload); err == nil {

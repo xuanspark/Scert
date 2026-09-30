@@ -25,6 +25,16 @@ func (s *Service) Send(ctx context.Context, event Event) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if s.config.UsesSmailSystemAccount() {
+		if !s.config.SMTPEnabled {
+			return errors.New("Smail 系统通知账号必须启用 SMTP 通道")
+		}
+		payload, err := s.buildPayload(event)
+		if err != nil {
+			return err
+		}
+		return s.sendSMTPWithRetry(ctx, payload)
+	}
 	var errs []error
 	if s.config.HTTPEnabled {
 		if err := s.sendHTTP(ctx, event); err != nil {
