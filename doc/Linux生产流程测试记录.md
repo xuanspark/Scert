@@ -1,4 +1,13 @@
 # Linux 生产流程测试记录
+## 3cc8fb6 正式候选双域名正常部署复测（2026-09-30 23:42）
+
+- 使用密码 SSH 连接 45.136.13.241，未使用密钥登录，未创建辅助验收脚本；线上运行程序为 3cc8fb6，管理入口重新登录成功。
+- 通过正式页面对 `scert-multi-20260930.apmmk.cn` 执行“部署证书”，页面结果为“1 台推送成功，站点 HTTPS 校验通过”；服务器结果为证书部署、配置校验并 reload 成功。
+- `Scert.service`、`Scert-storage.socket` 和 `nginx` 均为 active，`/readyz` 返回 `{"service":"scert","status":"ready"}`，活动任务为零。
+- `scert-20260930.apmmk.cn` 公网与目标证书 SHA-256 指纹均为 `5DE99CD681FB8A84745CE4ED6091D76A7B86616421B3048D3C42844B8A4460ED`；`scert-multi-20260930.apmmk.cn` 公网与目标证书 SHA-256 指纹均为 `43063C0726D34362B254CE28B66D7EB637E00B165F68EC0D07FCED0DF2C64AD2`。
+- 两个域名真实 HTTPS 请求均返回 200；`/ssl` 下两个托管目录没有残留 `.scert-lock`，证书权限保持公有证书 644、私钥 600。
+- 结论：本轮证明 3cc8fb6 的正常双域名部署闭环，不证明后置 HTTPS 校验失败自动恢复、进程崩溃事务自动接管、真实多服务器和最终清库首次生产流程已经通过。
+
 ## 固定诊断版本部署与锁测试收尾（2026-09-30 22:55）
 
 - 6efc89061bc87fdcdc41182203749b82e598865a 干净源码正式构建部署；归档 SHA256 为 443cd7db2a98832c5b1d2eb5d27b0ee704192c5be97ddd0f7585531008c13b5c，主程序 SHA256 为 ee0a5a98c993eb8f512cb53936dd05e0fde079505d2ea78af8f2cde24cbe220f。
