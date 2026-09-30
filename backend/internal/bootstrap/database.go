@@ -379,7 +379,6 @@ func (m *DatabaseVerificationManager) deleteExpiredSessions(entries []expiredDat
 		reference := strings.TrimSpace(entry.Session.CredentialRef)
 		if err := m.deleteCredential(reference); err != nil {
 			m.restoreExpiredSession(entry)
-			m.rememberPendingCleanup(reference)
 			continue
 		}
 		m.removeExpiredSession(entry)
@@ -392,7 +391,6 @@ func (m *DatabaseVerificationManager) deleteDiscardedSessions(entries []expiredD
 		reference := strings.TrimSpace(entry.Session.CredentialRef)
 		if err := m.deleteCredential(reference); err != nil {
 			m.restoreSession(entry.Token, entry.Session)
-			m.rememberPendingCleanup(reference)
 			continue
 		}
 		m.forgetPendingCleanup(reference)

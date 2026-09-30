@@ -314,3 +314,139 @@ func TestDatabaseVerificationConsumesTokenOnlyOnceUnderConcurrency(t *testing.T)
 		t.Fatalf("并发消费数据库验证令牌成功次数为 %d，预期为 1", successes)
 	}
 }
+
+func TestDatabaseVerificationPutFailureQueuesCredentialCleanup(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{putFailure: true, deleteFailures: 1}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+	_, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "scert_user", Password: "database-password", TLSMode: "true",
+	})
+	if err == nil {
+		t.Fatal("expected credential persistence failure")
+	}
+	store.mu.Lock()
+	retainedAfterFailure := len(store.values)
+	store.mu.Unlock()
+	if retainedAfterFailure != 1 {
+		t.Fatalf("expected failed persistence cleanup to retain one credential temporarily, got %d", retainedAfterFailure)
+	}
+	manager.retryPendingCredentialCleanup()
+	store.mu.Lock()
+	remaining := len(store.values)
+	store.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("expected pending credential cleanup to succeed on retry, got %d remaining", remaining)
+	}
+}
+
+func TestDatabaseVerificationDiscardFailureRestoresTokenForRetry(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{deleteFailures: 1}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+	result, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "scert_user", Password: "database-password", TLSMode: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Discard(result.VerificationToken); err == nil {
+		t.Fatal("expected first credential discard to fail")
+	}
+	if _, err := manager.Resolve(result.VerificationToken); err != nil {
+		t.Fatalf("expected failed discard to restore the verification token: %v", err)
+	}
+	store.mu.Lock()
+	_, retained := store.values[result.CredentialRef]
+	store.mu.Unlock()
+	if !retained {
+		t.Fatal("credential must remain available while the token is restored")
+	}
+	if err := manager.Discard(result.VerificationToken); err != nil {
+		t.Fatalf("expected retry discard to succeed: %v", err)
+	}
+	if _, err := manager.Resolve(result.VerificationToken); err == nil {
+		t.Fatal("discarded token must not remain usable")
+	}
+	store.mu.Lock()
+	_, retained = store.values[result.CredentialRef]
+	store.mu.Unlock()
+	if retained {
+		t.Fatal("successfully discarded credential must be deleted")
+	}
+}
+
+func TestDatabaseVerificationExpiredCleanupFailureRestoresTokenForRetry(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{deleteFailures: 1}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+	result, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "postgres", Host: "db.example.test", Database: "scert",
+		Username: "scert_user", Password: "database-password", TLSMode: "verify-full",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.now = func() time.Time { return result.ExpiresAt }
+	if _, err := manager.Check(result.VerificationToken, result.CredentialRef); err != nil {
+		t.Fatalf("expected failed expiry cleanup to preserve the session for retry: %v", err)
+	}
+	store.mu.Lock()
+	_, retained := store.values[result.CredentialRef]
+	store.mu.Unlock()
+	if !retained {
+		t.Fatal("credential must remain available after failed expiry cleanup")
+	}
+	if _, err := manager.Check(result.VerificationToken, result.CredentialRef); err == nil {
+		t.Fatal("expired token must be invalid after retry cleanup succeeds")
+	}
+	store.mu.Lock()
+	_, retained = store.values[result.CredentialRef]
+	store.mu.Unlock()
+	if retained {
+		t.Fatal("successfully cleaned expired credential must be deleted")
+	}
+}
+
+func TestDatabaseVerificationDiscardAllRestoresOnlyFailedSession(t *testing.T) {
+	base := config.Default(t.TempDir())
+	store := &memoryDatabaseStore{deleteFailures: 1}
+	manager := NewDatabaseVerificationManager(base, store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+	first, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "first", Password: "first-password", TLSMode: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Verify(t.Context(), DatabaseInput{
+		Driver: "mysql", Host: "db.example.test", Database: "scert",
+		Username: "second", Password: "second-password", TLSMode: "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.DiscardAll()
+	valid := 0
+	for _, token := range []string{first.VerificationToken, second.VerificationToken} {
+		if _, err := manager.Resolve(token); err == nil {
+			valid++
+		}
+	}
+	if valid != 1 {
+		t.Fatalf("expected exactly one failed batch cleanup to restore its token, got %d", valid)
+	}
+	manager.DiscardAll()
+	store.mu.Lock()
+	remaining := len(store.values)
+	store.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("expected second batch cleanup to remove the restored credential, got %d remaining", remaining)
+	}
+}
