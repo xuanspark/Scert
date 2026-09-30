@@ -21,6 +21,7 @@ type CertificateWorkflow struct {
 	Notifier                   notification.Notifier
 	NotifyError                func(error)
 	RemoteVerifier             func(context.Context, string, []string) (certificate.ValidationResult, error)
+	RemoteVerifierForServer    func(context.Context, deployment.Server, string, []string) (certificate.ValidationResult, error)
 	RemoteVerificationAttempts int
 	RemoteVerificationInterval time.Duration
 	RemoteVerificationWait     func(context.Context, time.Duration) error
@@ -243,8 +244,9 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 		}
 		targets = append(targets, deployment.Target{Server: resolved})
 	}
+	remoteVerificationEnabled := w.RemoteVerifier != nil || w.RemoteVerifierForServer != nil
 	expectedFingerprint := ""
-	if w.RemoteVerifier != nil {
+	if remoteVerificationEnabled {
 		// 从即将部署的文件读取身份，不信任可能缺失或陈旧的元数据；远端仍必须验证可信证书链。
 		validation, validationErr := (certificate.LocalValidator{}).ValidateFiles(
 			ctx, result.Saved.CertificatePath, result.Saved.FullChainPath, result.Saved.PrivateKeyPath, result.Domains,
@@ -259,25 +261,54 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 		FullChainPath:   result.Saved.FullChainPath,
 		PrivateKeyPath:  result.Saved.PrivateKeyPath,
 	}
-	if w.RemoteVerifier != nil {
+	if remoteVerificationEnabled {
 		verificationDomain := verificationName(domainItem, result.Domains)
 		if verificationDomain == "" {
 			return deployment.Report{Status: "failed"}, errors.New("无法确定部署后的 HTTPS 校验域名，未执行推送")
 		}
 		endpoint := "https://" + verificationDomain
-		// 首次部署允许不存在旧站点，但不得在缺少可信基线时宣称运行态已恢复。
-		baseline, baselineErr := w.RemoteVerifier(ctx, endpoint, result.Domains)
-		if err := ctx.Err(); err != nil {
-			return deployment.Report{Status: "failed"}, err
+		type verificationTarget struct {
+			server              deployment.Server
+			baselineFingerprint string
+		}
+		verificationTargets := make([]verificationTarget, 0, len(targets))
+		allBaselinesAvailable := true
+		for _, target := range targets {
+			// 首次部署允许不存在旧站点，但不得在缺少可信基线时宣称运行态已恢复。
+			baseline, baselineErr := w.verifyRemoteTarget(ctx, target.Server, endpoint, result.Domains)
+			if err := ctx.Err(); err != nil {
+				return deployment.Report{Status: "failed"}, err
+			}
+			baselineFingerprint := ""
+			if baselineErr == nil {
+				baselineFingerprint = baseline.FingerprintSHA256
+			}
+			if baselineFingerprint == "" {
+				allBaselinesAvailable = false
+			}
+			verificationTargets = append(verificationTargets, verificationTarget{
+				server:              target.Server,
+				baselineFingerprint: baselineFingerprint,
+			})
 		}
 		verification := deployment.Verification{
 			Verify: func(verificationContext context.Context) error {
-				return w.verifyRemoteDeployment(verificationContext, endpoint, result.Domains, expectedFingerprint)
+				for _, target := range verificationTargets {
+					if err := w.verifyRemoteDeploymentForServer(verificationContext, target.server, endpoint, result.Domains, expectedFingerprint); err != nil {
+						return fmt.Errorf("服务器 %s 的 HTTPS 校验失败：%w", target.server.Name, err)
+					}
+				}
+				return nil
 			},
 		}
-		if baselineErr == nil && baseline.FingerprintSHA256 != "" {
+		if allBaselinesAvailable {
 			verification.VerifyRecovery = func(recoveryContext context.Context) error {
-				return w.verifyRemoteDeployment(recoveryContext, endpoint, result.Domains, baseline.FingerprintSHA256)
+				for _, target := range verificationTargets {
+					if err := w.verifyRemoteDeploymentForServer(recoveryContext, target.server, endpoint, result.Domains, target.baselineFingerprint); err != nil {
+						return fmt.Errorf("服务器 %s 的恢复校验失败：%w", target.server.Name, err)
+					}
+				}
+				return nil
 			}
 		}
 		return w.Deployment.DeploySavedVerified(ctx, targets, saved, verification)
@@ -292,7 +323,21 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 	return report, nil
 }
 
+func (w *CertificateWorkflow) verifyRemoteTarget(ctx context.Context, server deployment.Server, endpoint string, expectedDomains []string) (certificate.ValidationResult, error) {
+	if w.RemoteVerifierForServer != nil {
+		return w.RemoteVerifierForServer(ctx, server, endpoint, expectedDomains)
+	}
+	if w.RemoteVerifier == nil {
+		return certificate.ValidationResult{}, errors.New("远端 HTTPS 校验器未配置")
+	}
+	return w.RemoteVerifier(ctx, endpoint, expectedDomains)
+}
+
 func (w *CertificateWorkflow) verifyRemoteDeployment(ctx context.Context, endpoint string, expectedDomains []string, expectedFingerprint string) error {
+	return w.verifyRemoteDeploymentForServer(ctx, deployment.Server{}, endpoint, expectedDomains, expectedFingerprint)
+}
+
+func (w *CertificateWorkflow) verifyRemoteDeploymentForServer(ctx context.Context, server deployment.Server, endpoint string, expectedDomains []string, expectedFingerprint string) error {
 	attempts := w.RemoteVerificationAttempts
 	if attempts <= 0 {
 		attempts = defaultRemoteVerificationAttempts
@@ -311,7 +356,7 @@ func (w *CertificateWorkflow) verifyRemoteDeployment(ctx context.Context, endpoi
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		validation, err := w.RemoteVerifier(ctx, endpoint, expectedDomains)
+		validation, err := w.verifyRemoteTarget(ctx, server, endpoint, expectedDomains)
 		if err == nil {
 			if contextErr := ctx.Err(); contextErr != nil {
 				return contextErr

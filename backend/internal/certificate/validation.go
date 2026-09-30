@@ -119,6 +119,15 @@ type RemoteValidator struct {
 
 // ValidateHTTPS 连接目标 HTTPS 地址并校验证书链和域名。
 func (v RemoteValidator) ValidateHTTPS(ctx context.Context, endpoint string, expectedDomains []string) (ValidationResult, error) {
+	return v.validateHTTPS(ctx, endpoint, "", expectedDomains)
+}
+
+// ValidateHTTPSAt 使用指定的远端地址建立 TCP 连接，同时保留 endpoint 的域名作为 SNI 和证书域名校验值。
+func (v RemoteValidator) ValidateHTTPSAt(ctx context.Context, endpoint, address string, expectedDomains []string) (ValidationResult, error) {
+	return v.validateHTTPS(ctx, endpoint, strings.TrimSpace(address), expectedDomains)
+}
+
+func (v RemoteValidator) validateHTTPS(ctx context.Context, endpoint, dialAddress string, expectedDomains []string) (ValidationResult, error) {
 	target, err := normalizeHTTPSURL(endpoint)
 	if err != nil {
 		return ValidationResult{}, err
@@ -127,9 +136,13 @@ func (v RemoteValidator) ValidateHTTPS(ctx context.Context, endpoint string, exp
 	if err != nil {
 		return ValidationResult{}, fmt.Errorf("解析 HTTPS 地址失败：%w", err)
 	}
-	address := parsed.Host
-	if _, _, splitErr := net.SplitHostPort(address); splitErr != nil {
-		address = net.JoinHostPort(parsed.Hostname(), "443")
+	address := dialAddress
+	if address == "" {
+		address = parsed.Host
+	}
+	address, err = normalizeHTTPSDialAddress(address, parsed.Port())
+	if err != nil {
+		return ValidationResult{}, err
 	}
 	dialer := v.Dialer
 	if dialer == nil {
@@ -171,6 +184,20 @@ func (v RemoteValidator) ValidateHTTPS(ctx context.Context, endpoint string, exp
 	}
 	validator := LocalValidator{Roots: v.Roots, Now: v.Now, VerifyChain: true}
 	return validator.ValidatePEM(ctx, chainData, wanted)
+}
+
+func normalizeHTTPSDialAddress(address, port string) (string, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return "", errors.New("HTTPS 连接地址不能为空")
+	}
+	if port == "" {
+		port = "443"
+	}
+	if _, _, err := net.SplitHostPort(address); err == nil {
+		return address, nil
+	}
+	return net.JoinHostPort(address, port), nil
 }
 
 func (v RemoteValidator) timeout() time.Duration {
