@@ -75,24 +75,26 @@ type DatabaseVerificationSession struct {
 }
 
 type DatabaseVerificationManager struct {
-	mu             sync.Mutex
-	cleanupMu      sync.Mutex
-	base           config.Config
-	store          DatabaseSecretStore
-	verify         func(context.Context, config.DatabaseConfig) error
-	now            func() time.Time
-	sessions       map[string]databaseVerificationSession
-	expiredSession map[string]expiredDatabaseVerificationSession
-	pendingCleanup map[string]struct{}
-	inFlight       int
+	mu              sync.Mutex
+	cleanupMu       sync.Mutex
+	base            config.Config
+	store           DatabaseSecretStore
+	verify          func(context.Context, config.DatabaseConfig) error
+	now             func() time.Time
+	sessions        map[string]databaseVerificationSession
+	expiredSession  map[string]expiredDatabaseVerificationSession
+	expiredCleaning map[string]struct{}
+	pendingCleanup  map[string]struct{}
+	inFlight        int
 }
 
 func NewDatabaseVerificationManager(base config.Config, store DatabaseSecretStore) *DatabaseVerificationManager {
 	return &DatabaseVerificationManager{
 		base: base, store: store, verify: database.VerifyWritable, now: time.Now,
-		sessions:       make(map[string]databaseVerificationSession),
-		expiredSession: make(map[string]expiredDatabaseVerificationSession),
-		pendingCleanup: make(map[string]struct{}),
+		sessions:        make(map[string]databaseVerificationSession),
+		expiredSession:  make(map[string]expiredDatabaseVerificationSession),
+		expiredCleaning: make(map[string]struct{}),
+		pendingCleanup:  make(map[string]struct{}),
 	}
 }
 
@@ -224,6 +226,7 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 	if ok {
 		delete(m.sessions, token)
 		m.expiredSession[token] = entry
+		m.expiredCleaning[token] = struct{}{}
 	}
 	m.mu.Unlock()
 	m.deleteExpiredSessions(expired)
@@ -317,6 +320,20 @@ func (m *DatabaseVerificationManager) DiscardAllExcept(protectedReferences ...st
 		}
 		entry := expiredDatabaseVerificationSession{Token: token, Session: session}
 		m.expiredSession[token] = entry
+		m.expiredCleaning[token] = struct{}{}
+		entries = append(entries, entry)
+	}
+	for token, entry := range m.expiredSession {
+		if protected[strings.TrimSpace(entry.Session.CredentialRef)] {
+			if _, cleaning := m.expiredCleaning[token]; !cleaning {
+				delete(m.expiredSession, token)
+			}
+			continue
+		}
+		if _, cleaning := m.expiredCleaning[token]; cleaning {
+			continue
+		}
+		m.expiredCleaning[token] = struct{}{}
 		entries = append(entries, entry)
 	}
 	m.mu.Unlock()
@@ -370,6 +387,7 @@ func (m *DatabaseVerificationManager) clearExpiredLocked(now time.Time) []expire
 		entry := expiredDatabaseVerificationSession{Token: token, Session: session}
 		delete(m.sessions, token)
 		m.expiredSession[token] = entry
+		m.expiredCleaning[token] = struct{}{}
 		expired = append(expired, entry)
 	}
 	return expired
@@ -441,6 +459,7 @@ func (m *DatabaseVerificationManager) restoreExpiredSession(entry expiredDatabas
 	m.mu.Lock()
 	if current, exists := m.expiredSession[entry.Token]; exists && current.Session.CredentialRef == entry.Session.CredentialRef {
 		delete(m.expiredSession, entry.Token)
+		delete(m.expiredCleaning, entry.Token)
 		if _, active := m.sessions[entry.Token]; !active {
 			m.sessions[entry.Token] = entry.Session
 		}
@@ -455,6 +474,7 @@ func (m *DatabaseVerificationManager) removeExpiredSession(entry expiredDatabase
 	m.mu.Lock()
 	if current, exists := m.expiredSession[entry.Token]; exists && current.Session.CredentialRef == entry.Session.CredentialRef {
 		delete(m.expiredSession, entry.Token)
+		delete(m.expiredCleaning, entry.Token)
 	}
 	m.mu.Unlock()
 }

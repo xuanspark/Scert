@@ -230,6 +230,40 @@ func TestDatabaseBatchDoesNotTakeOverConcurrentExpiryCleanup(t *testing.T) {
 	}
 }
 
+func TestDatabaseBatchTakesOverFailedExpiryCleanup(t *testing.T) {
+	store := &lifecycleDatabaseStore{}
+	manager := NewDatabaseVerificationManager(config.Default(t.TempDir()), store)
+	manager.verify = func(context.Context, config.DatabaseConfig) error { return nil }
+	result, err := manager.Verify(t.Context(), databaseLifecycleInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager.mu.Lock()
+	entry := expiredDatabaseVerificationSession{
+		Token:   result.VerificationToken,
+		Session: manager.sessions[result.VerificationToken],
+	}
+	delete(manager.sessions, result.VerificationToken)
+	manager.expiredSession[result.VerificationToken] = entry
+	manager.mu.Unlock()
+
+	manager.DiscardAll()
+
+	if store.deleteCalls.Load() != 1 {
+		t.Fatalf("expected one cleanup attempt, got %d", store.deleteCalls.Load())
+	}
+	if len(manager.expiredSession) != 0 || len(manager.expiredCleaning) != 0 {
+		t.Fatal("batch cleanup left expired state behind")
+	}
+	store.mu.Lock()
+	_, retained := store.values[result.CredentialRef]
+	store.mu.Unlock()
+	if retained {
+		t.Fatal("batch cleanup did not delete the credential")
+	}
+}
+
 func TestDatabasePendingCleanupCountsTowardCapacity(t *testing.T) {
 	store := &lifecycleDatabaseStore{beforeDelete: func(context.Context) error { return errors.New("测试删除失败") }}
 	manager := NewDatabaseVerificationManager(config.Default(t.TempDir()), store)
