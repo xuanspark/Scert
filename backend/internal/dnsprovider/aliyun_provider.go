@@ -36,7 +36,7 @@ func (a aliyunRecords) Add(ctx context.Context, zone, rr, value string) (string,
 		SetType("TXT").SetValue(value).SetTTL(aliyunAuthorizationTTL)
 	response, err := client.AddDomainRecordWithContext(ctx, a.client, request, &dara.RuntimeOptions{})
 	if err != nil {
-		return "", err
+		return "", a.reconcileAuthorizationAdd(ctx, zone, rr, value, err)
 	}
 	if response == nil || response.Body == nil || response.Body.RecordId == nil || strings.TrimSpace(*response.Body.RecordId) == "" {
 		return "", errors.New("阿里云未返回新增记录 ID，状态未确认，请人工核对本次记录")
@@ -56,7 +56,7 @@ func (a aliyunRecords) Describe(ctx context.Context, zone, rr, recordID string) 
 		ctx,
 		a.client,
 		new(client.DescribeDomainRecordsRequest).SetDomainName(zone).SetRRKeyWord(rr).
-			SetTypeKeyWord("TXT").SetSearchMode("EXACT").SetPageNumber(1).SetPageSize(100),
+			SetTypeKeyWord("TXT").SetSearchMode("COMBINATION").SetPageNumber(1).SetPageSize(100),
 		&dara.RuntimeOptions{},
 	)
 	if err != nil {

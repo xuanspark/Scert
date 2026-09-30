@@ -30,7 +30,7 @@ func TestAliyunRecordsDescribeUsesScopedExactQuery(t *testing.T) {
 				for key, expected := range map[string]string{
 					"DomainName": "example.com",
 					"RRKeyWord": "_scert-authorization-mixed.web", "TypeKeyWord": "TXT",
-					"SearchMode": "EXACT", "PageNumber": "1", "PageSize": "100",
+					"SearchMode": "COMBINATION", "PageNumber": "1", "PageSize": "100",
 				} {
 					if got := r.Form.Get(key); got != expected {
 						t.Errorf("查询范围错误：%s=%q，预期 %q", key, got, expected)

@@ -298,6 +298,10 @@ func dereferenceString(value *string) string {
 
 // DiagnoseAliyunError 对阿里云 API 返回的错误进行分类并提供明确的修复指导。
 func DiagnoseAliyunError(err error, domainName string) string {
+	var reconciliation *aliyunReconciliationError
+	if errors.As(err, &reconciliation) {
+		return fmt.Sprintf("阿里云授权探测创建响应异常，临时 TXT 记录 %s 的清理尚未确认，请核对该记录；本次权限验证未通过", reconciliation.recordName)
+	}
 	if err == nil {
 		return ""
 	}
