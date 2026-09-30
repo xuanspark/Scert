@@ -1,0 +1,105 @@
+package deployment
+
+import (
+	"context"
+	"testing"
+)
+
+type memoryTransactionJournal struct {
+	pending  []TransactionRecord
+	finished []struct {
+		id      string
+		status  string
+		message string
+	}
+	updated []TransactionRecord
+}
+
+func (j *memoryTransactionJournal) CreateDeploymentTransaction(_ context.Context, item TransactionRecord) error {
+	j.pending = append(j.pending, item)
+	return nil
+}
+
+func (j *memoryTransactionJournal) UpdateDeploymentTransaction(_ context.Context, item TransactionRecord) error {
+	j.updated = append(j.updated, item)
+	return nil
+}
+
+func (j *memoryTransactionJournal) FinishDeploymentTransaction(_ context.Context, id, status, message string) error {
+	j.finished = append(j.finished, struct {
+		id      string
+		status  string
+		message string
+	}{id: id, status: status, message: message})
+	return nil
+}
+
+func (j *memoryTransactionJournal) ListPendingDeploymentTransactions(context.Context) ([]TransactionRecord, error) {
+	return append([]TransactionRecord(nil), j.pending...), nil
+}
+
+func TestRecoverPendingRollsBackOwnedDeployment(t *testing.T) {
+	server := testServer("recovery")
+	client := newMemoryClient()
+	id := "recovery-transaction"
+	paths := []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath}
+	locks := make([]string, 0, len(paths))
+	backups := make([]TransactionBackup, 0, len(paths))
+	temporary := make([]string, 0, len(paths))
+	for _, path := range paths {
+		lockPath := path + ".scert-lock"
+		backupPath := path + ".scert-backup-" + id
+		temporaryPath := path + ".scert-tmp-" + id
+		locks = append(locks, lockPath)
+		backups = append(backups, TransactionBackup{Original: path, Saved: backupPath, OriginalExists: true})
+		temporary = append(temporary, temporaryPath)
+		client.files[lockPath] = memoryFile{}
+		client.files[backupPath] = memoryFile{data: []byte("old"), mode: 0o600}
+		client.files[path] = memoryFile{data: []byte("new"), mode: 0o600}
+		client.files[temporaryPath] = memoryFile{data: []byte("partial"), mode: 0o600}
+	}
+	journal := &memoryTransactionJournal{pending: []TransactionRecord{{
+		ID: id, TaskID: "task", AttemptID: "attempt", AttemptNumber: 1, ResultIndex: 0,
+		ServerID: server.ID, ServerName: server.Name, Paths: paths, TemporaryPaths: temporary,
+		InstalledPaths: paths, Backups: backups, LockPaths: locks, ReloadAttempted: true,
+		Phase: TransactionPhaseReloadAttempted, Status: TransactionStatusPending,
+	}}}
+	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
+	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err != nil {
+		t.Fatalf("事务恢复失败：%v", err)
+	}
+	for _, path := range paths {
+		file, ok := client.files[path]
+		if !ok || string(file.data) != "old" {
+			t.Fatalf("目标文件未恢复：%s，文件：%+v", path, client.files)
+		}
+		if _, ok := client.files[path+".scert-lock"]; ok {
+			t.Fatalf("恢复成功后不应残留锁：%s", path)
+		}
+		if _, ok := client.files[path+".scert-tmp-"+id]; ok {
+			t.Fatalf("恢复成功后不应残留临时文件：%s", path)
+		}
+	}
+	if len(client.commands) != 2 || len(journal.finished) != 1 || journal.finished[0].status != TransactionStatusRolledBack {
+		t.Fatalf("恢复收尾记录不正确：命令=%d，完成记录=%+v", len(client.commands), journal.finished)
+	}
+}
+
+func TestRecoverPendingKeepsUnprovableState(t *testing.T) {
+	server := testServer("unprovable")
+	client := newMemoryClient()
+	journal := &memoryTransactionJournal{pending: []TransactionRecord{{
+		ID: "unprovable-transaction", TaskID: "task", AttemptID: "attempt", AttemptNumber: 1,
+		ResultIndex: 0, ServerID: server.ID, ServerName: server.Name,
+		Paths:     []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath},
+		LockPaths: []string{server.PrivateKeyPath + ".scert-lock"}, Status: TransactionStatusPending,
+		Phase: TransactionPhaseInstalled,
+	}}}
+	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
+	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err == nil {
+		t.Fatal("无法证明锁归属时必须返回人工核查错误")
+	}
+	if len(journal.updated) != 1 || journal.updated[0].Status != TransactionStatusRecoveryRequired {
+		t.Fatalf("未记录人工核查状态：%+v", journal.updated)
+	}
+}

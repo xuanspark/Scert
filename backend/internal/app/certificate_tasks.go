@@ -147,6 +147,9 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 			return result, err
 		}
 		issueCtx, cancel := context.WithTimeout(taskCtx, 30*time.Minute)
+		issueCtx = deployment.WithTransactionContext(issueCtx, deployment.TransactionContext{
+			TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
+		})
 		result, resultErr = execute(issueCtx, id)
 		cancel()
 		if recordErr := w.tasks.RecordTaskDeploymentResults(taskCtx, task.ID, attempt.ID, number, taskDeploymentResults(result.Deployment)); recordErr != nil {

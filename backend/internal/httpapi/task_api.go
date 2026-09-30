@@ -138,6 +138,9 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 
 func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
 	executionCtx, cancel := context.WithTimeout(c.Request.Context(), certificateTaskTimeout)
+	executionCtx = deployment.WithTransactionContext(executionCtx, deployment.TransactionContext{
+		TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
+	})
 	s.registerTaskCancel(task.ID, cancel)
 	defer func() {
 		cancel()

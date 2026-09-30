@@ -103,6 +103,11 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		}
 	}
 	taskRepo := repository.NewSQLTaskRepository(db.DB, runtimeDatabaseConfig.Driver)
+	transactionRepo := repository.NewSQLDeploymentTransactionRepository(db.DB, runtimeDatabaseConfig.Driver)
+	deploymentService := deployment.NewServiceWithJournal(deployment.SSHFactory{Secrets: secretStore}, transactionRepo)
+	if err := deploymentService.RecoverPending(ctx, serverRepo.GetServerByID); err != nil {
+		logger.Error("恢复中断部署事务失败，已保留现场等待人工核查", "error", err)
+	}
 	if recovered, err := taskRepo.RecoverInterruptedTasks(ctx, time.Now().UTC()); err != nil {
 		_ = db.Close()
 		_ = logger.Close()
@@ -121,7 +126,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
 	aliyunAuthChecker := dnsprovider.NewAliyunAuthorizationChecker()
 	certificates.SetDNSAuthorizationChecker(aliyunAuthChecker)
-	deploymentService := deployment.NewService(deployment.SSHFactory{Secrets: secretStore})
+
 	notifier := notification.New(cfg.Notification, secretStore)
 	remoteValidator := certificate.RemoteValidator{}
 	workflow := &CertificateWorkflow{

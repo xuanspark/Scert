@@ -8,8 +8,9 @@ import (
 
 // TransactionBackup 描述一次部署事务保存的旧文件。
 type TransactionBackup struct {
-	Original string `json:"original"`
-	Saved    string `json:"saved"`
+	Original       string `json:"original"`
+	Saved          string `json:"saved"`
+	OriginalExists bool   `json:"original_exists"`
 }
 
 // TransactionRecord 保存远程部署事务的可恢复现场，不包含证书内容或凭据。
@@ -40,6 +41,21 @@ type TransactionJournal interface {
 	FinishDeploymentTransaction(context.Context, string, string, string) error
 	ListPendingDeploymentTransactions(context.Context) ([]TransactionRecord, error)
 }
+
+const (
+	TransactionStatusPending          = "pending"
+	TransactionStatusCommitted        = "committed"
+	TransactionStatusRolledBack       = "rolled_back"
+	TransactionStatusRecoveryRequired = "recovery_required"
+
+	TransactionPhaseLocked          = "locked"
+	TransactionPhaseUploaded        = "uploaded"
+	TransactionPhaseReplacing       = "replacing"
+	TransactionPhaseInstalled       = "installed"
+	TransactionPhaseReloadAttempted = "reload_attempted"
+	TransactionPhaseCommitted       = "committed"
+	TransactionPhaseRolledBack      = "rolled_back"
+)
 
 type transactionContextKey struct{}
 
