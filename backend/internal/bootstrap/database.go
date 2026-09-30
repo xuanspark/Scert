@@ -61,6 +61,11 @@ type databaseVerificationSession struct {
 	ExpiresAt     time.Time
 }
 
+type expiredDatabaseVerificationSession struct {
+	Token   string
+	Session databaseVerificationSession
+}
+
 // DatabaseVerificationSession 仅供服务端完整初始化事务读取验证结果。
 // 所有字段均禁止 JSON 序列化，避免凭据引用被误写入 HTTP 响应。
 type DatabaseVerificationSession struct {
@@ -75,14 +80,18 @@ type DatabaseVerificationManager struct {
 	store    DatabaseSecretStore
 	verify   func(context.Context, config.DatabaseConfig) error
 	now      func() time.Time
-	sessions map[string]databaseVerificationSession
-	inFlight int
+	sessions       map[string]databaseVerificationSession
+	expiredSession map[string]expiredDatabaseVerificationSession
+	pendingCleanup map[string]struct{}
+	inFlight       int
 }
 
 func NewDatabaseVerificationManager(base config.Config, store DatabaseSecretStore) *DatabaseVerificationManager {
 	return &DatabaseVerificationManager{
 		base: base, store: store, verify: database.VerifyWritable, now: time.Now,
-		sessions: make(map[string]databaseVerificationSession),
+		sessions:       make(map[string]databaseVerificationSession),
+		expiredSession: make(map[string]expiredDatabaseVerificationSession),
+		pendingCleanup: make(map[string]struct{}),
 	}
 }
 
@@ -90,6 +99,7 @@ func (m *DatabaseVerificationManager) Verify(ctx context.Context, input Database
 	if m == nil || m.verify == nil || m.store == nil {
 		return DatabaseVerificationResult{}, errors.New("数据库验证服务尚未初始化")
 	}
+	m.retryPendingCredentialCleanup()
 	if err := m.reserve(); err != nil {
 		return DatabaseVerificationResult{}, err
 	}
@@ -105,6 +115,12 @@ func (m *DatabaseVerificationManager) Verify(ctx context.Context, input Database
 		return DatabaseVerificationResult{}, err
 	}
 	credentialRef := ""
+	keepCredential := false
+	defer func() {
+		if !keepCredential && credentialRef != "" {
+			_ = m.deleteOrQueueCredential(credentialRef)
+		}
+	}()
 	if len(credentials) > 0 {
 		credentialRef, err = database.NewCredentialReference()
 		if err != nil {
@@ -115,13 +131,6 @@ func (m *DatabaseVerificationManager) Verify(ctx context.Context, input Database
 			return DatabaseVerificationResult{}, fmt.Errorf("加密保存数据库凭据失败：%w", err)
 		}
 	}
-	keepCredential := false
-	defer func() {
-		if !keepCredential && credentialRef != "" {
-			_ = m.deleteCredential(credentialRef)
-		}
-	}()
-
 	resolved, err := database.ResolveConfig(ctx, persisted, m.store)
 	if err != nil {
 		return DatabaseVerificationResult{}, err
@@ -178,7 +187,7 @@ func (m *DatabaseVerificationManager) Claim(token string) (DatabaseVerificationS
 	if err != nil {
 		return DatabaseVerificationSession{}, nil, err
 	}
-	cleanup := sync.OnceValue(func() error { return m.deleteCredential(session.CredentialRef) })
+	cleanup := sync.OnceValue(func() error { return m.deleteOrQueueCredential(session.CredentialRef) })
 	return DatabaseVerificationSession{
 		Config: session.Config, CredentialRef: session.CredentialRef, ExpiresAt: session.ExpiresAt,
 	}, cleanup, nil
@@ -189,6 +198,7 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 	if m == nil {
 		return errors.New("数据库验证服务尚未初始化")
 	}
+	m.retryPendingCredentialCleanup()
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return errors.New("数据库验证令牌不能为空")
@@ -206,6 +216,7 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 		return errors.New("数据库验证令牌无效或已经过期")
 	}
 	if err := m.deleteCredential(session.CredentialRef); err != nil {
+		m.restoreSession(token, session)
 		return errors.New("数据库临时凭据回收失败")
 	}
 	return nil
@@ -219,6 +230,7 @@ func (m *DatabaseVerificationManager) session(token, credentialRef string, consu
 	if token == "" {
 		return config.DatabaseConfig{}, errors.New("必须先完成数据库连接和写权限测试")
 	}
+	m.retryPendingCredentialCleanup()
 	now := m.now().UTC()
 	m.mu.Lock()
 	expired := m.clearExpiredLocked(now)
@@ -249,6 +261,7 @@ func (m *DatabaseVerificationManager) resolveSession(token string, claim bool) (
 	if token == "" {
 		return databaseVerificationSession{}, errors.New("必须先完成数据库连接和写权限测试")
 	}
+	m.retryPendingCredentialCleanup()
 	now := m.now().UTC()
 	m.mu.Lock()
 	expired := m.clearExpiredLocked(now)
@@ -306,7 +319,7 @@ func (m *DatabaseVerificationManager) reserve() error {
 		m.deleteCredentials(expired)
 		return errors.New("数据库验证请求过多，请稍后重试")
 	}
-	if len(m.sessions)+m.inFlight >= databaseVerificationCapacity {
+	if len(m.sessions)+len(m.expiredSession)+m.inFlight >= databaseVerificationCapacity {
 		m.mu.Unlock()
 		m.deleteCredentials(expired)
 		return errors.New("数据库验证令牌数量已达上限，请等待现有验证完成或过期后重试")
