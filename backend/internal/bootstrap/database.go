@@ -303,39 +303,24 @@ func (m *DatabaseVerificationManager) DiscardAllExcept(protectedReferences ...st
 	if m == nil {
 		return
 	}
-	m.retryPendingCredentialCleanup()
 	protected := protectedCredentialReferences(protectedReferences)
-	now := m.now().UTC()
+	for reference := range protected {
+		m.forgetPendingCleanup(reference)
+	}
+	m.retryPendingCredentialCleanup()
 	m.mu.Lock()
-	expired := m.clearExpiredLocked(now)
-	discarded := make([]expiredDatabaseVerificationSession, 0, len(m.sessions))
+	entries := make([]expiredDatabaseVerificationSession, 0, len(m.sessions))
 	for token, session := range m.sessions {
 		delete(m.sessions, token)
-		reference := strings.TrimSpace(session.CredentialRef)
-		if reference != "" && !protected[reference] {
-			discarded = append(discarded, expiredDatabaseVerificationSession{Token: token, Session: session})
-		}
-	}
-	for token, entry := range m.expiredSession {
-		reference := strings.TrimSpace(entry.Session.CredentialRef)
-		if protected[reference] {
-			delete(m.expiredSession, token)
+		if protected[strings.TrimSpace(session.CredentialRef)] {
 			continue
 		}
-		alreadyQueued := false
-		for _, item := range expired {
-			if item.Token == token {
-				alreadyQueued = true
-				break
-			}
-		}
-		if !alreadyQueued {
-			expired = append(expired, entry)
-		}
+		entry := expiredDatabaseVerificationSession{Token: token, Session: session}
+		m.expiredSession[token] = entry
+		entries = append(entries, entry)
 	}
 	m.mu.Unlock()
-	m.deleteExpiredSessions(expired)
-	m.deleteDiscardedSessions(discarded)
+	m.deleteExpiredSessions(entries)
 }
 
 func protectedCredentialReferences(references []string) map[string]bool {
@@ -357,7 +342,7 @@ func (m *DatabaseVerificationManager) reserve() error {
 		m.deleteExpiredSessions(expired)
 		return errors.New("数据库验证请求过多，请稍后重试")
 	}
-	if len(m.sessions)+len(m.expiredSession)+m.inFlight >= databaseVerificationCapacity {
+	if len(m.sessions)+len(m.expiredSession)+len(m.pendingCleanup)+m.inFlight >= databaseVerificationCapacity {
 		m.mu.Unlock()
 		m.deleteExpiredSessions(expired)
 		return errors.New("数据库验证令牌数量已达上限，请等待现有验证完成或过期后重试")
@@ -402,17 +387,6 @@ func (m *DatabaseVerificationManager) deleteExpiredSessions(entries []expiredDat
 	}
 }
 
-func (m *DatabaseVerificationManager) deleteDiscardedSessions(entries []expiredDatabaseVerificationSession) {
-	for _, entry := range entries {
-		reference := strings.TrimSpace(entry.Session.CredentialRef)
-		if err := m.deleteCredential(reference); err != nil {
-			m.restoreSession(entry.Token, entry.Session)
-			continue
-		}
-		m.forgetPendingCleanup(reference)
-	}
-}
-
 func (m *DatabaseVerificationManager) deleteOrQueueCredential(reference string) error {
 	if err := m.deleteCredential(reference); err != nil {
 		m.rememberPendingCleanup(reference)
@@ -423,9 +397,10 @@ func (m *DatabaseVerificationManager) deleteOrQueueCredential(reference string) 
 }
 
 func (m *DatabaseVerificationManager) retryPendingCredentialCleanup() {
-	if m == nil {
+	if m == nil || !m.cleanupMu.TryLock() {
 		return
 	}
+	defer m.cleanupMu.Unlock()
 	m.mu.Lock()
 	references := make([]string, 0, len(m.pendingCleanup))
 	for reference := range m.pendingCleanup {
@@ -459,19 +434,6 @@ func (m *DatabaseVerificationManager) forgetPendingCleanup(reference string) {
 	m.mu.Unlock()
 }
 
-func (m *DatabaseVerificationManager) restoreSession(token string, session databaseVerificationSession) {
-	if m == nil || strings.TrimSpace(token) == "" {
-		return
-	}
-	m.mu.Lock()
-	if _, exists := m.sessions[token]; !exists {
-		if _, expired := m.expiredSession[token]; !expired {
-			m.sessions[token] = session
-		}
-	}
-	m.mu.Unlock()
-}
-
 func (m *DatabaseVerificationManager) restoreExpiredSession(entry expiredDatabaseVerificationSession) {
 	if m == nil || strings.TrimSpace(entry.Token) == "" {
 		return
@@ -501,8 +463,6 @@ func (m *DatabaseVerificationManager) deleteCredential(reference string) error {
 	if strings.TrimSpace(reference) == "" || m == nil || m.store == nil {
 		return nil
 	}
-	m.cleanupMu.Lock()
-	defer m.cleanupMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), databaseVerificationCleanupTimeout)
 	defer cancel()
 	return m.store.Delete(ctx, reference)
