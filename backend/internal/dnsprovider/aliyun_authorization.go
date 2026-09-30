@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -97,7 +98,7 @@ func (c *AliyunAuthorizationChecker) verifyResolved(ctx context.Context, request
 	if err != nil {
 		return result, err
 	}
-	suffix, err := randomAuthorizationValue(18)
+	suffix, err := randomAuthorizationLabel()
 	if err != nil {
 		return result, err
 	}
@@ -289,6 +290,15 @@ func randomAuthorizationValue(size int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
+func randomAuthorizationLabel() (string, error) {
+	// 主机记录标签不能以连字符结尾；完整编码随机字节，避免替换字符造成分布偏差。
+	data := make([]byte, 18)
+	if _, err := rand.Read(data); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data), nil
+}
+
 func dereferenceString(value *string) string {
 	if value == nil {
 		return ""
@@ -307,6 +317,9 @@ func DiagnoseAliyunError(err error, domainName string) string {
 	}
 	msg := err.Error()
 	lowered := strings.ToLower(msg)
+	if strings.Contains(lowered, "invalidrr.format") {
+		return "阿里云拒绝了授权探测记录名格式，本次验证未通过；这不代表 RAM 权限不足，请检查系统生成的记录名，不要扩大账号权限"
+	}
 	if strings.Contains(msg, "权威 DNS 托管区") || strings.Contains(lowered, "soa lookup") {
 		return "未能从公开 DNS 的 SOA 记录识别该域名唯一的权威托管区，系统未构造阿里云客户端，也未创建临时 TXT 记录。请检查域名是否已正确委派并可被公网 DNS 查询后重试"
 	}
