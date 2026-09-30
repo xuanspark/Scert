@@ -1,4 +1,13 @@
 # Linux 生产流程测试记录
+## 陈旧部署锁清理后正式页面复测（2026-09-30 16:55 UTC）
+
+- 通过 SSH 核查 `scert-multi-20260930.apmmk.cn` 目标目录中的 `cert.pem.scert-lock`、`fullchain.pem.scert-lock` 和 `key.pem.scert-lock`：三个均为空目录，创建时间早于本次任务；同时确认没有活动 Scert、SSH 或 SFTP 部署进程，`Scert` 与 `nginx` 均为 active。
+- 按允许的现场清理范围，仅使用 `rmdir` 删除上述三个已确认陈旧且为空的锁目录；未删除证书、私钥、Nginx 配置、业务数据或证据目录中的历史中断现场。
+- 通过正式页面重新部署 `scert-multi-20260930.apmmk.cn`，页面显示“证书部署完成：1 台推送成功，站点 HTTPS 校验通过”；服务器结果显示证书部署、配置校验并 reload 成功，域名状态恢复为“正常”。
+- `Scert`、`Scert-storage.socket`、`nginx` 均为 active，公网 `https://odacm.cn/readyz` 返回 `{"service":"scert","status":"ready"}`；两个测试域名 HTTPS 均返回 200。
+- `scert-20260930.apmmk.cn` 目标证书和公网证书 SHA-256 指纹均为 `5DE99CD681FB8A84745CE4ED6091D76A7B86616421B3048D3C42844B8A4460ED`；`scert-multi-20260930.apmmk.cn` 两者均为 `43063C0726D34362B254CE28B66D7EB637E00B165F68EC0D07FCED0DF2C64AD2`。两个目标托管目录无 `.scert-lock`、`.scert-backup-*` 或 `.scert-tmp-*` 残留。
+- 结论：陈旧锁人工核查、清理后的正常恢复路径通过；不代表后置 HTTPS 失败自动恢复、进程崩溃事务自动接管、第二台真实服务器、多服务器任务或最终清库首次生产流程已经通过。
+
 ## SSH 密码部署公钥、密钥回连及后续部署复测（2026-09-30 23:55）
 
 - 通过正式服务器配置页面临时使用已授权的密码保存服务器配置；Scert 自动生成服务器专属托管密钥，通过密码 SSH 将公钥写入远端 `/root/.ssh/authorized_keys`，随后关闭密码连接并使用托管私钥执行 `true` 回连验证。
