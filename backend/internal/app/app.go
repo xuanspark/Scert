@@ -134,8 +134,8 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		Domains:      repo,
 		Servers:      serverRepo,
 		Deployment:   deploymentService,
-		RemoteVerifier: func(ctx context.Context, endpoint string, expectedDomains []string) (certificate.ValidationResult, error) {
-			return remoteValidator.ValidateHTTPS(ctx, endpoint, expectedDomains)
+		RemoteVerifierForServer: func(ctx context.Context, server deployment.Server, endpoint string, expectedDomains []string) (certificate.ValidationResult, error) {
+			return remoteValidator.ValidateHTTPSAt(ctx, endpoint, server.Address, expectedDomains)
 		},
 		Notifier:           notifier,
 		NotifyError:        func(err error) { logger.Error("发送邮件通知失败", "error", err) },
