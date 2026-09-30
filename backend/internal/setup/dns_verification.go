@@ -123,6 +123,9 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 	if err != nil {
 		return DNSVerificationResult{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return DNSVerificationResult{}, err
+	}
 	if err := m.reserveVerificationSlot(); err != nil {
 		return DNSVerificationResult{}, err
 	}
@@ -134,6 +137,12 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 	}()
 	testReport, err := m.tester.Verify(ctx, providerID, testDomain, cleanedCredentials)
 	if err != nil {
+		return DNSVerificationResult{TestReport: testReport}, &DNSVerificationError{
+			Report: testReport,
+			Err:    err,
+		}
+	}
+	if err := ctx.Err(); err != nil {
 		return DNSVerificationResult{TestReport: testReport}, &DNSVerificationError{
 			Report: testReport,
 			Err:    err,
@@ -155,6 +164,20 @@ func (m *DNSVerificationManager) Verify(ctx context.Context, input DNSVerificati
 			return DNSVerificationResult{}, errors.New("加密保存 DNS 凭据失败，临时凭据回收未确认")
 		}
 		return DNSVerificationResult{}, fmt.Errorf("加密保存 DNS 凭据失败：%w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		cleanupErr := m.deleteCredential(credentialRef)
+		if cleanupErr != nil {
+			m.logCleanupFailure()
+			return DNSVerificationResult{TestReport: testReport}, errors.Join(
+				err,
+				fmt.Errorf("DNS 在线验证取消后临时凭据回收失败：%w", cleanupErr),
+			)
+		}
+		return DNSVerificationResult{TestReport: testReport}, &DNSVerificationError{
+			Report: testReport,
+			Err:    err,
+		}
 	}
 	expiresAt := m.now().UTC().Add(dnsVerificationLifetime)
 	m.mu.Lock()

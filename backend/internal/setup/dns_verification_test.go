@@ -56,6 +56,19 @@ type memorySecretWriter struct {
 	deleteErr error
 }
 
+type cancellingSecretWriter struct {
+	memorySecretWriter
+	cancel context.CancelFunc
+}
+
+func (s *cancellingSecretWriter) Put(ctx context.Context, reference string, value map[string]string) error {
+	if err := s.memorySecretWriter.Put(ctx, reference, value); err != nil {
+		return err
+	}
+	s.cancel()
+	return nil
+}
+
 func (m *memorySecretWriter) Put(_ context.Context, reference string, value map[string]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -262,6 +275,48 @@ func TestDNSVerificationManagerDeletesCredentialWhenPutReportsFailure(t *testing
 	}
 	if len(store.values) != 0 {
 		t.Fatalf("Put failure left temporary credentials stored: %v", store.values)
+	}
+}
+
+func TestDNSVerificationManagerRejectsAlreadyCancelledContextBeforeTesting(t *testing.T) {
+	tester := &countingDNSTester{}
+	store := &memorySecretWriter{}
+	manager := NewDNSVerificationManager(tester, store)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := manager.Verify(ctx, DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com",
+		Credentials: map[string]string{"api_token": "secret"},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("已取消上下文应返回 context.Canceled：%v", err)
+	}
+	if tester.CallCount() != 0 || len(store.values) != 0 {
+		t.Fatalf("已取消上下文不应执行测试或保存凭据：calls=%d values=%v", tester.CallCount(), store.values)
+	}
+}
+
+func TestDNSVerificationManagerCleansCredentialWhenContextCancelsAfterStore(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	store := &cancellingSecretWriter{cancel: cancel}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+
+	result, err := manager.Verify(ctx, DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com",
+		Credentials: map[string]string{"api_token": "secret"},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("保存凭据后取消应返回 context.Canceled：%v", err)
+	}
+	if result.CredentialRef != "" || result.VerificationToken != "" {
+		t.Fatalf("取消的 DNS 验证不应发布令牌：%+v", result)
+	}
+	if len(store.values) != 0 {
+		t.Fatalf("保存后取消未回收临时凭据：%v", store.values)
+	}
+	if len(store.deleted) != 1 {
+		t.Fatalf("保存后取消未执行临时凭据回收：%v", store.deleted)
 	}
 }
 
