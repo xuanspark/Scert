@@ -146,11 +146,7 @@ func (s *Service) AuthorizedPublicKey(ctx context.Context, reference string) (st
 	if err != nil {
 		return "", err
 	}
-	publicKey, err := ssh.NewPublicKey(signer.PublicKey())
-	if err != nil {
-		return "", fmt.Errorf("编码 SSH 公钥失败：%w", err)
-	}
-	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicKey))), nil
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))), nil
 }
 func (s *Service) List(ctx context.Context) ([]Metadata, error) {
 	if s == nil || s.store == nil {

@@ -35,6 +35,14 @@ func TestServiceCreatesListsValidatesAndDeletesSSHKey(t *testing.T) {
 	if err != nil || validated.Fingerprint != created.Fingerprint {
 		t.Fatalf("SSH 私钥引用校验失败：metadata=%+v err=%v", validated, err)
 	}
+	authorized, err := service.AuthorizedPublicKey(t.Context(), created.Reference)
+	if err != nil {
+		t.Fatalf("读取 SSH 公钥失败：%v", err)
+	}
+	publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(authorized))
+	if err != nil || ssh.FingerprintSHA256(publicKey) != created.Fingerprint {
+		t.Fatalf("SSH 公钥指纹不匹配：fingerprint=%s err=%v", ssh.FingerprintSHA256(publicKey), err)
+	}
 	if err := service.Delete(t.Context(), created.ID); err != nil {
 		t.Fatalf("删除 SSH 私钥失败：%v", err)
 	}
