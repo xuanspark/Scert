@@ -59,6 +59,13 @@ func TestValidateCommandRejectsShellControlLines(t *testing.T) {
 	}
 }
 
+func TestValidateCommandAllowsShellScriptArgument(t *testing.T) {
+	command := []string{"sh", "-c", "set -eu\nprintf '%s\\n' 'ok'"}
+	if err := validateCommand(command); err != nil {
+		t.Fatalf("shell script argument should be accepted: %v", err)
+	}
+}
+
 func TestJoinShellArgsQuotesArguments(t *testing.T) {
 	command := []string{"nginx", "-c", "/etc/nginx/my config.conf", "reload'check"}
 	joined := joinShellArgs(command)

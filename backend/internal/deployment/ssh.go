@@ -420,8 +420,8 @@ func (c *sshClientAdapter) Close() error {
 }
 
 func validateCommand(command []string) error {
-	for _, token := range command {
-		if strings.TrimSpace(token) == "" || strings.ContainsAny(token, "\x00\r\n") {
+	for index, token := range command {
+		if strings.TrimSpace(token) == "" || strings.ContainsRune(token, '\x00') || (strings.ContainsAny(token, "\r\n") && !(len(command) == 3 && index == 2 && command[0] == "sh" && command[1] == "-c")) {
 			return errors.New("远程命令参数无效")
 		}
 	}
