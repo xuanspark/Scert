@@ -546,3 +546,33 @@ func TestDNSVerificationResolveIsServerOnlyAndDoesNotConsumeToken(t *testing.T) 
 		t.Fatal("已消费的 DNS 验证令牌仍可被解析")
 	}
 }
+
+func TestDNSVerificationManagerRetriesExpiredCredentialCleanup(t *testing.T) {
+	store := &retryableSecretWriter{failDelete: true}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	manager.now = func() time.Time { return now }
+	result, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com",
+		Credentials: map[string]string{"api_token": "secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(dnsVerificationLifetime + time.Second)
+	if err := manager.Check(result.VerificationToken, "cloudflare", result.CredentialRef, "example.com"); err == nil {
+		t.Fatal("expired DNS verification token should be rejected")
+	}
+	if len(manager.sessions) != 1 || len(store.values) != 1 {
+		t.Fatalf("failed expired cleanup should remain retryable: sessions=%d values=%d", len(manager.sessions), len(store.values))
+	}
+
+	store.failDelete = false
+	if err := manager.Check(result.VerificationToken, "cloudflare", result.CredentialRef, "example.com"); err == nil {
+		t.Fatal("expired DNS verification token should remain rejected after cleanup retry")
+	}
+	if len(manager.sessions) != 0 || len(store.values) != 0 {
+		t.Fatalf("expired cleanup retry left temporary state: sessions=%d values=%d", len(manager.sessions), len(store.values))
+	}
+}

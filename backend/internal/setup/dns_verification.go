@@ -79,6 +79,11 @@ type dnsVerificationSession struct {
 	ExpiresAt     time.Time
 }
 
+type expiredDNSVerificationSession struct {
+	Token   string
+	Session dnsVerificationSession
+}
+
 // DNSVerificationSession 仅供服务端完整初始化事务读取验证结果。
 // 所有字段均禁止 JSON 序列化，避免凭据引用被误写入 HTTP 响应。
 type DNSVerificationSession struct {
@@ -89,20 +94,21 @@ type DNSVerificationSession struct {
 }
 
 type DNSVerificationManager struct {
-	mu       sync.Mutex
-	tester   DNSCredentialTester
-	store    SecretWriter
-	deleter  SecretDeleter
-	now      func() time.Time
-	sessions map[string]dnsVerificationSession
-	inFlight int
+	mu             sync.Mutex
+	tester         DNSCredentialTester
+	store          SecretWriter
+	deleter        SecretDeleter
+	now            func() time.Time
+	sessions       map[string]dnsVerificationSession
+	expiredSession map[string]expiredDNSVerificationSession
+	inFlight       int
 }
 
 func NewDNSVerificationManager(tester DNSCredentialTester, store SecretWriter) *DNSVerificationManager {
 	deleter, _ := store.(SecretDeleter)
 	return &DNSVerificationManager{
 		tester: tester, store: store, deleter: deleter, now: time.Now,
-		sessions: make(map[string]dnsVerificationSession),
+		sessions: make(map[string]dnsVerificationSession), expiredSession: make(map[string]expiredDNSVerificationSession),
 	}
 }
 
@@ -396,7 +402,10 @@ func (m *DNSVerificationManager) clearExpiredExceptLocked(now time.Time, exclude
 		}
 		if !session.ExpiresAt.After(now) {
 			delete(m.sessions, token)
-			references = append(references, session.CredentialRef)
+			if reference := strings.TrimSpace(session.CredentialRef); reference != "" {
+				m.expiredSession[reference] = expiredDNSVerificationSession{Token: token, Session: session}
+				references = append(references, reference)
+			}
 		}
 	}
 	return references
@@ -416,9 +425,37 @@ func (m *DNSVerificationManager) restoreSession(token string, session dnsVerific
 func (m *DNSVerificationManager) deleteCredentials(references []string) {
 	for _, reference := range references {
 		if err := m.deleteCredential(reference); err != nil {
+			m.restoreExpiredSession(reference)
 			m.logCleanupFailure()
+			continue
 		}
+		m.forgetExpiredSession(reference)
 	}
+}
+
+func (m *DNSVerificationManager) restoreExpiredSession(reference string) {
+	if m == nil || strings.TrimSpace(reference) == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	expired, ok := m.expiredSession[reference]
+	if !ok {
+		return
+	}
+	if _, exists := m.sessions[expired.Token]; !exists {
+		m.sessions[expired.Token] = expired.Session
+	}
+	delete(m.expiredSession, reference)
+}
+
+func (m *DNSVerificationManager) forgetExpiredSession(reference string) {
+	if m == nil || strings.TrimSpace(reference) == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.expiredSession, reference)
+	m.mu.Unlock()
 }
 
 func (m *DNSVerificationManager) logCleanupFailure() {
