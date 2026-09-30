@@ -107,7 +107,15 @@ func (f SSHFactory) connect(ctx context.Context, server Server, requireSFTP bool
 func (f SSHFactory) secureHostKeyAlgorithms() ([]string, error) {
 	supported := ssh.SupportedAlgorithms().HostKeys
 	if len(f.HostKeyAlgorithms) == 0 {
-		return append([]string(nil), supported...), nil
+		algorithms := make([]string, 0, len(supported))
+		for _, algorithm := range supported {
+			// 默认只尝试普通主机密钥算法，避免为不可能存在的证书算法重复建立 SSH 连接。
+			if strings.HasSuffix(algorithm, "-cert-v01@openssh.com") {
+				continue
+			}
+			algorithms = append(algorithms, algorithm)
+		}
+		return algorithms, nil
 	}
 	supportedSet := make(map[string]struct{}, len(supported))
 	for _, algorithm := range supported {

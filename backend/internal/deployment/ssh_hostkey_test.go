@@ -162,6 +162,20 @@ func TestSSHFactoryStopsAfterMatchedHostKeyAuthenticationFailure(t *testing.T) {
 	}
 }
 
+func TestSSHFactoryDefaultHostKeyAlgorithmsExcludeCertificates(t *testing.T) {
+	algorithms, err := (SSHFactory{}).secureHostKeyAlgorithms()
+	if err != nil {
+		t.Fatalf("默认 SSH 主机密钥算法过滤失败：%v", err)
+	}
+	if len(algorithms) == 0 {
+		t.Fatal("默认 SSH 主机密钥算法不能为空")
+	}
+	for _, algorithm := range algorithms {
+		if strings.HasSuffix(algorithm, "-cert-v01@openssh.com") {
+			t.Fatalf("默认算法不应包含 OpenSSH 证书算法：%s", algorithm)
+		}
+	}
+}
 func TestSSHFactoryFiltersUnsupportedAndDuplicateHostKeyAlgorithms(t *testing.T) {
 	factory := SSHFactory{HostKeyAlgorithms: []string{
 		"ssh-dss",
