@@ -85,7 +85,7 @@ func (f SSHFactory) connect(ctx context.Context, server Server, requireSFTP bool
 	}
 	timeoutContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	sshClient, err := connectSSHClient(timeoutContext, server, authMethods, algorithms)
+	sshClient, err := connectSSHClient(timeoutContext, server, authMethods, algorithms, len(f.HostKeyAlgorithms) == 0)
 	if err != nil {
 		return nil, err
 	}
@@ -145,10 +145,19 @@ func connectSSHClient(
 	server Server,
 	authMethods []ssh.AuthMethod,
 	algorithms []string,
+	preferSingleNegotiation bool,
 ) (*ssh.Client, error) {
 	address := net.JoinHostPort(server.Address, fmt.Sprintf("%d", server.Port))
 	var mismatchErrors []string
+	algorithmGroups := make([][]string, 0, len(algorithms)+1)
+	if preferSingleNegotiation {
+		algorithmGroups = append(algorithmGroups, algorithms)
+	}
 	for _, algorithm := range algorithms {
+		algorithmGroups = append(algorithmGroups, []string{algorithm})
+	}
+	for _, algorithmGroup := range algorithmGroups {
+		algorithm := strings.Join(algorithmGroup, ",")
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("连接 SSH 服务器超时：%w", err)
 		}
@@ -167,7 +176,7 @@ func connectSSHClient(
 		config := &ssh.ClientConfig{
 			User:              server.Username,
 			Auth:              authMethods,
-			HostKeyAlgorithms: []string{algorithm},
+			HostKeyAlgorithms: algorithmGroup,
 			HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 				fingerprint := ssh.FingerprintSHA256(key)
 				if fingerprint != server.HostKeyFingerprint {
@@ -201,7 +210,7 @@ func connectSSHClient(
 			continue
 		}
 		var negotiationError *ssh.AlgorithmNegotiationError
-		if errors.As(handshakeErr, &negotiationError) && negotiationError.What == "host key" {
+		if len(algorithmGroup) == 1 && errors.As(handshakeErr, &negotiationError) && negotiationError.What == "host key" {
 			continue
 		}
 		return nil, fmt.Errorf("SSH 握手失败：%w", handshakeErr)
