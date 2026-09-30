@@ -1000,7 +1000,7 @@ func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Serv
 	}
 	privateItem := item
 	privateItem.AuthMethod = deployment.SSHAuthPrivateKey
-	privateClient, err := s.connectSSHForKey(ctx, privateItem)
+	privateClient, err := s.connectSSHAfterReload(ctx, privateItem)
 	if err != nil {
 		s.logSSHProvisionFailure("private_key_connect", item, err)
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
