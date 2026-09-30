@@ -28,7 +28,7 @@ func TestTaskDeploymentResultsIssueAndRead(t *testing.T) {
 	defer closeDB()
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusBadGateway {
+	if response.Code != http.StatusMultiStatus {
 		t.Fatalf("部分部署失败响应错误：%d %s", response.Code, response.Body.String())
 	}
 	items, err := tasks.ListTasks(t.Context(), "", 10)
@@ -98,7 +98,7 @@ func TestTaskDeploymentResultsVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name string
+		name   string
 		cookie *http.Cookie
 		status int
 	}{
