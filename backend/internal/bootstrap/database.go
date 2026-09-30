@@ -75,11 +75,11 @@ type DatabaseVerificationSession struct {
 }
 
 type DatabaseVerificationManager struct {
-	mu       sync.Mutex
-	base     config.Config
-	store    DatabaseSecretStore
-	verify   func(context.Context, config.DatabaseConfig) error
-	now      func() time.Time
+	mu             sync.Mutex
+	base           config.Config
+	store          DatabaseSecretStore
+	verify         func(context.Context, config.DatabaseConfig) error
+	now            func() time.Time
 	sessions       map[string]databaseVerificationSession
 	expiredSession map[string]expiredDatabaseVerificationSession
 	pendingCleanup map[string]struct{}
@@ -151,7 +151,7 @@ func (m *DatabaseVerificationManager) Verify(ctx context.Context, input Database
 	m.inFlight--
 	released = true
 	m.mu.Unlock()
-	m.deleteCredentials(expired)
+	m.deleteExpiredSessions(expired)
 	keepCredential = true
 	return DatabaseVerificationResult{
 		Config: persisted, CredentialRef: credentialRef,
@@ -211,11 +211,11 @@ func (m *DatabaseVerificationManager) Discard(token string) error {
 		delete(m.sessions, token)
 	}
 	m.mu.Unlock()
-	m.deleteCredentials(expired)
+	m.deleteExpiredSessions(expired)
 	if !ok {
 		return errors.New("数据库验证令牌无效或已经过期")
 	}
-	if err := m.deleteCredential(session.CredentialRef); err != nil {
+	if err := m.deleteOrQueueCredential(session.CredentialRef); err != nil {
 		m.restoreSession(token, session)
 		return errors.New("数据库临时凭据回收失败")
 	}
@@ -237,19 +237,19 @@ func (m *DatabaseVerificationManager) session(token, credentialRef string, consu
 	session, ok := m.sessions[token]
 	if !ok {
 		m.mu.Unlock()
-		m.deleteCredentials(expired)
+		m.deleteExpiredSessions(expired)
 		return config.DatabaseConfig{}, errors.New("数据库验证令牌无效或已经过期，请重新测试")
 	}
 	if session.CredentialRef != strings.TrimSpace(credentialRef) {
 		m.mu.Unlock()
-		m.deleteCredentials(expired)
+		m.deleteExpiredSessions(expired)
 		return config.DatabaseConfig{}, errors.New("数据库验证结果与当前配置不匹配，请重新测试")
 	}
 	if consume {
 		delete(m.sessions, token)
 	}
 	m.mu.Unlock()
-	m.deleteCredentials(expired)
+	m.deleteExpiredSessions(expired)
 	return session.Config, nil
 }
 
@@ -270,7 +270,7 @@ func (m *DatabaseVerificationManager) resolveSession(token string, claim bool) (
 		delete(m.sessions, token)
 	}
 	m.mu.Unlock()
-	m.deleteCredentials(expired)
+	m.deleteExpiredSessions(expired)
 	if !ok {
 		return databaseVerificationSession{}, errors.New("数据库验证令牌无效或已经过期，请重新测试")
 	}
@@ -287,17 +287,39 @@ func (m *DatabaseVerificationManager) DiscardAllExcept(protectedReferences ...st
 	if m == nil {
 		return
 	}
+	m.retryPendingCredentialCleanup()
 	protected := protectedCredentialReferences(protectedReferences)
+	now := m.now().UTC()
 	m.mu.Lock()
-	references := make([]string, 0, len(m.sessions))
+	expired := m.clearExpiredLocked(now)
+	discarded := make([]expiredDatabaseVerificationSession, 0, len(m.sessions))
 	for token, session := range m.sessions {
 		delete(m.sessions, token)
-		if reference := strings.TrimSpace(session.CredentialRef); reference != "" && !protected[reference] {
-			references = append(references, reference)
+		reference := strings.TrimSpace(session.CredentialRef)
+		if reference != "" && !protected[reference] {
+			discarded = append(discarded, expiredDatabaseVerificationSession{Token: token, Session: session})
+		}
+	}
+	for token, entry := range m.expiredSession {
+		reference := strings.TrimSpace(entry.Session.CredentialRef)
+		if protected[reference] {
+			delete(m.expiredSession, token)
+			continue
+		}
+		alreadyQueued := false
+		for _, item := range expired {
+			if item.Token == token {
+				alreadyQueued = true
+				break
+			}
+		}
+		if !alreadyQueued {
+			expired = append(expired, entry)
 		}
 	}
 	m.mu.Unlock()
-	m.deleteCredentials(references)
+	m.deleteExpiredSessions(expired)
+	m.deleteDiscardedSessions(discarded)
 }
 
 func protectedCredentialReferences(references []string) map[string]bool {
@@ -316,17 +338,17 @@ func (m *DatabaseVerificationManager) reserve() error {
 	expired := m.clearExpiredLocked(now)
 	if m.inFlight >= databaseVerificationInFlightCapacity {
 		m.mu.Unlock()
-		m.deleteCredentials(expired)
+		m.deleteExpiredSessions(expired)
 		return errors.New("数据库验证请求过多，请稍后重试")
 	}
 	if len(m.sessions)+len(m.expiredSession)+m.inFlight >= databaseVerificationCapacity {
 		m.mu.Unlock()
-		m.deleteCredentials(expired)
+		m.deleteExpiredSessions(expired)
 		return errors.New("数据库验证令牌数量已达上限，请等待现有验证完成或过期后重试")
 	}
 	m.inFlight++
 	m.mu.Unlock()
-	m.deleteCredentials(expired)
+	m.deleteExpiredSessions(expired)
 	return nil
 }
 
@@ -338,24 +360,127 @@ func (m *DatabaseVerificationManager) release() {
 	m.mu.Unlock()
 }
 
-func (m *DatabaseVerificationManager) clearExpiredLocked(now time.Time) []string {
-	references := make([]string, 0)
+func (m *DatabaseVerificationManager) clearExpiredLocked(now time.Time) []expiredDatabaseVerificationSession {
+	expired := make([]expiredDatabaseVerificationSession, 0)
 	for token, session := range m.sessions {
 		if session.ExpiresAt.After(now) {
 			continue
 		}
+		entry := expiredDatabaseVerificationSession{Token: token, Session: session}
 		delete(m.sessions, token)
-		if session.CredentialRef != "" {
-			references = append(references, session.CredentialRef)
-		}
+		m.expiredSession[token] = entry
+		expired = append(expired, entry)
 	}
-	return references
+	return expired
 }
 
-func (m *DatabaseVerificationManager) deleteCredentials(references []string) {
-	for _, reference := range references {
-		_ = m.deleteCredential(reference)
+func (m *DatabaseVerificationManager) deleteExpiredSessions(entries []expiredDatabaseVerificationSession) {
+	for _, entry := range entries {
+		reference := strings.TrimSpace(entry.Session.CredentialRef)
+		if err := m.deleteCredential(reference); err != nil {
+			m.restoreExpiredSession(entry)
+			m.rememberPendingCleanup(reference)
+			continue
+		}
+		m.removeExpiredSession(entry)
+		m.forgetPendingCleanup(reference)
 	}
+}
+
+func (m *DatabaseVerificationManager) deleteDiscardedSessions(entries []expiredDatabaseVerificationSession) {
+	for _, entry := range entries {
+		reference := strings.TrimSpace(entry.Session.CredentialRef)
+		if err := m.deleteCredential(reference); err != nil {
+			m.restoreSession(entry.Token, entry.Session)
+			m.rememberPendingCleanup(reference)
+			continue
+		}
+		m.forgetPendingCleanup(reference)
+	}
+}
+
+func (m *DatabaseVerificationManager) deleteOrQueueCredential(reference string) error {
+	if err := m.deleteCredential(reference); err != nil {
+		m.rememberPendingCleanup(reference)
+		return err
+	}
+	m.forgetPendingCleanup(reference)
+	return nil
+}
+
+func (m *DatabaseVerificationManager) retryPendingCredentialCleanup() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	references := make([]string, 0, len(m.pendingCleanup))
+	for reference := range m.pendingCleanup {
+		references = append(references, reference)
+	}
+	m.mu.Unlock()
+	for _, reference := range references {
+		if err := m.deleteCredential(reference); err == nil {
+			m.forgetPendingCleanup(reference)
+		}
+	}
+}
+
+func (m *DatabaseVerificationManager) rememberPendingCleanup(reference string) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" || m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.pendingCleanup[reference] = struct{}{}
+	m.mu.Unlock()
+}
+
+func (m *DatabaseVerificationManager) forgetPendingCleanup(reference string) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" || m == nil {
+		return
+	}
+	m.mu.Lock()
+	delete(m.pendingCleanup, reference)
+	m.mu.Unlock()
+}
+
+func (m *DatabaseVerificationManager) restoreSession(token string, session databaseVerificationSession) {
+	if m == nil || strings.TrimSpace(token) == "" {
+		return
+	}
+	m.mu.Lock()
+	if _, exists := m.sessions[token]; !exists {
+		if _, expired := m.expiredSession[token]; !expired {
+			m.sessions[token] = session
+		}
+	}
+	m.mu.Unlock()
+}
+
+func (m *DatabaseVerificationManager) restoreExpiredSession(entry expiredDatabaseVerificationSession) {
+	if m == nil || strings.TrimSpace(entry.Token) == "" {
+		return
+	}
+	m.mu.Lock()
+	if current, exists := m.expiredSession[entry.Token]; exists && current.Session.CredentialRef == entry.Session.CredentialRef {
+		delete(m.expiredSession, entry.Token)
+		if _, active := m.sessions[entry.Token]; !active {
+			m.sessions[entry.Token] = entry.Session
+		}
+	}
+	m.mu.Unlock()
+}
+
+func (m *DatabaseVerificationManager) removeExpiredSession(entry expiredDatabaseVerificationSession) {
+	if m == nil || strings.TrimSpace(entry.Token) == "" {
+		return
+	}
+	m.mu.Lock()
+	if current, exists := m.expiredSession[entry.Token]; exists && current.Session.CredentialRef == entry.Session.CredentialRef {
+		delete(m.expiredSession, entry.Token)
+	}
+	m.mu.Unlock()
 }
 
 func (m *DatabaseVerificationManager) deleteCredential(reference string) error {
