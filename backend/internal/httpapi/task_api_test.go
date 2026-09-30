@@ -64,6 +64,28 @@ func newTaskAPITestServer(t *testing.T, issue func(context.Context, string) (cer
 	return server, taskRepo, auditRepo, func() { _ = db.Close() }
 }
 
+type blockingTaskAuditRepository struct {
+	delegate repository.AuditRepository
+	started  chan struct{}
+	release  chan struct{}
+}
+
+func (r *blockingTaskAuditRepository) CreateAuditLog(ctx context.Context, item repository.AuditLog) error {
+	if item.Status == "running" {
+		select {
+		case <-r.started:
+		default:
+			close(r.started)
+		}
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return r.delegate.CreateAuditLog(ctx, item)
+}
+
 func TestTaskAPIRecordsSuccessfulIssueAndAudit(t *testing.T) {
 	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
 		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
@@ -360,6 +382,65 @@ func TestTaskAPICanCancelRunningIssue(t *testing.T) {
 		if entry.TaskID != item.ID || entry.OperatorID != "test-admin" || entry.HistoryScope != item.HistoryScope {
 			t.Fatalf("取消审计关联错误：%+v", entry)
 		}
+	}
+}
+
+func TestTaskAPICancellationDuringStartupDoesNotExecuteCertificate(t *testing.T) {
+	issueCalled := make(chan struct{}, 1)
+	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		issueCalled <- struct{}{}
+		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
+	})
+	defer closeDB()
+
+	blockingAudit := &blockingTaskAuditRepository{
+		delegate: server.audit,
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	server.audit = blockingAudit
+	issueResponse := httptest.NewRecorder()
+	issueDone := make(chan struct{})
+	go func() {
+		serveAdminHTTP(server, issueResponse, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+		close(issueDone)
+	}()
+	select {
+	case <-blockingAudit.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("任务没有进入启动审计阶段")
+	}
+
+	items, err := taskRepo.ListTasks(context.Background(), "domain-1", 10)
+	if err != nil || len(items) != 1 || items[0].Status != "running" {
+		t.Fatalf("启动阶段任务状态错误：%+v %v", items, err)
+	}
+	cancelResponse := httptest.NewRecorder()
+	serveAdminHTTP(server, cancelResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+items[0].ID, nil))
+	if cancelResponse.Code != http.StatusOK {
+		t.Fatalf("启动阶段取消任务失败：%d %s", cancelResponse.Code, cancelResponse.Body.String())
+	}
+	close(blockingAudit.release)
+	select {
+	case <-issueDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消后的启动任务没有结束")
+	}
+	select {
+	case <-issueCalled:
+		t.Fatal("任务取消后不应再调用证书申请")
+	default:
+	}
+	if issueResponse.Code != http.StatusConflict {
+		t.Fatalf("启动阶段取消响应错误：%d %s", issueResponse.Code, issueResponse.Body.String())
+	}
+	item, err := taskRepo.GetTask(context.Background(), items[0].ID)
+	if err != nil || item.Status != "cancelled" {
+		t.Fatalf("启动阶段取消状态没有持久化：%+v %v", item, err)
+	}
+	attempts, err := taskRepo.ListAttempts(context.Background(), item.ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "cancelled" {
+		t.Fatalf("启动阶段取消任务尝试状态错误：%+v %v", attempts, err)
 	}
 }
 

@@ -137,10 +137,20 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 }
 
 func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
+	executionCtx, cancel := context.WithTimeout(c.Request.Context(), certificateTaskTimeout)
+	s.registerTaskCancel(task.ID, cancel)
+	defer func() {
+		cancel()
+		s.unregisterTaskCancel(task.ID)
+	}()
+
 	now := time.Now().UTC()
-	if err := s.tasks.UpdateTask(c.Request.Context(), task.ID, "running", "certificate_issue", "正在申请证书并部署", &now, nil); err != nil {
+	if err := s.tasks.UpdateTask(executionCtx, task.ID, "running", "certificate_issue", "正在申请证书并部署", &now, nil); err != nil {
 		finished := time.Now().UTC()
 		failureMessage := "任务启动失败"
+		if s.writeCancelledTaskResponse(c, task.ID) {
+			return
+		}
 		_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", "certificate_issue", failureMessage, &now, &finished)
 		_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
 		if s.audit != nil {
@@ -154,25 +164,22 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 		return
 	}
 	if s.audit != nil {
-		if err := s.audit.CreateAuditLog(c.Request.Context(), repository.AuditLog{
+		if err := s.audit.CreateAuditLog(executionCtx, repository.AuditLog{
 			TaskID: task.ID, OperatorID: task.OperatorID,
 			Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID,
 			Status: "running", Message: "开始申请证书并部署",
 		}); err != nil {
 			finished := time.Now().UTC()
 			failureMessage := "任务启动审计记录失败"
+			if s.writeCancelledTaskResponse(c, task.ID) {
+				return
+			}
 			_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", "record", failureMessage, &now, &finished)
 			_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
 			s.writeError(c, http.StatusInternalServerError, failureMessage, err)
 			return
 		}
 	}
-	executionCtx, cancel := context.WithTimeout(c.Request.Context(), certificateTaskTimeout)
-	s.registerTaskCancel(task.ID, cancel)
-	defer func() {
-		cancel()
-		s.unregisterTaskCancel(task.ID)
-	}()
 	executionCtx = certificate.WithProgressReporter(executionCtx, func(progressCtx context.Context, progressStage, progressMessage string) error {
 		return s.tasks.UpdateTask(progressCtx, task.ID, "running", progressStage, progressMessage, &now, nil)
 	})
@@ -248,6 +255,23 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 		return
 	}
 	c.JSON(http.StatusOK, response)
+}
+
+func (s *Server) writeCancelledTaskResponse(c *gin.Context, taskID string) bool {
+	persisted, err := s.tasks.GetTask(context.Background(), taskID)
+	if err != nil || persisted.Status != "cancelled" {
+		return false
+	}
+	message := persisted.Message
+	if message == "" {
+		message = "任务已由用户取消"
+	}
+	c.JSON(http.StatusConflict, gin.H{
+		"task":        persisted,
+		"task_status": persisted.Status,
+		"error":       message,
+	})
+	return true
 }
 
 const certificateTaskTimeout = 30 * time.Minute
