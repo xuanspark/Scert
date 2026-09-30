@@ -351,15 +351,7 @@ func (c *sshClientAdapter) InstallAuthorizedKey(ctx context.Context, publicKey s
 		return fmt.Errorf("SSH 公钥格式无效：%w", err)
 	}
 	encoded := base64.StdEncoding.EncodeToString(ssh.MarshalAuthorizedKey(key))
-	script := fmt.Sprintf(`set -eu
-umask 077
-install -d -m 700 "$HOME/.ssh"
-touch "$HOME/.ssh/authorized_keys"
-chmod 600 "$HOME/.ssh/authorized_keys"
-decoded="$(printf '%s' '%s' | base64 -d)"
-if ! grep -Fqx -- "$decoded" "$HOME/.ssh/authorized_keys"; then
-	printf '%%s\\n' "$decoded" >> "$HOME/.ssh/authorized_keys"
-fi`, "%s", encoded)
+	script := authorizedKeyInstallScript(encoded)
 	result, err := c.Run(ctx, []string{"sh", "-c", script})
 	if err != nil {
 		return fmt.Errorf("部署 SSH 公钥失败：%w", err)
@@ -368,6 +360,18 @@ fi`, "%s", encoded)
 		return fmt.Errorf("部署 SSH 公钥失败，远程退出码：%d", result.ExitCode)
 	}
 	return nil
+}
+
+func authorizedKeyInstallScript(encoded string) string {
+	return fmt.Sprintf(`set -eu
+umask 077
+install -d -m 700 "$HOME/.ssh"
+touch "$HOME/.ssh/authorized_keys"
+chmod 600 "$HOME/.ssh/authorized_keys"
+decoded="$(printf '%%s' '%s' | base64 -d)"
+if ! grep -Fqx -- "$decoded" "$HOME/.ssh/authorized_keys"; then
+	printf '%%s\n' "$decoded" >> "$HOME/.ssh/authorized_keys"
+fi`, encoded)
 }
 func (c *sshClientAdapter) Run(ctx context.Context, command []string) (CommandResult, error) {
 	if len(command) == 0 {

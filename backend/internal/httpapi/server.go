@@ -971,6 +971,7 @@ func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Serv
 	}
 	publicKey, err := s.sshKeys.AuthorizedPublicKey(ctx, item.PrivateKeyRef)
 	if err != nil {
+		s.logSSHProvisionFailure("authorized_public_key", item, err)
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
 		item.SSHKeyError = "自动部署 SSH 公钥失败"
 		return item, err
@@ -992,6 +993,7 @@ func (s *Server) provisionServerSSHKey(ctx context.Context, item deployment.Serv
 		return item, err
 	}
 	if err := passwordClient.Close(); err != nil {
+		s.logSSHProvisionFailure("password_close", item, err)
 		item.SSHKeyStatus = deployment.SSHKeyStatusFailed
 		item.SSHKeyError = "自动部署 SSH 公钥失败"
 		return item, err
