@@ -243,7 +243,7 @@ func (m *DNSVerificationManager) Discard(token string) error {
 	}
 	now := m.now().UTC()
 	m.mu.Lock()
-	expiredRefs := m.clearExpiredLocked(now)
+	expiredRefs := m.clearExpiredExceptLocked(now, token)
 	session, ok := m.sessions[token]
 	if ok {
 		delete(m.sessions, token)
@@ -254,6 +254,7 @@ func (m *DNSVerificationManager) Discard(token string) error {
 		return errors.New("DNS 验证令牌无效或已经过期")
 	}
 	if err := m.deleteCredential(session.CredentialRef); err != nil {
+		m.restoreSession(token, session)
 		m.logCleanupFailure()
 		return errors.New("DNS 临时凭据回收失败")
 	}
@@ -277,15 +278,21 @@ func (m *DNSVerificationManager) DiscardAllExcept(protectedReferences ...string)
 		}
 	}
 	m.mu.Lock()
-	references := make([]string, 0, len(m.sessions))
+	sessions := make(map[string]dnsVerificationSession, len(m.sessions))
 	for token, session := range m.sessions {
 		delete(m.sessions, token)
-		if reference := strings.TrimSpace(session.CredentialRef); reference != "" && !protected[reference] {
-			references = append(references, reference)
+		if reference := strings.TrimSpace(session.CredentialRef); reference != "" && protected[reference] {
+			continue
 		}
+		sessions[token] = session
 	}
 	m.mu.Unlock()
-	m.deleteCredentials(references)
+	for token, session := range sessions {
+		if err := m.deleteCredential(session.CredentialRef); err != nil {
+			m.restoreSession(token, session)
+			m.logCleanupFailure()
+		}
+	}
 }
 
 func (m *DNSVerificationManager) validateSession(token, providerID, credentialRef, testDomain string, consume bool) error {
@@ -378,14 +385,32 @@ func (m *DNSVerificationManager) releaseVerificationSlot() {
 }
 
 func (m *DNSVerificationManager) clearExpiredLocked(now time.Time) []string {
+	return m.clearExpiredExceptLocked(now, "")
+}
+
+func (m *DNSVerificationManager) clearExpiredExceptLocked(now time.Time, excludedToken string) []string {
 	var references []string
 	for token, session := range m.sessions {
+		if token == excludedToken {
+			continue
+		}
 		if !session.ExpiresAt.After(now) {
 			delete(m.sessions, token)
 			references = append(references, session.CredentialRef)
 		}
 	}
 	return references
+}
+
+func (m *DNSVerificationManager) restoreSession(token string, session dnsVerificationSession) {
+	if m == nil || strings.TrimSpace(token) == "" {
+		return
+	}
+	m.mu.Lock()
+	if _, exists := m.sessions[token]; !exists {
+		m.sessions[token] = session
+	}
+	m.mu.Unlock()
 }
 
 func (m *DNSVerificationManager) deleteCredentials(references []string) {

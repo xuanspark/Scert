@@ -61,12 +61,24 @@ type cancellingSecretWriter struct {
 	cancel context.CancelFunc
 }
 
+type retryableSecretWriter struct {
+	memorySecretWriter
+	failDelete bool
+}
+
 func (s *cancellingSecretWriter) Put(ctx context.Context, reference string, value map[string]string) error {
 	if err := s.memorySecretWriter.Put(ctx, reference, value); err != nil {
 		return err
 	}
 	s.cancel()
 	return nil
+}
+
+func (s *retryableSecretWriter) Delete(ctx context.Context, reference string) error {
+	if s.failDelete {
+		return errors.New("delete failed")
+	}
+	return s.memorySecretWriter.Delete(ctx, reference)
 }
 
 func (m *memorySecretWriter) Put(_ context.Context, reference string, value map[string]string) error {
@@ -317,6 +329,58 @@ func TestDNSVerificationManagerCleansCredentialWhenContextCancelsAfterStore(t *t
 	}
 	if len(store.deleted) != 1 {
 		t.Fatalf("保存后取消未执行临时凭据回收：%v", store.deleted)
+	}
+}
+
+func TestDNSVerificationManagerRetainsTokenWhenDiscardCleanupFails(t *testing.T) {
+	store := &retryableSecretWriter{failDelete: true}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	result, err := manager.Verify(t.Context(), DNSVerificationInput{
+		ProviderID: "cloudflare", TestDomain: "example.com",
+		Credentials: map[string]string{"api_token": "secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Discard(result.VerificationToken); err == nil {
+		t.Fatal("临时凭据回收失败时应返回错误")
+	}
+	if _, err := manager.Resolve(result.VerificationToken); err != nil {
+		t.Fatalf("回收失败后应保留验证令牌以便重试：%v", err)
+	}
+	if len(store.values) != 1 {
+		t.Fatalf("回收失败后不应丢失临时凭据：%v", store.values)
+	}
+
+	store.failDelete = false
+	if err := manager.Discard(result.VerificationToken); err != nil {
+		t.Fatalf("临时凭据回收重试失败：%v", err)
+	}
+	if len(store.values) != 0 {
+		t.Fatalf("回收重试后仍有临时凭据：%v", store.values)
+	}
+}
+
+func TestDNSVerificationManagerRetriesDiscardAllCleanupFailures(t *testing.T) {
+	store := &retryableSecretWriter{failDelete: true}
+	manager := NewDNSVerificationManager(fakeDNSTester{}, store)
+	for range 2 {
+		if _, err := manager.Verify(t.Context(), DNSVerificationInput{
+			ProviderID: "cloudflare", TestDomain: "example.com",
+			Credentials: map[string]string{"api_token": "secret"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manager.DiscardAll()
+	if len(manager.sessions) != 2 || len(store.values) != 2 {
+		t.Fatalf("批量回收失败后应保留可重试会话：sessions=%d values=%d", len(manager.sessions), len(store.values))
+	}
+	store.failDelete = false
+	manager.DiscardAll()
+	if len(manager.sessions) != 0 || len(store.values) != 0 {
+		t.Fatalf("批量回收重试后仍有临时状态：sessions=%d values=%d", len(manager.sessions), len(store.values))
 	}
 }
 
