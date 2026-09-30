@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,6 +82,31 @@ func TestRemoteValidatorChecksPresentedCertificate(t *testing.T) {
 	}
 }
 
+func TestRemoteValidatorUsesAddressOverrideWithEndpointSNI(t *testing.T) {
+	certificateData, privateKeyData, leaf := validationTestCertificate(t, []string{"example.com", "127.0.0.1"})
+	pair, err := tls.X509KeyPair(certificateData, privateKeyData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewUnstartedServer(nil)
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
+	server.StartTLS()
+	defer server.Close()
+
+	roots := x509.NewCertPool()
+	roots.AddCert(leaf)
+	endpoint := "https://example.com" + strings.TrimPrefix(server.URL, "https://127.0.0.1")
+	address := server.Listener.Addr().String()
+	result, err := (RemoteValidator{Roots: roots, Timeout: 5 * time.Second}).ValidateHTTPSAt(
+		context.Background(), endpoint, address, []string{"example.com"},
+	)
+	if err != nil {
+		t.Fatalf("address override with endpoint SNI should pass: %v", err)
+	}
+	if result.ChainLength != 1 || len(result.FingerprintSHA256) != 64 {
+		t.Fatalf("unexpected remote validation result: %+v", result)
+	}
+}
 func validationTestCertificate(t *testing.T, names []string) ([]byte, []byte, *x509.Certificate) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

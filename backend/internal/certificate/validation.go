@@ -153,9 +153,9 @@ func (v RemoteValidator) validateHTTPS(ctx context.Context, endpoint, dialAddres
 	tlsDialer := &tls.Dialer{
 		NetDialer: dialer,
 		Config: &tls.Config{
-			ServerName:         parsed.Hostname(),
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: true,
+			ServerName: parsed.Hostname(),
+			RootCAs:    v.Roots,
+			MinVersion: tls.VersionTLS12,
 		},
 	}
 	connection, err := tlsDialer.DialContext(ctx, "tcp", address)
