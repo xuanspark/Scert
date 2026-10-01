@@ -20,7 +20,7 @@ function elements(node, predicate, matches = []) {
 test("超级管理员查询保留本机处理标识，不生成网页重置链接", async (t) => {
   const payload = {
     account_type: "super_admin",
-    action: "local_admin_command",
+    action: "contact_administrator",
     title: "超级管理员密码重置",
     description: "请在部署主机操作。",
   };
@@ -32,8 +32,9 @@ test("超级管理员查询保留本机处理标识，不生成网页重置链�
   });
   state.identifier.value = " owner ";
   await state.submit();
-  assert.equal(state.resolution.value.action, "local_admin_command");
+  assert.equal(state.resolution.value.action, "contact_administrator");
   assert.equal("reset_path" in state.resolution.value, false);
+  assert.doesNotMatch(JSON.stringify(state.resolution.value), /local_admin_command|systemctl|scert-admin/iu);
   assert.equal(state.error.value, "");
   assert.equal(state.submitting.value, false);
   state.reset();

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestPasswordResetResolutionOnlyOffersLocalAdminCommand(t *testing.T) {
+func TestPasswordResetResolutionOnlyOffersAdministratorContact(t *testing.T) {
 	cfg := readyTestConfig(t.TempDir())
 	cfg.Admin.Username = "owner"
 	cfg.Admin.Email = "owner@example.test"
@@ -30,10 +30,10 @@ func TestPasswordResetResolutionOnlyOffersLocalAdminCommand(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 				t.Fatal(err)
 			}
-			if payload["account_type"] != "super_admin" || payload["action"] != "local_admin_command" {
+			if payload["account_type"] != "super_admin" || payload["action"] != "contact_administrator" {
 				t.Fatalf("超级管理员没有返回受控本机处理标识：%v", payload)
 			}
-			if description, _ := payload["description"].(string); strings.Contains(strings.ToLower(description), "scert-admin") || strings.Contains(description, "systemctl") {
+			if description := strings.ToLower(response.Body.String()); strings.Contains(description, "scert-admin") || strings.Contains(description, "systemctl") || strings.Contains(description, "local_admin_command") {
 				t.Fatalf("公开查询不应泄露本机管理命令：%s", description)
 			}
 			for _, field := range []string{"reset_path", "reset_url", "token", "nonce"} {

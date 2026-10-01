@@ -525,7 +525,7 @@ func (s *Server) status(c *gin.Context) {
 	if _, authenticated := s.currentAuthSession(c); authenticated {
 		payload["https_mode"] = cfg.Server.HTTPSMode
 		payload["database_driver"] = cfg.Database.Driver
-		payload["reset_method"] = "local_admin_command"
+		payload["reset_method"] = "contact_administrator"
 	}
 	c.JSON(http.StatusOK, payload)
 }
