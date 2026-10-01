@@ -6,7 +6,6 @@ import SettingsModal from "./SettingsModal.vue";
 import DomainModal from "./DomainModal.vue";
 import ServerModal from "./ServerModal.vue";
 import RuntimeOverview from "./RuntimeOverview.vue";
-import SSHKeyModal from "./SSHKeyModal.vue";
 import DashboardNavigation from "./DashboardNavigation.vue";
 import { useDashboardNavigation } from "./DashboardNavigation.js";
 import { useDashboard } from "./Dashboard.js";
@@ -18,7 +17,6 @@ const {
   currentUser,
   domains,
   servers,
-  sshKeys,
   certificates,
   tasks,
   auditLogs,
@@ -46,9 +44,6 @@ const {
   serverEditingId,
   serverSaving,
   serverFormError,
-  showSSHKeyForm,
-  sshKeySaving,
-  sshKeyFormError,
   certificateTypeLabels,
   domainStatusLabels,
   taskStatusLabels,
@@ -60,24 +55,10 @@ const {
   dnsProviders,
   environmentLabels,
   webServerLabels,
-  serverSSHKey,
-  serverSSHKeyStatusLabel,
-  serverSSHKeyStatusClass,
-  serverSSHCommand,
-  serverSSHKeyHint,
   isEditing,
   formTitle,
   form,
   serverForm,
-  sshKeyForm,
-  sshKeyPlatform,
-  sshKeyPassphraseVisible,
-  sshKeyCommandUsername,
-  sshKeyCommandHost,
-  sshKeyFileName,
-  sshKeyPath,
-  sshKeyPrivatePath,
-  sshKeyPublicPath,
   showSettings,
   showCertificateImport,
   importDomain,
@@ -100,8 +81,6 @@ const {
   handleDNSProviderChange,
   clearDNSCredentials,
   testDNS,
-  sshKeyCommands,
-  sshPublicKeyCommands,
   defaultCertificatePath,
   defaultCertificateChainPath,
   defaultPrivateKeyPath,
@@ -111,12 +90,6 @@ const {
   openServerCreate,
   openServerEdit,
   closeServerForm,
-  openSSHKeyCreate,
-  closeSSHKeyForm,
-  importSSHKeyFile,
-  copySSHKeyCommand,
-  saveSSHKey,
-  deleteSSHKey,
   saveServer,
   deleteServer,
   saveDomain,
@@ -161,14 +134,6 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
         </button>
         <button v-if="activeSection === 'activity' && canRunRenewal" class="secondary-button" type="button" @click="runRenewalNow">
           立即检查续期
-        </button>
-        <button
-          class="secondary-button"
-          type="button"
-          @click="openSSHKeyCreate"
-          v-if="activeSection === 'keys'"
-        >
-          添加 SSH 私钥
         </button>
         <button
           class="secondary-button"
@@ -626,7 +591,6 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
 
     <ServerModal v-if="showServerForm" :state="dashboard" />
 
-    <SSHKeyModal v-if="showSSHKeyForm" :state="dashboard" />
 
     <DeploymentResult
       v-if="deploymentResult"

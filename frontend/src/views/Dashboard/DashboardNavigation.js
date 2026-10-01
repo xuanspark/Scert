@@ -6,7 +6,6 @@ export const dashboardSections = [
   { id: "projects", label: "项目与成员", group: "证书与部署", hint: "查看有权访问的项目并管理项目成员角色" },
   { id: "domains", label: "域名配置", group: "证书与部署", hint: "管理域名、申请证书和执行部署" },
   { id: "servers", label: "部署服务器", group: "证书与部署", hint: "配置部署目标及 SSH 认证方式" },
-  { id: "keys", label: "SSH 私钥", group: "证书与部署", hint: "管理加密保存的 SSH 私钥" },
   { id: "dns-accounts", label: "DNS 账户管理", group: "证书与部署", hint: "查看已配置的 DNS 账号及归属用户，凭据标识脱敏显示" },
   { id: "users", label: "用户管理", group: "系统管理", hint: "管理登录账号、角色与使用状态" },
 ];

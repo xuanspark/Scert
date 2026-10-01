@@ -7,25 +7,6 @@ const {
   closeServerForm,
   serverEditingId,
   serverForm,
-  sshKeys,
-  openSSHKeyCreate,
-  closeSSHKeyForm,
-  showEmbeddedSSHKeyGuide,
-  sshKeySaving,
-  sshKeyFormError,
-  sshKeyPlatform,
-  sshKeyFileName,
-  sshKeyPrivatePath,
-  sshKeyPublicPath,
-  sshKeyCommandUsername,
-  sshKeyCommandHost,
-  sshKeyCommands,
-  sshPublicKeyCommands,
-  sshKeyForm,
-  importSSHKeyFile,
-  sshKeyPassphraseVisible,
-  copySSHKeyCommand,
-  saveSSHKey,
   defaultCertificatePath,
   defaultCertificateChainPath,
   defaultPrivateKeyPath,
@@ -114,14 +95,7 @@ const {
                 <span>SSH 用户</span>
                 <input v-model="serverForm.username" required type="text" />
               </label>
-              <label class="field">
-                <span>认证方式</span>
-                <select v-model="serverForm.auth_method">
-                  <option value="password">SSH 密码</option>
-                  <option value="private_key">SSH 私钥</option>
-                </select>
-              </label>
-              <label v-if="serverForm.auth_method === 'password'" class="field server-form-field-wide">
+              <label class="field server-form-field-wide">
                 <span>SSH 密码</span>
                 <input
                   v-model="serverForm.password"
@@ -130,31 +104,6 @@ const {
                   autocomplete="new-password"
                   placeholder="编辑时留空表示保留原密码"
                 />
-              </label>
-              <label v-else class="field server-form-field-wide">
-                <span class="field-label-row">
-                  <span>SSH 私钥</span>
-                  <button
-                    class="inline-button"
-                    type="button"
-                    @click="openSSHKeyCreate({ embedded: true })"
-                  >
-                    新建或导入
-                  </button>
-                </span>
-                <select v-model="serverForm.private_key_ref" required>
-                  <option value="">请选择已加密保存的私钥</option>
-                  <option
-                    v-for="key in sshKeys"
-                    :key="key.id"
-                    :value="key.reference"
-                  >
-                    {{ key.name }} · {{ key.algorithm }}
-                  </option>
-                </select>
-                <HelpTip v-if="sshKeys.length === 0">
-                  还没有私钥？点击“新建或导入”，按照引导生成、粘贴或读取私钥文件。
-                </HelpTip>
               </label>
               <label class="field server-form-field-wide">
                 <span>
@@ -168,144 +117,6 @@ const {
                   placeholder="SHA256:..."
                 />
               </label>
-            </div>
-          </section>
-
-          <section v-if="showEmbeddedSSHKeyGuide" class="server-form-section server-ssh-key-guide">
-            <div class="server-form-section-heading">
-              <div>
-                <p class="eyebrow">当前服务器</p>
-                <h3>准备 SSH 私钥</h3>
-              </div>
-              <div class="server-form-heading-actions">
-                <HelpTip>
-                  按顺序执行命令后读取本机私钥，保存后会自动选中到当前服务器配置。
-                </HelpTip>
-                <button class="inline-button" type="button" @click="closeSSHKeyForm">
-                  收起引导
-                </button>
-              </div>
-            </div>
-            <div class="ssh-key-steps">
-              <article>
-                <b>1</b>
-                <strong>本机生成密钥</strong>
-              </article>
-              <article>
-                <b>2</b>
-                <strong>把公钥放到当前服务器</strong>
-              </article>
-              <article>
-                <b>3</b>
-                <strong>读取私钥并保存</strong>
-              </article>
-            </div>
-            <div class="ssh-key-platforms" role="tablist" aria-label="密钥生成平台">
-              <button
-                class="platform-tab"
-                :class="{ active: sshKeyPlatform === 'windows' }"
-                type="button"
-                role="tab"
-                :aria-selected="sshKeyPlatform === 'windows'"
-                @click="sshKeyPlatform = 'windows'"
-              >
-                Windows
-              </button>
-              <button
-                class="platform-tab"
-                :class="{ active: sshKeyPlatform === 'linux' }"
-                type="button"
-                role="tab"
-                :aria-selected="sshKeyPlatform === 'linux'"
-                @click="sshKeyPlatform = 'linux'"
-              >
-                Linux / macOS
-              </button>
-            </div>
-            <div class="ssh-key-path-line">
-              <span>本次密钥文件名</span>
-              <code>{{ sshKeyFileName }}</code>
-              <span class="guide-badge">每次随机生成</span>
-            </div>
-            <div class="ssh-key-path-summary">
-              <div>
-                <span>本地私钥位置</span>
-                <code>{{ sshKeyPrivatePath }}</code>
-              </div>
-              <div>
-                <span>本地公钥位置</span>
-                <code>{{ sshKeyPublicPath }}</code>
-              </div>
-              <div>
-                <span>远程登录目标</span>
-                <code>{{ sshKeyCommandUsername }}@{{ sshKeyCommandHost }}</code>
-              </div>
-            </div>
-            <div class="ssh-command-card">
-              <div class="ssh-command-heading">
-                <span>生成命令</span>
-                <button
-                  class="inline-button"
-                  type="button"
-                  @click="copySSHKeyCommand(sshKeyCommands[sshKeyPlatform], '密钥生成命令已复制')"
-                >
-                  复制命令
-                </button>
-              </div>
-              <code>{{ sshKeyCommands[sshKeyPlatform] }}</code>
-            </div>
-            <div class="ssh-command-card">
-              <div class="ssh-command-heading">
-                <span>安装公钥命令</span>
-                <button
-                  class="inline-button"
-                  type="button"
-                  @click="copySSHKeyCommand(sshPublicKeyCommands[sshKeyPlatform], '公钥安装命令已复制')"
-                >
-                  复制命令
-                </button>
-              </div>
-              <code>{{ sshPublicKeyCommands[sshKeyPlatform] }}</code>
-            </div>
-            <div class="server-ssh-key-fields">
-              <label class="field">
-                <span>私钥名称</span>
-                <input v-model="sshKeyForm.name" required type="text" maxlength="128" autocomplete="off" />
-              </label>
-              <label class="field">
-                <span>读取本机私钥文件</span>
-                <input type="file" @change="importSSHKeyFile" />
-              </label>
-              <label class="field">
-                <span>私钥内容</span>
-                <textarea
-                  v-model="sshKeyForm.private_key"
-                  rows="4"
-                  spellcheck="false"
-                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                ></textarea>
-              </label>
-              <label class="field">
-                <span class="field-label-row">
-                  <span>私钥口令</span>
-                  <button class="inline-button" type="button" @click="sshKeyPassphraseVisible = !sshKeyPassphraseVisible">
-                    {{ sshKeyPassphraseVisible ? "隐藏口令" : "显示口令" }}
-                  </button>
-                </span>
-                <input
-                  v-model="sshKeyForm.passphrase"
-                  :type="sshKeyPassphraseVisible ? 'text' : 'password'"
-                  maxlength="4096"
-                  autocomplete="new-password"
-                />
-              </label>
-            </div>
-            <p v-if="sshKeyFormError" class="form-error">{{ sshKeyFormError }}</p>
-            <div class="server-ssh-key-actions">
-              <HelpTip>私钥会加密保存，服务器配置中只保存安全引用。</HelpTip>
-              <button class="primary-button" type="button" :disabled="sshKeySaving" @click="saveSSHKey">
-                {{ sshKeySaving ? "加密保存中……" : "加密保存并用于当前服务器" }}
-              </button>
             </div>
           </section>
 
