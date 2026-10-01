@@ -742,3 +742,88 @@ func TestTaskAPIRecordsPartialDeploymentFailureAsPartialSuccess(t *testing.T) {
 		t.Fatalf("partial failure audit status: %+v %v", logs, err)
 	}
 }
+
+func TestTaskAPIRetriesFailedCertificateDeploymentWithoutDNSCredential(t *testing.T) {
+	calls := 0
+	server, taskRepo, auditRepo, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer closeDB()
+	server.deployCertificate = func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		calls++
+		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
+	}
+	finished := time.Now().UTC()
+	task := repository.Task{
+		HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+		ID:           "deploy-retry-failed", DomainID: "domain-1", TaskType: "certificate_deploy",
+		Status: "failed", Stage: "certificate_deploy", Message: "deployment failed", FinishedAt: &finished,
+	}
+	if err := taskRepo.CreateTask(t.Context(), task); err != nil {
+		t.Fatalf("create deployment task: %v", err)
+	}
+	attempt := repository.TaskAttempt{
+		HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+		ID:           "deploy-retry-failed-attempt-1", TaskID: task.ID, AttemptNumber: 1,
+		Stage: "certificate_deploy", Status: "failed", Message: "deployment failed", FinishedAt: &finished,
+	}
+	if err := taskRepo.CreateAttempt(t.Context(), attempt); err != nil {
+		t.Fatalf("create deployment attempt: %v", err)
+	}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/retry", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("retry response: %d %s", response.Code, response.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("deployment workflow calls: %d", calls)
+	}
+	updated, err := taskRepo.GetTask(t.Context(), task.ID)
+	if err != nil || updated.Status != "success" || updated.Stage != "certificate_deploy" {
+		t.Fatalf("deployment retry did not converge: %+v %v", updated, err)
+	}
+	attempts, err := taskRepo.ListAttempts(t.Context(), task.ID)
+	if err != nil || len(attempts) != 2 || attempts[1].Stage != "certificate_deploy" || attempts[1].Status != "success" {
+		t.Fatalf("deployment retry attempts: %+v %v", attempts, err)
+	}
+	logs, err := auditRepo.ListAuditLogs(t.Context(), 10)
+	if err != nil || len(logs) != 2 || logs[0].Action != "certificate_deploy_retry" || logs[0].Status != "success" {
+		t.Fatalf("deployment retry audit: %+v %v", logs, err)
+	}
+}
+
+func TestTaskAPIRetriesPartialCertificateDeployment(t *testing.T) {
+	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer closeDB()
+	server.deployCertificate = func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
+	}
+	finished := time.Now().UTC()
+	task := repository.Task{
+		HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+		ID:           "deploy-retry-partial", DomainID: "domain-1", TaskType: "certificate_deploy",
+		Status: "partial_success", Stage: "certificate_deploy", Message: "partial deployment", FinishedAt: &finished,
+	}
+	if err := taskRepo.CreateTask(t.Context(), task); err != nil {
+		t.Fatalf("create partial deployment task: %v", err)
+	}
+	attempt := repository.TaskAttempt{
+		HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+		ID:           "deploy-retry-partial-attempt-1", TaskID: task.ID, AttemptNumber: 1,
+		Stage: "certificate_deploy", Status: "partial_success", Message: "partial deployment", FinishedAt: &finished,
+	}
+	if err := taskRepo.CreateAttempt(t.Context(), attempt); err != nil {
+		t.Fatalf("create partial deployment attempt: %v", err)
+	}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/retry", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("partial retry response: %d %s", response.Code, response.Body.String())
+	}
+	updated, err := taskRepo.GetTask(t.Context(), task.ID)
+	if err != nil || updated.Status != "success" {
+		t.Fatalf("partial deployment retry did not converge: %+v %v", updated, err)
+	}
+}

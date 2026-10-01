@@ -242,12 +242,16 @@ func (r *SQLTaskRepository) RetryVisibleTask(ctx context.Context, actorID, taskI
 	predicate, predicateArgs := taskVisibilityPredicate("tasks", domain.PermissionTaskRetry)
 	predicateArgs[0] = actorID
 	updateArgs := []any{
-		actorID, "certificate_issue", "正在重试证书申请", nullableTime(startedAt), time.Now().UTC(), taskID,
+		actorID, nullableTime(startedAt), time.Now().UTC(), taskID,
 	}
 	updateArgs = append(updateArgs, predicateArgs...)
-	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks SET operator_id = ?, status = 'running', stage = ?, message = ?,
+	result, err := tx.ExecContext(ctx, r.query(`UPDATE tasks SET operator_id = ?, status = 'running',
+		stage = CASE task_type WHEN 'certificate_deploy' THEN 'certificate_deploy' ELSE 'certificate_issue' END,
+		message = CASE task_type WHEN 'certificate_deploy' THEN '正在重试证书部署' ELSE '正在重试证书申请' END,
 		started_at = ?, finished_at = NULL, updated_at = ?
-		WHERE id = ? AND task_type = 'certificate_issue' AND status IN ('failed', 'cancelled') AND `+predicate), updateArgs...)
+		WHERE id = ? AND task_type IN ('certificate_issue', 'certificate_deploy')
+		AND (status IN ('failed', 'cancelled') OR (task_type = 'certificate_deploy' AND status = 'partial_success'))
+		AND `+predicate), updateArgs...)
 	if err != nil {
 		rollback()
 		return Task{}, TaskAttempt{}, fmt.Errorf("更新重试任务状态失败：%w", err)
@@ -266,10 +270,22 @@ func (r *SQLTaskRepository) RetryVisibleTask(ctx context.Context, actorID, taskI
 		if getErr != nil {
 			return Task{}, TaskAttempt{}, getErr
 		}
-		if item.Status != "failed" && item.Status != "cancelled" {
+		if !retryableTaskStatus(item) {
 			return Task{}, TaskAttempt{}, ErrTaskNotRetryable
 		}
 		return Task{}, TaskAttempt{}, ErrProjectAccessDenied
+	}
+
+	task, err := scanTask(tx.QueryRowContext(ctx, r.query(taskSelect+` WHERE id = ?`), taskID))
+	if err != nil {
+		rollback()
+		return Task{}, TaskAttempt{}, err
+	}
+	stage := "certificate_issue"
+	message := "开始重试证书申请"
+	if task.TaskType == "certificate_deploy" {
+		stage = "certificate_deploy"
+		message = "开始重试证书部署"
 	}
 
 	var attemptNumber int
@@ -278,13 +294,13 @@ func (r *SQLTaskRepository) RetryVisibleTask(ctx context.Context, actorID, taskI
 		return Task{}, TaskAttempt{}, fmt.Errorf("读取任务重试次数失败：%w", err)
 	}
 	attempt := TaskAttempt{
-		HistoryScope:  HistoryScope{ScopeType: ScopeProject},
+		HistoryScope:  task.HistoryScope,
 		ID:            domain.NewID(),
 		TaskID:        taskID,
 		AttemptNumber: attemptNumber,
-		Stage:         "certificate_issue",
+		Stage:         stage,
 		Status:        "running",
-		Message:       "开始重试证书申请",
+		Message:       message,
 		StartedAt:     startedAt,
 		CreatedAt:     startedAt.UTC(),
 	}
@@ -305,14 +321,15 @@ func (r *SQLTaskRepository) RetryVisibleTask(ctx context.Context, actorID, taskI
 		return Task{}, TaskAttempt{}, ErrTaskNotRetryable
 	}
 
-	task, err := scanTask(tx.QueryRowContext(ctx, r.query(taskSelect+` WHERE id = ?`), taskID))
-	if err != nil {
-		rollback()
-		return Task{}, TaskAttempt{}, err
-	}
-	attempt.HistoryScope = task.HistoryScope
 	if err := tx.Commit(); err != nil {
 		return Task{}, TaskAttempt{}, fmt.Errorf("提交重试任务事务失败：%w", err)
 	}
 	return task, attempt, nil
+}
+
+func retryableTaskStatus(item Task) bool {
+	if item.Status == "failed" || item.Status == "cancelled" {
+		return item.TaskType == "certificate_issue" || item.TaskType == "certificate_deploy"
+	}
+	return item.TaskType == "certificate_deploy" && item.Status == "partial_success"
 }

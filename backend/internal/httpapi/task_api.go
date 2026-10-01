@@ -137,6 +137,14 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 }
 
 func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
+	s.executeCertificateTask(c, task, attempt, auditAction, s.issueCertificate, "certificate_issue", "正在申请证书并部署", "证书申请和部署完成")
+}
+
+func (s *Server) executeCertificateDeployTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
+	s.executeCertificateTask(c, task, attempt, auditAction, s.deployCertificate, "certificate_deploy", "正在部署证书", "证书部署完成")
+}
+
+func (s *Server) executeCertificateTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string, operation func(context.Context, string) (certificate.IssueResult, deployment.Report, error), stage, runningMessage, successMessage string) {
 	executionCtx, cancel := context.WithTimeout(c.Request.Context(), certificateTaskTimeout)
 	executionCtx = deployment.WithTransactionContext(executionCtx, deployment.TransactionContext{
 		TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
@@ -148,13 +156,13 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 	}()
 
 	now := time.Now().UTC()
-	if err := s.tasks.UpdateTask(executionCtx, task.ID, "running", "certificate_issue", "正在申请证书并部署", &now, nil); err != nil {
+	if err := s.tasks.UpdateTask(executionCtx, task.ID, "running", stage, runningMessage, &now, nil); err != nil {
 		finished := time.Now().UTC()
 		failureMessage := "任务启动失败"
 		if s.writeCancelledTaskResponse(c, task.ID) {
 			return
 		}
-		_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", "certificate_issue", failureMessage, &now, &finished)
+		_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", stage, failureMessage, &now, &finished)
 		_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
 		if s.audit != nil {
 			_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
@@ -186,14 +194,14 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 	executionCtx = certificate.WithProgressReporter(executionCtx, func(progressCtx context.Context, progressStage, progressMessage string) error {
 		return s.tasks.UpdateTask(progressCtx, task.ID, "running", progressStage, progressMessage, &now, nil)
 	})
-	certificateResult, deploymentReport, issueErr := s.issueCertificate(executionCtx, task.DomainID)
+	certificateResult, deploymentReport, issueErr := operation(executionCtx, task.DomainID)
 	deploymentReport = sanitizeDeploymentReport(deploymentReport)
 	if recordErr := s.tasks.RecordTaskDeploymentResults(context.Background(), task.ID, attempt.ID, attempt.AttemptNumber, taskDeploymentResults(deploymentReport)); recordErr != nil {
 		issueErr = errors.Join(issueErr, recordErr)
 	}
 	finished := time.Now().UTC()
 	status := "success"
-	message := "证书申请和部署完成"
+	message := successMessage
 	cancelled := false
 	partial := deploymentReport.Status == "partial"
 	if issueErr != nil {
@@ -221,11 +229,11 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 		}
 	}
 	if !cancelled {
-		_ = s.tasks.UpdateTask(context.Background(), task.ID, status, "certificate_issue", message, &now, &finished)
+		_ = s.tasks.UpdateTask(context.Background(), task.ID, status, stage, message, &now, &finished)
 	}
 	_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, status, message, &finished)
 	task.Status = status
-	task.Stage = "certificate_issue"
+	task.Stage = stage
 	task.Message = message
 	task.StartedAt = &now
 	task.FinishedAt = &finished
@@ -386,10 +394,6 @@ func (s *Server) cancelTask(c *gin.Context) {
 }
 
 func (s *Server) retryTask(c *gin.Context) {
-	if s.issueCertificate == nil {
-		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
-		return
-	}
 	reader, ok := s.projectTaskReader(c)
 	if !ok {
 		return
@@ -405,13 +409,31 @@ func (s *Server) retryTask(c *gin.Context) {
 		s.writeError(c, http.StatusInternalServerError, "读取任务失败", err)
 		return
 	}
-	if item.TaskType != "certificate_issue" {
+	if item.TaskType != "certificate_issue" && item.TaskType != "certificate_deploy" {
 		c.JSON(http.StatusConflict, gin.H{"error": "当前任务类型不支持手动重试", "task": item})
 		return
 	}
-	if item.Status != "failed" && item.Status != "cancelled" {
-		c.JSON(http.StatusConflict, gin.H{"error": "仅失败或已取消的证书申请任务可以重试", "task": item})
+	retryable := item.Status == "failed" || item.Status == "cancelled"
+	if item.TaskType == "certificate_deploy" && item.Status == "partial_success" {
+		retryable = true
+	}
+	if !retryable {
+		c.JSON(http.StatusConflict, gin.H{"error": "仅失败、已取消或部分成功的证书任务可以重试", "task": item})
 		return
+	}
+	var runTask func(*gin.Context, repository.Task, repository.TaskAttempt, string)
+	if item.TaskType == "certificate_deploy" {
+		if s.deployCertificate == nil {
+			s.writeError(c, http.StatusNotImplemented, "证书部署接口尚未配置", errors.New("证书部署工作流未配置"))
+			return
+		}
+		runTask = s.executeCertificateDeployTask
+	} else {
+		if s.issueCertificate == nil {
+			s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
+			return
+		}
+		runTask = s.executeCertificateIssueTask
 	}
 	authorizer, ok := s.projectMembers.(repository.ProjectAuthorizer)
 	if !ok {
@@ -433,7 +455,7 @@ func (s *Server) retryTask(c *gin.Context) {
 			return
 		}
 	}
-	if !s.authorizeDNSCredentialUse(c, projectID) {
+	if item.TaskType == "certificate_issue" && !s.authorizeDNSCredentialUse(c, projectID) {
 		return
 	}
 	startedAt := time.Now().UTC()
@@ -449,9 +471,8 @@ func (s *Server) retryTask(c *gin.Context) {
 		}
 		return
 	}
-	s.executeCertificateIssueTask(c, retryTask, attempt, "certificate_issue_retry")
+	runTask(c, retryTask, attempt, item.TaskType+"_retry")
 }
-
 func validTaskIdempotencyKey(value string) bool {
 	if len(value) < 8 || len(value) > 128 {
 		return false
