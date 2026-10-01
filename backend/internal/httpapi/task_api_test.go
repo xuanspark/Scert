@@ -749,7 +749,7 @@ func TestTaskAPIRetriesFailedCertificateDeploymentWithoutDNSCredential(t *testin
 		return certificate.IssueResult{}, deployment.Report{}, nil
 	})
 	defer closeDB()
-	server.deployCertificate = func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+	server.deployCertificateTask = func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
 		calls++
 		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
 	}
@@ -792,12 +792,42 @@ func TestTaskAPIRetriesFailedCertificateDeploymentWithoutDNSCredential(t *testin
 	}
 }
 
+func TestTaskAPIDeployRetryRequiresUntrackedExecutor(t *testing.T) {
+	server, tasks, _, closeDB := newTaskAPITestServer(t, nil)
+	defer closeDB()
+	server.deployCertificate = func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		t.Fatal("已有任务不得回退到创建新任务的部署入口")
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	}
+	item := repository.Task{
+		HistoryScope: repository.HistoryScope{ScopeType: repository.ScopeProject, ProjectID: domain.DefaultProjectID},
+		ID:           "deploy-missing-executor", DomainID: "domain-1", TaskType: "certificate_deploy",
+		Status: "failed", Stage: "certificate_deploy",
+	}
+	if err := tasks.CreateTask(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+item.ID+"/retry", nil))
+	if response.Code != http.StatusNotImplemented {
+		t.Fatalf("缺少已有任务执行器时应拒绝重试：%d %s", response.Code, response.Body.String())
+	}
+	stored, err := tasks.GetTask(t.Context(), item.ID)
+	if err != nil || stored.Status != "failed" {
+		t.Fatalf("执行器未配置时不应改变任务状态：%+v %v", stored, err)
+	}
+	attempts, err := tasks.ListAttempts(t.Context(), item.ID)
+	if err != nil || len(attempts) != 0 {
+		t.Fatalf("执行器未配置时不应增加尝试：%+v %v", attempts, err)
+	}
+}
+
 func TestTaskAPIRetriesPartialCertificateDeployment(t *testing.T) {
 	server, taskRepo, _, closeDB := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
 		return certificate.IssueResult{}, deployment.Report{}, nil
 	})
 	defer closeDB()
-	server.deployCertificate = func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
+	server.deployCertificateTask = func(_ context.Context, id string) (certificate.IssueResult, deployment.Report, error) {
 		return certificate.IssueResult{DomainID: id}, deployment.Report{Status: "success"}, nil
 	}
 	finished := time.Now().UTC()

@@ -141,7 +141,7 @@ func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Tas
 }
 
 func (s *Server) executeCertificateDeployTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
-	s.executeCertificateTask(c, task, attempt, auditAction, s.deployCertificate, "certificate_deploy", "正在部署证书", "证书部署完成")
+	s.executeCertificateTask(c, task, attempt, auditAction, s.deployCertificateTask, "certificate_deploy", "正在部署证书", "证书部署完成")
 }
 
 func (s *Server) executeCertificateTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string, operation func(context.Context, string) (certificate.IssueResult, deployment.Report, error), stage, runningMessage, successMessage string) {
@@ -423,7 +423,7 @@ func (s *Server) retryTask(c *gin.Context) {
 	}
 	var runTask func(*gin.Context, repository.Task, repository.TaskAttempt, string)
 	if item.TaskType == "certificate_deploy" {
-		if s.deployCertificate == nil {
+		if s.deployCertificateTask == nil {
 			s.writeError(c, http.StatusNotImplemented, "证书部署接口尚未配置", errors.New("证书部署工作流未配置"))
 			return
 		}

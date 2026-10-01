@@ -40,29 +40,31 @@ type readinessSecretReader interface {
 }
 
 type Dependencies struct {
-	Config                    config.Config
-	ConfigPath                string
-	FrontendDir               string
-	Logger                    *logging.Logger
-	Repository                repository.DomainRepository
-	Servers                   repository.ServerRepository
-	Users                     repository.UserRepository
-	ProjectMembers            repository.ProjectMemberRepository
-	ProjectDirectory          repository.ProjectDirectoryRepository
-	ProjectLifecycle          repository.ProjectLifecycleRepository
-	ProjectResources          repository.ProjectResourceReader
-	ProjectBindings           repository.ProjectBindingRepository
-	ProjectDomains            repository.ProjectDomainRepository
-	SSHKeys                   *sshkey.Service
-	DeploymentFactory         deployment.ClientFactory
-	SetupDNS                  setupDNSVerifier
-	Secrets                   setupSecretWriter
-	Firewall                  firewall.Manager
-	IssueCertificate          func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	IssueSetupCertificate     func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
-	RollbackSetupCertificate  func(context.Context, certificate.SavedResource) error
-	ImportCertificate         func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
-	DeployCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	Config                   config.Config
+	ConfigPath               string
+	FrontendDir              string
+	Logger                   *logging.Logger
+	Repository               repository.DomainRepository
+	Servers                  repository.ServerRepository
+	Users                    repository.UserRepository
+	ProjectMembers           repository.ProjectMemberRepository
+	ProjectDirectory         repository.ProjectDirectoryRepository
+	ProjectLifecycle         repository.ProjectLifecycleRepository
+	ProjectResources         repository.ProjectResourceReader
+	ProjectBindings          repository.ProjectBindingRepository
+	ProjectDomains           repository.ProjectDomainRepository
+	SSHKeys                  *sshkey.Service
+	DeploymentFactory        deployment.ClientFactory
+	SetupDNS                 setupDNSVerifier
+	Secrets                  setupSecretWriter
+	Firewall                 firewall.Manager
+	IssueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	IssueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
+	RollbackSetupCertificate func(context.Context, certificate.SavedResource) error
+	ImportCertificate        func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
+	DeployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	// DeployCertificateTask 执行已有任务，不得重复创建任务或尝试记录。
+	DeployCertificateTask     func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
 	ValidateCertificate       func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
@@ -101,6 +103,7 @@ type Server struct {
 	rollbackSetupCertificate    func(context.Context, certificate.SavedResource) error
 	importCertificate           func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
 	deployCertificate           func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	deployCertificateTask       func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	restoreVersion              func(context.Context, string, string) (certificate.IssueResult, error)
 	validateCertificateWorkflow func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
@@ -165,6 +168,7 @@ func New(deps Dependencies) *Server {
 		rollbackSetupCertificate:    deps.RollbackSetupCertificate,
 		importCertificate:           deps.ImportCertificate,
 		deployCertificate:           deps.DeployCertificate,
+		deployCertificateTask:       deps.DeployCertificateTask,
 		restoreVersion:              deps.RestoreCertificateVersion,
 		validateCertificateWorkflow: deps.ValidateCertificate,
 		runRenewal:                  deps.RunRenewal,
