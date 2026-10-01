@@ -1293,3 +1293,34 @@ git diff --check
 - [!] 第一台该测试域名公网 HTTP 有明确拦截页面，公网 HTTPS 失败，公网访问验收不通过；第二台管理及测试站点正常。
 - [~] 仅同证书重部署，其他负向窗口、新旧证书切换和历史证据缺失事务尚未全部闭环。
 - [ ] 最终清库首次流程及其他原清单生产门禁未完成；不宣称整体生产部署验收通过。
+
+## 数据库实机矩阵与新阻塞（2026-10-01 17:45，北京时间）
+
+### 范围与环境
+
+- 沿用第二台 Linux 测试机，正式运行主程序仍为 302111c 对应产物，SHA-256 为 393ae5a1cfaf8e4442ec30e47950f020e6ab47adb47af7fdca45a36eb9486ed2。
+- 测试使用项目原有 Go 集成测试及正式 CLI，不使用新建辅助脚本。非 root 测试进程由 systemd 临时单元以 mysql 用户启动，隔离数据库仅监听回环地址。
+- 测试根目录 /var/tmp/scert-db-matrix-20261001-1720；MySQL 数据根目录 /var/lib/mysql-files/scert-20261001。保留 AppArmor 策略，不放宽 /scert 权限。
+- 未重建或清空业务库，未额外备份业务数据；当前不是最终清库首次部署验收。
+
+### 已结束结果
+
+| 测试 | 单元或日志 | 结果 |
+|---|---|---|
+| 原 MySQL 数据库矩阵 | scert-mysql-matrix-20261001-1722 / mysql-database.log | 退出 1；模式 15 中断后 1、2 条语句及模式 16、17 建表后中断，共四个边界因表已存在失败 |
+| MySQL 8.0.46 仓储 | scert-mysql-repository-20261001-1732 / mysql-repository.log | 退出 0；9 个主测试、92 个子场景通过，无失败或跳过 |
+| PostgreSQL 14.24 首次尝试 | scert-postgres-matrix-20261001-1723 / postgres-cli.log | 七场景均因备份工具版本不满足要求失败；不计通过 |
+| PostgreSQL 16.15 | scert-postgres16-matrix-20261001-1727 / postgres16-cli.log | 退出 0；七场景全部通过，无跳过；总耗时 14.52 秒 |
+| SQLite 旧断言 | scert-sqlite-matrix-20261001-1726 / sqlite-cli.log | 失败，测试将当前迁移版本写死为 14，实际已为 18 |
+| SQLite 修正断言及历史样本 | scert-sqlite-history-20261001-1740 / sqlite-history-cli.log | 退出 0；historical_backup、upgraded_backup 全部通过；总耗时 0.79 秒 |
+
+PostgreSQL 的 success、certificate、permission、inventory、authentication、tls 使用独立正式 CLI；cancel 使用进程内确定性取消和真实工具回退，仅据实记录该范围。16.15 工具位于 /var/tmp/scert-pg16-tools-20261001/extracted，包来自经官方公钥签名验证的独立 PGDG 索引。测试后无残留 PostgreSQL 服务进程。
+
+SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce29b2a9ce3706ae7f6；上传后核对一致。新增样本覆盖 task_idempotency、task_attempts、task_deployment_results、deployment_transactions 及 recovery_evidence_json；恢复前实际修改样本，恢复后全表快照核验。
+
+### 当前修复与边界
+
+- [~] 原 MySQL 15～17 迁移使用非事务建表，已落盘后再次执行报表已存在。不能简单忽略冲突：模式 15 的历史幂等回填还需避免重复写入，同时拒绝内容不一致的数据。
+- [~] 正在实测可重入建表、字段和索引校验、回填与版本标记同事务提交，以及部分回填、冲突数据、异常结构负向场景。待后续结果更新，不能根据运行中的单元 Result=success 提前判定通过。
+- [✓] 双机端口复核符合 Nginx 80/443 反代要求；Scert 与 MySQL 均未新增公网监听。
+- [!] 第一台测试域名公网平台拦截、无可信证据的历史事务及此前剩余生产门禁继续保留，不以数据库子项通过替代。

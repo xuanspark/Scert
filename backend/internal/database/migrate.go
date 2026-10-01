@@ -84,6 +84,9 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		return applySQLiteTaskMigration(ctx, db, statements, version)
 	}
 	if driver == "mysql" {
+		if version >= 15 && version <= 17 {
+			return applyMySQLDeploymentMigration(ctx, db, version, statements)
+		}
 		if version == 14 {
 			if err := installMySQLProjectMembers(ctx, db); err != nil {
 				return err
