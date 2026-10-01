@@ -17,7 +17,6 @@ type Client interface {
 	Rename(ctx context.Context, source, target string) error
 	Remove(ctx context.Context, path string) error
 	Run(ctx context.Context, command []string) (CommandResult, error)
-	InstallAuthorizedKey(ctx context.Context, publicKey string) error
 	Close() error
 }
 

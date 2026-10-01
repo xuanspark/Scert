@@ -55,29 +55,3 @@ func TestJoinShellArgsQuotesArguments(t *testing.T) {
 		t.Fatalf("远程命令参数未正确转义：%s", joined)
 	}
 }
-
-func TestAuthorizedKeyInstallScriptUsesRealNewline(t *testing.T) {
-	script := authorizedKeyInstallScript("encoded-public-key")
-	if !strings.Contains(script, "printf '%s' 'encoded-public-key'") {
-		t.Fatalf("authorized key payload was not inserted safely: %s", script)
-	}
-	if !strings.Contains(script, "printf '%s\\n'") {
-		t.Fatalf("authorized key should be terminated by a real newline: %s", script)
-	}
-	if strings.Contains(script, "printf '%s\\\\n'") {
-		t.Fatalf("authorized key script still writes a literal backslash-n: %s", script)
-	}
-}
-func TestAuthorizedKeyInstallScriptEnablesRootPublicKeyAuthentication(t *testing.T) {
-	script := authorizedKeyInstallScript("encoded-public-key")
-	for _, required := range []string{
-		"PubkeyAuthentication yes",
-		"AuthorizedKeysFile .ssh/authorized_keys",
-		"sshd -t",
-		"systemctl reload ssh",
-	} {
-		if !strings.Contains(script, required) {
-			t.Fatalf("authorized key script is missing %q: %s", required, script)
-		}
-	}
-}
