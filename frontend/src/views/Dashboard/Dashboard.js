@@ -518,7 +518,6 @@ export function useDashboard() {
         address: serverForm.value.address,
         port: Number(serverForm.value.port),
         username: serverForm.value.username,
-        auth_method: "password",
         host_key_fingerprint: serverForm.value.host_key_fingerprint,
         certificate_path: serverForm.value.certificate_path,
         private_key_path: serverForm.value.private_key_path,

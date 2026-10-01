@@ -81,7 +81,7 @@ func newRootCommand() *cobra.Command {
 		newLogsCommand(), newConfigCommand(), newBackupCommand(), newRestoreCommand(),
 		newServiceCommand(), newDNSCommand(),
 	)
-	for _, name := range []string{"domain", "server", "ssh-key", "renew", "deploy"} {
+	for _, name := range []string{"domain", "server", "renew", "deploy"} {
 		root.AddCommand(newRetiredBusinessCommand(name))
 	}
 	localizeHelpFlags(root)

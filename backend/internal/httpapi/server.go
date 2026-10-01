@@ -399,7 +399,6 @@ type serverRequest struct {
 	Address              string   `json:"address" binding:"required"`
 	Port                 int      `json:"port"`
 	Username             string   `json:"username" binding:"required"`
-	AuthMethod           string   `json:"auth_method"`
 	Password             string   `json:"password"`
 	HostKeyFingerprint   string   `json:"host_key_fingerprint" binding:"required"`
 	CertificatePath      string   `json:"certificate_path"`

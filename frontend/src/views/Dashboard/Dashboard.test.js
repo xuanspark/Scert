@@ -328,8 +328,8 @@ test("部署服务器仅使用密码认证且不暴露私钥管理入口", async
   state.serverForm.value.host_key_fingerprint = "SHA256:test";
   await state.saveServer();
   const payload = JSON.parse(requests.at(-1).body);
-  assert.equal(payload.auth_method, "password");
   assert.equal(payload.password, "test-password");
+  assert.equal("auth_method" in payload, false);
   assert.equal("private_key_ref" in payload, false);
 });
 

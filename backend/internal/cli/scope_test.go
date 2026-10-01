@@ -33,7 +33,7 @@ func TestRootExposesOnlyOperationalCommands(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"domain", "server", "ssh-key", "renew", "deploy"} {
+	for _, name := range []string{"domain", "server", "renew", "deploy"} {
 		if strings.Contains(output.String(), "\n  "+name+" ") {
 			t.Errorf("正式帮助仍展示历史业务命令：%s", name)
 		}
@@ -48,8 +48,6 @@ func TestRetiredBusinessCommandsRejectBeforeAccessingData(t *testing.T) {
 		{"domain", "import", "--private-key", "not-a-real-key.pem"},
 		{"server", "add", "--password", "test-secret-not-real"},
 		{"server", "delete", "--id", "example"},
-		{"ssh-key", "add", "--name", "example"},
-		{"ssh-key", "delete", "--id", "example"},
 		{"renew"},
 		{"renew", "--id", "example"},
 		{"deploy", "--id", "example"},
