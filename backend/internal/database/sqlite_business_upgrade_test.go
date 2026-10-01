@@ -165,7 +165,8 @@ func snapshotSQLiteHistoricalBusiness(t *testing.T, db *sql.DB) map[string]sqlit
 				filtered = append(filtered, column)
 			}
 			columns = filtered
-		}		for index, column := range columns {
+		}
+		for index, column := range columns {
 			columns[index] = `"` + strings.ReplaceAll(column, `"`, `""`) + `"`
 		}
 		query := "SELECT " + strings.Join(columns, ",") + ` FROM "` + name + `" ORDER BY 1`

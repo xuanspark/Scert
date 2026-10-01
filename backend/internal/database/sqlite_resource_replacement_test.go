@@ -67,6 +67,9 @@ func snapshotSQLiteReplacementState(t *testing.T, db *sql.DB) map[string]sqliteH
 	result := snapshotSQLiteHistoricalBusiness(t, db)
 	for _, table := range []string{"projects", "domains", "servers"} {
 		query := "SELECT rowid, * FROM " + table + " ORDER BY id"
+		if table == "servers" {
+			query = "SELECT rowid, id, name, address, port, username, host_key_fingerprint, certificate_path, private_key_path, certificate_chain_path, web_server, reload_command_json, created_at, updated_at, validation_command_json, password_ref, project_id, owner_id, created_by, updated_by FROM servers ORDER BY id"
+		}
 		result[table+"_with_rowid"] = sqliteHistoricalTable{query: query, rows: snapshotSQLiteUpgradeQuery(t, db, query)}
 	}
 	return result
