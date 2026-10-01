@@ -54,14 +54,16 @@ type Server struct {
 	Port                 int           `json:"port"`
 	Username             string        `json:"username"`
 	AuthMethod           SSHAuthMethod `json:"auth_method"`
-	PrivateKeyRef        string        `json:"private_key_ref"`
+	// PrivateKeyRef 仅为历史数据库兼容保留，禁止进入 API 响应和生产认证流程。
+	PrivateKeyRef        string        `json:"-"`
 	PasswordRef          string        `json:"-"`
 	PasswordConfigured   bool          `json:"password_configured"`
-	SSHKeyStatus         SSHKeyStatus  `json:"ssh_key_status"`
-	SSHKeyFingerprint    string        `json:"ssh_key_fingerprint,omitempty"`
-	SSHKeyDeployedAt     string        `json:"ssh_key_deployed_at,omitempty"`
-	SSHKeyTestedAt       string        `json:"ssh_key_tested_at,omitempty"`
-	SSHKeyError          string        `json:"ssh_key_error,omitempty"`
+	// SSH 密钥状态仅为历史数据兼容保留，不对外暴露。
+	SSHKeyStatus         SSHKeyStatus  `json:"-"`
+	SSHKeyFingerprint    string        `json:"-"`
+	SSHKeyDeployedAt     string        `json:"-"`
+	SSHKeyTestedAt       string        `json:"-"`
+	SSHKeyError          string        `json:"-"`
 	HostKeyFingerprint   string        `json:"host_key_fingerprint"`
 	CertificatePath      string        `json:"certificate_path"`
 	PrivateKeyPath       string        `json:"private_key_path"`
@@ -88,12 +90,8 @@ func (s Server) Normalize() Server {
 	s.SSHKeyDeployedAt = strings.TrimSpace(s.SSHKeyDeployedAt)
 	s.SSHKeyTestedAt = strings.TrimSpace(s.SSHKeyTestedAt)
 	s.SSHKeyError = strings.TrimSpace(s.SSHKeyError)
-	if s.AuthMethod == "" {
-		if s.PasswordRef != "" {
-			s.AuthMethod = SSHAuthPassword
-		} else {
-			s.AuthMethod = SSHAuthPrivateKey
-		}
+	if s.AuthMethod == "" || s.AuthMethod == SSHAuthPrivateKey {
+		s.AuthMethod = SSHAuthPassword
 	}
 	if s.SSHKeyStatus == "" {
 		s.SSHKeyStatus = SSHKeyStatusNotConfigured
@@ -214,17 +212,15 @@ func (s Server) Validate() error {
 	if s.Username == "" {
 		return errors.New("SSH 用户不能为空")
 	}
-	switch s.AuthMethod {
-	case SSHAuthPrivateKey:
-		if s.PrivateKeyRef == "" {
-			return errors.New("SSH \u79c1\u94a5\u5f15\u7528\u4e0d\u80fd\u4e3a\u7a7a")
-		}
-	case SSHAuthPassword:
-		if s.PasswordRef == "" {
-			return errors.New("SSH \u5bc6\u7801\u5f15\u7528\u4e0d\u80fd\u4e3a\u7a7a")
-		}
-	default:
-		return fmt.Errorf("SSH \u8ba4\u8bc1\u65b9\u5f0f\u65e0\u6548\uff1a%s", s.AuthMethod)
+	// 历史内存模型仍允许读取旧私钥记录，实际 SSHFactory 会在连接前拒绝该认证方式。
+	if s.PrivateKeyRef != "" && s.PasswordRef == "" {
+		return nil
+	}
+	if s.AuthMethod != SSHAuthPassword {
+		return errors.New("服务器仅支持 SSH 密码认证")
+	}
+	if s.PasswordRef == "" {
+		return errors.New("SSH 密码引用不能为空")
 	}
 	if s.HostKeyFingerprint == "" {
 		return errors.New("SSH 主机指纹不能为空")

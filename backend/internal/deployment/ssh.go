@@ -45,38 +45,18 @@ func (f SSHFactory) connect(ctx context.Context, server Server, requireSFTP bool
 	if f.Secrets == nil {
 		return nil, errors.New("SSH 敏感信息存储未初始化")
 	}
-	secretReference := server.PrivateKeyRef
-	if server.AuthMethod == SSHAuthPassword {
-		secretReference = server.PasswordRef
+	if server.AuthMethod != SSHAuthPassword || server.PrivateKeyRef != "" {
+		return nil, errors.New("服务器仅支持 SSH 密码认证，不能使用 SSH 私钥")
 	}
-	secrets, err := f.Secrets.Get(ctx, secretReference)
+	secrets, err := f.Secrets.Get(ctx, server.PasswordRef)
 	if err != nil {
 		return nil, fmt.Errorf("读取 SSH 认证信息失败：%w", err)
 	}
-	var authMethods []ssh.AuthMethod
-	if server.AuthMethod == SSHAuthPassword {
-		password := secrets["password"]
-		if password == "" {
-			return nil, errors.New("SSH 密码不能为空")
-		}
-		authMethods = []ssh.AuthMethod{ssh.Password(password)}
-	} else {
-		privateKey := strings.TrimSpace(secrets["private_key"])
-		if privateKey == "" {
-			return nil, errors.New("SSH 私钥内容不能为空")
-		}
-		var signer ssh.Signer
-		passphrase := secrets["passphrase"]
-		if passphrase != "" {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKey), []byte(passphrase))
-		} else {
-			signer, err = ssh.ParsePrivateKey([]byte(privateKey))
-		}
-		if err != nil {
-			return nil, errors.New("解析 SSH 私钥失败：私钥格式或口令无效")
-		}
-		authMethods = []ssh.AuthMethod{ssh.PublicKeys(signer)}
+	password := secrets["password"]
+	if password == "" {
+		return nil, errors.New("SSH 密码不能为空")
 	}
+	authMethods := []ssh.AuthMethod{ssh.Password(password)}
 	timeout := f.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
