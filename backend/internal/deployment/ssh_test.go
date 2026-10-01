@@ -13,19 +13,18 @@ func (s staticSecretReader) Get(_ context.Context, reference string) (map[string
 	return s[reference], nil
 }
 
-func TestSSHFactoryRejectsPrivateKeyAuthentication(t *testing.T) {
+func TestSSHFactoryRejectsUnsupportedAuthentication(t *testing.T) {
 	server := Server{
 		ID: "server-test", Name: "test server", Address: "127.0.0.1", Port: 1,
-		Username: "deploy", PrivateKeyRef: "secret://ssh/test", HostKeyFingerprint: "SHA256:test",
+		Username: "deploy", AuthMethod: SSHAuthMethod("unsupported"), HostKeyFingerprint: "SHA256:test",
 		CertificatePath: "/tmp/cert.pem", PrivateKeyPath: "/tmp/key.pem",
 		CertificateChainPath: "/tmp/fullchain.pem", WebServer: WebServerNginx,
 	}
 	factory := SSHFactory{
-		Secrets: staticSecretReader{server.PrivateKeyRef: {"private_key": "must-not-be-read"}},
 		Timeout: 100 * time.Millisecond,
 	}
 	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "SSH") {
-		t.Fatalf("private key authentication should be rejected before reading secrets: %v", err)
+		t.Fatalf("unsupported authentication should be rejected before reading secrets: %v", err)
 	}
 }
 

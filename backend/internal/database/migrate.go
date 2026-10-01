@@ -19,7 +19,7 @@ import (
 //go:embed migrations/sqlite/0015_task_idempotency.sql migrations/mysql/0015_task_idempotency.sql migrations/postgres/0015_task_idempotency.sql
 //go:embed migrations/sqlite/0016_task_deployment_results.sql migrations/mysql/0016_task_deployment_results.sql migrations/postgres/0016_task_deployment_results.sql
 //go:embed migrations/sqlite/0017_deployment_transactions.sql migrations/mysql/0017_deployment_transactions.sql migrations/postgres/0017_deployment_transactions.sql
-//go:embed migrations/sqlite/0018_recovery_evidence.sql migrations/mysql/0018_recovery_evidence.sql migrations/postgres/0018_recovery_evidence.sql
+//go:embed migrations/sqlite/0018_recovery_evidence.sql migrations/mysql/0018_recovery_evidence.sql migrations/postgres/0018_recovery_evidence.sql migrations/sqlite/0019_password_auth_only.sql migrations/mysql/0019_password_auth_only.sql migrations/postgres/0019_password_auth_only.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -44,7 +44,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 18
+const latestMigrationVersion = 19
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -235,6 +235,8 @@ func migrationName(version int) string {
 		return "deployment_transactions"
 	case 18:
 		return "recovery_evidence"
+	case 19:
+		return "password_auth_only"
 	default:
 		return "unknown"
 	}

@@ -121,9 +121,9 @@ func TestServerRejectsPasswordStyleOrUnsafeConfiguration(t *testing.T) {
 		t.Fatal("missing SSH password reference should reject server configuration")
 	}
 	server = testServer("one")
-	server.PrivateKeyRef = "secret://ssh/private-key"
+	server.AuthMethod = SSHAuthMethod("unsupported")
 	if err := server.Validate(); err == nil {
-		t.Fatal("SSH private key reference should reject server configuration")
+		t.Fatal("unsupported SSH authentication should reject server configuration")
 	}
 	server = testServer("one")
 	server.ReloadCommand = []string{"nginx\nrm", "-s", "reload"}

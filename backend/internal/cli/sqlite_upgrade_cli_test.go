@@ -68,7 +68,7 @@ func TestSQLiteBusinessUpgradeStandaloneCLI(t *testing.T) {
 		`INSERT INTO settings (key, value) VALUES ('historical', '历史设置')`,
 		`INSERT INTO domains (id, name, certificate_type, sans_json, status, dns_provider) VALUES ('domain', 'example.test', 'single', '["example.test"]', 'issued', 'alidns')`,
 		`INSERT INTO tasks (id, domain_id, task_type, status, message) VALUES ('task', 'domain', 'deploy', 'success', '历史任务')`,
-		`INSERT INTO servers (id, name, address, port, username, private_key_ref, host_key_fingerprint, certificate_path, private_key_path, certificate_chain_path, web_server, reload_command_json) VALUES ('server', '历史服务器', '192.0.2.10', 22, 'deploy', 'secret://ssh/business', 'test-only', '/test/cert.pem', '/test/key.pem', '/test/chain.pem', 'nginx', '["nginx","-s","reload"]')`,
+		`INSERT INTO servers (id, name, address, port, username, private_key_ref, host_key_fingerprint, certificate_path, private_key_path, certificate_chain_path, web_server, reload_command_json) VALUES ('server', '历史服务器', '192.0.2.10', 22, 'deploy', '', 'test-only', '/test/cert.pem', '/test/key.pem', '/test/chain.pem', 'nginx', '["nginx","-s","reload"]')`,
 		`INSERT INTO domain_servers (domain_id, server_id) VALUES ('domain', 'server')`,
 		`INSERT INTO audit_logs (action, resource_type, resource_id, status, message) VALUES ('deploy', 'domain', 'domain', 'success', '历史审计')`,
 	} {

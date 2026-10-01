@@ -100,15 +100,15 @@ func TestServerRepositoryRejectsInvalidServer(t *testing.T) {
 	}
 }
 
-func TestServerRepositoryRejectsPrivateKeyReference(t *testing.T) {
+func TestServerRepositoryRejectsUnsupportedAuthentication(t *testing.T) {
 	db := openServerTestDatabase(t)
 	defer db.Close()
 	repo := NewSQLServerRepository(db.DB)
 	server := validTestServer()
 	server.ID = "server-private-key-rejected"
-	server.PrivateKeyRef = "secret://ssh/private-key"
+	server.AuthMethod = deployment.SSHAuthMethod("unsupported")
 	if err := repo.CreateServer(t.Context(), server); err == nil {
-		t.Fatal("server repository must reject SSH private key references")
+		t.Fatal("server repository must reject unsupported authentication")
 	}
 }
 

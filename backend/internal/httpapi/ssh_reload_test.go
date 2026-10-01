@@ -16,17 +16,16 @@ func (f reloadTestFactory) Connect(ctx context.Context, item deployment.Server) 
 	return f.connect(ctx, item)
 }
 
-func TestSSHAfterReloadRejectsPrivateKeyAuthentication(t *testing.T) {
+func TestSSHAfterReloadRejectsUnsupportedAuthentication(t *testing.T) {
 	server := &Server{deploymentFactory: reloadTestFactory{connect: func(context.Context, deployment.Server) (deployment.Client, error) {
-		t.Fatal("private key authentication must not reach the deployment factory")
+		t.Fatal("unsupported authentication must not reach the deployment factory")
 		return nil, nil
 	}}}
 	client, err := server.connectSSHAfterReload(t.Context(), deployment.Server{
-		AuthMethod:         deployment.SSHAuthPrivateKey,
-		PrivateKeyRef:      "secret://ssh/private-key",
+		AuthMethod:         deployment.SSHAuthMethod("unsupported"),
 		HostKeyFingerprint: "SHA256:registered",
 	})
 	if client != nil || err == nil || !strings.Contains(err.Error(), "SSH") {
-		t.Fatalf("private key authentication should be rejected: client=%v err=%v", client, err)
+		t.Fatalf("unsupported authentication should be rejected: client=%v err=%v", client, err)
 	}
 }

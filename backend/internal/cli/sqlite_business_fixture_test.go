@@ -20,7 +20,6 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"golang.org/x/crypto/bcrypt"
-	"golang.org/x/crypto/ssh"
 )
 
 type sqliteBusinessFixture struct {
@@ -54,17 +53,8 @@ func newSQLiteBusinessAssets(t *testing.T) sqliteBusinessFixture {
 	if err := cfg.Save(fixture.path); err != nil {
 		t.Fatal(err)
 	}
-	sshKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sshBlock, err := ssh.MarshalPrivateKey(sshKey, "隔离恢复测试")
-	if err != nil {
-		t.Fatal(err)
-	}
 	fixture.secrets = map[string]map[string]string{
-		cfg.DNS.CredentialRef:   {"access_key_id": rand.Text(), "access_key_secret": rand.Text()},
-		"secret://ssh/business": {"private_key": string(pem.EncodeToMemory(sshBlock))},
+		cfg.DNS.CredentialRef: {"access_key_id": rand.Text(), "access_key_secret": rand.Text()},
 	}
 	store, err := secretstore.Open(cfg.Paths.Config)
 	if err != nil {
@@ -103,7 +93,7 @@ func newSQLiteBusinessFixture(t *testing.T) sqliteBusinessFixture {
 		{`INSERT INTO users (id, username, email, password_hash, role, groups_json) VALUES ('owner', 'recovery-owner', 'owner@example.test', ?, 'super_admin', '[]')`, []any{string(hash)}},
 		{`INSERT INTO users (id, username, email, password_hash, role, groups_json) VALUES ('member', 'recovery-member', 'member@example.test', ?, 'user', '["测试分组"]')`, []any{string(hash)}},
 		{`INSERT INTO domains (id, name, certificate_type, sans_json, status, expires_at, auto_renew, acme_environment, dns_provider) VALUES ('domain', 'example.test', 'single', '["example.test"]', 'issued', ?, 1, 'staging', 'alidns')`, []any{fixture.certificate.NotAfter}},
-		{`INSERT INTO servers (id, name, address, port, username, private_key_ref, host_key_fingerprint, certificate_path, private_key_path, certificate_chain_path, web_server, reload_command_json, validation_command_json) VALUES ('server', '恢复测试服务器', '192.0.2.10', 22, 'deploy', 'secret://ssh/business', 'test-only-fingerprint', '/test/cert.pem', '/test/key.pem', '/test/chain.pem', 'nginx', '["nginx","-s","reload"]', '["nginx","-t"]')`, nil},
+		{`INSERT INTO servers (id, name, address, port, username, private_key_ref, host_key_fingerprint, certificate_path, private_key_path, certificate_chain_path, web_server, reload_command_json, validation_command_json) VALUES ('server', '恢复测试服务器', '192.0.2.10', 22, 'deploy', '', 'test-only-fingerprint', '/test/cert.pem', '/test/key.pem', '/test/chain.pem', 'nginx', '["nginx","-s","reload"]', '["nginx","-t"]')`, nil},
 		{`INSERT INTO domain_servers (domain_id, server_id) VALUES ('domain', 'server')`, nil},
 		{`INSERT INTO tasks (id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key) VALUES ('task', 'domain', 'deploy', 'success', 'completed', '部署完成', 'owner', ?, 'recovery-idempotency')`, []any{fixture.certificate.Version}},
 		{`INSERT INTO task_attempts (id, task_id, attempt_number, stage, status, message) VALUES ('attempt', 'task', 1, 'deploy', 'success', '证书已推送')`, nil},

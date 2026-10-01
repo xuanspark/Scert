@@ -10,10 +10,10 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"golang.org/x/crypto/bcrypt"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestSQLiteBusinessBackupRestore(t *testing.T) {
@@ -124,11 +124,6 @@ func assertSQLiteBusinessUsable(t *testing.T, fixture sqliteBusinessFixture) {
 		if err != nil || !reflect.DeepEqual(actual, want) {
 			t.Fatalf("恢复后的加密凭据无法正确读取：%v", err)
 		}
-		if key := actual["private_key"]; key != "" {
-			if _, err := ssh.ParsePrivateKey([]byte(key)); err != nil {
-				t.Fatalf("恢复后的 SSH 私钥无法解析：%v", err)
-			}
-		}
 	}
 	if _, err := tls.LoadX509KeyPair(fixture.certificate.CertificatePath, fixture.certificate.PrivateKeyPath); err != nil {
 		t.Fatalf("恢复后的证书与私钥不可用：%v", err)
@@ -157,8 +152,8 @@ func assertSQLiteBusinessUsable(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	servers := repository.NewSQLServerRepository(db.DB)
 	server, err := servers.GetServerByID(t.Context(), "server")
-	if err != nil || server.PrivateKeyRef != "secret://ssh/business" {
-		t.Fatalf("服务器凭据引用未恢复：%v", err)
+	if err != nil || server.AuthMethod != deployment.SSHAuthPassword || server.PasswordRef != "" {
+		t.Fatalf("服务器认证方式未按密码模式恢复：%v", err)
 	}
 	tasks := repository.NewSQLTaskRepository(db.DB)
 	task, err := tasks.GetTask(t.Context(), "task")

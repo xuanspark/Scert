@@ -886,9 +886,6 @@ func (s *Server) updateServer(c *gin.Context) {
 func (s *Server) prepareServerCredential(ctx context.Context, item deployment.Server, password string, existing *deployment.Server) (deployment.Server, func(), error) {
 	item = item.Normalize()
 	cleanup := func() {}
-	if item.PrivateKeyRef != "" {
-		return deployment.Server{}, cleanup, errors.New("服务器仅支持 SSH 密码认证，不能使用 SSH 私钥")
-	}
 	item.AuthMethod = deployment.SSHAuthPassword
 	if s.secrets == nil {
 		return deployment.Server{}, cleanup, errors.New("SSH \u5bc6\u7801\u5b58\u50a8\u672a\u521d\u59cb\u5316")

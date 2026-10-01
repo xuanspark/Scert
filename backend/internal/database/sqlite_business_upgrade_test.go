@@ -98,7 +98,7 @@ func createSQLiteHistoricalBusiness(t *testing.T, db *sql.DB, version int) {
 	}
 	if version >= 3 {
 		statements = append(statements,
-			`INSERT INTO servers (id, name, address, port, username, private_key_ref, host_key_fingerprint, certificate_path, private_key_path, certificate_chain_path, web_server, reload_command_json) VALUES ('server', '历史部署服务器', '192.0.2.10', 22, 'deploy', 'secret://ssh/historical', 'test-only', '/test/cert.pem', '/test/key.pem', '/test/chain.pem', 'nginx', '["nginx","-s","reload"]')`,
+			`INSERT INTO servers (id, name, address, port, username, private_key_ref, host_key_fingerprint, certificate_path, private_key_path, certificate_chain_path, web_server, reload_command_json) VALUES ('server', '历史部署服务器', '192.0.2.10', 22, 'deploy', '', 'test-only', '/test/cert.pem', '/test/key.pem', '/test/chain.pem', 'nginx', '["nginx","-s","reload"]')`,
 			`INSERT INTO domain_servers (domain_id, server_id) VALUES ('domain', 'server')`)
 	}
 	if version >= 4 {
@@ -155,7 +155,17 @@ func snapshotSQLiteHistoricalBusiness(t *testing.T, db *sql.DB) map[string]sqlit
 		if err := rows.Close(); err != nil {
 			t.Fatal(err)
 		}
-		for index, column := range columns {
+		if name == "servers" {
+			filtered := make([]string, 0, len(columns))
+			for _, column := range columns {
+				switch column {
+				case "auth_method", "private_key_ref", "ssh_key_status", "ssh_key_fingerprint", "ssh_key_deployed_at", "ssh_key_tested_at", "ssh_key_error":
+					continue
+				}
+				filtered = append(filtered, column)
+			}
+			columns = filtered
+		}		for index, column := range columns {
 			columns[index] = `"` + strings.ReplaceAll(column, `"`, `""`) + `"`
 		}
 		query := "SELECT " + strings.Join(columns, ",") + ` FROM "` + name + `" ORDER BY 1`

@@ -1,0 +1,1 @@
+UPDATE servers SET private_key_ref = '', auth_method = 'password', ssh_key_status = 'not_configured', ssh_key_fingerprint = '', ssh_key_deployed_at = '', ssh_key_tested_at = '', ssh_key_error = '';
