@@ -447,7 +447,8 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		}
 	}
 	commandResult, err := client.Run(ctx, server.ReloadCommand)
-	if err != nil || commandResult.ExitCode != 0 {
+	reloadFailed := err != nil || commandResult.ExitCode != 0
+	if reloadFailed && pending == nil {
 		if err == nil {
 			err = fmt.Errorf("退出码 %d", commandResult.ExitCode)
 		}
@@ -458,6 +459,11 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		result.Status = "success"
 		result.FailureCode = ""
 		result.Message = "证书已推送并重载，等待站点校验"
+		if reloadFailed {
+			result.Status = "failed"
+			result.FailureCode = FailureRuntimeUnknown
+			result.Message = publicFailureMessages[FailureRuntimeUnknown]
+		}
 		closed := false
 		finished := false
 		transaction := &pendingDeployment{index: index}
