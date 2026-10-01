@@ -186,7 +186,7 @@ func (f *Server) Stop(t *testing.T) {
 		if err != nil {
 			t.Errorf("独立 MySQL 未正常退出：%v", err)
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		_ = f.command.Process.Kill()
 		<-f.exit
 		t.Error("独立 MySQL 停止超时，已终止本测试启动的进程")
