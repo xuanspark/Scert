@@ -40,24 +40,23 @@ test("超级管理员查询保留本机处理标识，不生成网页重置链�
   assert.equal(state.resolution.value, null);
 });
 
-test("本机命令指引仅对接口明确标记的处理方式显示", () => {
+test("密码重置页面不显示本机管理命令", () => {
   const root = template("./PasswordReset.vue");
   const guides = elements(root, (node) => node.tag === "LocalResetGuide");
-  assert.equal(guides.length, 1);
-  assert.equal(guides[0].props.find((prop) => prop.name === "if").exp.content,
-    "resolution.action === 'local_admin_command'");
+  assert.equal(guides.length, 0);
+  const source = readFileSync(new URL("./PasswordReset.vue", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /systemctl|scert-admin|本机管理命令/iu);
   const message = elements(root, (node) => node.tag === "p"
     && node.props.some((prop) => prop.name === "if"
       && prop.exp?.content === "message && !resolution"));
   assert.equal(message.length, 1);
 });
 
-test("本机指引只显示固定命令，解释放入悬浮提示", () => {
+test("本机指引不包含可执行命令", () => {
   const root = template("../components/LocalResetGuide/LocalResetGuide.vue");
   assert.equal(elements(root, (node) => ["a", "input", "form"].includes(node.tag)).length, 0);
   assert.equal(elements(root, (node) => node.tag === "HelpTip").length, 1);
-  const commands = elements(root, (node) => node.tag === "code")
-    .map((node) => node.children.filter((child) => child.type === 2)
-      .map((child) => child.content).join(""));
-  assert.deepEqual(commands, ["systemctl start Scert-admin", ".\\scert-admin.exe"]);
+  assert.equal(elements(root, (node) => node.tag === "code").length, 0);
+  const source = readFileSync(new URL("../components/LocalResetGuide/LocalResetGuide.vue", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /systemctl|scert-admin|<code/iu);
 });

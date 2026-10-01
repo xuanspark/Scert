@@ -31,7 +31,10 @@ func TestPasswordResetResolutionOnlyOffersLocalAdminCommand(t *testing.T) {
 				t.Fatal(err)
 			}
 			if payload["account_type"] != "super_admin" || payload["action"] != "local_admin_command" {
-				t.Fatalf("超级管理员没有返回本机命令指引：%v", payload)
+				t.Fatalf("超级管理员没有返回受控本机处理标识：%v", payload)
+			}
+			if description, _ := payload["description"].(string); strings.Contains(strings.ToLower(description), "scert-admin") || strings.Contains(description, "systemctl") {
+				t.Fatalf("公开查询不应泄露本机管理命令：%s", description)
 			}
 			for _, field := range []string{"reset_path", "reset_url", "token", "nonce"} {
 				if _, exists := payload[field]; exists {

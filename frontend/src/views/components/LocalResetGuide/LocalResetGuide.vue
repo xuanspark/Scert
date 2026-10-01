@@ -5,23 +5,15 @@ import HelpTip from "../HelpTip/HelpTip.vue";
 <template>
   <section class="local-reset-guide">
     <div class="local-reset-guide__heading">
-      <span>本机管理命令</span>
+      <span>本机安全维护</span>
       <HelpTip>
-        请由部署管理员在 Scert 所在主机执行命令。Linux 使用 root 终端；
-        Windows 使用提升权限的控制台，在安装目录运行。
-        验证码和新密码仅在本机终端输入，本页面不会开启重置会话。
+        请联系部署管理员按照服务器本机安全维护流程处理。
+        页面不会显示或接收维护命令、验证码和新密码。
       </HelpTip>
     </div>
-    <dl class="local-reset-guide__commands">
-      <div>
-        <dt>Linux</dt>
-        <dd><code>systemctl start Scert-admin</code></dd>
-      </div>
-      <div>
-        <dt>Windows</dt>
-        <dd><code>.\scert-admin.exe</code></dd>
-      </div>
-    </dl>
+    <p class="local-reset-guide__message">
+      该账户需要由系统管理员在服务器本机完成安全维护流程。
+    </p>
   </section>
 </template>
 

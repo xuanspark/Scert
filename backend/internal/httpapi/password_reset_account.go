@@ -49,7 +49,7 @@ func (s *Server) resolvePasswordResetAccount(c *gin.Context) {
 			AccountType:  "super_admin",
 			AccountLabel: "超级管理员",
 			Title:        "超级管理员密码重置",
-			Description:  "已识别为超级管理员账户。超级管理员不能通过普通重置页面修改密码，请使用 Scert-admin 开启的一次性重置入口。",
+			Description:  "已识别为超级管理员账户。该账户不能通过普通重置页面修改密码，请联系系统管理员按照服务器本机安全维护流程处理。",
 			Action:       "local_admin_command",
 		})
 		return
