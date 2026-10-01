@@ -11,6 +11,7 @@ type TransactionBackup struct {
 	Original       string `json:"original"`
 	Saved          string `json:"saved"`
 	OriginalExists bool   `json:"original_exists"`
+	OriginalDigest string `json:"original_digest,omitempty"`
 }
 
 // TransactionRecord 保存远程部署事务的可恢复现场，不包含证书内容或凭据。
@@ -32,6 +33,7 @@ type TransactionRecord struct {
 	Status          string
 	Message         string
 	UpdatedAt       time.Time
+	Evidence        *RecoveryEvidence
 }
 
 // TransactionJournal 持久化部署现场，保证进程重启后仍能识别未提交事务。
@@ -48,13 +50,17 @@ const (
 	TransactionStatusRolledBack       = "rolled_back"
 	TransactionStatusRecoveryRequired = "recovery_required"
 
-	TransactionPhaseLocked          = "locked"
-	TransactionPhaseUploaded        = "uploaded"
-	TransactionPhaseReplacing       = "replacing"
-	TransactionPhaseInstalled       = "installed"
-	TransactionPhaseReloadAttempted = "reload_attempted"
-	TransactionPhaseCommitted       = "committed"
-	TransactionPhaseRolledBack      = "rolled_back"
+	TransactionPhaseLocked           = "locked"
+	TransactionPhaseAcquiring        = "acquiring"
+	TransactionPhaseRollbackVerified = "rollback_verified"
+	TransactionPhaseCommitVerified   = "commit_verified"
+	TransactionPhaseCommitting       = "committing"
+	TransactionPhaseUploaded         = "uploaded"
+	TransactionPhaseReplacing        = "replacing"
+	TransactionPhaseInstalled        = "installed"
+	TransactionPhaseReloadAttempted  = "reload_attempted"
+	TransactionPhaseCommitted        = "committed"
+	TransactionPhaseRolledBack       = "rolled_back"
 )
 
 type transactionContextKey struct{}

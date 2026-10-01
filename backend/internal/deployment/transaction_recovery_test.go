@@ -40,31 +40,37 @@ func (j *memoryTransactionJournal) ListPendingDeploymentTransactions(context.Con
 
 func TestRecoverPendingRollsBackOwnedDeployment(t *testing.T) {
 	server := testServer("recovery")
+	server = server.Normalize()
 	client := newMemoryClient()
 	id := "recovery-transaction"
 	paths := []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath}
 	locks := make([]string, 0, len(paths))
 	backups := make([]TransactionBackup, 0, len(paths))
 	temporary := make([]string, 0, len(paths))
+	files := make(map[string]string, len(paths))
 	for _, path := range paths {
 		lockPath := path + ".scert-lock"
 		backupPath := path + ".scert-backup-" + id
 		temporaryPath := path + ".scert-tmp-" + id
 		locks = append(locks, lockPath)
-		backups = append(backups, TransactionBackup{Original: path, Saved: backupPath, OriginalExists: true})
+		backups = append(backups, TransactionBackup{Original: path, Saved: backupPath, OriginalExists: true, OriginalDigest: contentDigest([]byte("old"))})
 		temporary = append(temporary, temporaryPath)
 		client.files[lockPath] = memoryFile{}
+		client.files[lockPath+"/owner"] = memoryFile{data: []byte(contentDigest([]byte("scert-lock:" + id))), mode: 0o600}
 		client.files[backupPath] = memoryFile{data: []byte("old"), mode: 0o600}
 		client.files[path] = memoryFile{data: []byte("new"), mode: 0o600}
 		client.files[temporaryPath] = memoryFile{data: []byte("partial"), mode: 0o600}
+		files[path] = contentDigest([]byte("old"))
 	}
 	journal := &memoryTransactionJournal{pending: []TransactionRecord{{
 		ID: id, TaskID: "task", AttemptID: "attempt", AttemptNumber: 1, ResultIndex: 0,
 		ServerID: server.ID, ServerName: server.Name, Paths: paths, TemporaryPaths: temporary,
 		InstalledPaths: paths, Backups: backups, LockPaths: locks, ReloadAttempted: true,
 		Phase: TransactionPhaseReloadAttempted, Status: TransactionStatusPending,
+		Evidence: &RecoveryEvidence{Version: 1, LockToken: contentDigest([]byte("scert-lock:" + id)), Address: server.Address, Port: server.Port, HostKeyFingerprint: server.HostKeyFingerprint, ValidationCommand: append([]string(nil), server.ValidationCommand...), ReloadCommand: append([]string(nil), server.ReloadCommand...), Files: files, Baseline: RecoveryBaseline{PreviousFingerprint: "old", Endpoint: "https://example.com", Domains: []string{"example.com"}}},
 	}}}
 	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
+	service.VerifyRecoveryTarget = func(context.Context, Server, RecoveryBaseline, bool) error { return nil }
 	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err != nil {
 		t.Fatalf("事务恢复失败：%v", err)
 	}

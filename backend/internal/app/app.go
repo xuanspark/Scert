@@ -105,6 +105,24 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	taskRepo := repository.NewSQLTaskRepository(db.DB, runtimeDatabaseConfig.Driver)
 	transactionRepo := repository.NewSQLDeploymentTransactionRepository(db.DB, runtimeDatabaseConfig.Driver)
 	deploymentService := deployment.NewServiceWithJournal(deployment.SSHFactory{Secrets: secretStore}, transactionRepo)
+	remoteValidator := certificate.RemoteValidator{}
+	deploymentService.VerifyRecoveryTarget = func(ctx context.Context, server deployment.Server, baseline deployment.RecoveryBaseline, committed bool) error {
+		expected := baseline.PreviousFingerprint
+		if committed {
+			expected = baseline.ExpectedFingerprint
+		}
+		if expected == "" || baseline.Endpoint == "" || len(baseline.Domains) == 0 {
+			return fmt.Errorf("恢复站点基线不完整")
+		}
+		validation, err := remoteValidator.ValidateHTTPSAt(ctx, baseline.Endpoint, server.Address, baseline.Domains)
+		if err != nil {
+			return err
+		}
+		if validation.FingerprintSHA256 != expected {
+			return fmt.Errorf("站点证书指纹不符合事务基线")
+		}
+		return nil
+	}
 	if err := deploymentService.RecoverPending(ctx, serverRepo.GetServerByID); err != nil {
 		logger.Error("恢复中断部署事务失败，已保留现场等待人工核查", "error", err)
 	}
@@ -128,7 +146,6 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	certificates.SetDNSAuthorizationChecker(aliyunAuthChecker)
 
 	notifier := notification.New(cfg.Notification, secretStore)
-	remoteValidator := certificate.RemoteValidator{}
 	workflow := &CertificateWorkflow{
 		Certificates: certificates,
 		Domains:      repo,

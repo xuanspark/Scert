@@ -13,7 +13,8 @@ import (
 )
 
 type Target struct {
-	Server Server
+	Server   Server
+	Baseline RecoveryBaseline
 }
 
 type Artifact struct {
@@ -51,9 +52,10 @@ type Report struct {
 }
 
 type Service struct {
-	factory ClientFactory
-	journal TransactionJournal
-	now     func() time.Time
+	factory              ClientFactory
+	journal              TransactionJournal
+	now                  func() time.Time
+	VerifyRecoveryTarget func(context.Context, Server, RecoveryBaseline, bool) error
 }
 
 func NewService(factory ClientFactory) *Service {
@@ -91,7 +93,7 @@ func (s *Service) deploy(ctx context.Context, targets []Target, artifact Artifac
 		return report
 	}
 	for index, target := range targets {
-		result := s.deployOne(ctx, target.Server, artifact, pending, index)
+		result := s.deployOne(ctx, target.Server, artifact, pending, index, target.Baseline)
 		report.Results = append(report.Results, result)
 		if result.Status == "success" {
 			report.Success++
@@ -134,7 +136,7 @@ func loadArtifact(saved SavedFiles) (Artifact, error) {
 	return Artifact{Certificate: certificateData, FullChain: fullChainData, PrivateKey: privateKeyData}, nil
 }
 
-func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifact, pending *[]*pendingDeployment, index int) (result Result) {
+func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifact, pending *[]*pendingDeployment, index int, baseline RecoveryBaseline) (result Result) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	server = server.Normalize()
@@ -181,6 +183,21 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		lockPaths = append(lockPaths, file.path+".scert-lock")
 	}
 	sort.Strings(lockPaths)
+	backupID := s.backupID()
+	result.BackupID = backupID
+	journalRecord, transactionEnabled := s.newTransactionRecord(ctx, server, paths, lockPaths, backupID, index, baseline)
+	if transactionEnabled {
+		if _, ok := client.(EvidenceClient); !ok {
+			result.FailureCode = FailureUnavailable
+			result.Message = "当前客户端不支持部署恢复证据"
+			return result
+		}
+		if err := s.journal.CreateDeploymentTransaction(ctx, *journalRecord); err != nil {
+			result.FailureCode = FailureUnavailable
+			result.Message = fmt.Sprintf("保存部署事务现场失败：%v", err)
+			return result
+		}
+	}
 	heldLocks := make([]string, 0, len(lockPaths))
 	retainLocks := false
 	releaseLocks := func() {
@@ -197,6 +214,15 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		}
 		released := true
 		for index := len(heldLocks) - 1; index >= 0; index-- {
+			if transactionEnabled {
+				if err := checkOwnedLock(releaseCtx, client, heldLocks[index], journalRecord.Evidence.LockToken, true); err != nil {
+					released = false
+					result.Status = "failed"
+					result.FailureCode = FailureLockRelease
+					result.Message += fmt.Sprintf("；部署锁归属核验失败：%v", err)
+					continue
+				}
+			}
 			if err := client.Unlock(releaseCtx, heldLocks[index]); err != nil {
 				released = false
 				result.Status = "failed"
@@ -220,15 +246,12 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return result
 		}
 		heldLocks = append(heldLocks, lockPath)
-	}
-	backupID := s.backupID()
-	result.BackupID = backupID
-	journalRecord, transactionEnabled := s.newTransactionRecord(ctx, server, paths, lockPaths, backupID, index)
-	if transactionEnabled {
-		if err := s.journal.CreateDeploymentTransaction(ctx, *journalRecord); err != nil {
-			result.FailureCode = FailureUnavailable
-			result.Message = fmt.Sprintf("保存部署事务现场失败：%v", err)
-			return result
+		if transactionEnabled {
+			if err := client.(EvidenceClient).CreateOwnedLock(ctx, lockPath, journalRecord.Evidence.LockToken); err != nil {
+				result.FailureCode = FailureUnavailable
+				result.Message = fmt.Sprintf("保存部署锁归属失败：%v", err)
+				return result
+			}
 		}
 	}
 	persistTransaction := func(persistContext context.Context, phase string) error {
@@ -249,6 +272,11 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			result.Message += fmt.Sprintf("；保存部署事务最终状态失败：%v", err)
 		}
 	}
+	if err := persistTransaction(ctx, TransactionPhaseLocked); err != nil {
+		result.FailureCode = FailureUnavailable
+		result.Message = fmt.Sprintf("保存部署锁阶段失败：%v", err)
+		return result
+	}
 	backups := make([]backupFile, 0, len(paths))
 	temporary := make([]string, 0, len(paths))
 	installed := make([]string, 0, len(paths))
@@ -257,6 +285,9 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		defer cancel()
 		if err := reconnectDeploymentClient(rollbackContext, s.factory, server, &client); err != nil {
 			return fmt.Errorf("重新连接服务器以回滚失败：%w", err)
+		}
+		if transactionEnabled {
+			return restoreTransactionFiles(rollbackContext, client, *journalRecord)
 		}
 		var rollbackErrors []error
 		for _, path := range temporary {
@@ -300,10 +331,18 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			if !retainLocks {
 				result.FailureCode = FailureRuntimeUnknown
 			}
+			retainLocks = true
 			// 命令可能已部分执行；文件回滚并不证明运行中的服务已经恢复。
 			message += "；服务运行状态未确认，请检查服务并在确认旧配置后重新加载"
 		}
 		result.Message = message
+		if !retainLocks {
+			if err := persistTransaction(context.WithoutCancel(ctx), TransactionPhaseRollbackVerified); err != nil {
+				retainLocks = true
+				result.FailureCode = FailureRecoveryUnknown
+				result.Message += fmt.Sprintf("；保存回滚核验阶段失败：%v", err)
+			}
+		}
 		releaseLocks()
 		if retainLocks || result.FailureCode == FailureLockRelease {
 			finishTransaction(TransactionStatusRecoveryRequired, result.Message)
@@ -317,9 +356,6 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		temporaryPath := file.path + ".scert-tmp-" + backupID
 		// 上传失败也可能留下半份私钥，必须在开始上传前登记清理路径。
 		temporary = append(temporary, temporaryPath)
-		if transactionEnabled {
-			journalRecord.TemporaryPaths = append(journalRecord.TemporaryPaths, temporaryPath)
-		}
 		if err := client.Upload(ctx, temporaryPath, file.data, file.mode); err != nil {
 			var notCreated *uploadNotCreatedError
 			if errors.As(err, &notCreated) {
@@ -344,7 +380,14 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return failed(fmt.Sprintf("备份目标已存在或无法检查，已停止替换：%s：%v", backupPath, checkErr))
 		}
 		if transactionEnabled {
-			journalRecord.Backups = append(journalRecord.Backups, TransactionBackup{Original: file.path, Saved: backupPath, OriginalExists: exists})
+			originalDigest := ""
+			if exists {
+				originalDigest, err = client.(EvidenceClient).FileDigest(ctx, file.path)
+				if err != nil {
+					return failed(fmt.Sprintf("读取旧证书文件摘要失败：%v", err))
+				}
+			}
+			journalRecord.Backups = append(journalRecord.Backups, TransactionBackup{Original: file.path, Saved: backupPath, OriginalExists: exists, OriginalDigest: originalDigest})
 			if err := persistTransaction(ctx, TransactionPhaseReplacing); err != nil {
 				return failed(fmt.Sprintf("保存替换阶段失败：%v", err))
 			}
@@ -430,7 +473,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			return result
 		}
 		transaction.commit = func(commitContext context.Context) Result {
-			if err := persistTransaction(commitContext, "committing"); err != nil {
+			if err := persistTransaction(commitContext, TransactionPhaseCommitting); err != nil {
 				result.Status = "failed"
 				result.FailureCode = FailureCleanup
 				result.Message = fmt.Sprintf("保存提交阶段失败：%v", err)
@@ -443,6 +486,11 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 				return result
 			}
 			result.Message = "证书部署、配置校验并 reload 成功"
+			if err := persistTransaction(commitContext, TransactionPhaseCommitVerified); err != nil {
+				result.Status = "failed"
+				result.FailureCode = FailureCleanup
+				result.Message = fmt.Sprintf("保存提交核验阶段失败：%v", err)
+			}
 			return result
 		}
 		transaction.finish = func(retain bool) Result {
@@ -450,6 +498,13 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 				return result
 			}
 			finished = true
+			if !retain && result.Status == "failed" && result.FailureCode == FailureRecoveryPending {
+				if err := persistTransaction(context.WithoutCancel(ctx), TransactionPhaseRollbackVerified); err != nil {
+					retain = true
+					result.FailureCode = FailureRecoveryUnknown
+					result.Message = fmt.Sprintf("保存回滚核验阶段失败：%v", err)
+				}
+			}
 			if !closed {
 				retainLocks = retain
 				releaseLocks()
@@ -494,7 +549,7 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 	return result
 }
 
-func (s *Service) newTransactionRecord(ctx context.Context, server Server, paths []remoteFile, lockPaths []string, id string, index int) (*TransactionRecord, bool) {
+func (s *Service) newTransactionRecord(ctx context.Context, server Server, paths []remoteFile, lockPaths []string, id string, index int, baseline RecoveryBaseline) (*TransactionRecord, bool) {
 	transactionContext, ok := TransactionContextFromContext(ctx)
 	if !ok || s == nil || s.journal == nil {
 		return nil, false
@@ -509,12 +564,22 @@ func (s *Service) newTransactionRecord(ctx context.Context, server Server, paths
 	if s.now != nil {
 		now = s.now().UTC()
 	}
+	files := make(map[string]string, len(paths))
+	for _, file := range paths {
+		files[file.path] = contentDigest(file.data)
+	}
 	return &TransactionRecord{
 		ID: id, TaskID: transactionContext.TaskID, AttemptID: transactionContext.AttemptID,
 		AttemptNumber: transactionContext.AttemptNumber, ResultIndex: index,
 		ServerID: server.ID, ServerName: server.Name, Paths: pathValues,
 		TemporaryPaths: temporaryPaths, LockPaths: append([]string(nil), lockPaths...),
-		Phase: TransactionPhaseLocked, Status: TransactionStatusPending, UpdatedAt: now,
+		Phase: TransactionPhaseAcquiring, Status: TransactionStatusPending, UpdatedAt: now,
+		Evidence: &RecoveryEvidence{
+			Version: 1, LockToken: contentDigest([]byte("scert-lock:" + id)),
+			Address: server.Address, Port: server.Port, HostKeyFingerprint: server.HostKeyFingerprint,
+			ValidationCommand: append([]string(nil), server.ValidationCommand...),
+			ReloadCommand:     append([]string(nil), server.ReloadCommand...), Files: files, Baseline: baseline,
+		},
 	}, true
 }
 
@@ -532,24 +597,29 @@ func (s *Service) RecoverPending(ctx context.Context, resolve func(context.Conte
 	}
 	var recoveryErrors []error
 	for _, record := range records {
-		if err := s.recoverTransaction(ctx, record, resolve); err != nil {
+		if err := s.recoverTransaction(ctx, &record, resolve); err != nil {
 			recoveryErrors = append(recoveryErrors, fmt.Errorf("事务 %s 恢复失败：%w", record.ID, err))
 			record.Status = TransactionStatusRecoveryRequired
-			record.Phase = TransactionStatusRecoveryRequired
 			record.Message = err.Error()
 			if updateErr := s.journal.UpdateDeploymentTransaction(context.WithoutCancel(ctx), record); updateErr != nil {
 				recoveryErrors = append(recoveryErrors, fmt.Errorf("事务 %s 保存人工核查状态失败：%w", record.ID, updateErr))
 			}
 			continue
 		}
-		if err := s.journal.FinishDeploymentTransaction(context.WithoutCancel(ctx), record.ID, TransactionStatusRolledBack, "服务启动已完成中断部署事务回滚"); err != nil {
+		status := TransactionStatusRolledBack
+		message := "服务启动已完成中断部署事务回滚"
+		if record.Phase == TransactionPhaseCommitting || record.Phase == TransactionPhaseCommitVerified {
+			status = TransactionStatusCommitted
+			message = "服务启动已完成中断部署事务提交清理"
+		}
+		if err := s.journal.FinishDeploymentTransaction(context.WithoutCancel(ctx), record.ID, status, message); err != nil {
 			recoveryErrors = append(recoveryErrors, fmt.Errorf("事务 %s 保存恢复结果失败：%w", record.ID, err))
 		}
 	}
 	return errors.Join(recoveryErrors...)
 }
 
-func (s *Service) recoverTransaction(ctx context.Context, record TransactionRecord, resolve func(context.Context, string) (Server, error)) error {
+func (s *Service) recoverTransaction(ctx context.Context, record *TransactionRecord, resolve func(context.Context, string) (Server, error)) error {
 	server, err := resolve(ctx, record.ServerID)
 	if err != nil {
 		return fmt.Errorf("读取服务器配置失败：%w", err)
@@ -565,56 +635,17 @@ func (s *Service) recoverTransaction(ctx context.Context, record TransactionReco
 		return fmt.Errorf("连接服务器失败：%w", err)
 	}
 	defer client.Close()
-	for _, lockPath := range record.LockPaths {
-		exists, checkErr := client.Exists(recoveryContext, lockPath)
-		if checkErr != nil || !exists {
-			if checkErr == nil {
-				checkErr = errors.New("部署锁不存在")
-			}
-			return fmt.Errorf("无法证明事务仍拥有部署锁 %s：%w", lockPath, checkErr)
-		}
+	if err := validateRecoveryEvidence(*record, server); err != nil {
+		return err
 	}
-	for _, temporaryPath := range record.TemporaryPaths {
-		if exists, checkErr := client.Exists(recoveryContext, temporaryPath); checkErr != nil {
-			return fmt.Errorf("检查临时文件失败：%w", checkErr)
-		} else if exists {
-			if err := client.Remove(recoveryContext, temporaryPath); err != nil {
-				return fmt.Errorf("删除临时文件失败：%w", err)
-			}
-		}
+	if record.Phase == TransactionPhaseAcquiring || record.Phase == TransactionPhaseRollbackVerified || record.Phase == TransactionPhaseCommitVerified {
+		return releaseTransactionLocks(recoveryContext, client, *record, true)
 	}
-	for index := len(record.Backups) - 1; index >= 0; index-- {
-		backup := record.Backups[index]
-		backupExists, checkErr := client.Exists(recoveryContext, backup.Saved)
-		if checkErr != nil {
-			return fmt.Errorf("检查备份文件失败：%w", checkErr)
-		}
-		targetExists, checkErr := client.Exists(recoveryContext, backup.Original)
-		if checkErr != nil {
-			return fmt.Errorf("检查目标文件失败：%w", checkErr)
-		}
-		if backup.OriginalExists {
-			if !backupExists {
-				if targetExists {
-					continue
-				}
-				return fmt.Errorf("备份文件和目标文件均不存在：%s", backup.Original)
-			}
-			if targetExists {
-				if err := client.Remove(recoveryContext, backup.Original); err != nil {
-					return fmt.Errorf("删除待恢复目标文件失败：%w", err)
-				}
-			}
-			if err := client.Rename(recoveryContext, backup.Saved, backup.Original); err != nil {
-				return fmt.Errorf("恢复备份文件失败：%w", err)
-			}
-			continue
-		}
-		if targetExists {
-			if err := client.Remove(recoveryContext, backup.Original); err != nil {
-				return fmt.Errorf("删除新增目标文件失败：%w", err)
-			}
-		}
+	if record.Phase == TransactionPhaseCommitting {
+		return s.recoverCommittedTransaction(recoveryContext, record, server, client)
+	}
+	if err := restoreTransactionFiles(recoveryContext, client, *record); err != nil {
+		return err
 	}
 	if record.ReloadAttempted {
 		for _, command := range [][]string{server.ValidationCommand, server.ReloadCommand} {
@@ -626,13 +657,130 @@ func (s *Service) recoverTransaction(ctx context.Context, record TransactionReco
 				return fmt.Errorf("恢复服务失败：%w", runErr)
 			}
 		}
+		if s.VerifyRecoveryTarget == nil || record.Evidence.Baseline.PreviousFingerprint == "" {
+			return errors.New("缺少可信站点恢复基线，已保留现场等待人工核查")
+		}
+		if err := s.VerifyRecoveryTarget(recoveryContext, server, record.Evidence.Baseline, false); err != nil {
+			return fmt.Errorf("恢复站点核验失败：%w", err)
+		}
 	}
+	if err := s.persistRecoveryPhase(recoveryContext, record, TransactionPhaseRollbackVerified); err != nil {
+		return err
+	}
+	return releaseTransactionLocks(recoveryContext, client, *record, true)
+}
+
+func (s *Service) recoverCommittedTransaction(ctx context.Context, record *TransactionRecord, server Server, client Client) error {
+	for _, lockPath := range record.LockPaths {
+		if err := checkOwnedLock(ctx, client, lockPath, record.Evidence.LockToken, false); err != nil {
+			return fmt.Errorf("无法证明提交事务仍拥有部署锁 %s：%w", lockPath, err)
+		}
+	}
+	for _, path := range record.Paths {
+		if err := checkFileDigest(ctx, client, path, record.Evidence.Files[path]); err != nil {
+			return err
+		}
+	}
+	if s.VerifyRecoveryTarget == nil || record.Evidence.Baseline.ExpectedFingerprint == "" {
+		return errors.New("缺少可信提交站点基线，已保留现场等待人工核查")
+	}
+	if err := s.VerifyRecoveryTarget(ctx, server, record.Evidence.Baseline, true); err != nil {
+		return fmt.Errorf("提交站点核验失败：%w", err)
+	}
+	for _, temporary := range record.TemporaryPaths {
+		if err := client.Remove(ctx, temporary); err != nil {
+			return fmt.Errorf("清理提交临时文件失败：%w", err)
+		}
+	}
+	for _, backup := range record.Backups {
+		if exists, err := client.Exists(ctx, backup.Saved); err != nil {
+			return err
+		} else if exists {
+			if err := checkFileDigest(ctx, client, backup.Saved, backup.OriginalDigest); err != nil {
+				return err
+			}
+		}
+		if err := client.Remove(ctx, backup.Saved); err != nil {
+			return fmt.Errorf("清理提交备份失败：%w", err)
+		}
+	}
+	if err := s.persistRecoveryPhase(ctx, record, TransactionPhaseCommitVerified); err != nil {
+		return err
+	}
+	return releaseTransactionLocks(ctx, client, *record, true)
+}
+
+func restoreTransactionFiles(ctx context.Context, client Client, record TransactionRecord) error {
+	for _, temporaryPath := range record.TemporaryPaths {
+		if exists, err := client.Exists(ctx, temporaryPath); err != nil {
+			return fmt.Errorf("检查临时文件失败：%w", err)
+		} else if exists {
+			if err := client.Remove(ctx, temporaryPath); err != nil {
+				return fmt.Errorf("删除临时文件失败：%w", err)
+			}
+		}
+	}
+	for index := len(record.Backups) - 1; index >= 0; index-- {
+		backup := record.Backups[index]
+		backupExists, err := client.Exists(ctx, backup.Saved)
+		if err != nil {
+			return fmt.Errorf("检查备份文件失败：%w", err)
+		}
+		targetExists, err := client.Exists(ctx, backup.Original)
+		if err != nil {
+			return fmt.Errorf("检查目标文件失败：%w", err)
+		}
+		if backup.OriginalExists {
+			if !backupExists {
+				if !targetExists {
+					return fmt.Errorf("备份文件和目标文件均不存在：%s", backup.Original)
+				}
+				if err := checkFileDigest(ctx, client, backup.Original, backup.OriginalDigest); err != nil {
+					return fmt.Errorf("无法确认目标文件已恢复：%w", err)
+				}
+				continue
+			}
+			if targetExists {
+				if err := client.Remove(ctx, backup.Original); err != nil {
+					return fmt.Errorf("删除待恢复目标文件失败：%w", err)
+				}
+			}
+			if err := client.Rename(ctx, backup.Saved, backup.Original); err != nil {
+				return fmt.Errorf("恢复备份文件失败：%w", err)
+			}
+			continue
+		}
+		if targetExists {
+			if err := client.Remove(ctx, backup.Original); err != nil {
+				return fmt.Errorf("删除新增目标文件失败：%w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func releaseTransactionLocks(ctx context.Context, client Client, record TransactionRecord, verifyOwner bool) error {
 	for index := len(record.LockPaths) - 1; index >= 0; index-- {
-		if err := client.Unlock(recoveryContext, record.LockPaths[index]); err != nil {
+		lockPath := record.LockPaths[index]
+		if verifyOwner {
+			if err := checkOwnedLock(ctx, client, lockPath, record.Evidence.LockToken, false); err != nil {
+				return fmt.Errorf("无法证明事务仍拥有部署锁 %s：%w", lockPath, err)
+			}
+		}
+		if err := client.Unlock(ctx, lockPath); err != nil {
 			return fmt.Errorf("释放部署锁失败：%w", err)
 		}
 	}
 	return nil
+}
+
+func (s *Service) persistRecoveryPhase(ctx context.Context, record *TransactionRecord, phase string) error {
+	record.Phase = phase
+	record.UpdatedAt = time.Now().UTC()
+	if s.now != nil {
+		record.UpdatedAt = s.now().UTC()
+	}
+	return s.journal.UpdateDeploymentTransaction(ctx, *record)
 }
 
 func cleanupBackups(ctx context.Context, client Client, backups []backupFile, paths []remoteFile) error {

@@ -290,6 +290,10 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 				server:              target.Server,
 				baselineFingerprint: baselineFingerprint,
 			})
+			targets[len(verificationTargets)-1].Baseline = deployment.RecoveryBaseline{
+				Endpoint: endpoint, Domains: append([]string(nil), result.Domains...),
+				PreviousFingerprint: baselineFingerprint, ExpectedFingerprint: expectedFingerprint,
+			}
 		}
 		verification := deployment.Verification{
 			Verify: func(verificationContext context.Context) error {

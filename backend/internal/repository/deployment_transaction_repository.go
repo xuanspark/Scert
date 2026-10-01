@@ -41,11 +41,11 @@ func (r *SQLDeploymentTransactionRepository) CreateDeploymentTransaction(ctx con
 		(id, task_id, attempt_id, attempt_number, result_index, server_id, server_name,
 		 certificate_path, certificate_chain_path, private_key_path, temporary_paths_json,
 		 installed_paths_json, backups_json, lock_paths_json, reload_attempted, phase, status,
-		 message, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+		 message, updated_at, recovery_evidence_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		item.ID, item.TaskID, item.AttemptID, item.AttemptNumber, item.ResultIndex, item.ServerID, item.ServerName,
 		values.paths[0], values.paths[1], values.paths[2], values.temporary, values.installed, values.backups,
-		values.locks, boolInt(item.ReloadAttempted), item.Phase, item.Status, item.Message, values.updatedAt)
+		values.locks, boolInt(item.ReloadAttempted), item.Phase, item.Status, item.Message, values.updatedAt, values.evidence)
 	if err != nil {
 		return fmt.Errorf("保存部署事务现场失败：%w", err)
 	}
@@ -66,9 +66,9 @@ func (r *SQLDeploymentTransactionRepository) UpdateDeploymentTransaction(ctx con
 	result, err := r.db.ExecContext(ctx, r.query(`UPDATE deployment_transactions SET
 		certificate_path = ?, certificate_chain_path = ?, private_key_path = ?,
 		temporary_paths_json = ?, installed_paths_json = ?, backups_json = ?, lock_paths_json = ?,
-		reload_attempted = ?, phase = ?, status = ?, message = ?, updated_at = ? WHERE id = ?`),
+		reload_attempted = ?, phase = ?, status = ?, message = ?, updated_at = ?, recovery_evidence_json = ? WHERE id = ?`),
 		values.paths[0], values.paths[1], values.paths[2], values.temporary, values.installed, values.backups,
-		values.locks, boolInt(item.ReloadAttempted), item.Phase, item.Status, item.Message, values.updatedAt, item.ID)
+		values.locks, boolInt(item.ReloadAttempted), item.Phase, item.Status, item.Message, values.updatedAt, values.evidence, item.ID)
 	if err != nil {
 		return fmt.Errorf("更新部署事务现场失败：%w", err)
 	}
@@ -91,8 +91,8 @@ func (r *SQLDeploymentTransactionRepository) FinishDeploymentTransaction(ctx con
 	if id == "" || status == "" {
 		return errors.New("部署事务状态参数不能为空")
 	}
-	result, err := r.db.ExecContext(ctx, r.query(`UPDATE deployment_transactions SET status = ?, phase = ?, message = ?, updated_at = ? WHERE id = ?`),
-		status, status, message, time.Now().UTC(), id)
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE deployment_transactions SET status = ?, phase = CASE WHEN ? = 'recovery_required' THEN phase ELSE ? END, message = ?, updated_at = ? WHERE id = ?`),
+		status, status, status, message, time.Now().UTC(), id)
 	if err != nil {
 		return fmt.Errorf("完成部署事务记录失败：%w", err)
 	}
@@ -113,7 +113,7 @@ func (r *SQLDeploymentTransactionRepository) ListPendingDeploymentTransactions(c
 	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, task_id, attempt_id, attempt_number, result_index,
 		server_id, server_name, certificate_path, certificate_chain_path, private_key_path,
 		temporary_paths_json, installed_paths_json, backups_json, lock_paths_json,
-		reload_attempted, phase, status, message, updated_at
+		reload_attempted, phase, status, message, updated_at, recovery_evidence_json
 		FROM deployment_transactions WHERE status IN ('pending', 'recovery_required') ORDER BY updated_at, id`))
 	if err != nil {
 		return nil, fmt.Errorf("查询待恢复部署事务失败：%w", err)
@@ -140,6 +140,7 @@ type deploymentTransactionValues struct {
 	backups   string
 	locks     string
 	updatedAt time.Time
+	evidence  string
 }
 
 func validateDeploymentTransaction(item deployment.TransactionRecord) error {
@@ -159,6 +160,10 @@ func validateDeploymentTransaction(item deployment.TransactionRecord) error {
 }
 
 func encodeDeploymentTransaction(item deployment.TransactionRecord) (deploymentTransactionValues, error) {
+	evidence, err := json.Marshal(item.Evidence)
+	if err != nil {
+		return deploymentTransactionValues{}, fmt.Errorf("编码部署恢复证据失败：%w", err)
+	}
 	paths := [3]string{strings.TrimSpace(item.Paths[0]), strings.TrimSpace(item.Paths[1]), strings.TrimSpace(item.Paths[2])}
 	temporary, err := json.Marshal(item.TemporaryPaths)
 	if err != nil {
@@ -183,7 +188,7 @@ func encodeDeploymentTransaction(item deployment.TransactionRecord) (deploymentT
 		updatedAt = updatedAt.UTC()
 	}
 	return deploymentTransactionValues{
-		paths: paths, temporary: string(temporary), installed: string(installed), backups: string(backups), locks: string(locks), updatedAt: updatedAt,
+		paths: paths, temporary: string(temporary), installed: string(installed), backups: string(backups), locks: string(locks), updatedAt: updatedAt, evidence: string(evidence),
 	}, nil
 }
 
@@ -196,12 +201,18 @@ func scanDeploymentTransaction(row deploymentTransactionScanner) (deployment.Tra
 	var paths [3]string
 	var temporary, installed, backups, locks string
 	var reloadAttempted int
+	var evidence sql.NullString
 	if err := row.Scan(&item.ID, &item.TaskID, &item.AttemptID, &item.AttemptNumber, &item.ResultIndex,
 		&item.ServerID, &item.ServerName, &paths[0], &paths[1], &paths[2], &temporary, &installed, &backups, &locks,
-		&reloadAttempted, &item.Phase, &item.Status, &item.Message, &item.UpdatedAt); err != nil {
+		&reloadAttempted, &item.Phase, &item.Status, &item.Message, &item.UpdatedAt, &evidence); err != nil {
 		return deployment.TransactionRecord{}, fmt.Errorf("读取部署事务失败：%w", err)
 	}
 	item.Paths = paths[:]
+	if evidence.Valid && evidence.String != "" {
+		if err := json.Unmarshal([]byte(evidence.String), &item.Evidence); err != nil {
+			return deployment.TransactionRecord{}, fmt.Errorf("解析部署恢复证据失败：%w", err)
+		}
+	}
 	item.ReloadAttempted = reloadAttempted != 0
 	if err := json.Unmarshal([]byte(temporary), &item.TemporaryPaths); err != nil {
 		return deployment.TransactionRecord{}, fmt.Errorf("解析部署临时路径失败：%w", err)

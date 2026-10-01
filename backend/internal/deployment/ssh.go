@@ -2,7 +2,9 @@ package deployment
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -302,12 +304,65 @@ func (c *sshClientAdapter) Lock(ctx context.Context, path string) error {
 }
 
 func (c *sshClientAdapter) Unlock(ctx context.Context, path string) error {
-	return c.fileOperation(ctx, func() error { return c.sftp.RemoveDirectory(path) })
+	return c.fileOperation(ctx, func() error {
+		if err := c.sftp.Remove(path + "/owner"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return c.sftp.RemoveDirectory(path)
+	})
+}
+
+func (c *sshClientAdapter) CreateOwnedLock(ctx context.Context, path, token string) error {
+	if !validDigest(token) {
+		return errors.New("部署锁令牌格式无效")
+	}
+	return c.Upload(ctx, path+"/owner", []byte(token), 0o600)
+}
+
+func (c *sshClientAdapter) ReadLockOwner(ctx context.Context, path string) (string, error) {
+	return sshOperation(ctx, c, func() (string, error) {
+		file, err := c.sftp.Open(path + "/owner")
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		defer file.Close()
+		data, err := io.ReadAll(file)
+		return strings.TrimSpace(string(data)), err
+	})
+}
+
+func (c *sshClientAdapter) FileDigest(ctx context.Context, path string) (string, error) {
+	return sshOperation(ctx, c, func() (string, error) {
+		info, err := c.sftp.Lstat(path)
+		if err != nil {
+			return "", err
+		}
+		if !info.Mode().IsRegular() || info.Size() > 16*1024*1024 {
+			return "", errors.New("证书文件类型或大小无效")
+		}
+		file, err := c.sftp.Open(path)
+		if err != nil {
+			return "", err
+		}
+		defer file.Close()
+		hash := sha256.New()
+		count, err := io.Copy(hash, io.LimitReader(file, 16*1024*1024+1))
+		if err != nil {
+			return "", err
+		}
+		if count > 16*1024*1024 {
+			return "", errors.New("证书文件超过摘要读取上限")
+		}
+		return hex.EncodeToString(hash.Sum(nil)), nil
+	})
 }
 
 func (c *sshClientAdapter) Exists(ctx context.Context, path string) (bool, error) {
 	return sshOperation(ctx, c, func() (bool, error) {
-		_, err := c.sftp.Stat(path)
+		_, err := c.sftp.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
 		}

@@ -63,8 +63,33 @@ func (c *memoryClient) Lock(_ context.Context, path string) error {
 }
 
 func (c *memoryClient) Unlock(_ context.Context, path string) error {
+	delete(c.files, path+"/owner")
 	delete(c.files, path)
 	return nil
+}
+
+func (c *memoryClient) CreateOwnedLock(_ context.Context, path, token string) error {
+	if _, exists := c.files[path]; !exists {
+		return errors.New("模拟锁不存在")
+	}
+	c.files[path+"/owner"] = memoryFile{data: []byte(token), mode: 0o600}
+	return nil
+}
+
+func (c *memoryClient) ReadLockOwner(_ context.Context, path string) (string, error) {
+	file, ok := c.files[path+"/owner"]
+	if !ok {
+		return "", nil
+	}
+	return string(file.data), nil
+}
+
+func (c *memoryClient) FileDigest(_ context.Context, path string) (string, error) {
+	file, ok := c.files[path]
+	if !ok {
+		return "", errors.New("模拟文件不存在")
+	}
+	return contentDigest(file.data), nil
 }
 
 func (c *memoryClient) Exists(_ context.Context, path string) (bool, error) {
