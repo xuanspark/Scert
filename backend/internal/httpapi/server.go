@@ -27,7 +27,6 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
-	"git.pcux.cn/xuans/Scert/backend/internal/sshkey"
 )
 
 type setupSecretWriter interface {
@@ -53,7 +52,6 @@ type Dependencies struct {
 	ProjectResources         repository.ProjectResourceReader
 	ProjectBindings          repository.ProjectBindingRepository
 	ProjectDomains           repository.ProjectDomainRepository
-	SSHKeys                  *sshkey.Service
 	DeploymentFactory        deployment.ClientFactory
 	SetupDNS                 setupDNSVerifier
 	Secrets                  setupSecretWriter
@@ -93,7 +91,6 @@ type Server struct {
 	projectResources            repository.ProjectResourceReader
 	projectBindings             repository.ProjectBindingRepository
 	projectDomains              repository.ProjectDomainRepository
-	sshKeys                     *sshkey.Service
 	deploymentFactory           deployment.ClientFactory
 	setupDNS                    setupDNSVerifier
 	secrets                     setupSecretWriter
@@ -161,7 +158,6 @@ func New(deps Dependencies) *Server {
 		projectResources:            deps.ProjectResources,
 		projectBindings:             deps.ProjectBindings,
 		projectDomains:              deps.ProjectDomains,
-		sshKeys:                     deps.SSHKeys,
 		deploymentFactory:           deps.DeploymentFactory,
 		issueCertificate:            deps.IssueCertificate,
 		issueSetupCertificate:       deps.IssueSetupCertificate,

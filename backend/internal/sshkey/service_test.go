@@ -1,3 +1,5 @@
+//go:build legacy_ssh_key_tests
+
 package sshkey
 
 import (

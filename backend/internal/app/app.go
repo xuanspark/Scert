@@ -21,7 +21,6 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
-	"git.pcux.cn/xuans/Scert/backend/internal/sshkey"
 )
 
 type App struct {
@@ -34,7 +33,6 @@ type App struct {
 	Tasks           *repository.SQLTaskRepository
 	Deployment      *deployment.Service
 	SecretStore     *secretstore.Store
-	SSHKeys         *sshkey.Service
 	DNSVerification *setup.DNSVerificationManager
 	Certificates    *certificate.Service
 	Workflow        *CertificateWorkflow
@@ -140,7 +138,6 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	} else if deleted > 0 {
 		logger.Info("启动时已清理过期审计日志", "count", deleted)
 	}
-	sshKeys := sshkey.NewService(secretStore)
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
 	aliyunAuthChecker := dnsprovider.NewAliyunAuthorizationChecker()
@@ -177,7 +174,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		RetryInterval:       time.Duration(cfg.ACME.RenewalRetryIntervalMins) * time.Minute,
 	}, management)
 	server = httpapi.New(httpapi.Dependencies{
-		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, SSHKeys: sshKeys, DeploymentFactory: deployment.SSHFactory{Secrets: secretStore},
+		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, DeploymentFactory: deployment.SSHFactory{Secrets: secretStore},
 		ProjectMembers:   repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectDirectory: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectLifecycle: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
@@ -234,7 +231,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		Users:       userRepo,
 		Tasks:       taskRepo,
 		Deployment:  deploymentService,
-		SecretStore: secretStore, SSHKeys: sshKeys, DNSVerification: dnsVerification, HTTP: server,
+		SecretStore: secretStore, DNSVerification: dnsVerification, HTTP: server,
 		Certificates: certificates,
 		Workflow:     workflow,
 		Renewal:      renewal,

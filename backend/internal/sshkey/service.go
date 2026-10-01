@@ -2,27 +2,13 @@ package sshkey
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/pem"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh"
-
-	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 )
 
-const (
-	ReferencePrefix    = "secret://ssh/"
-	secretKind         = "ssh_private_key"
-	MaxPrivateKeyBytes = 1024 * 1024
-	maxNameLength      = 128
-	maxPassphraseBytes = 4096
-)
+var ErrDisabled = errors.New("SSH 密钥登录功能已永久停用，仅支持 SSH 密码认证")
 
 type Store interface {
 	Put(ctx context.Context, reference string, value map[string]string) error
@@ -43,251 +29,49 @@ type Metadata struct {
 }
 
 type Service struct {
-	store Store
 }
 
-func NewService(store Store) *Service {
-	return &Service{store: store}
+func NewService(_ ...Store) *Service {
+	return &Service{}
 }
 
-func (s *Service) Create(ctx context.Context, name, privateKey, passphrase string) (Metadata, error) {
-	return s.CreateForProject(ctx, name, privateKey, passphrase, domain.DefaultProjectID)
+func (s *Service) Create(context.Context, string, string, string) (Metadata, error) {
+	return Metadata{}, ErrDisabled
 }
 
-func (s *Service) CreateForProject(ctx context.Context, name, privateKey, passphrase, projectID string) (Metadata, error) {
-	if s == nil || s.store == nil {
-		return Metadata{}, errors.New("SSH 私钥存储未初始化")
-	}
-	projectID = normalizeProjectID(projectID)
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return Metadata{}, errors.New("SSH 私钥名称不能为空")
-	}
-	if len([]rune(name)) > maxNameLength {
-		return Metadata{}, fmt.Errorf("SSH 私钥名称不能超过 %d 个字符", maxNameLength)
-	}
-	privateKey = strings.TrimSpace(privateKey)
-	if privateKey == "" {
-		return Metadata{}, errors.New("SSH 私钥内容不能为空")
-	}
-	if len(privateKey) > MaxPrivateKeyBytes {
-		return Metadata{}, fmt.Errorf("SSH 私钥内容不能超过 %d 字节", MaxPrivateKeyBytes)
-	}
-	if len(passphrase) > maxPassphraseBytes {
-		return Metadata{}, fmt.Errorf("SSH 私钥口令不能超过 %d 字节", maxPassphraseBytes)
-	}
-	signer, err := parsePrivateKey(privateKey, passphrase)
-	if err != nil {
-		return Metadata{}, err
-	}
-	id := domain.NewID()
-	reference := ReferencePrefix + id
-	payload := map[string]string{
-		"kind":        secretKind,
-		"name":        name,
-		"private_key": privateKey + "\n",
-		"passphrase":  passphrase,
-		"algorithm":   signer.PublicKey().Type(),
-		"fingerprint": ssh.FingerprintSHA256(signer.PublicKey()),
-		"project_id":  projectID,
-	}
-	if err := s.store.Put(ctx, reference, payload); err != nil {
-		return Metadata{}, fmt.Errorf("保存 SSH 私钥失败：%w", err)
-	}
-	return Metadata{
-		ID: id, Name: name, Reference: reference, Algorithm: payload["algorithm"],
-		Fingerprint: payload["fingerprint"], UpdatedAt: time.Now().UTC(), ProjectID: projectID,
-	}, nil
+func (s *Service) CreateForProject(context.Context, string, string, string, string) (Metadata, error) {
+	return Metadata{}, ErrDisabled
 }
 
-func (s *Service) CreateGenerated(ctx context.Context, name string) (Metadata, string, error) {
-	return s.CreateGeneratedForProject(ctx, name, domain.DefaultProjectID)
+func (s *Service) CreateGenerated(context.Context, string) (Metadata, string, error) {
+	return Metadata{}, "", ErrDisabled
 }
 
-func (s *Service) CreateGeneratedForProject(ctx context.Context, name, projectID string) (Metadata, string, error) {
-	if s == nil || s.store == nil {
-		return Metadata{}, "", errors.New("SSH 私钥存储未初始化")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return Metadata{}, "", errors.New("SSH 私钥名称不能为空")
-	}
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return Metadata{}, "", fmt.Errorf("生成 SSH 密钥失败：%w", err)
-	}
-	privatePEM, err := ssh.MarshalPrivateKey(privateKey, "scert-deploy")
-	if err != nil {
-		return Metadata{}, "", fmt.Errorf("编码 SSH 私钥失败：%w", err)
-	}
-	metadata, err := s.CreateForProject(ctx, name, string(pem.EncodeToMemory(privatePEM)), "", projectID)
-	if err != nil {
-		return Metadata{}, "", err
-	}
-	sshPublicKey, err := ssh.NewPublicKey(publicKey)
-	if err != nil {
-		return Metadata{}, "", fmt.Errorf("编码 SSH 公钥失败：%w", err)
-	}
-	return metadata, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPublicKey))), nil
+func (s *Service) CreateGeneratedForProject(context.Context, string, string) (Metadata, string, error) {
+	return Metadata{}, "", ErrDisabled
 }
-func (s *Service) AuthorizedPublicKey(ctx context.Context, reference string) (string, error) {
-	if s == nil || s.store == nil {
-		return "", errors.New("SSH 私钥存储未初始化")
-	}
-	metadata, err := s.metadata(ctx, strings.TrimSpace(reference), time.Time{}, true)
-	if err != nil {
-		return "", err
-	}
-	payload, err := s.store.Get(ctx, metadata.Reference)
-	if err != nil {
-		return "", fmt.Errorf("读取 SSH 私钥失败：%w", err)
-	}
-	signer, err := parsePrivateKey(payload["private_key"], payload["passphrase"])
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))), nil
+func (s *Service) AuthorizedPublicKey(context.Context, string) (string, error) {
+	return "", ErrDisabled
 }
-func (s *Service) List(ctx context.Context) ([]Metadata, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("SSH 私钥存储未初始化")
-	}
-	items, err := s.store.List(ctx, ReferencePrefix)
-	if err != nil {
-		return nil, fmt.Errorf("列出 SSH 私钥失败：%w", err)
-	}
-	result := make([]Metadata, 0, len(items))
-	for _, item := range items {
-		referenceID := strings.TrimPrefix(item.Reference, ReferencePrefix)
-		if strings.Contains(referenceID, "/") {
-			continue
-		}
-		metadata, err := s.metadata(ctx, item.Reference, item.UpdatedAt, false)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, metadata)
-	}
-	return result, nil
+func (s *Service) List(context.Context) ([]Metadata, error) {
+	return nil, ErrDisabled
 }
 
-func (s *Service) ListForProject(ctx context.Context, projectID string) ([]Metadata, error) {
-	items, err := s.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	projectID = normalizeProjectID(projectID)
-	visible := make([]Metadata, 0, len(items))
-	for _, item := range items {
-		if normalizeProjectID(item.ProjectID) == projectID {
-			visible = append(visible, item)
-		}
-	}
-	return visible, nil
+func (s *Service) ListForProject(context.Context, string) ([]Metadata, error) {
+	return nil, ErrDisabled
 }
-func (s *Service) ValidateReference(ctx context.Context, reference string) (Metadata, error) {
-	if s == nil || s.store == nil {
-		return Metadata{}, errors.New("SSH 私钥存储未初始化")
-	}
-	return s.metadata(ctx, strings.TrimSpace(reference), time.Time{}, true)
+func (s *Service) ValidateReference(context.Context, string) (Metadata, error) {
+	return Metadata{}, ErrDisabled
 }
 
-func (s *Service) ValidateReferenceForProject(ctx context.Context, reference, projectID string) (Metadata, error) {
-	metadata, err := s.ValidateReference(ctx, reference)
-	if err != nil {
-		return Metadata{}, err
-	}
-	if normalizeProjectID(metadata.ProjectID) != normalizeProjectID(projectID) {
-		return Metadata{}, errors.New("SSH 私钥不属于当前项目")
-	}
-	return metadata, nil
+func (s *Service) ValidateReferenceForProject(context.Context, string, string) (Metadata, error) {
+	return Metadata{}, ErrDisabled
 }
 
-func (s *Service) Delete(ctx context.Context, id string) error {
-	if s == nil || s.store == nil {
-		return errors.New("SSH 私钥存储未初始化")
-	}
-	reference, err := referenceFromID(id)
-	if err != nil {
-		return err
-	}
-	if _, err := s.metadata(ctx, reference, time.Time{}, false); err != nil {
-		return err
-	}
-	if err := s.store.Delete(ctx, reference); err != nil {
-		return fmt.Errorf("删除 SSH 私钥失败：%w", err)
-	}
-	return nil
+func (s *Service) Delete(context.Context, string) error {
+	return ErrDisabled
 }
 
-func (s *Service) Reference(id string) (string, error) {
-	return referenceFromID(id)
-}
-
-func (s *Service) metadata(ctx context.Context, reference string, updatedAt time.Time, validateKey bool) (Metadata, error) {
-	if !strings.HasPrefix(reference, ReferencePrefix) {
-		return Metadata{}, errors.New("SSH 私钥引用格式无效")
-	}
-	id := strings.TrimPrefix(reference, ReferencePrefix)
-	if _, err := referenceFromID(id); err != nil {
-		return Metadata{}, err
-	}
-	payload, err := s.store.Get(ctx, reference)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("读取 SSH 私钥失败：%w", err)
-	}
-	if payload["kind"] != secretKind || strings.TrimSpace(payload["private_key"]) == "" {
-		return Metadata{}, errors.New("敏感信息引用不是有效的 SSH 私钥")
-	}
-	algorithm := payload["algorithm"]
-	fingerprint := payload["fingerprint"]
-	if validateKey || algorithm == "" || fingerprint == "" {
-		signer, parseErr := parsePrivateKey(payload["private_key"], payload["passphrase"])
-		if parseErr != nil {
-			return Metadata{}, parseErr
-		}
-		algorithm = signer.PublicKey().Type()
-		fingerprint = ssh.FingerprintSHA256(signer.PublicKey())
-	}
-	return Metadata{
-		ID: id, Name: payload["name"], Reference: reference,
-		Algorithm: algorithm, Fingerprint: fingerprint, UpdatedAt: updatedAt,
-		ProjectID: normalizeProjectID(payload["project_id"]),
-	}, nil
-}
-
-func normalizeProjectID(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return domain.DefaultProjectID
-	}
-	return value
-}
-
-func parsePrivateKey(privateKey, passphrase string) (ssh.Signer, error) {
-	var (
-		signer ssh.Signer
-		err    error
-	)
-	if passphrase != "" {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKey), []byte(passphrase))
-	} else {
-		signer, err = ssh.ParsePrivateKey([]byte(privateKey))
-	}
-	if err != nil {
-		var missing *ssh.PassphraseMissingError
-		if errors.As(err, &missing) {
-			return nil, errors.New("SSH 私钥已加密，请提供私钥口令")
-		}
-		return nil, errors.New("SSH 私钥格式或口令无效")
-	}
-	return signer, nil
-}
-
-func referenceFromID(id string) (string, error) {
-	id = strings.TrimSpace(id)
-	if id == "" || strings.ContainsAny(id, "/\\\x00\r\n") {
-		return "", errors.New("SSH 私钥 ID 无效")
-	}
-	return ReferencePrefix + id, nil
+func (s *Service) Reference(string) (string, error) {
+	return "", ErrDisabled
 }

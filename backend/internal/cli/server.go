@@ -65,9 +65,6 @@ func newServerAddCommand() *cobra.Command {
 		item.CreatedAt = now
 		item.UpdatedAt = now
 		item.ID = domain.NewID()
-		if _, err := service.SSHKeys.ValidateReference(cmd.Context(), item.PrivateKeyRef); err != nil {
-			return fmt.Errorf("SSH 私钥引用无效：%w", err)
-		}
 		if err := service.Servers.CreateServer(cmd.Context(), item); err != nil {
 			return err
 		}
@@ -96,9 +93,6 @@ func newServerEditCommand() *cobra.Command {
 		item.UpdatedBy = ""
 		item.CreatedAt = existing.CreatedAt
 		item.UpdatedAt = time.Now().UTC()
-		if _, err := service.SSHKeys.ValidateReference(cmd.Context(), item.PrivateKeyRef); err != nil {
-			return fmt.Errorf("SSH 私钥引用无效：%w", err)
-		}
 		if err := service.Servers.UpdateServer(cmd.Context(), item); err != nil {
 			return err
 		}
@@ -185,7 +179,7 @@ func newDomainServersSetCommand() *cobra.Command {
 }
 
 type serverFlags struct {
-	name, address, username, privateKeyRef, fingerprint   string
+	name, address, username, fingerprint                  string
 	certificatePath, privateKeyPath, chainPath, webServer string
 	validationCommand, reloadCommand                      []string
 	port                                                  int
@@ -196,7 +190,6 @@ func (f *serverFlags) bind(command *cobra.Command) {
 	command.Flags().StringVar(&f.address, "address", "", "服务器地址")
 	command.Flags().IntVar(&f.port, "port", 22, "SSH 端口")
 	command.Flags().StringVar(&f.username, "username", "", "SSH 用户")
-	command.Flags().StringVar(&f.privateKeyRef, "private-key-ref", "", "SSH 私钥的敏感信息引用")
 	command.Flags().StringVar(&f.fingerprint, "host-key-fingerprint", "", "SSH 主机 SHA256 指纹")
 	command.Flags().StringVar(&f.certificatePath, "certificate-path", deployment.DefaultCertificatePath, "远程证书文件路径模板")
 	command.Flags().StringVar(&f.privateKeyPath, "private-key-path", deployment.DefaultPrivateKeyPath, "远程私钥文件路径模板")
@@ -204,7 +197,7 @@ func (f *serverFlags) bind(command *cobra.Command) {
 	command.Flags().StringVar(&f.webServer, "web-server", string(deployment.WebServerNginx), "Web 服务类型：nginx、caddy、apache、custom")
 	command.Flags().StringSliceVar(&f.validationCommand, "validation-command", nil, "自定义配置校验命令及参数")
 	command.Flags().StringSliceVar(&f.reloadCommand, "reload-command", nil, "自定义 reload 命令及参数")
-	for _, name := range []string{"name", "address", "username", "private-key-ref", "host-key-fingerprint"} {
+	for _, name := range []string{"name", "address", "username", "host-key-fingerprint"} {
 		_ = command.MarkFlagRequired(name)
 	}
 }
@@ -212,7 +205,7 @@ func (f *serverFlags) bind(command *cobra.Command) {
 func (f serverFlags) server() deployment.Server {
 	return deployment.Server{
 		Name: f.name, Address: f.address, Port: f.port, Username: f.username,
-		PrivateKeyRef: f.privateKeyRef, HostKeyFingerprint: f.fingerprint,
+		AuthMethod: deployment.SSHAuthPassword, HostKeyFingerprint: f.fingerprint,
 		CertificatePath: f.certificatePath, PrivateKeyPath: f.privateKeyPath,
 		CertificateChainPath: f.chainPath, WebServer: deployment.WebServer(f.webServer),
 		ValidationCommand: normalizeCommand(f.validationCommand), ReloadCommand: normalizeCommand(f.reloadCommand),

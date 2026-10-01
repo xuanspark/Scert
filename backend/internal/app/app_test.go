@@ -27,8 +27,8 @@ func TestNewWiresApplicationServices(t *testing.T) {
 	if application.Deployment == nil || application.Certificates == nil || application.Workflow == nil || application.Renewal == nil {
 		t.Fatal("证书申请、部署或续期服务未完整注入应用实例")
 	}
-	if application.SecretStore == nil || application.SSHKeys == nil || application.DNSVerification == nil || application.HTTP == nil {
-		t.Fatal("敏感信息、SSH、DNS 或 HTTP 服务未完整注入应用实例")
+	if application.SecretStore == nil || application.DNSVerification == nil || application.HTTP == nil {
+		t.Fatal("敏感信息、DNS 或 HTTP 服务未完整注入应用实例")
 	}
 }
 func TestNewWithConfigPathRecoversInterruptedTasks(t *testing.T) {
