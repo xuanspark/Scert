@@ -36,7 +36,7 @@ test("管理页面使用拆分后的域名表单与同项目服务器候选", as
 test("板块导航默认只选中基本信息，超级管理员可切换全部板块", () => {
   const navigation = useDashboardNavigation(ref({ role: "super_admin" }));
   assert.equal(navigation.activeSection.value, "overview");
-  assert.equal(navigation.sections.value.length, 8);
+   assert.equal(navigation.sections.value.length, 7);
   for (const section of navigation.sections.value) {
     navigation.selectSection(section.id);
     assert.equal(navigation.activeSection.value, section.id);
@@ -57,7 +57,7 @@ test("用户管理导航按权限显示，权限变化后回到基本信息", ()
   assert.equal(navigation.activeSection.value, "users");
   user.value = { role: "admin" };
   assert.equal(navigation.activeSection.value, "users");
-  assert.equal(navigation.sections.value.length, 8);
+   assert.equal(navigation.sections.value.length, 7);
   user.value = null;
   assert.equal(navigation.activeSection.value, "overview");
   assert.equal(navigation.sections.value.length, 6);
@@ -67,12 +67,12 @@ test("单板块布局使用互斥条件，切换重置滚动且保留弹窗入�
   const { readFile } = await import("node:fs/promises");
   const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
   const stylesheet = await readFile(new URL("./DashboardLayout.css", import.meta.url), "utf8");
-  for (const id of ["overview", "activity", "projects", "domains", "servers", "keys", "dns-accounts", "users"]) {
+  for (const id of ["overview", "activity", "projects", "domains", "servers", "dns-accounts", "users"]) {
     assert.ok(template.includes(`v-if="activeSection === '${id}'"`));
   }
   assert.match(template, /:key="activeSection"/);
   assert.match(template, /role="region"\s+:aria-label="activeLabel"\s+tabindex="0"/);
-  for (const modal of ["SettingsModal", "DomainModal", "ServerModal", "SSHKeyModal"]) {
+  for (const modal of ["SettingsModal", "DomainModal", "ServerModal"]) {
     assert.ok(template.includes(`<${modal} v-if=`));
   }
   assert.match(stylesheet, /height: 100dvh/);
@@ -123,7 +123,6 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
     projects: "项目与成员",
     domains: "托管域名",
     servers: "部署服务器",
-    keys: "服务器 SSH 密钥",
     "dns-accounts": "DNS 账户管理",
     users: "用户管理",
   };
@@ -133,7 +132,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
       render,
       setup: () => ({ ...state, ...navigation, dashboard: state }),
     });
-    for (const name of ["ChangePassword", "DashboardNavigation", "SettingsModal", "DomainModal", "ServerModal", "SSHKeyModal", "RuntimeOverview"]) {
+    for (const name of ["ChangePassword", "DashboardNavigation", "SettingsModal", "DomainModal", "ServerModal", "RuntimeOverview"]) {
       app.component(name, { render: () => null });
     }
     app.component("UserManagement", { render: () => Vue.h("h2", headings.users) });
@@ -760,7 +759,7 @@ test("serverModal.compilesAndPreservesDeploymentFields", async () => {
     assert.match(html, /value="22"/);
     assert.match(html, /min="1"/);
     assert.match(html, /max="65535"/);
-    assert.equal((html.match(/class="test-help-tip"/g) || []).length, 5);
+    assert.equal((html.match(/class="test-help-tip"/g) || []).length, 4);
     for (const path of ["/test/cert.pem", "/test/fullchain.pem", "/test/key.pem"]) {
       assert.ok(html.includes(path));
     }
