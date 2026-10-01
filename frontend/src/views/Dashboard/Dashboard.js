@@ -160,8 +160,6 @@ export function useDashboard() {
     server_create: "创建服务器",
     server_update: "更新服务器",
     server_delete: "删除服务器",
-    ssh_key_create: "添加 SSH 私钥",
-    ssh_key_delete: "删除 SSH 私钥",
     renewal_run: "执行自动续期",
   };
   const taskStageLabels = {
