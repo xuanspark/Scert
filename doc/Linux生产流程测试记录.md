@@ -1688,3 +1688,11 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 ### 尚未完成的门禁
 
 本轮证据不能替代 SQLite、MySQL、PostgreSQL 清库后的 Web 首次初始化、Smail 系统账户真实 SMTP 发信、超级管理员验证码重置密码、修改密码后重新登录、P0-10 负向矩阵、双服务器失败重试与历史 `recovery_required` 证据核查。当前总体状态仍为 **P0-03：完成，等待复审**，不能标记为生产整体验收通过。
+
+### 服务重启后的恢复窗口复核
+
+在 `45.136.13.241` 使用密码 SSH 执行 `systemctl restart Scert`。重启后 `Scert`、`Scert-storage.socket`、Nginx 均保持 `active`；约等待 8 秒后，回环和 `odacm.cn` 的严格 HTTPS `/readyz` 均返回 `{"service":"scert","status":"ready"}`。
+
+重启后的首个约 2 秒请求返回 HTTP `502`，随后 Scert 完成 `127.0.0.1:8443` HTTPS 监听并恢复正常。该短暂恢复窗口已记录为生产门禁观察项，不能宣称无感重启；本轮没有开放内部端口、关闭 TLS 校验或修改 Nginx 为不安全转发。
+
+同次启动日志继续报告两条历史 `recovery_required` 事务因缺少可信恢复证据而拒绝自动接管。系统保留现场等待人工核查，本轮未删除锁、伪造恢复证据或修改历史事务。
