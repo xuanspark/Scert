@@ -1,5 +1,16 @@
 # Linux 生产流程测试记录
 
+## 最新实机回归记录（2026年10月1日，可信恢复证据候选）
+
+- 最新提交：`0e48dc9`，已推送远程仓库。
+- 正式 Linux amd64 包：`build/recovery-evidence-20261001/Scert-20261001-V0.1.0-linux-amd64.tar.gz`。
+- 包 SHA-256：`9b6748b6f25446adcc454fb9ecf88a31cbf70554bcbfcae3451670f9a81e4afe`。
+- 使用密码 SSH 将候选包安装到 `45.136.13.241`；Scert、存储 socket、Nginx、MySQL 均 active。
+- 通过 `https://odacm.cn/` 登录超级管理员，执行同一域名绑定两台服务器的正式部署两次；两次均为两台推送成功、配置校验及 reload 成功、站点 HTTPS 校验通过。
+- 执行 `systemctl restart Scert.service` 后，服务保持 active，HTTPS 管理入口返回 200。
+- 数据库只读核查：新事务进入 `committed`；现场保留两条缺少可信恢复证据的历史 `recovery_required` 事务，未删除锁、未修改状态、未伪造验收结果。
+- 本记录仅证明候选安装、正常双目标部署和重启后的基础回归；异常中断、负向 HTTPS 恢复、三数据库、双平台、SMTP、密码重置、备份恢复和最终生产门禁仍未完成。
+
 ## 当前核查与开发记录（2026年10月1日，北京时间）
 
 ### 候选构建收尾
