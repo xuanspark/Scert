@@ -1669,3 +1669,22 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [x] TLS 证书业务的 `private_key_path`、证书上传、部署和回滚逻辑保持不变；该字段只用于证书私钥，不用于 SSH 登录。
 - [x] `go test ./...`、三个 Go 命令构建和 `git diff --check` 已通过。
 - [!] 仍未完成清库后的三数据库 Web 首次初始化、Smail 系统账户真实发信、验证码重置闭环、P0-10 负向矩阵、双机失败重试和最终生产门禁，因此不得标记为整体验收通过。
+## 2026-10-01 SSH 密码认证候选包实机复核补充
+
+### 本轮范围
+
+本轮只验证安全整改后的正式 Linux amd64 候选包在 `45.136.13.241` 的安装和入口安全边界。使用密码 SSH，未使用密钥，未创建辅助验收脚本；未清空业务数据库，未执行真实发信或密码重置流程。
+
+### 结果
+
+- 候选包 `Scert-20261002-V0.1.0-linux-amd64.tar.gz` 的安装包清单校验通过。
+- 安装器在发现 `Scert-storage.socket` 仍监听时拒绝覆盖；停止相关服务后重新安装成功，未强制覆盖运行中的存储服务。
+- `Scert`、`Scert-storage.socket`、Nginx 均为 `active`，`nginx -t` 通过。
+- Scert 监听 `127.0.0.1:8443`，MySQL 监听 `127.0.0.1:3306` 和 `127.0.0.1:33060`，公网服务入口仍为 Nginx `80/443`；既有邮件服务端口未在本轮修改。
+- SSH 服务端复核为 `pubkeyauthentication no`、`passwordauthentication yes`、`authenticationmethods password`，满足密码唯一认证要求。
+- 从本机按 `odacm.cn` SNI 严格访问 `https://odacm.cn/readyz` 返回 `{"service":"scert","status":"ready"}`；从服务器回环按同一域名严格访问也返回 ready；没有使用 `-k` 或关闭 TLS 校验。
+- HTTP `odacm.cn` 返回 `301` 并跳转到 `https://odacm.cn/`。
+
+### 尚未完成的门禁
+
+本轮证据不能替代 SQLite、MySQL、PostgreSQL 清库后的 Web 首次初始化、Smail 系统账户真实 SMTP 发信、超级管理员验证码重置密码、修改密码后重新登录、P0-10 负向矩阵、双服务器失败重试与历史 `recovery_required` 证据核查。当前总体状态仍为 **P0-03：完成，等待复审**，不能标记为生产整体验收通过。

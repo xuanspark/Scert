@@ -2465,3 +2465,16 @@ P0-11 生产验收门禁
 - [x] TLS 证书业务的 `private_key_path`、证书上传、部署和回滚逻辑保持不变；该字段只用于证书私钥，不用于 SSH 登录。
 - [x] `go test ./...`、三个 Go 命令构建和 `git diff --check` 已通过。
 - [!] 仍未完成清库后的三数据库 Web 首次初始化、Smail 系统账户真实发信、验证码重置闭环、P0-10 负向矩阵、双机失败重试和最终生产门禁，因此不得标记为整体验收通过。
+## 2026-10-01 SSH 密码认证候选包实机复核补充
+
+本轮使用正式构建流程生成候选包 `Scert-20261002-V0.1.0-linux-amd64.tar.gz`，来源提交为 `4620501`，构建清单标记 `source_dirty=false`。仅使用密码 SSH 登录 `45.136.13.241`，未使用、生成、读取、上传或部署任何 SSH 私钥、公钥或 `authorized_keys`，未创建辅助验收脚本。
+
+- [x] 候选包 SHA-256 校验通过，安装器完整校验清单通过。
+- [x] `Scert`、`Scert-storage.socket`、`nginx` 安装后均为 `active`。
+- [x] Scert 仅监听 `127.0.0.1:8443`；MySQL 仅监听回环地址；对外管理入口仅为 Nginx `80/443`。
+- [x] Nginx 配置测试通过，未关闭上游 TLS 校验。
+- [x] `odacm.cn` 严格 HTTPS `/readyz` 返回 `{"service":"scert","status":"ready"}`；HTTP 访问返回 `301` 并跳转到 HTTPS。
+- [x] SSH 服务端复核为 `pubkeyauthentication=no`、`passwordauthentication=yes`、`authenticationmethods=password`。
+- [!] 本轮未清空生产数据库，未执行 Smail 真实发信、密码重置完整闭环、三数据库 Web 首次初始化和 P0-10 全部负向矩阵，因此不能替代整体验收。
+
+当前状态仍为 **P0-03：完成，等待复审**。
