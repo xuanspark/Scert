@@ -18,6 +18,7 @@ func TestScertSystemdUnitPolicy(t *testing.T) {
 		"Documentation=file:///scert/docs/Scert-service-management.md",
 		"User=Scert",
 		"Group=Scert",
+		"Environment=SCERT_SERVER_HOST=127.0.0.1",
 		"ExecStart=/scert/scert --config /scert/conf/scert.json serve",
 		"Restart=on-failure",
 		"UMask=0077",

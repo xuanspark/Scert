@@ -30,6 +30,7 @@ func TestRenderUnitFileIncludesExecutableConfigurationAndWorkDir(t *testing.T) {
 		"RuntimeDirectory=scert",
 		"RuntimeDirectoryMode=0700",
 		"Environment=SCERT_BOOTSTRAP_FIREWALL_MODE=external",
+		"Environment=SCERT_SERVER_HOST=127.0.0.1",
 		"[Service]",
 		"Type=simple",
 		"User=Scert",
@@ -75,6 +76,7 @@ func TestPackagedUnitAllowsInterfaceDiscoveryWithoutCapabilities(t *testing.T) {
 		"CapabilityBoundingSet=",
 		"AmbientCapabilities=",
 		"NoNewPrivileges=yes",
+		"Environment=SCERT_SERVER_HOST=127.0.0.1",
 		"User=Scert",
 	} {
 		found := false

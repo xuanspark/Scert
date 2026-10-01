@@ -176,6 +176,7 @@ func renderUnitFile(options Options) (string, error) {
 		"WorkingDirectory="+quoteUnitValue(normalized.WorkDir),
 		"ExecStart="+quoteUnitValue(normalized.Executable)+" --config "+quoteUnitValue(normalized.ConfigPath)+" serve",
 		"Environment=SCERT_BOOTSTRAP_FIREWALL_MODE=external",
+		"Environment=SCERT_SERVER_HOST=127.0.0.1",
 		"KillSignal=SIGTERM",
 		"TimeoutStopSec=30",
 		"Restart=on-failure",
