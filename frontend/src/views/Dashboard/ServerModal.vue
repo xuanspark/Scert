@@ -50,7 +50,7 @@ const {
                 <h3>基本信息与连接方式</h3>
               </div>
               <HelpTip>
-                这里保存部署服务器的连接信息。Scert 仅使用 SSH 密码认证，不提供 SSH 私钥登录配置。
+                这里保存部署服务器的连接信息，登录验证使用已配置的 SSH 密码。
               </HelpTip>
             </div>
             <div class="server-form-grid">
