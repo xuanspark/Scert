@@ -202,7 +202,7 @@ func (s *Server) registerRoutes() {
 	s.router.POST("/api/v1/auth/login", s.requireSameOrigin, s.authLogin)
 	s.router.POST("/api/v1/auth/logout", s.requireSameOrigin, s.authLogout)
 	s.router.POST("/api/v1/auth/password", s.requireAuthenticated, s.changePassword)
-	s.router.POST("/api/v1/password-reset/resolve", s.resolvePasswordResetAccount)
+	s.router.POST("/api/v1/password-reset/resolve", s.showPasswordResetGuidance)
 	adminAPI := s.router.Group("/api/v1", s.requireAdmin)
 	userAPI := s.router.Group("/api/v1/users", s.requireAuthenticated)
 	userAPI.GET("", s.listUsers)

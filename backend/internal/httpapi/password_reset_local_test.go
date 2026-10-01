@@ -30,7 +30,7 @@ func TestPasswordResetResolutionOnlyOffersAdministratorContact(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 				t.Fatal(err)
 			}
-			if payload["account_type"] != "super_admin" || payload["action"] != "contact_administrator" {
+			if payload["account_type"] != nil || payload["action"] != "contact_administrator" {
 				t.Fatalf("超级管理员没有返回受控本机处理标识：%v", payload)
 			}
 			if description := strings.ToLower(response.Body.String()); strings.Contains(description, "scert-admin") || strings.Contains(description, "systemctl") || strings.Contains(description, "local_admin_command") {

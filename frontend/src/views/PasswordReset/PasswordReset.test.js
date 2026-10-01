@@ -61,3 +61,22 @@ test("本机指引不包含可执行命令", () => {
   const source = readFileSync(new URL("../components/LocalResetGuide/LocalResetGuide.vue", import.meta.url), "utf8");
   assert.doesNotMatch(source, /systemctl|scert-admin|<code/iu);
 });
+
+test("公开密码重置接受不包含身份字段的通用响应", async (t) => {
+  const payload = {
+    title: "密码重置",
+    description: "请联系系统管理员协助处理密码重置。为保护账户安全，此页面不确认账户是否存在或所属角色。",
+    action: "contact_administrator",
+  };
+  const { state } = await mountComposable(t, usePasswordReset, async () => Response.json(payload));
+  for (const identifier of ["owner", "owner@example.test", "absent", "absent@example.test"]) {
+    state.identifier.value = identifier;
+    await state.submit();
+    assert.deepEqual(state.resolution.value, payload);
+    assert.equal(state.error.value, "");
+    assert.equal(state.submitting.value, false);
+    for (const field of ["account_type", "account_label", "reset_path", "reset_url", "token", "nonce"]) {
+      assert.equal(field in state.resolution.value, false);
+    }
+  }
+});
