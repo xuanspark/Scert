@@ -85,6 +85,7 @@ func TestSQLiteBusinessUpgradeStandaloneCLI(t *testing.T) {
 	runSQLiteProductCLI(t, binary, fixture, "certificate", "list")
 	assertSQLiteCLIUpgradeUsable(t, fixture)
 	createSQLiteProjectForBackup(t, fixture)
+	seedSQLiteCLIDeploymentHistory(t, fixture)
 	upgraded := snapshotSQLiteCLIState(t, *cfg)
 	currentArchive := filepath.Join(t.TempDir(), "upgraded-backup")
 	runSQLiteProductCLI(t, binary, fixture, "backup", "--output", currentArchive)
@@ -110,6 +111,7 @@ func TestSQLiteBusinessUpgradeStandaloneCLI(t *testing.T) {
 				_ = current.Close()
 				t.Fatal(err)
 			}
+			mutateSQLiteCLIDeploymentHistory(t, current.DB)
 			if err := current.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -289,7 +291,7 @@ func assertSQLiteCLIUpgradeUsable(t *testing.T, fixture sqliteBusinessFixture) {
 	}
 	defer db.Close()
 	var version, bindings int
-	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != 14 {
+	if err := db.DB.QueryRowContext(t.Context(), "SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil || version != expectedSQLiteCLIMigrationVersion(t, db.DB) {
 		t.Fatalf("正式应用入口未完成历史升级：%d，%v", version, err)
 	}
 	project, err := repository.NewSQLProjectRepository(db.DB).GetProject(t.Context(), domain.DefaultProjectID)
