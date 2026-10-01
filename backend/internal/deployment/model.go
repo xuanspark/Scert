@@ -48,31 +48,31 @@ var serverPathPlaceholderPattern = regexp.MustCompile(`\{[^{}]+\}`)
 
 type Server struct {
 	domain.ResourceScope
-	ID                   string        `json:"id"`
-	Name                 string        `json:"name"`
-	Address              string        `json:"address"`
-	Port                 int           `json:"port"`
-	Username             string        `json:"username"`
-	AuthMethod           SSHAuthMethod `json:"auth_method"`
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	Address    string        `json:"address"`
+	Port       int           `json:"port"`
+	Username   string        `json:"username"`
+	AuthMethod SSHAuthMethod `json:"auth_method"`
 	// PrivateKeyRef 仅为历史数据库兼容保留，禁止进入 API 响应和生产认证流程。
-	PrivateKeyRef        string        `json:"-"`
-	PasswordRef          string        `json:"-"`
-	PasswordConfigured   bool          `json:"password_configured"`
+	PrivateKeyRef      string `json:"-"`
+	PasswordRef        string `json:"-"`
+	PasswordConfigured bool   `json:"password_configured"`
 	// SSH 密钥状态仅为历史数据兼容保留，不对外暴露。
-	SSHKeyStatus         SSHKeyStatus  `json:"-"`
-	SSHKeyFingerprint    string        `json:"-"`
-	SSHKeyDeployedAt     string        `json:"-"`
-	SSHKeyTestedAt       string        `json:"-"`
-	SSHKeyError          string        `json:"-"`
-	HostKeyFingerprint   string        `json:"host_key_fingerprint"`
-	CertificatePath      string        `json:"certificate_path"`
-	PrivateKeyPath       string        `json:"private_key_path"`
-	CertificateChainPath string        `json:"certificate_chain_path"`
-	WebServer            WebServer     `json:"web_server"`
-	ValidationCommand    []string      `json:"validation_command,omitempty"`
-	ReloadCommand        []string      `json:"reload_command,omitempty"`
-	CreatedAt            time.Time     `json:"created_at"`
-	UpdatedAt            time.Time     `json:"updated_at"`
+	SSHKeyStatus         SSHKeyStatus `json:"-"`
+	SSHKeyFingerprint    string       `json:"-"`
+	SSHKeyDeployedAt     string       `json:"-"`
+	SSHKeyTestedAt       string       `json:"-"`
+	SSHKeyError          string       `json:"-"`
+	HostKeyFingerprint   string       `json:"host_key_fingerprint"`
+	CertificatePath      string       `json:"certificate_path"`
+	PrivateKeyPath       string       `json:"private_key_path"`
+	CertificateChainPath string       `json:"certificate_chain_path"`
+	WebServer            WebServer    `json:"web_server"`
+	ValidationCommand    []string     `json:"validation_command,omitempty"`
+	ReloadCommand        []string     `json:"reload_command,omitempty"`
+	CreatedAt            time.Time    `json:"created_at"`
+	UpdatedAt            time.Time    `json:"updated_at"`
 }
 
 func (s Server) Normalize() Server {
@@ -213,8 +213,8 @@ func (s Server) Validate() error {
 		return errors.New("SSH 用户不能为空")
 	}
 	// 历史内存模型仍允许读取旧私钥记录，实际 SSHFactory 会在连接前拒绝该认证方式。
-	if s.PrivateKeyRef != "" && s.PasswordRef == "" {
-		return nil
+	if s.PrivateKeyRef != "" {
+		return errors.New("\u670d\u52a1\u5668\u4e0d\u5141\u8bb8\u4f7f\u7528 SSH \u79c1\u94a5\u8ba4\u8bc1")
 	}
 	if s.AuthMethod != SSHAuthPassword {
 		return errors.New("服务器仅支持 SSH 密码认证")

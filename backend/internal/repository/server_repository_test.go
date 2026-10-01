@@ -26,7 +26,7 @@ func TestServerRepositoryCRUDAndDomainAssociations(t *testing.T) {
 	repo := NewSQLServerRepository(db.DB)
 	server := deployment.Server{
 		ID: "server-1", Name: "生产服务器", Address: "192.0.2.10", Port: 22, Username: "deploy",
-		PrivateKeyRef: "secret://ssh/server-1", HostKeyFingerprint: "SHA256:test",
+		AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/server-1", HostKeyFingerprint: "SHA256:test",
 		CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem",
 		CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx,
 	}
@@ -100,23 +100,15 @@ func TestServerRepositoryRejectsInvalidServer(t *testing.T) {
 	}
 }
 
-func TestServerRepositoryReportsPrivateKeyReferenceUsage(t *testing.T) {
+func TestServerRepositoryRejectsPrivateKeyReference(t *testing.T) {
 	db := openServerTestDatabase(t)
 	defer db.Close()
 	repo := NewSQLServerRepository(db.DB)
 	server := validTestServer()
-	server.ID = "server-private-key-usage"
-	server.PrivateKeyRef = "secret://ssh/used-key"
-	if err := repo.CreateServer(t.Context(), server); err != nil {
-		t.Fatalf("创建测试服务器失败：%v", err)
-	}
-	used, err := repo.IsPrivateKeyRefUsed(t.Context(), server.PrivateKeyRef)
-	if err != nil || !used {
-		t.Fatalf("未识别已占用的 SSH 私钥引用：used=%t err=%v", used, err)
-	}
-	used, err = repo.IsPrivateKeyRefUsed(t.Context(), "secret://ssh/not-used")
-	if err != nil || used {
-		t.Fatalf("错误识别未占用的 SSH 私钥引用：used=%t err=%v", used, err)
+	server.ID = "server-private-key-rejected"
+	server.PrivateKeyRef = "secret://ssh/private-key"
+	if err := repo.CreateServer(t.Context(), server); err == nil {
+		t.Fatal("server repository must reject SSH private key references")
 	}
 }
 
@@ -133,7 +125,7 @@ func TestReplaceDomainServersRejectsUnknownServerWithoutChangingAssociations(t *
 		t.Fatal(err)
 	}
 	repo := NewSQLServerRepository(db.DB)
-	server := deployment.Server{ID: "server-1", Name: "服务器", Address: "192.0.2.20", Username: "deploy", PrivateKeyRef: "secret://ssh/1", HostKeyFingerprint: "SHA256:test", CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem", CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx}
+	server := deployment.Server{ID: "server-1", Name: "服务器", Address: "192.0.2.20", Username: "deploy", AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/1", HostKeyFingerprint: "SHA256:test", CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem", CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx}
 	if err := repo.CreateServer(context.Background(), server); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +168,7 @@ func openServerTestDatabase(t *testing.T) *database.Database {
 func validTestServer() deployment.Server {
 	return deployment.Server{
 		Name: "测试服务器", Address: "192.0.2.70", Port: 22, Username: "deploy",
-		PrivateKeyRef: "secret://ssh/test", HostKeyFingerprint: "SHA256:test",
+		AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/test", HostKeyFingerprint: "SHA256:test",
 		CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem",
 		CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx,
 	}

@@ -357,7 +357,7 @@ func TestDeployRejectsRelativeCertificatePaths(t *testing.T) {
 func testServer(id string) Server {
 	return Server{
 		ID: id, Name: id, Address: "192.0.2.10", Port: 22, Username: "deploy",
-		PrivateKeyRef: "secret://ssh/" + id, HostKeyFingerprint: "SHA256:test",
+		AuthMethod: SSHAuthPassword, PasswordRef: "secret://ssh/password/" + id, HostKeyFingerprint: "SHA256:test",
 		CertificatePath: "/etc/scert/cert.pem", CertificateChainPath: "/etc/scert/fullchain.pem",
 		PrivateKeyPath: "/etc/scert/key.pem", WebServer: WebServerNginx,
 	}

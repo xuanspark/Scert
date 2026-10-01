@@ -61,7 +61,7 @@ func checkProjectResources(t *testing.T, cfg config.DatabaseConfig, admin *sql.D
 		server := deployment.Server{
 			ResourceScope: domain.ResourceScope{ProjectID: item.ProjectID},
 			ID:            "server-" + id, Name: "资源服务器", Address: "192.0.2.10", Port: 22, Username: "deploy",
-			PrivateKeyRef: "secret://ssh/fixture", HostKeyFingerprint: "SHA256:test",
+			AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/fixture", HostKeyFingerprint: "SHA256:test",
 			CertificatePath: "/ssl/cert.pem", PrivateKeyPath: "/ssl/key.pem", WebServer: deployment.WebServerNginx,
 		}
 		if err := servers.CreateServer(t.Context(), server); err != nil {

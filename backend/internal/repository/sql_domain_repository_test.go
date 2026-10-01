@@ -86,7 +86,7 @@ func TestRepositoryCRUD(t *testing.T) {
 		t.Fatalf("域名列表不正确：%v，%+v", err, items)
 	}
 	serverRepo := NewSQLServerRepository(db.DB)
-	server := deployment.Server{ID: "server-1", Name: "服务器", Address: "192.0.2.30", Username: "deploy", PrivateKeyRef: "secret://ssh/1", HostKeyFingerprint: "SHA256:test", CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem", CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx}
+	server := deployment.Server{ID: "server-1", Name: "服务器", Address: "192.0.2.30", Username: "deploy", AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/1", HostKeyFingerprint: "SHA256:test", CertificatePath: "/etc/scert/cert.pem", PrivateKeyPath: "/etc/scert/key.pem", CertificateChainPath: "/etc/scert/fullchain.pem", WebServer: deployment.WebServerNginx}
 	if err := serverRepo.CreateServer(context.Background(), server); err != nil {
 		t.Fatalf("创建关联服务器失败：%v", err)
 	}

@@ -64,16 +64,19 @@ func (w *observedWriter) Close() error {
 
 func safetyFactory(t *testing.T, handler func(ssh.Channel, <-chan *ssh.Request)) (SSHFactory, Server) {
 	t.Helper()
-	_, privateKey := newTestSSHSigner(t)
 	hostSigner, _ := newTestSSHSigner(t)
-	server := startTestSSHServerWithHandler(t, func(ssh.PublicKey) error { return nil }, handler, hostSigner)
+	server := startTestPasswordSSHServerWithHandler(t, func(password string) error {
+		if password != "test-password" {
+			return errors.New("unexpected test password")
+		}
+		return nil
+	}, handler, hostSigner)
 	model := testSSHServerModel(server, "secret://ssh/safety", ssh.FingerprintSHA256(hostSigner.PublicKey()))
 	return SSHFactory{
-		Secrets: staticSecretReader{model.PrivateKeyRef: {"private_key": privateKey}},
+		Secrets: staticSecretReader{model.PasswordRef: {"password": "test-password"}},
 		Timeout: time.Second, HostKeyAlgorithms: []string{ssh.KeyAlgoED25519},
 	}, model
 }
-
 func requestSFTPHandler(handlers sftp.Handlers, stallVersion, stallCommand bool) func(ssh.Channel, <-chan *ssh.Request) {
 	return func(channel ssh.Channel, requests <-chan *ssh.Request) {
 		defer channel.Close()

@@ -128,7 +128,6 @@ func TestAdminAPIRequiresSetupBeforeAccessingManagementHandlers(t *testing.T) {
 		"/api/v1/tasks",
 		"/api/v1/audit-logs",
 		"/api/v1/certificates",
-		"/api/v1/ssh-keys",
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {

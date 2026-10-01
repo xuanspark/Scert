@@ -116,18 +116,23 @@ func FatalUnexpectedPath(t *testing.T) {
 }
 func TestServerRejectsPasswordStyleOrUnsafeConfiguration(t *testing.T) {
 	server := testServer("one")
-	server.PrivateKeyRef = ""
+	server.PasswordRef = ""
 	if err := server.Validate(); err == nil {
-		t.Fatal("未配置 SSH 私钥引用时应拒绝服务器配置")
+		t.Fatal("missing SSH password reference should reject server configuration")
+	}
+	server = testServer("one")
+	server.PrivateKeyRef = "secret://ssh/private-key"
+	if err := server.Validate(); err == nil {
+		t.Fatal("SSH private key reference should reject server configuration")
 	}
 	server = testServer("one")
 	server.ReloadCommand = []string{"nginx\nrm", "-s", "reload"}
 	if err := server.Validate(); err == nil {
-		t.Fatal("reload 参数包含换行时应拒绝服务器配置")
+		t.Fatal("reload command containing a newline should be rejected")
 	}
 	server = testServer("one")
 	server.ValidationCommand = []string{"nginx", "-t\nrm"}
 	if err := server.Validate(); err == nil {
-		t.Fatal("配置校验参数包含换行时应拒绝服务器配置")
+		t.Fatal("validation command containing a newline should be rejected")
 	}
 }

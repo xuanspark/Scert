@@ -29,7 +29,7 @@ func checkManyToManyBindings(t *testing.T, db, admin *sql.DB, members *SQLProjec
 		server := deployment.Server{
 			ResourceScope: domain.ResourceScope{ProjectID: "project-a"},
 			ID:            "shared-server-" + suffix, Name: suffix, Address: "192.0.2.20", Port: 22, Username: "deploy",
-			PrivateKeyRef: "secret://ssh/fixture", HostKeyFingerprint: "SHA256:test", WebServer: deployment.WebServerNginx,
+			AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/fixture", HostKeyFingerprint: "SHA256:test", WebServer: deployment.WebServerNginx,
 		}
 		if err := servers.CreateServer(t.Context(), server); err != nil {
 			t.Fatal(err)

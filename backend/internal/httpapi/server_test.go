@@ -23,7 +23,6 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
-	"git.pcux.cn/xuans/Scert/backend/internal/sshkey"
 )
 
 func TestHealthAndDomainAPI(t *testing.T) {
@@ -303,16 +302,11 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	}
 	secretStore, err := secretstore.Open(filepath.Join(dir, "config"))
 	if err != nil {
-		t.Fatalf("打开敏感信息存储失败：%v", err)
-	}
-	sshKeys := sshkey.NewService(secretStore)
-	key, err := sshKeys.Create(t.Context(), "测试部署私钥", testSSHPrivateKey(t), "")
-	if err != nil {
-		t.Fatalf("创建测试 SSH 私钥失败：%v", err)
+		t.Fatalf("open secret store failed: %v", err)
 	}
 	server := New(Dependencies{
 		Config: cfg, Repository: repository.NewSQLDomainRepository(db.DB),
-		Servers: repository.NewSQLServerRepository(db.DB), SSHKeys: sshKeys,
+		Servers: repository.NewSQLServerRepository(db.DB), Secrets: secretStore,
 		Users:            repository.NewSQLUserRepository(db.DB),
 		ProjectResources: repository.NewSQLProjectMemberRepository(db.DB),
 		ProjectBindings:  repository.NewSQLProjectMemberRepository(db.DB),
@@ -341,7 +335,7 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 		t.Fatalf("测试域名响应无效：%v %s", err, domainResponse.Body.String())
 	}
 
-	serverRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(`{"name":"测试服务器","address":"192.0.2.50","port":22,"username":"deploy","private_key_ref":"`+key.Reference+`","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
+	serverRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(`{"name":"测试服务器","address":"192.0.2.50","port":22,"username":"deploy","password":"test-password","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
 	serverRequest.Header.Set("Content-Type", "application/json")
 	serverResponse := httptest.NewRecorder()
 	serveAdminHTTP(server, serverResponse, serverRequest)
@@ -362,7 +356,7 @@ func TestServerAndDomainAssociationAPI(t *testing.T) {
 	if created.ProjectID != "default" || created.OwnerID != "test-admin" || created.CreatedBy != "test-admin" || created.UpdatedBy != "test-admin" {
 		t.Fatalf("服务器未记录服务端会话归属：%+v", created.ResourceScope)
 	}
-	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/servers/"+created.ID, strings.NewReader(`{"name":"updated-server","address":"192.0.2.50","port":22,"username":"deploy","private_key_ref":"`+key.Reference+`","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/servers/"+created.ID, strings.NewReader(`{"name":"updated-server","address":"192.0.2.50","port":22,"username":"deploy","password":"test-password","host_key_fingerprint":"SHA256:test","web_server":"nginx"}`))
 	updateRequest.Header.Set("Content-Type", "application/json")
 	updateResponse := httptest.NewRecorder()
 	serveAdminHTTP(server, updateResponse, updateRequest)
@@ -859,19 +853,14 @@ func TestServerHostKeyChangeCreatesAuditRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("打开敏感信息存储失败：%v", err)
 	}
-	sshKeys := sshkey.NewService(store)
-	key, err := sshKeys.Create(t.Context(), "审计测试私钥", testSSHPrivateKey(t), "")
-	if err != nil {
-		t.Fatalf("创建测试私钥失败：%v", err)
-	}
 	serverRepo := repository.NewSQLServerRepository(db.DB)
 	resourceRepo := repository.NewSQLProjectMemberRepository(db.DB)
 	server := New(Dependencies{
 		Config: cfg, Repository: repository.NewSQLDomainRepository(db.DB), Servers: serverRepo,
-		SSHKeys: sshKeys, Audit: repository.NewSQLAuditRepository(db.DB),
+		Secrets: store, Audit: repository.NewSQLAuditRepository(db.DB),
 		ProjectResources: resourceRepo, ProjectBindings: resourceRepo, ProjectDomains: resourceRepo,
 	})
-	createBody := `{"name":"审计测试服务器","address":"192.0.2.80","port":22,"username":"deploy","private_key_ref":"` + key.Reference + `","host_key_fingerprint":"SHA256:first","web_server":"nginx"}`
+	createBody := `{"name":"审计测试服务器","address":"192.0.2.80","port":22,"username":"deploy","password":"test-password","host_key_fingerprint":"SHA256:first","web_server":"nginx"}`
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/servers", strings.NewReader(createBody))
 	createRequest.Header.Set("Content-Type", "application/json")
 	createResponse := httptest.NewRecorder()
@@ -883,7 +872,7 @@ func TestServerHostKeyChangeCreatesAuditRecord(t *testing.T) {
 	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil || created.ID == "" {
 		t.Fatalf("解析测试服务器响应失败：%v %s", err, createResponse.Body.String())
 	}
-	updateBody := `{"name":"审计测试服务器","address":"192.0.2.80","port":22,"username":"deploy","private_key_ref":"` + key.Reference + `","host_key_fingerprint":"SHA256:second","web_server":"nginx"}`
+	updateBody := `{"name":"审计测试服务器","address":"192.0.2.80","port":22,"username":"deploy","password":"test-password","host_key_fingerprint":"SHA256:second","web_server":"nginx"}`
 	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/servers/"+created.ID, strings.NewReader(updateBody))
 	updateRequest.Header.Set("Content-Type", "application/json")
 	updateResponse := httptest.NewRecorder()

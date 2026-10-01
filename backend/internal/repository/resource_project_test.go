@@ -55,7 +55,7 @@ func checkResourceProjects(t *testing.T, cfg config.DatabaseConfig) {
 	server := deployment.Server{
 		ResourceScope: scope,
 		ID:            "server-a", Name: "项目服务器", Address: "192.0.2.10", Port: 22, Username: "deploy",
-		PrivateKeyRef: "secret://ssh/test", HostKeyFingerprint: "SHA256:test",
+		AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/test", HostKeyFingerprint: "SHA256:test",
 		CertificatePath: "/test/cert.pem", PrivateKeyPath: "/test/key.pem",
 		CertificateChainPath: "/test/chain.pem", WebServer: deployment.WebServerNginx,
 	}

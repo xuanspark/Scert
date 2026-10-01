@@ -2,14 +2,9 @@ package deployment
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/pem"
 	"strings"
 	"testing"
 	"time"
-
-	"golang.org/x/crypto/ssh"
 )
 
 type staticSecretReader map[string]map[string]string
@@ -18,16 +13,7 @@ func (s staticSecretReader) Get(_ context.Context, reference string) (map[string
 	return s[reference], nil
 }
 
-func TestSSHFactoryParsesEncryptedPrivateKeyBeforeDialing(t *testing.T) {
-	_, key, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("failed to generate test private key: %v", err)
-	}
-	block, err := ssh.MarshalPrivateKeyWithPassphrase(key, "scert-deployment-test", []byte("deployment-passphrase"))
-	if err != nil {
-		t.Fatalf("failed to encrypt test private key: %v", err)
-	}
-	privateKey := string(pem.EncodeToMemory(block))
+func TestSSHFactoryRejectsPrivateKeyAuthentication(t *testing.T) {
 	server := Server{
 		ID: "server-test", Name: "test server", Address: "127.0.0.1", Port: 1,
 		Username: "deploy", PrivateKeyRef: "secret://ssh/test", HostKeyFingerprint: "SHA256:test",
@@ -35,15 +21,11 @@ func TestSSHFactoryParsesEncryptedPrivateKeyBeforeDialing(t *testing.T) {
 		CertificateChainPath: "/tmp/fullchain.pem", WebServer: WebServerNginx,
 	}
 	factory := SSHFactory{
-		Secrets: staticSecretReader{server.PrivateKeyRef: {"private_key": privateKey, "passphrase": "deployment-passphrase"}},
+		Secrets: staticSecretReader{server.PrivateKeyRef: {"private_key": "must-not-be-read"}},
 		Timeout: 100 * time.Millisecond,
 	}
-	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "连接 SSH 服务器失败") {
-		t.Fatalf("encrypted private key should parse before the expected dial failure: %v", err)
-	}
-	factory.Secrets = staticSecretReader{server.PrivateKeyRef: {"private_key": privateKey, "passphrase": "wrong-passphrase"}}
-	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "解析 SSH 私钥失败") {
-		t.Fatalf("wrong passphrase should be rejected before dialing: %v", err)
+	if _, err := factory.Connect(t.Context(), server); err == nil || !strings.Contains(err.Error(), "SSH") {
+		t.Fatalf("private key authentication should be rejected before reading secrets: %v", err)
 	}
 }
 

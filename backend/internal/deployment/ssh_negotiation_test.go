@@ -17,16 +17,15 @@ func TestSSHFactoryDefaultNegotiatesOnce(t *testing.T) {
 			name = "rejected"
 		}
 		t.Run(name, func(t *testing.T) {
-			_, privateKey := newTestSSHSigner(t)
 			hostSigner, _ := newTestSSHSigner(t)
-			server := startTestSSHServer(t, func(ssh.PublicKey) error {
-				if reject {
-					return errors.ErrUnsupported
+			server := startTestPasswordSSHServerWithHandler(t, func(password string) error {
+				if password != "test-password" || reject {
+					return errors.New("test authentication rejected")
 				}
 				return nil
-			}, hostSigner)
+			}, serveTestSFTP, hostSigner)
 			factory := SSHFactory{
-				Secrets: staticSecretReader{"secret://test": {"private_key": privateKey}},
+				Secrets: staticSecretReader{"secret://test": {"password": "test-password"}},
 				Timeout: 2 * time.Second,
 			}
 			client, err := factory.ConnectShell(t.Context(), testSSHServerModel(
@@ -74,15 +73,17 @@ func TestSSHSingleNegotiationFallsBackToRegisteredFingerprint(t *testing.T) {
 }
 
 func TestSSHFactoryDefaultRejectsUnknownFingerprintBeforeAuthentication(t *testing.T) {
-	_, privateKey := newTestSSHSigner(t)
 	hostSigner, _ := newTestSSHSigner(t)
 	var authenticated atomic.Int32
-	server := startTestSSHServer(t, func(ssh.PublicKey) error {
-		authenticated.Add(1)
-		return nil
-	}, hostSigner)
+	server := startTestPasswordSSHServerWithHandler(t, func(password string) error {
+		if password == "test-password" {
+			authenticated.Add(1)
+			return nil
+		}
+		return errors.New("unexpected test password")
+	}, serveTestSFTP, hostSigner)
 	factory := SSHFactory{
-		Secrets: staticSecretReader{"secret://test": {"private_key": privateKey}},
+		Secrets: staticSecretReader{"secret://test": {"password": "test-password"}},
 		Timeout: 2 * time.Second,
 	}
 	client, err := factory.ConnectShell(t.Context(), testSSHServerModel(server, "secret://test", "SHA256:unregistered"))
@@ -90,7 +91,7 @@ func TestSSHFactoryDefaultRejectsUnknownFingerprintBeforeAuthentication(t *testi
 		defer client.Close()
 	}
 	if err == nil {
-		t.Fatal(err)
+		t.Fatal("unknown host key fingerprint should be rejected")
 	}
 	if got := authenticated.Load(); got != 0 {
 		t.Fatalf("authenticated=%d; want=0", got)
