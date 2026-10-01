@@ -651,7 +651,7 @@ func (s *Service) recoverTransaction(ctx context.Context, record *TransactionRec
 		return err
 	}
 	if record.Phase == TransactionPhaseAcquiring || record.Phase == TransactionPhaseRollbackVerified || record.Phase == TransactionPhaseCommitVerified {
-		return releaseTransactionLocks(recoveryContext, client, *record, true)
+		return releaseTransactionLocks(recoveryContext, client, *record, true, record.Phase == TransactionPhaseAcquiring)
 	}
 	if record.Phase == TransactionPhaseCommitting {
 		return s.recoverCommittedTransaction(recoveryContext, record, server, client)
@@ -679,7 +679,7 @@ func (s *Service) recoverTransaction(ctx context.Context, record *TransactionRec
 	if err := s.persistRecoveryPhase(recoveryContext, record, TransactionPhaseRollbackVerified); err != nil {
 		return err
 	}
-	return releaseTransactionLocks(recoveryContext, client, *record, true)
+	return releaseTransactionLocks(recoveryContext, client, *record, true, false)
 }
 
 func (s *Service) recoverCommittedTransaction(ctx context.Context, record *TransactionRecord, server Server, client Client) error {
@@ -719,7 +719,7 @@ func (s *Service) recoverCommittedTransaction(ctx context.Context, record *Trans
 	if err := s.persistRecoveryPhase(ctx, record, TransactionPhaseCommitVerified); err != nil {
 		return err
 	}
-	return releaseTransactionLocks(ctx, client, *record, true)
+	return releaseTransactionLocks(ctx, client, *record, true, false)
 }
 
 func restoreTransactionFiles(ctx context.Context, client Client, record TransactionRecord) error {
@@ -771,12 +771,31 @@ func restoreTransactionFiles(ctx context.Context, client Client, record Transact
 	return nil
 }
 
-func releaseTransactionLocks(ctx context.Context, client Client, record TransactionRecord, verifyOwner bool) error {
+func releaseTransactionLocks(ctx context.Context, client Client, record TransactionRecord, verifyOwner, allowMissingOwner bool) error {
 	for index := len(record.LockPaths) - 1; index >= 0; index-- {
 		lockPath := record.LockPaths[index]
 		if verifyOwner {
-			if err := checkOwnedLock(ctx, client, lockPath, record.Evidence.LockToken, false); err != nil {
+			if err := checkOwnedLock(ctx, client, lockPath, record.Evidence.LockToken, allowMissingOwner); err != nil {
 				return fmt.Errorf("无法证明事务仍拥有部署锁 %s：%w", lockPath, err)
+			}
+			if allowMissingOwner {
+				reader, ok := client.(EvidenceClient)
+				if !ok {
+					return fmt.Errorf("无法读取部署锁归属：%s", lockPath)
+				}
+				owner, err := reader.ReadLockOwner(ctx, lockPath)
+				if err != nil {
+					return fmt.Errorf("读取部署锁归属失败：%w", err)
+				}
+				if owner == "" {
+					exists, err := client.Exists(ctx, lockPath)
+					if err != nil {
+						return fmt.Errorf("检查部署锁目录失败：%w", err)
+					}
+					if !exists {
+						continue
+					}
+				}
 			}
 		}
 		if err := client.Unlock(ctx, lockPath); err != nil {

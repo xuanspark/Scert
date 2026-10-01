@@ -171,3 +171,41 @@ func TestDeployPartialLockConflictReleasesOwnedLocks(t *testing.T) {
 		}
 	}
 }
+
+func TestRecoverPendingAcquiringCleansLocksWithoutOwner(t *testing.T) {
+	server := testServer("acquiring-missing-owner").Normalize()
+	client := newMemoryClient()
+	id := "acquiring-missing-owner-transaction"
+	paths := []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath}
+	locks := make([]string, 0, len(paths))
+	files := make(map[string]string, len(paths))
+	for _, path := range paths {
+		lockPath := path + ".scert-lock"
+		locks = append(locks, lockPath)
+		client.files[lockPath] = memoryFile{}
+		files[path] = contentDigest([]byte("old"))
+	}
+	journal := &memoryTransactionJournal{pending: []TransactionRecord{{
+		ID: id, TaskID: "task", AttemptID: "attempt", AttemptNumber: 1, ResultIndex: 0,
+		ServerID: server.ID, ServerName: server.Name, Paths: paths, LockPaths: locks,
+		Phase: TransactionPhaseAcquiring, Status: TransactionStatusRecoveryRequired,
+		Evidence: &RecoveryEvidence{
+			Version: 1, LockToken: contentDigest([]byte("scert-lock:" + id)),
+			Address: server.Address, Port: server.Port, HostKeyFingerprint: server.HostKeyFingerprint,
+			ValidationCommand: append([]string(nil), server.ValidationCommand...),
+			ReloadCommand:     append([]string(nil), server.ReloadCommand...), Files: files,
+		},
+	}}}
+	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
+	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err != nil {
+		t.Fatalf("无归属的中断获取阶段恢复失败：%v", err)
+	}
+	for _, lockPath := range locks {
+		if _, ok := client.files[lockPath]; ok {
+			t.Fatalf("无归属锁目录未清理：%s", lockPath)
+		}
+	}
+	if len(journal.finished) != 1 || journal.finished[0].status != TransactionStatusRolledBack {
+		t.Fatalf("无归属锁恢复未完成回滚：%+v", journal.finished)
+	}
+}
