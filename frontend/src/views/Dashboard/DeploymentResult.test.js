@@ -14,12 +14,11 @@ const report = {
   results: [{ server_id: "server-1", server: "验收服务器", status: "success", message: "部署完成" }],
 };
 
-test("服务器认证提示区分密码、私钥及缺失配置", () => {
+test("服务器认证提示只显示密码配置状态", () => {
   assert.equal(serverAuthLabel({ auth_method: "password", password_configured: true }), "SSH 密码已配置");
-  assert.equal(serverAuthLabel({ auth_method: "password", private_key_ref: "secret://test" }), "SSH 密码未配置");
-  assert.equal(serverAuthLabel({ auth_method: "private_key", private_key_ref: "secret://test" }), "SSH 私钥已配置");
-  assert.equal(serverAuthLabel({ auth_method: "private_key" }), "SSH 私钥未配置");
-  assert.equal(serverAuthLabel({}), "认证方式未确认");
+  assert.equal(serverAuthLabel({ auth_method: "password", password_configured: false }), "SSH 密码未配置");
+  assert.equal(serverAuthLabel({ auth_method: "private_key", password_configured: false }), "SSH 密码未配置");
+  assert.equal(serverAuthLabel({}), "SSH 密码未配置");
 });
 
 test("部署汇总不把空目标、缺失结果或部分失败称为成功", () => {
@@ -145,6 +144,5 @@ test("部署结果组件可编译且认证提示绑定真实配置", async () =>
   assert.match(source, /role="dialog"/);
   const dashboard = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
   assert.match(dashboard, /serverAuthLabel\(item\)/);
-  assert.match(dashboard, /serverSSHKeyStatusLabel\(item\)/);
-  assert.match(dashboard, /serverSSHCommand\(item\)/);
+  assert.doesNotMatch(dashboard, /serverSSHKeyStatusLabel|serverSSHCommand|SSHKeyModal/);
 });

@@ -60,7 +60,7 @@ test("用户管理导航按权限显示，权限变化后回到基本信息", ()
    assert.equal(navigation.sections.value.length, 7);
   user.value = null;
   assert.equal(navigation.activeSection.value, "overview");
-  assert.equal(navigation.sections.value.length, 6);
+    assert.equal(navigation.sections.value.length, 5);
 });
 
 test("单板块布局使用互斥条件，切换重置滚动且保留弹窗入口", async () => {
@@ -308,24 +308,29 @@ test("编辑服务器正确保留已有密码状态，新建和未配置密码�
   assert.equal(state.serverEditingId.value, "");
 });
 
-test("SSH引导目标直接跟随服务器配置中的地址和用户", async (t) => {
-  const { state } = await setup(t, () => verifiedResponse());
+test("部署服务器仅使用密码认证且不暴露私钥管理入口", async (t) => {
+  const requests = [];
+  const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
+    if (options.method) {
+      requests.push({ path, ...options });
+      return Response.json({});
+    }
+    return verifiedResponse();
+  });
   state.openServerCreate();
-  state.serverForm.value.username = "root";
-  state.serverForm.value.address = "45.136.13.241";
-  state.openSSHKeyCreate({ embedded: true });
-  await nextTick();
-
-  assert.equal(state.sshKeyCommandUsername.value, "root");
-  assert.equal(state.sshKeyCommandHost.value, "45.136.13.241");
-  assert.equal(state.sshKeyForm.value.name, state.sshKeyFileName.value);
-  assert.match(state.sshPublicKeyCommands.value.windows, /ssh root@45\.136\.13\.241/);
-  assert.match(state.sshPublicKeyCommands.value.linux, /root@45\.136\.13\.241/);
-
-  state.sshKeyForm.value.name = "manual-key-name";
+  assert.equal(state.serverForm.value.auth_method, "password");
+  assert.equal("openSSHKeyCreate" in state, false);
+  assert.equal("sshKeys" in state, false);
+  state.serverForm.value.name = "生产服务器";
+  state.serverForm.value.address = "example.test";
   state.serverForm.value.username = "deploy";
-  await nextTick();
-  assert.equal(state.sshKeyForm.value.name, "manual-key-name");
+  state.serverForm.value.password = "test-password";
+  state.serverForm.value.host_key_fingerprint = "SHA256:test";
+  await state.saveServer();
+  const payload = JSON.parse(requests.at(-1).body);
+  assert.equal(payload.auth_method, "password");
+  assert.equal(payload.password, "test-password");
+  assert.equal("private_key_ref" in payload, false);
 });
 
 async function fill(state) {
@@ -712,7 +717,6 @@ test("serverModal.compilesAndPreservesDeploymentFields", async () => {
           address: "example.test",
           port: 22,
           username: "deploy",
-          private_key_ref: "key-ref",
           host_key_fingerprint: "SHA256:test-fingerprint",
           certificate_path: "/test/cert.pem",
           certificate_chain_path: "/test/fullchain.pem",
@@ -720,25 +724,6 @@ test("serverModal.compilesAndPreservesDeploymentFields", async () => {
           validation_command: "nginx\n-t",
           reload_command: "nginx\n-s\nreload",
         },
-        sshKeys: [],
-        openSSHKeyCreate: () => {},
-        showEmbeddedSSHKeyGuide: false,
-        closeSSHKeyForm: () => {},
-        sshKeySaving: false,
-        sshKeyFormError: "",
-        sshKeyPlatform: "windows",
-        sshKeyFileName: "test-key",
-        sshKeyPrivatePath: "/test/private",
-        sshKeyPublicPath: "/test/public",
-        sshKeyCommandUsername: "deploy",
-        sshKeyCommandHost: "example.test",
-        sshKeyCommands: { windows: "generate-windows", linux: "generate-linux" },
-        sshPublicKeyCommands: { windows: "install-windows", linux: "install-linux" },
-        sshKeyForm: { name: "", private_key: "", passphrase: "" },
-        importSSHKeyFile: () => {},
-        sshKeyPassphraseVisible: false,
-        copySSHKeyCommand: () => {},
-        saveSSHKey: () => {},
         defaultCertificatePath: "",
         defaultCertificateChainPath: "",
         defaultPrivateKeyPath: "",
@@ -789,67 +774,7 @@ test("changePassword.loadsScopedBaseStylesAndCompiles", async () => {
   assert.match(base, /\.field\s*\{/);
 });
 
-test("sshKeyModal.compilesAndPreservesCredentialFields", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const { parse, compileScript, compileTemplate } = await import("@vue/compiler-sfc");
-  const { renderToString } = await import("@vue/server-renderer");
-  const Vue = await import("vue");
-  const source = await readFile(new URL("./SSHKeyModal.vue", import.meta.url), "utf8");
-  const { descriptor, errors } = parse(source);
-  assert.deepEqual(errors, []);
-  assert.ok(compileScript(descriptor, { id: "ssh-key-modal" }));
-  const compiled = compileTemplate({
-    source: descriptor.template.content,
-    filename: "SSHKeyModal.vue",
-    id: "ssh-key-modal",
-    compilerOptions: { mode: "function" },
-  });
-  assert.deepEqual(compiled.errors, []);
-  assert.ok(descriptor.styles.some(style => style.scoped && style.src === "./Dashboard.css"));
-  assert.ok(descriptor.styles.some(style => style.scoped && style.src === "./SSHKeyModal.css"));
-  assert.doesNotMatch(source, /<HelpTip\s+class=/);
-  const render = new Function("Vue", compiled.code)(Vue);
-  for (const platform of ["windows", "linux"]) {
-    const app = Vue.createSSRApp({
-      render,
-      setup: () => ({
-        showSSHKeyForm: true,
-        closeSSHKeyForm: () => {},
-        saveSSHKey: () => {},
-        sshKeyPlatform: platform,
-        sshKeyFileName: "test-key",
-        sshKeyPrivatePath: "/test/private",
-        sshKeyPublicPath: "/test/public",
-        sshKeyCommandUsername: "deploy",
-        sshKeyCommandHost: "example.test",
-        copySSHKeyCommand: () => {},
-        sshKeyCommands: { windows: "generate-windows", linux: "generate-linux" },
-        sshPublicKeyCommands: { windows: "install-windows", linux: "install-linux" },
-        sshKeyForm: { name: "", private_key: "", passphrase: "" },
-        importSSHKeyFile: () => {},
-        sshKeyPassphraseVisible: false,
-        sshKeyFormError: "test-validation-error",
-        sshKeySaving: false,
-      }),
-    });
-    app.component("HelpTip", {
-      setup: (_, { slots }) => () => Vue.h("span", { class: "test-help-tip" }, slots.default?.()),
-    });
-    const html = await renderToString(app);
-    assert.match(html, /class="modal-card ssh-key-modal"/);
-    assert.match(html, /type="submit"/);
-    assert.match(html, /type="file"/);
-    assert.match(html, /type="password"/);
-    assert.match(html, /rows="5"/);
-    assert.match(html, /test-validation-error/);
-    assert.equal((html.match(/ required/g) || []).length, 2);
-    assert.ok(html.includes(`generate-${platform}`));
-    assert.ok(html.includes(`install-${platform}`));
-    assert.ok(html.includes("deploy@example.test"));
-  }
-  const css = await readFile(new URL("./SSHKeyModal.css", import.meta.url), "utf8");
-  assert.match(css, /\.ssh-key-modal\s*\{[^}]*overflow:\s*auto;/);
-});test("domainAction.refreshesPersistedFailureWithoutLosingError", async (t) => {
+test("domainAction.refreshesPersistedFailureWithoutLosingError", async (t) => {
   let issued = false;
   const { state } = await mountComposable(t, useDashboard, async (path) => {
     if (path.endsWith("/issue")) {

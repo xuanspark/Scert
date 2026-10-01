@@ -1,11 +1,5 @@
 export function serverAuthLabel(server) {
-  if (server.auth_method === "password") {
-    return server.password_configured ? "SSH 密码已配置" : "SSH 密码未配置";
-  }
-  if (server.auth_method === "private_key") {
-    return server.private_key_ref ? "SSH 私钥已配置" : "SSH 私钥未配置";
-  }
-  return "认证方式未确认";
+  return server.password_configured ? "SSH 密码已配置" : "SSH 密码未配置";
 }
 
 export function deploymentSummary(report) {

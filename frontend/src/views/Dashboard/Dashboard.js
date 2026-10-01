@@ -19,7 +19,6 @@ export function useDashboard() {
   const canRunRenewal = computed(() => currentUser.value?.role === "super_admin");
   const domains = ref([]);
   const servers = ref([]);
-  const sshKeys = ref([]);
   const certificates = ref([]);
   const tasks = ref([]);
   const auditLogs = ref([]);
@@ -47,13 +46,6 @@ export function useDashboard() {
   const serverEditingId = ref("");
   const serverSaving = ref(false);
   const serverFormError = ref("");
-  const showSSHKeyForm = ref(false);
-  const showEmbeddedSSHKeyGuide = ref(false);
-  const sshKeySaving = ref(false);
-  const sshKeyFormError = ref("");
-  const sshKeyPlatform = ref("windows");
-  const sshKeyPassphraseVisible = ref(false);
-  const sshKeyRandomSuffix = ref(createSSHKeyRandomSuffix());
   const showSettings = ref(false);
   const settingsSaving = ref(false);
   const settingsError = ref("");
@@ -87,7 +79,6 @@ export function useDashboard() {
     () =>
       showForm.value ||
       showServerForm.value ||
-      showSSHKeyForm.value ||
       showSettings.value ||
       showCertificateImport.value ||
       deploymentResult.value !== null ||
@@ -127,30 +118,6 @@ export function useDashboard() {
     }
     document.body.style.overflow = previousBodyOverflow;
   });
-
-  const sshKeyFileName = computed(
-    () =>
-      `${sanitizeSSHKeySegment(sshKeyCommandUsername.value, "用户名")}+scert-${sshKeyRandomSuffix.value}`,
-  );
-  const sshKeyPath = computed(() => `/ssl/ssh/${sshKeyFileName.value}`);
-  const sshKeyPrivatePath = computed(() => `${sshKeyPath.value}.key`);
-  const sshKeyPublicPath = computed(() => sshKeyPath.value);
-  const sshKeyRemoteTarget = computed(
-    () =>
-      `${sanitizeSSHKeySegment(sshKeyCommandUsername.value, "用户名")}@${sanitizeSSHHost(sshKeyCommandHost.value)}`,
-  );
-  const sshKeyCommands = computed(() => ({
-    windows:
-      `New-Item -ItemType Directory -Force -Path "/ssl/ssh" | Out-Null; ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPrivatePath.value}"; Move-Item -Force "${sshKeyPrivatePath.value}.pub" "${sshKeyPublicPath.value}"`,
-    linux:
-      `sudo install -d -m 700 -o "$(id -un)" -g "$(id -gn)" /ssl/ssh && ssh-keygen -t ed25519 -C "scert-deploy" -f "${sshKeyPrivatePath.value}" && mv -f "${sshKeyPrivatePath.value}.pub" "${sshKeyPublicPath.value}" && chmod 644 "${sshKeyPublicPath.value}"`,
-  }));
-  const sshPublicKeyCommands = computed(() => ({
-    windows:
-      `Get-Content "${sshKeyPublicPath.value}" | ssh ${sshKeyRemoteTarget.value} "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"`,
-    linux:
-      `ssh-copy-id -i "${sshKeyPublicPath.value}" ${sshKeyRemoteTarget.value}`,
-  }));
 
   const certificateTypeLabels = {
     single: "单域名",
@@ -318,22 +285,6 @@ export function useDashboard() {
   const defaultPrivateKeyPath = "/ssl/{域名}/{证书类型}/key.pem";
 
   const serverForm = ref(createEmptyServerForm());
-  const sshKeyForm = ref(createEmptySSHKeyForm());
-
-  const sshKeyCommandUsername = computed(
-    () => String(serverForm.value.username || "").trim() || "用户名",
-  );
-  const sshKeyCommandHost = computed(
-    () => String(serverForm.value.address || "").trim() || "服务器地址",
-  );
-
-  watch(sshKeyFileName, (fileName, previousFileName) => {
-    if (!showEmbeddedSSHKeyGuide.value) return;
-    const currentName = String(sshKeyForm.value.name || "").trim();
-    if (!currentName || currentName === previousFileName) {
-      sshKeyForm.value.name = fileName;
-    }
-  });
   async function fetchAdmin(path, options = {}) {
     const response = await fetch(path, {
       ...options,
@@ -381,7 +332,6 @@ export function useDashboard() {
       port: 22,
       username: "",
       auth_method: "password",
-      private_key_ref: "",
       password: "",
       passwordConfigured: false,
       host_key_fingerprint: "",
@@ -395,31 +345,12 @@ export function useDashboard() {
     };
   }
 
-  function createEmptySSHKeyForm() {
-    return { name: "", private_key: "", passphrase: "" };
-  }
-
-  function createSSHKeyRandomSuffix() {
+  function createRandomSuffix() {
     const bytes = new Uint8Array(6);
     crypto.getRandomValues(bytes);
     return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(
       "",
     );
-  }
-
-  function sanitizeSSHKeySegment(value, fallback) {
-    const normalized = String(value || "")
-      .trim()
-      .replace(/[^\p{L}\p{N}._-]+/gu, "-")
-      .replace(/^-+|-+$/g, "");
-    return normalized || fallback;
-  }
-
-  function sanitizeSSHHost(value) {
-    const normalized = String(value || "")
-      .trim()
-      .replace(/[^a-zA-Z0-9.:[\]-]+/g, "");
-    return normalized || "服务器地址";
   }
 
   function createEmptySettingsForm() {
@@ -515,49 +446,6 @@ export function useDashboard() {
     return labels[value] || (value ? "未知" : "—");
   }
 
-  function serverSSHKey(server) {
-    if (!server?.private_key_ref) return null;
-    return sshKeys.value.find((item) => item.reference === server.private_key_ref) || null;
-  }
-
-  function serverSSHKeyStatusLabel(server) {
-    const labels = {
-      not_configured: "未配置",
-      pending: "部署中",
-      deployed: "已部署并验证",
-      manual: "已配置，待验证",
-      failed: "部署失败，保留密码回退",
-    };
-    return labels[server?.ssh_key_status] || "未配置";
-  }
-
-  function serverSSHKeyStatusClass(server) {
-    if (server?.ssh_key_status === "deployed") return "success";
-    if (server?.ssh_key_status === "failed") return "danger";
-    if (server?.ssh_key_status === "pending") return "warning";
-    return "neutral";
-  }
-
-  function serverSSHCommand(server) {
-    if (!server?.address || !server?.username) return "—";
-    const port = Number(server.port || 22);
-    const portOption = port === 22 ? "" : ` -p ${port}`;
-    return `ssh${portOption} ${server.username}@${server.address}`;
-  }
-
-  function serverSSHKeyHint(server) {
-    if (server?.ssh_key_status === "deployed") {
-      return "Scert 已自动部署公钥并验证密钥登录，后续部署默认使用托管私钥。";
-    }
-    if (server?.ssh_key_status === "failed") {
-      return server.ssh_key_error || "公钥部署或密钥登录验证失败，当前仍使用密码回退。";
-    }
-    if (server?.auth_method === "private_key") {
-      return "当前使用已配置的私钥连接，尚未完成自动部署验证。";
-    }
-    return "保存服务器后，Scert 会先用密码部署公钥，再自动验证密钥登录。";
-  }
-
   function formatDate(value) {
     if (!value) return "尚未签发";
     return new Intl.DateTimeFormat("zh-CN", {
@@ -599,6 +487,7 @@ export function useDashboard() {
     serverEditingId.value = item.id;
     serverForm.value = {
       ...item,
+      auth_method: "password",
       passwordConfigured: item.password_configured === true,
       password: "",
       validation_command: (item.validation_command || []).join("\n"),
@@ -611,98 +500,7 @@ export function useDashboard() {
 
   function closeServerForm() {
     if (!serverSaving.value) {
-      showEmbeddedSSHKeyGuide.value = false;
       showServerForm.value = false;
-    }
-  }
-
-  function openSSHKeyCreate(options = {}) {
-    sshKeyForm.value = createEmptySSHKeyForm();
-    sshKeyFormError.value = "";
-    sshKeyPlatform.value = "windows";
-    sshKeyPassphraseVisible.value = false;
-    sshKeyRandomSuffix.value = createSSHKeyRandomSuffix();
-    sshKeyForm.value.name = sshKeyFileName.value;
-    showEmbeddedSSHKeyGuide.value = options.embedded === true;
-    showSSHKeyForm.value = options.embedded !== true;
-  }
-
-  function closeSSHKeyForm() {
-    if (sshKeySaving.value) return;
-    sshKeyForm.value = createEmptySSHKeyForm();
-    sshKeyFormError.value = "";
-    sshKeyPassphraseVisible.value = false;
-    showEmbeddedSSHKeyGuide.value = false;
-    showSSHKeyForm.value = false;
-  }
-
-  async function importSSHKeyFile(event) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    try {
-      const content = await file.text();
-      if (!content.trim()) throw new Error("选择的私钥文件为空");
-      sshKeyForm.value.private_key = content;
-      sshKeyFormError.value = "";
-      notice.value = `已读取私钥文件：${file.name}`;
-    } catch (err) {
-      sshKeyFormError.value = err.message || "读取私钥文件失败";
-    }
-  }
-
-  async function copySSHKeyCommand(value, message) {
-    try {
-      await navigator.clipboard.writeText(value);
-      notice.value = message;
-    } catch {
-      sshKeyFormError.value = "浏览器未允许访问剪贴板，请手动复制命令";
-    }
-  }
-
-  async function saveSSHKey() {
-    sshKeyFormError.value = "";
-    sshKeySaving.value = true;
-    try {
-      const response = await fetchAdmin("/api/v1/ssh-keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sshKeyForm.value),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "保存 SSH 私钥失败");
-      if (showEmbeddedSSHKeyGuide.value && result.reference) {
-        serverForm.value.private_key_ref = result.reference;
-      }
-      sshKeyForm.value = createEmptySSHKeyForm();
-      showEmbeddedSSHKeyGuide.value = false;
-      showSSHKeyForm.value = false;
-      notice.value = "SSH 私钥已加密保存";
-      await loadData();
-    } catch (err) {
-      sshKeyFormError.value = err.message || "保存 SSH 私钥失败";
-    } finally {
-      sshKeySaving.value = false;
-    }
-  }
-
-  async function deleteSSHKey(item) {
-    if (
-      !window.confirm(
-        `确定删除 SSH 私钥“${item.name}”吗？正在被服务器使用的私钥无法删除。`,
-      )
-    )
-      return;
-    try {
-      const response = await fetchAdmin(`/api/v1/ssh-keys/${item.id}`, {
-        method: "DELETE",
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "删除 SSH 私钥失败");
-      notice.value = "SSH 私钥已删除";
-      await loadData();
-    } catch (err) {
-      error.value = err.message || "删除 SSH 私钥失败";
     }
   }
 
@@ -722,8 +520,7 @@ export function useDashboard() {
         address: serverForm.value.address,
         port: Number(serverForm.value.port),
         username: serverForm.value.username,
-        auth_method: serverForm.value.auth_method,
-        private_key_ref: serverForm.value.private_key_ref,
+        auth_method: "password",
         host_key_fingerprint: serverForm.value.host_key_fingerprint,
         certificate_path: serverForm.value.certificate_path,
         private_key_path: serverForm.value.private_key_path,
@@ -732,9 +529,7 @@ export function useDashboard() {
         validation_command: parseCommand(serverForm.value.validation_command),
         reload_command: parseCommand(serverForm.value.reload_command),
       };
-      if (serverForm.value.auth_method === "password") {
-        payload.password = serverForm.value.password;
-      }
+      payload.password = serverForm.value.password;
       const path = serverEditingId.value
         ? `/api/v1/servers/${serverEditingId.value}`
         : "/api/v1/servers";
@@ -768,7 +563,7 @@ export function useDashboard() {
     try {
       const options = { method: "POST" };
       if (action === "issue") {
-        const suffix = crypto.randomUUID ? crypto.randomUUID() : createSSHKeyRandomSuffix();
+        const suffix = crypto.randomUUID ? crypto.randomUUID() : createRandomSuffix();
         options.headers = { "Idempotency-Key": `issue-${item.id}-${suffix}` };
       }
       const response = await fetchAdmin(`/api/v1/domains/${item.id}/${action}`, options);
@@ -1152,7 +947,6 @@ export function useDashboard() {
         authResponse,
         domainResponse,
         serverResponse,
-        sshKeyResponse,
         certificateResponse,
         taskResponse,
         auditResponse,
@@ -1163,7 +957,6 @@ export function useDashboard() {
         fetchAdmin("/api/v1/auth/session"),
         fetchAdmin("/api/v1/domains"),
         fetchAdmin("/api/v1/servers"),
-        fetchAdmin("/api/v1/ssh-keys"),
         fetchAdmin("/api/v1/certificates"),
         fetchAdmin("/api/v1/tasks?limit=20"),
         fetchAdmin("/api/v1/audit-logs?limit=20"),
@@ -1174,7 +967,6 @@ export function useDashboard() {
         statusResponse,
         domainResponse,
         serverResponse,
-        sshKeyResponse,
         certificateResponse,
         taskResponse,
         auditResponse,
@@ -1188,7 +980,6 @@ export function useDashboard() {
       currentUser.value = await authResponse.json();
       domains.value = (await domainResponse.json()).items || [];
       servers.value = (await serverResponse.json()).items || [];
-      sshKeys.value = (await sshKeyResponse.json()).items || [];
       certificates.value = (await certificateResponse.json()).items || [];
       tasks.value = (await taskResponse.json()).items || [];
       auditLogs.value = (await auditResponse.json()).items || [];
@@ -1240,7 +1031,6 @@ export function useDashboard() {
     canRunRenewal,
     domains,
     servers,
-    sshKeys,
     certificates,
     tasks,
     auditLogs,
@@ -1279,10 +1069,6 @@ export function useDashboard() {
     serverEditingId,
     serverSaving,
     serverFormError,
-    showSSHKeyForm,
-    showEmbeddedSSHKeyGuide,
-    sshKeySaving,
-    sshKeyFormError,
     certificateTypeLabels,
     domainStatusLabels,
     taskStatusLabels,
@@ -1295,24 +1081,10 @@ export function useDashboard() {
     environmentLabels,
     webServerLabels,
     serverAuthLabel,
-    serverSSHKey,
-    serverSSHKeyStatusLabel,
-    serverSSHKeyStatusClass,
-    serverSSHCommand,
-    serverSSHKeyHint,
     isEditing,
     formTitle,
     form,
     serverForm,
-    sshKeyForm,
-    sshKeyPlatform,
-    sshKeyPassphraseVisible,
-    sshKeyCommandUsername,
-    sshKeyCommandHost,
-    sshKeyFileName,
-    sshKeyPath,
-    sshKeyPrivatePath,
-    sshKeyPublicPath,
     showSettings,
     settingsSaving,
     settingsError,
@@ -1321,8 +1093,6 @@ export function useDashboard() {
     importSaving,
     importError,
     importResult,
-    sshKeyCommands,
-    sshPublicKeyCommands,
     defaultCertificatePath,
     defaultCertificateChainPath,
     defaultPrivateKeyPath,
@@ -1332,12 +1102,6 @@ export function useDashboard() {
     openServerCreate,
     openServerEdit,
     closeServerForm,
-    openSSHKeyCreate,
-    closeSSHKeyForm,
-    importSSHKeyFile,
-    copySSHKeyCommand,
-    saveSSHKey,
-    deleteSSHKey,
     openCertificateImport,
     closeCertificateImport,
     selectCertificateImportFile,
