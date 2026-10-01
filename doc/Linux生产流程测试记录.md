@@ -1720,3 +1720,28 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 ### 结论
 
 本轮通过了双机候选包安装、密码唯一 SSH、Scert 回环监听、数据库回环绑定和 Nginx 入口边界复核；没有通过生产整体验收。清库后的三数据库 Web 首次初始化、Smail 系统账户真实发信、密码重置完整闭环、P0-10 负向矩阵、历史恢复证据核查以及重启瞬间短暂 502 观察项仍需继续处理。当前总体状态保持 **P0-03：完成，等待复审**。
+
+## 2026-10-01 当前日期候选包部署和安全边界复核
+
+### 构建与部署
+
+- 候选包：`Scert-20261001-V0.1.0-linux-amd64.tar.gz`。
+- SHA-256：`56426C1BBCECA68B32D122E813A950D2EE345349F89C3178080BD313F6F77E8E`。
+- 来源提交：`79bae3bf2b52720591279f78f5cbc340f82c4f36`，`source_dirty=false`。
+- 双机均通过远端归档校验、包内 `SHA256SUMS` 和官方安装器升级；未使用 SSH 私钥、公钥、`authorized_keys` 或辅助验收脚本。
+- 双机运行中的 `/scert/scert` 摘要均为 `3422abf0a5fb2c0254fb382118424733534fd00548eba4930a0e90857cd874b8`；`/scert/scert-admin` 摘要均为 `ee52d429a88b3942147e1acf67da3653f61e076c11d67bf3dd20b254b4321722`。
+
+### 安全回归
+
+- [x] `TestSSHKeyAPIIsUnavailable` 通过，`GET /api/v1/ssh-keys` 返回 404。
+- [x] 前端 241 项测试全部通过；测试确认服务器认证提示仅显示密码配置状态，SSH 私钥入口未挂载。
+- [x] 两台 SSH 服务端均为 `pubkeyauthentication no`、`passwordauthentication yes`、`authenticationmethods password`。
+- [x] 两台 Scert 仅监听 `127.0.0.1:8443`，数据库仅监听回环地址，Nginx 仅承担公网 `80/443` 入口。
+
+### 当前候选包重启复核
+
+在第二台对当前日期候选包执行 `systemctl restart Scert`，第 0、1 秒通过 Nginx 访问 `https://odacm.cn/readyz` 返回 502，第 2 秒恢复 200；随后服务保持 active，Scert 仍为回环监听，严格 TLS 校验没有关闭。该短暂恢复窗口继续作为生产门禁阻塞项记录。
+
+### 结论
+
+当前日期候选包部署和安全边界复核完成，但生产整体验收仍未通过。历史 `recovery_required` 事务、清库后的三数据库 Web 流程、Smail 系统账户真实发信、密码重置闭环和 P0-10 负向矩阵仍需继续处理。总体状态保持 **P0-03：完成，等待复审**。
