@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/admin"
@@ -114,11 +115,11 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		if expected == "" || baseline.Endpoint == "" || len(baseline.Domains) == 0 {
 			return fmt.Errorf("恢复站点基线不完整")
 		}
-		validation, err := remoteValidator.ValidateHTTPSAt(ctx, baseline.Endpoint, server.Address, baseline.Domains)
+		validation, err := verifyRecoveryHTTPS(ctx, remoteValidator.ValidateHTTPSAt, server, baseline, expected)
 		if err != nil {
 			return err
 		}
-		if validation.FingerprintSHA256 != expected {
+		if !strings.EqualFold(validation.FingerprintSHA256, expected) {
 			return fmt.Errorf("站点证书指纹不符合事务基线")
 		}
 		return nil
