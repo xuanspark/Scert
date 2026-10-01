@@ -850,7 +850,7 @@ export function useDashboard() {
     importError.value = "";
     importResult.value = null;
     if (!importFiles.value.certificate || !importFiles.value.private_key) {
-      importError.value = "请选择证书文件和私钥文件";
+      importError.value = "请选择证书文件和证书密钥文件";
       return;
     }
     const maxSize = 20 * 1024 * 1024;

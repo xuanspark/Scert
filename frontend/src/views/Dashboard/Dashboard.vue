@@ -460,7 +460,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <input type="file" accept=".pem,.crt,.cer,.txt" required @change="selectCertificateImportFile('certificate', $event)" />
           </label>
           <label class="field">
-            <span>私钥文件 <small>必选，内容只上传到服务端并按安全流程处理</small></span>
+            <span>证书密钥文件 <small>必选，仅用于 HTTPS 证书部署</small></span>
             <input type="file" accept=".pem,.key,.txt" required @change="selectCertificateImportFile('private_key', $event)" />
           </label>
           <label class="field">
