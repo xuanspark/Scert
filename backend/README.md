@@ -1,6 +1,6 @@
 # Scert
 
-Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码已覆盖核心证书生命周期、DNS-01、自动续期、SSH 部署、通知、认证和 Web 管理流程。
+Scert 是面向 Windows 和 Linux 的 SSL 证书管理服务。当前代码已覆盖核心证书生命周期、DNS-01、自动续期、密码 SSH 部署、通知、认证和 Web 管理流程。
 
 正式交付仅包含 Web 和服务端。CLI 限定为初始化、服务启动、运维诊断、数据库维护、备份恢复、服务安装和卸载入口；历史 `domain`、`server`、`ssh-key`、`renew`、`deploy` 命令已停用，仅返回中文迁移提示，不执行原业务操作。命令边界见 `../doc/命令行运维范围说明.md`。Wails 历史实现不参与正式发布及测试门禁。
 
@@ -36,7 +36,7 @@ go run ./cmd/scert serve --base-dir C:\ScertData
 - `POST /api/v1/domains`
 - `DELETE /api/v1/domains/:id`
 
-当前 `serve` 已接入配置加载、数据库迁移、认证、DNS 在线测试、ACME 证书申请、自动续期、证书导入、SSH 部署和通知流程。HTTPS 生产切换、真实 DNS/ACME 申请、远程服务器及平台安装仍需授权环境验收。
+当前 `serve` 已接入配置加载、数据库迁移、认证、DNS 在线测试、ACME 证书申请、自动续期、证书导入、密码 SSH 部署和通知流程。SSH 私钥、公钥和密钥登录能力已禁用；HTTPS 生产切换、真实 DNS/ACME 申请、远程服务器及平台安装仍需授权环境验收。
 
 ### 开发阶段使用 9004 与 9003 端口
 
@@ -108,7 +108,7 @@ Remove-Item Env:GOARCH
 
 ## 当前生产验收边界
 
-代码层已实现 ACME/lego 申请、第一批 DNS Provider、CNAME 委派、自动续期、证书导入、SSH/SFTP 部署、Nginx/Caddy/Apache reload、通知和 Web 管理接口。以下项目不能仅凭本地自动化测试宣称生产完成：真实 DNS 权限与公网传播、Let’s Encrypt Production 签发、真实远程服务器部署、Windows Service、Linux systemd 实机安装、Wails 桌面封装、Windows ACL、MySQL 真实实例和最终 HTTPS 到达性验收。
+代码层已实现 ACME/lego 申请、第一批 DNS Provider、CNAME 委派、自动续期、证书导入、密码 SSH/SFTP 部署、Nginx/Caddy/Apache reload、通知和 Web 管理接口。SSH 私钥、公钥和密钥登录能力已禁用。以下项目不能仅凭本地自动化测试宣称生产完成：真实 DNS 权限与公网传播、Let’s Encrypt Production 签发、真实远程服务器部署、Windows Service、Linux systemd 实机安装、Wails 桌面封装、Windows ACL、MySQL 真实实例和最终 HTTPS 到达性验收。
 
 ## 首轮复审状态
 
