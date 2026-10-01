@@ -19,6 +19,10 @@ import (
 
 // 在同一进程调用正式命令；测试 TLS 注册名不能用于独立发行二进制验收。
 func TestMySQLRealBackupRestoreCommands(t *testing.T) {
+	testMySQLBackupRestoreCommands(t, "")
+}
+
+func testMySQLBackupRestoreCommands(t *testing.T, binary string) {
 	server := mysqltest.New(t)
 	for _, scenario := range []string{"success", "sql_failure", "certificate_failure"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -52,6 +56,9 @@ func TestMySQLRealBackupRestoreCommands(t *testing.T) {
 			}
 			username, password := parsed.User, parsed.Passwd
 			parsed.User, parsed.Passwd = "", ""
+			if binary != "" {
+				parsed.TLSConfig = "true"
+			}
 			cfg.Database = connection
 			cfg.Database.DSN = parsed.FormatDSN()
 			cfg.Database.CredentialRef = "secret://database/maintenance"
@@ -90,6 +97,9 @@ func TestMySQLRealBackupRestoreCommands(t *testing.T) {
 			t.Cleanup(func() { configPath = previous })
 			run := func(command *cobra.Command, args ...string) (string, error) {
 				t.Helper()
+				if binary != "" {
+					return runMySQLReleaseCLI(t, binary, current, filepath.Join(server.Root(), "server.crt"), password, append([]string{command.Name()}, args...)...)
+				}
 				var output bytes.Buffer
 				command.SetArgs(args)
 				command.SetContext(t.Context())
