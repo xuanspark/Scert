@@ -457,10 +457,11 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 				closed = true
 			}
 			status := TransactionStatusCommitted
-			if retain || result.Status != "success" {
-				status = TransactionStatusRecoveryRequired
-			} else if result.Message != "" && result.Status == "failed" {
+			if !retain && result.Status == "failed" && result.FailureCode == FailureRecoveryPending {
 				status = TransactionStatusRolledBack
+				result.Message = publicFailureMessages[FailureRecoveryRestored]
+			} else if retain || result.Status != "success" {
+				status = TransactionStatusRecoveryRequired
 			}
 			finishTransaction(status, result.Message)
 			return result
