@@ -239,21 +239,6 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			releaseLocks()
 		}
 	}()
-	for _, lockPath := range lockPaths {
-		if err := client.Lock(ctx, lockPath); err != nil {
-			result.FailureCode = FailureLock
-			result.Message = fmt.Sprintf("无法取得部署锁 %s，可能存在并发部署或遗留锁；未修改当前证书，请人工核查：%v", lockPath, err)
-			return result
-		}
-		heldLocks = append(heldLocks, lockPath)
-		if transactionEnabled {
-			if err := client.(EvidenceClient).CreateOwnedLock(ctx, lockPath, journalRecord.Evidence.LockToken); err != nil {
-				result.FailureCode = FailureUnavailable
-				result.Message = fmt.Sprintf("保存部署锁归属失败：%v", err)
-				return result
-			}
-		}
-	}
 	persistTransaction := func(persistContext context.Context, phase string) error {
 		if !transactionEnabled {
 			return nil
@@ -272,9 +257,36 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			result.Message += fmt.Sprintf("；保存部署事务最终状态失败：%v", err)
 		}
 	}
+	finalizeLockAcquisitionFailure := func() {
+		releaseLocks()
+		status := TransactionStatusRolledBack
+		if len(heldLocks) > 0 || result.FailureCode == FailureLockRelease {
+			retainLocks = true
+			status = TransactionStatusRecoveryRequired
+		}
+		finishTransaction(status, result.Message)
+	}
+	for _, lockPath := range lockPaths {
+		if err := client.Lock(ctx, lockPath); err != nil {
+			result.FailureCode = FailureLock
+			result.Message = fmt.Sprintf("无法取得部署锁 %s，可能存在并发部署或遗留锁；未修改当前证书，请人工核查：%v", lockPath, err)
+			finalizeLockAcquisitionFailure()
+			return result
+		}
+		heldLocks = append(heldLocks, lockPath)
+		if transactionEnabled {
+			if err := client.(EvidenceClient).CreateOwnedLock(ctx, lockPath, journalRecord.Evidence.LockToken); err != nil {
+				result.FailureCode = FailureUnavailable
+				result.Message = fmt.Sprintf("保存部署锁归属失败：%v", err)
+				finalizeLockAcquisitionFailure()
+				return result
+			}
+		}
+	}
 	if err := persistTransaction(ctx, TransactionPhaseLocked); err != nil {
 		result.FailureCode = FailureUnavailable
 		result.Message = fmt.Sprintf("保存部署锁阶段失败：%v", err)
+		finalizeLockAcquisitionFailure()
 		return result
 	}
 	backups := make([]backupFile, 0, len(paths))
