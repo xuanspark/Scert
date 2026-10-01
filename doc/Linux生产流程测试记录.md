@@ -1324,3 +1324,40 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [~] 正在实测可重入建表、字段和索引校验、回填与版本标记同事务提交，以及部分回填、冲突数据、异常结构负向场景。待后续结果更新，不能根据运行中的单元 Result=success 提前判定通过。
 - [✓] 双机端口复核符合 Nginx 80/443 反代要求；Scert 与 MySQL 均未新增公网监听。
 - [!] 第一台测试域名公网平台拦截、无可信证据的历史事务及此前剩余生产门禁继续保留，不以数据库子项通过替代。
+
+## MySQL 中断修复、正式构建与双机升级复核（2026-10-01 18:02，北京时间）
+
+### 修复和实库证据
+
+- 修复提交：c6982ab827038c2cb16bc1432fb393f68a5296e2，已推送。首次推送遇到认证失败，重试成功；没有修改远程认证设置。
+- 第一轮修复测试单元 scert-mysql-reentry-20261001-1743 退出 0，106 个子场景通过；此后补充默认空字符串、排序规则和大小写冲突保护，没有用第一轮结果替代最终代码验证。
+- 最终单元 scert-mysql-reentry-guards-20261001-1751：inactive、Result=success、ExecMainStatus=0。日志 /var/tmp/scert-db-matrix-20261001-1720/mysql-reentry-guards.log。
+- TestMySQLRealDeploymentMigrationRecovery：18 个子场景通过，92.25 秒；覆盖建表前后、部分及完整回填、重复历史任务、不同域名相同键、空键排除、错误任务及时间、孤立映射、大小写冲突、错误列类型或默认值、允许空值、缺失唯一约束、缺失或逆序索引、额外字段、排序规则和非 InnoDB 表。
+- TestMySQLRealMigrations：91 个子场景通过，385.84 秒；覆盖 0～18 版升级、各语句中断边界、现有数据、作用域账户、非法迁移历史和重启持久化。总计 109 个子场景，无失败或跳过。
+- 最终测试程序 SHA-256：243a42a3826d5e77547346bb95ed56394ca67bab7334568d3202b193a3c31019，上传后核对一致。
+
+### 本地门禁与正式包
+
+- go test -count=1 ./...、go vet ./... 退出 0；go test -race -count=1 ./internal/database ./internal/cli 退出 0；前端 241 项通过、0 失败、0 跳过。未启用的本地外部数据库场景不计实库通过。
+- 正式入口 build/build-release.ps1 -Target linux-amd64，包目录 build/release-20261001-mysql-reentry，manifest 标记 source_commit=c6982ab827038c2cb16bc1432fb393f68a5296e2、source_dirty=false。23 项产物大小及哈希核验一致。
+- 归档 SHA-256：c075297e9f8f76f4ebb8fa28d43a4099ca853a3619212d5e7f51e78d4b0e9e4d。
+- 主程序 SHA-256：39b70a1a11148982baeb699bae749f7e2988a2fba02b001c0da740ba8b86f36d。
+- 新正式程序用于 SQLite 再测：scert-sqlite-release-20261001-1754，两个子场景通过，1.34 秒，退出 0。
+- 新正式程序用于 PostgreSQL 16.15 再测：scert-postgres16-release-20261001-1754，七场景通过，14.49 秒，退出 0；六场景独立正式 CLI，取消场景为进程内入口，不扩大证明范围。
+
+### 双机升级与健康复核
+
+- 运维通过密码 SSH 连接，保留严格主机指纹检查。发布包上传双机后，归档哈希及包内 21 项 SHA256SUMS 全部通过。
+- 发布目录 /var/tmp/scert-release-mysql-reentry-20261001；安装日志 /var/tmp/scert-install-mysql-reentry-20261001.log。
+- 两台首次运行安装器时主服务仍在运行，被保护检查拒绝；停止主服务后仍因 Scert-storage.socket 在监听再次被拒绝。随后完整停止 Scert、Scert-admin、Scert-storage.service、Scert-storage.socket，官方安装成功，再启动目录 socket 和主服务，最终退出 0。所有失败记录保留在同一追加日志中；未将拒绝事件计为成功安装。
+- Nginx 未停止；管理上游在停服窗口不可用，本次不宣称零停机。安装器按自身事务流程保留发布文件，没有额外制作业务数据备份，也没有手工删除历史文件。
+- 两台 /scert/scert 哈希均与上述新正式包一致；第一台 PID 2091132，第二台 PID 158279，均 active、NRestarts=0，目录 socket active。
+- 双机 nginx -t 成功。第二台管理首页 HTTP 200，readyz 返回 ready，HTTP 入口 301；第一台测试域名本机带 SNI 且严格校验证书的 HTTPS 为 200，不能代替其公网访问通过。
+- 双机 Scert 均仍监听 127.0.0.1:8443，MySQL 监听 127.0.0.1:3306；第二台 MySQL X 协议也仅监听 127.0.0.1:33060。Web 仍由 Nginx 80/443 对外，未添加公网规则。
+- 只读核查双机迁移版本均为 18，升级前后任务及事务状态计数一致，没有活动任务被中断。第二台两条 recovery_required 历史事务保留，不伪造证据，不强改状态。
+
+### 下一项正在运行
+
+- 单元 scert-mysql-cli-20261001-1801，日志 mysql-cli-release.log，运行项目现有 TestMySQLReal 维护测试。测试程序 SHA-256：73cd220dfcb898d452ca9de752c2e19b40d5951c693d6fab28e2e6c00c9ea7b9。
+- 官方 mysqld、mysql、mysqldump 在系统中位于不同目录；仅在隔离目录 mysql-tools 创建指向原程序的符号链接，以满足夹具同目录要求，没有编写包装或辅助验收脚本，没有修改系统程序。
+- 当前运行中，不提前判定通过。该套测试包含进程内正式命令入口及实际工具互操作，不等同于所有独立发行 CLI、完整 Web 和最终生产流程通过。
