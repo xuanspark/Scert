@@ -50,7 +50,7 @@ const {
                 <h3>基本信息与连接方式</h3>
               </div>
               <HelpTip>
-                这里的内容、SSH 认证方式、证书路径和服务命令会作为同一台部署服务器的完整配置保存。
+                这里保存部署服务器的连接信息。Scert 仅使用 SSH 密码认证，不提供 SSH 私钥登录配置。
               </HelpTip>
             </div>
             <div class="server-form-grid">
@@ -150,7 +150,7 @@ const {
                 />
               </label>
               <label class="field">
-                <span>远程私钥路径</span>
+                <span>HTTPS 证书密钥路径</span>
                 <input
                   v-model="serverForm.private_key_path"
                   required
