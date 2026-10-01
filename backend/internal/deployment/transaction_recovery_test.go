@@ -109,3 +109,65 @@ func TestRecoverPendingKeepsUnprovableState(t *testing.T) {
 		t.Fatalf("未记录人工核查状态：%+v", journal.updated)
 	}
 }
+
+func TestDeployLockConflictFinalizesTransaction(t *testing.T) {
+	server := testServer("lock-conflict").Normalize()
+	client := newMemoryClient()
+	blockedLock := server.CertificatePath + ".scert-lock"
+	client.files[blockedLock] = memoryFile{}
+	journal := &memoryTransactionJournal{}
+	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
+	ctx := WithTransactionContext(t.Context(), TransactionContext{TaskID: "task", AttemptID: "attempt", AttemptNumber: 1})
+
+	report := service.Deploy(ctx, []Target{{Server: server}}, testArtifact(t))
+	if report.Status != "failed" || len(report.Results) != 1 || report.Results[0].FailureCode != FailureLock {
+		t.Fatalf("锁冲突应失败：%+v", report)
+	}
+	if len(journal.finished) != 1 || journal.finished[0].status != TransactionStatusRolledBack {
+		t.Fatalf("锁冲突后必须完成回滚事务：%+v", journal.finished)
+	}
+	if _, ok := client.files[blockedLock]; !ok {
+		t.Fatal("已有锁不能被清理")
+	}
+	for _, path := range []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath} {
+		lockPath := path + ".scert-lock"
+		if lockPath != blockedLock {
+			if _, ok := client.files[lockPath]; ok {
+				t.Fatalf("锁冲突失败后不应残留本次锁：%s", lockPath)
+			}
+		}
+	}
+}
+
+func TestDeployPartialLockConflictReleasesOwnedLocks(t *testing.T) {
+	server := testServer("partial-lock-conflict").Normalize()
+	client := newMemoryClient()
+	blockedLock := server.PrivateKeyPath + ".scert-lock"
+	client.files[blockedLock] = memoryFile{}
+	journal := &memoryTransactionJournal{}
+	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
+	ctx := WithTransactionContext(t.Context(), TransactionContext{TaskID: "task", AttemptID: "attempt", AttemptNumber: 1})
+
+	report := service.Deploy(ctx, []Target{{Server: server}}, testArtifact(t))
+	if report.Status != "failed" || len(report.Results) != 1 || report.Results[0].FailureCode != FailureLock {
+		t.Fatalf("部分锁冲突应失败：%+v", report)
+	}
+	if len(journal.finished) != 1 || journal.finished[0].status != TransactionStatusRolledBack {
+		t.Fatalf("部分锁冲突后必须完成回滚事务：%+v", journal.finished)
+	}
+	if _, ok := client.files[blockedLock]; !ok {
+		t.Fatal("已有锁不能被清理")
+	}
+	for _, path := range []string{server.CertificatePath, server.CertificateChainPath, server.PrivateKeyPath} {
+		lockPath := path + ".scert-lock"
+		if lockPath == blockedLock {
+			continue
+		}
+		if _, ok := client.files[lockPath]; ok {
+			t.Fatalf("部分锁冲突失败后不应残留本次锁：%s", lockPath)
+		}
+		if _, ok := client.files[lockPath+"/owner"]; ok {
+			t.Fatalf("部分锁冲突失败后不应残留锁归属：%s", lockPath)
+		}
+	}
+}
