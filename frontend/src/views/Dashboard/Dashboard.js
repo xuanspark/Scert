@@ -904,7 +904,7 @@ export function useDashboard() {
       notice.value = `证书历史版本恢复任务已提交：${result.task.id}，恢复完成后请另行确认远端部署状态`;
       showCertificateVersions.value = false;
       await loadData();
-      await openTaskDetails(result.task);
+      await taskMonitor.openTaskDetails(result.task);
     } catch (err) {
       versionsError.value = err.message || "提交证书历史版本恢复失败";
     } finally {

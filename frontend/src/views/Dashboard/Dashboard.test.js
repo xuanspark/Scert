@@ -99,6 +99,91 @@ test("证书导入使用组合式状态导出，避免点击时缺失处理函�
     assert.ok(script.includes(`  ${name},`));
   }
 });
+
+test("证书历史版本使用稳定标识并提供独立恢复弹窗样式", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
+  const script = await readFile(new URL("./Dashboard.js", import.meta.url), "utf8");
+  const stylesheet = await readFile(new URL("./Dashboard.css", import.meta.url), "utf8");
+  for (const name of [
+    "showCertificateVersions",
+    "openCertificateVersions",
+    "closeCertificateVersions",
+    "restoreCertificateVersion",
+  ]) {
+    assert.ok(template.includes(`  ${name},`));
+  }
+  assert.match(script, /certificate\/versions/);
+  assert.match(template, /version\.history_id/);
+  assert.match(template, /certificate-history-modal/);
+  for (const selector of [
+    ".certificate-history-modal",
+    ".certificate-history-list",
+    ".certificate-history-row",
+  ]) {
+    assert.match(stylesheet, new RegExp(`${selector.replaceAll(".", "\\.")}\\s*\\{`));
+  }
+});
+
+test("证书历史版本读取列表并阻止恢复当前版本", async (t) => {
+  const requests = [];
+  const domain = { id: "domain-history", name: "example.test" };
+  const versions = [
+    { history_id: "history-current", current: true, version: 2 },
+    { history_id: "history-old", current: false, version: 1 },
+  ];
+  const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
+    requests.push({ path, options });
+    if (path === `/api/v1/domains/${domain.id}/certificate/versions`) {
+      return Response.json({ items: versions });
+    }
+    return Response.json({ items: [] });
+  });
+  await state.openCertificateVersions(domain);
+  assert.equal(state.showCertificateVersions.value, true);
+  assert.deepEqual(state.certificateVersions.value, versions);
+  assert.equal(
+    requests.some(({ path }) => path === `/api/v1/domains/${domain.id}/certificate/versions`),
+    true,
+  );
+  window.confirm = () => assert.fail("当前版本不应触发恢复确认");
+  await state.restoreCertificateVersion(versions[0]);
+  assert.equal(
+    requests.some(({ path }) => path.includes("/restore")),
+    false,
+  );
+});
+
+test("证书历史版本恢复使用 history_id、幂等键并打开任务详情", async (t) => {
+  const requests = [];
+  const domain = { id: "domain-history", name: "example.test" };
+  const task = { id: "task-history", task_type: "certificate_restore", status: "queued" };
+  const version = { history_id: "history-old", current: false, version: 1 };
+  const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
+    requests.push({ path, options });
+    if (path.endsWith("/certificate/versions")) return Response.json({ items: [version] });
+    if (path.endsWith("/restore")) return Response.json({ accepted: true, task }, { status: 202 });
+    if (path === `/api/v1/tasks/${task.id}`) return Response.json(task);
+    if (path.endsWith(`/api/v1/tasks/${task.id}/attempts`)) return Response.json({ items: [] });
+    if (path.endsWith(`/api/v1/tasks/${task.id}/deployment-results`)) return Response.json({ items: [] });
+    return Response.json({ items: [] });
+  });
+  window.confirm = () => true;
+  await state.openCertificateVersions(domain);
+  await state.restoreCertificateVersion(version);
+  const restoreRequest = requests.find(({ path }) => path.endsWith("/restore"));
+  assert.ok(restoreRequest);
+  assert.equal(
+    restoreRequest.path,
+    `/api/v1/domains/${domain.id}/certificate/versions/${version.history_id}/restore`,
+  );
+  assert.match(restoreRequest.options.headers["Idempotency-Key"], /^certificate-restore-domain-history-/);
+  assert.equal(state.showCertificateVersions.value, false);
+  assert.equal(state.showTaskDetails.value, true);
+  assert.equal(state.taskDetails.value.id, task.id);
+  assert.match(state.notice.value, /恢复完成后请另行确认远端部署状态/);
+});
+
 test("完整页面逐个渲染六个板块，每次只有一个内容标题", async (t) => {
   const { readFile } = await import("node:fs/promises");
   const { parse, compileTemplate } = await import("@vue/compiler-sfc");
