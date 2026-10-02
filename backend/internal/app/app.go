@@ -212,6 +212,9 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			result, err := trackedWorkflow.Restore(ctx, domainID, version)
 			return result.Certificate, err
 		},
+		RestoreCertificateVersionTask: func(ctx context.Context, domainID, version string) (certificate.IssueResult, error) {
+			return workflow.RestoreVersion(ctx, domainID, version)
+		},
 		ValidateCertificate: func(ctx context.Context, domainID string) (certificate.IssueResult, certificate.ValidationResult, error) {
 			return trackedWorkflow.Validate(ctx, domainID)
 		},
