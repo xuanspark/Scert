@@ -11,6 +11,7 @@ import { useDashboardNavigation } from "./DashboardNavigation.js";
 import { useDashboard } from "./Dashboard.js";
 import DeploymentResult from "./DeploymentResult.vue";
 import TaskDeploymentResults from "./TaskDeploymentResults.vue";
+import TaskValidationResult from "./TaskValidationResult.vue";
 
 const dashboard = useDashboard();
 const {
@@ -40,6 +41,7 @@ const {
   notice,
   taskQueryError,
   taskDeploymentReport,
+  taskValidationResult,
   formError,
   showForm,
   editingId,
@@ -521,6 +523,10 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <p>{{ taskDetails.message || "无附加信息" }}</p>
           </div>
           <TaskDeploymentResults v-if="taskDeploymentReport" :report="taskDeploymentReport" />
+          <TaskValidationResult v-if="taskValidationResult" :result="taskValidationResult" />
+          <p v-else-if="taskDetails.task_type === 'certificate_validate' && taskDetails.status === 'success'" class="muted">
+            该任务没有留存校验详情，不据此推断当前证书仍然有效。
+          </p>
           <h3 class="modal-section-title">执行尝试</h3>
           <div v-if="taskAttempts.length === 0" class="empty-state compact-empty">暂无执行尝试记录</div>
           <div v-else class="attempt-list">

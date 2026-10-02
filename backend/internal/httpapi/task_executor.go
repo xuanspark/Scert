@@ -16,6 +16,12 @@ import (
 // 持久化任务与尝试后才调用此入口；后台执行不得持有请求或响应对象。
 // 进程中断由启动恢复标记失败，不自动重放可能已经签发或部署的外部操作。
 func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, action string, operation func(context.Context, string) (certificate.IssueResult, deployment.Report, error), stage, runningMessage, successMessage string, cleanup func()) bool {
+	return s.enqueueTaskWorker(c, task, attempt, func(ctx context.Context) {
+		s.runCertificateTask(ctx, task, attempt, action, operation, stage, runningMessage, successMessage)
+	}, cleanup)
+}
+
+func (s *Server) enqueueTaskWorker(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, execute func(context.Context), cleanup func()) bool {
 	s.taskMu.Lock()
 	if s.taskWorkersStopped || len(s.asyncTasks) >= 32 {
 		s.taskMu.Unlock()
@@ -44,7 +50,11 @@ func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, at
 		defer cancel()
 		defer func() {
 			if recover() != nil {
-				s.finishTaskBeforeExecution(task, attempt, "failed", "任务执行异常中断，请检查部署恢复状态后重试")
+				message := "任务执行异常中断，请检查部署恢复状态后重试"
+				if task.TaskType == "certificate_validate" {
+					message = "证书校验异常中断，未保存通过结果"
+				}
+				s.finishTaskBeforeExecution(task, attempt, "failed", message)
 			}
 		}()
 		select {
@@ -54,7 +64,7 @@ func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, at
 			s.finishTaskContext(task, attempt, ctx.Err())
 			return
 		}
-		s.runCertificateTask(ctx, task, attempt, action, operation, stage, runningMessage, successMessage)
+		execute(ctx)
 	}()
 	return true
 }

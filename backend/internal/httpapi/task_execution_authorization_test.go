@@ -17,11 +17,11 @@ import (
 )
 
 func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
-	for _, taskType := range []string{"certificate_issue", "certificate_deploy", "certificate_import"} {
+	for _, taskType := range []string{"certificate_issue", "certificate_deploy", "certificate_import", "certificate_validate"} {
 		for _, scenario := range []string{
 			"unchanged", "disabled_user", "removed_member", "read_only_member",
 			"moved_domain", "deleted_domain", "deployment_denied", "certificate_denied",
-			"dns_denied", "authorization_error", "missing_authorizer", "missing_reader",
+			"dns_denied", "private_key_denied", "authorization_error", "missing_authorizer", "missing_reader",
 		} {
 			t.Run(taskType+"/"+scenario, func(t *testing.T) {
 				var calls atomic.Int32
@@ -32,6 +32,10 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 				server, tasks, audit, cleanup := newTaskAPITestServer(t, operation)
 				defer cleanup()
 				server.deployCertificateTask = operation
+				server.validateCertificateTask = func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error) {
+					calls.Add(1)
+					return certificate.IssueResult{}, certificate.ValidationResult{Domains: []string{"example.com"}}, nil
+				}
 				server.importCertificateTask = func(ctx context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
 					return operation(ctx, request.DomainID)
 				}
@@ -44,6 +48,9 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 				}
 				if taskType == "certificate_import" {
 					path = "/api/v1/domains/domain-1/certificate/import"
+				}
+				if taskType == "certificate_validate" {
+					path = "/api/v1/domains/domain-1/certificate/validate"
 				}
 				response := httptest.NewRecorder()
 				serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, path,
@@ -78,7 +85,7 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 					server.projectMembers = nil
 				case "missing_reader":
 					server.projectResources = nil
-				case "deployment_denied", "certificate_denied", "dns_denied", "authorization_error":
+				case "deployment_denied", "certificate_denied", "dns_denied", "private_key_denied", "authorization_error":
 					server.projectMembers = permissionProjectMemberRepository{
 						ProjectMemberRepository: server.projectMembers,
 						allow: func(permission domain.ProjectPermission) error {
@@ -87,7 +94,8 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 							}
 							if scenario == "deployment_denied" && permission == domain.PermissionDeploymentExecute ||
 								scenario == "certificate_denied" && permission == domain.PermissionCertificateManage ||
-								scenario == "dns_denied" && permission == domain.PermissionDNSCredentialUse {
+								scenario == "dns_denied" && permission == domain.PermissionDNSCredentialUse ||
+								scenario == "private_key_denied" && permission == domain.PermissionPrivateKeyRead {
 								return repository.ErrProjectAccessDenied
 							}
 							return nil
@@ -102,6 +110,9 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 				<-server.taskSlots
 				waitTaskWorkersForTest(t, server)
 				want := "failed"
+				if taskType == "certificate_validate" && (scenario == "deployment_denied" || scenario == "certificate_denied" || scenario == "dns_denied") || taskType != "certificate_validate" && scenario == "private_key_denied" {
+					want = "success"
+				}
 				if scenario == "unchanged" || taskType == "certificate_deploy" && (scenario == "dns_denied" || scenario == "certificate_denied") || taskType == "certificate_import" && scenario == "dns_denied" {
 					want = "success"
 				}

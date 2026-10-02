@@ -141,6 +141,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
     app.component("DNSAccounts", { render: () => Vue.h("h2", headings["dns-accounts"]) });
     app.component("DeploymentResult", { render: () => null });
     app.component("TaskDeploymentResults", { render: () => null });
+    app.component("TaskValidationResult", { render: () => null });
     const warnings = [];
     app.config.warnHandler = (message) => warnings.push(message);
     const html = await renderToString(app);

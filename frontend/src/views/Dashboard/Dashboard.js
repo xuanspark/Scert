@@ -588,7 +588,7 @@ export function useDashboard() {
     notice.value = "";
     try {
       const options = { method: "POST" };
-      if (action === "issue" || action === "deploy") {
+      if (action === "issue" || action === "deploy" || action === "certificate/validate") {
         const suffix = crypto.randomUUID ? crypto.randomUUID() : createRandomSuffix();
         options.headers = { "Idempotency-Key": `${action}-${item.id}-${suffix}` };
       }
@@ -597,7 +597,8 @@ export function useDashboard() {
       if (response.status === 202 && !result.task?.id) {
         throw new Error("服务未返回任务编号，请在运行概览确认是否已接收，勿重复提交");
       }
-      if (response.ok && result.task?.id && (response.status === 202 || result.accepted || result.replayed)) {
+      if ((response.ok || response.status === 409 && result.replayed) && result.task?.id &&
+          (response.status === 202 || result.accepted || result.replayed)) {
         notice.value = `任务已提交：${result.task.id}，可在运行概览查看执行结果`;
         if (action === "deploy") {
           deploymentResult.value = {
@@ -606,6 +607,7 @@ export function useDashboard() {
             taskMessage: result.task.message || "", report: null, error: "", queryError: "",
           };
         }
+        if (action === "certificate/validate") await taskMonitor.openTaskDetails(result.task);
         return;
       }
       if (action === "deploy") {

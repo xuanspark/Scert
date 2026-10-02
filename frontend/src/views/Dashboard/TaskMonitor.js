@@ -6,6 +6,16 @@ export function taskIsPending(task) {
   return !terminalStatuses.has(task?.status);
 }
 
+export function latestValidationResult(task, attempts, results) {
+  if (task.task_type !== "certificate_validate" || task.status !== "success") return null;
+  const latest = attempts.reduce((value, item) =>
+    !value || item.attempt_number > value.attempt_number ? item : value, null);
+  if (!latest || latest.status !== "success") return null;
+  const stored = results.find((item) => item.task_id === task.id &&
+    item.attempt_id === latest.id && item.attempt_number === latest.attempt_number);
+  return Array.isArray(stored?.validation?.domains) ? stored.validation : null;
+}
+
 export function latestDeploymentReport(task, attempts, results, reports = []) {
   const latest = Math.max(0, ...attempts.map((item) => item.attempt_number || 0));
   if (taskIsPending(task) || latest === 0) return null;
@@ -31,6 +41,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
   taskDetails, taskAttempts, taskDetailsLoading, taskDetailsError, refreshResources }) {
   const taskQueryError = ref("");
   const taskDeploymentReport = ref(null);
+  const taskValidationResult = ref(null);
   let selectedID = "";
   let stopped = false;
   let timer;
@@ -53,11 +64,13 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
     const path = `/api/v1/tasks/${encodeURIComponent(id)}`;
     const task = await readJSON(path, signal);
     if (task.id !== id || !task.status) throw new Error("任务状态响应不完整，将自动重试");
-    const [attempts, results] = await Promise.all([
+    const [attempts, results, validations] = await Promise.all([
       readJSON(`${path}/attempts`, signal),
       readJSON(`${path}/deployment-results`, signal),
+      task.task_type === "certificate_validate"
+        ? readJSON(`${path}/validation-results`, signal) : Promise.resolve({ items: [] }),
     ]);
-    if (!Array.isArray(attempts.items) || !Array.isArray(results.items)) {
+    if (!Array.isArray(attempts.items) || !Array.isArray(results.items) || !Array.isArray(validations.items)) {
       throw new Error("任务执行记录响应不完整，将自动重试");
     }
     const latestAttempt = attempts.items.reduce((latest, item) =>
@@ -72,6 +85,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
       task,
       attempts: attempts.items,
       report: latestDeploymentReport(task, attempts.items, results.items, results.reports),
+      validation: latestValidationResult(task, attempts.items, validations.items),
     };
   }
 
@@ -100,6 +114,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
             taskDetails.value = snapshot.task;
             taskAttempts.value = snapshot.attempts;
             taskDeploymentReport.value = snapshot.report;
+            taskValidationResult.value = snapshot.validation;
             taskDetailsError.value = "";
           }
           if (deploymentResult.value?.taskID === id) {
@@ -125,6 +140,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
               taskDetails.value = null;
               taskAttempts.value = [];
               taskDeploymentReport.value = null;
+              taskValidationResult.value = null;
             }
           }
           if (deploymentResult.value?.taskID === id) {
@@ -149,6 +165,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
           taskDetails.value = null;
           taskAttempts.value = [];
           taskDeploymentReport.value = null;
+          taskValidationResult.value = null;
           if (deploymentResult.value) {
             deploymentResult.value.report = null;
             deploymentResult.value.certificateImported = false;
@@ -179,6 +196,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
     taskDetails.value = null;
     taskAttempts.value = [];
     taskDeploymentReport.value = null;
+    taskValidationResult.value = null;
     taskDetailsError.value = "";
     taskDetailsLoading.value = true;
     await refreshTaskStatus();
@@ -192,6 +210,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
     taskDetails.value = null;
     taskAttempts.value = [];
     taskDeploymentReport.value = null;
+    taskValidationResult.value = null;
     taskDetailsError.value = "";
     taskDetailsLoading.value = false;
   }
@@ -203,5 +222,6 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
     controller?.abort();
   });
 
-  return { taskQueryError, taskDeploymentReport, refreshTaskStatus, openTaskDetails, closeTaskDetails };
+  return { taskQueryError, taskDeploymentReport, taskValidationResult,
+    refreshTaskStatus, openTaskDetails, closeTaskDetails };
 }

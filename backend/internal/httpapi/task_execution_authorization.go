@@ -28,6 +28,8 @@ func (s *Server) authorizeCertificateTaskExecution(ctx context.Context, task rep
 	case "certificate_deploy":
 	case "certificate_import":
 		permissions = append(permissions, domain.PermissionCertificateManage)
+	case "certificate_validate":
+		permissions = []domain.ProjectPermission{domain.PermissionPrivateKeyRead}
 	default:
 		return repository.ErrProjectAccessDenied
 	}

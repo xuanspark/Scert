@@ -94,6 +94,10 @@ func (s *Server) listCertificateVersions(c *gin.Context) {
 }
 
 func (s *Server) validateCertificate(c *gin.Context) {
+	if s.validateCertificateTask != nil {
+		s.submitDomainTask(c, "certificate_validate")
+		return
+	}
 	if !s.authorizeVisibleDomainPermission(c, domain.PermissionPrivateKeyRead) {
 		return
 	}

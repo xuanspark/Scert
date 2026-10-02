@@ -1,12 +1,118 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { useDashboard } from "./Dashboard.js";
-import { latestDeploymentReport } from "./TaskMonitor.js";
+import { latestDeploymentReport, latestValidationResult } from "./TaskMonitor.js";
+import { validationDate } from "./TaskValidationResult.js";
 import { deploymentSummary } from "./DeploymentFeedback.js";
 import { deferred, mountComposable } from "../../test-support/mount.js";
 
 const initialTask = { id: "async-task", domain_id: "domain-1", task_type: "certificate_deploy", status: "running" };
 const target = { server_id: "server-1", server: "部署目标", status: "success", attempt_number: 1 };
+
+test("校验只展示当前任务最近一次成功尝试，不挪用旧结果", () => {
+  const task = { ...initialTask, task_type: "certificate_validate", status: "success" };
+  const attempts = [{ id: "latest", attempt_number: 2, status: "success" }];
+  const validation = { domains: ["example.test"], fingerprint_sha256: "verified" };
+  const stored = { task_id: task.id, attempt_id: "latest", attempt_number: 2, validation };
+  assert.deepEqual(latestValidationResult(task, attempts, [stored]), validation);
+  for (const record of [
+    { ...stored, task_id: "another" },
+    { ...stored, attempt_id: "old" },
+    { ...stored, attempt_number: 1 },
+    { ...stored, validation: {} },
+  ]) assert.equal(latestValidationResult(task, attempts, [record]), null);
+  for (const status of ["running", "failed", "cancelled"]) {
+    assert.equal(latestValidationResult({ ...task, status }, attempts, [stored]), null);
+  }
+  assert.equal(latestValidationResult(initialTask, attempts, [stored]), null);
+  assert.equal(latestValidationResult(task, [], [stored]), null);
+  assert.equal(validationDate("invalid"), "未记录");
+  assert.equal(validationDate(null), "未记录");
+});
+
+test("校验任务提交后读取独立详情，页面重开可恢复，撤权后清除", async (t) => {
+  let task = { ...initialTask, task_type: "certificate_validate", status: "queued" };
+  let denied = false;
+  let submitted = 0;
+  const validation = {
+    domains: ["example.test"], serial_number: "42", fingerprint_sha256: "verified",
+    not_before: "2026-01-01T00:00:00Z", not_after: "2026-12-31T00:00:00Z", chain_length: 2,
+  };
+  const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
+    if (path.endsWith("/certificate/validate")) {
+      submitted++;
+      assert.ok(options.headers["Idempotency-Key"]);
+      return Response.json({ task, accepted: true }, { status: 202 });
+    }
+    if (path === `/api/v1/tasks/${task.id}`) return Response.json(task);
+    if (path.endsWith("/attempts")) return Response.json({
+      items: [{ id: "validation-attempt", attempt_number: 1, status: task.status }],
+    });
+    if (path.endsWith("/validation-results")) {
+      if (denied) return Response.json({ error: "禁止访问" }, { status: 403 });
+      return Response.json({ items: task.status === "success" ? [{
+        task_id: task.id, attempt_id: "validation-attempt", attempt_number: 1, validation,
+      }] : [] });
+    }
+    if (path.startsWith("/api/v1/tasks?")) return Response.json({ items: [task] });
+    return Response.json({ items: [] });
+  });
+  await state.validateDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(submitted, 1);
+  assert.equal(state.showTaskDetails.value, true);
+  assert.match(state.notice.value, /任务已提交/);
+  assert.equal(state.taskValidationResult.value, null);
+  task = { ...task, status: "success" };
+  await state.refreshTaskStatus();
+  assert.deepEqual(state.taskValidationResult.value, validation);
+  assert.equal(state.taskDeploymentReport.value, null);
+  state.closeTaskDetails();
+  assert.equal(state.taskValidationResult.value, null);
+  await state.openTaskDetails(task);
+  assert.deepEqual(state.taskValidationResult.value, validation);
+  denied = true;
+  await state.refreshTaskStatus();
+  assert.equal(state.taskValidationResult.value, null);
+  assert.equal(state.taskDetails.value, null);
+  assert.match(state.taskDetailsError.value, /无权/);
+  assert.equal(submitted, 1);
+});
+
+test("校验详情拆分展示元数据和本地校验边界，不展示私钥路径", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("./TaskValidationResult.vue", import.meta.url), "utf8");
+  for (const label of ["覆盖域名", "序列号", "生效时间", "到期时间", "证书链长度", "SHA-256 指纹", "不代表远端部署"]) {
+    assert.ok(source.includes(label));
+  }
+  assert.match(source, /src="\.\/TaskValidationResult.css"/);
+  assert.doesNotMatch(source, /private_key_path|certificate_path|&#x/);
+  const { parse, compileTemplate } = await import("@vue/compiler-sfc");
+  const { renderToString } = await import("@vue/server-renderer");
+  const Vue = await import("vue");
+  const { descriptor, errors } = parse(source);
+  assert.deepEqual(errors, []);
+  const compiled = compileTemplate({
+    source: descriptor.template.content, filename: "TaskValidationResult.vue",
+    id: "validation-result", compilerOptions: { mode: "function" },
+  });
+  assert.deepEqual(compiled.errors, []);
+  const render = new Function("Vue", compiled.code)(Vue);
+  const app = Vue.createSSRApp({
+    render,
+    setup: () => ({ validationDate, result: {
+      domains: ["example.test", "*.example.test"], serial_number: "98765",
+      fingerprint_sha256: "AB:CD:EF", chain_length: 2,
+      not_before: "2026-01-01T00:00:00Z", not_after: "2026-12-31T00:00:00Z",
+    } }),
+  });
+  const warnings = [];
+  app.config.warnHandler = (message) => warnings.push(message);
+  const html = await renderToString(app);
+  assert.deepEqual(warnings, []);
+  assert.match(html, /example.test、\*.example.test/);
+  assert.match(html, /AB:CD:EF/);
+  assert.match(html, /98765/);
+});
 
 test("完整报告恢复站点验证与回滚事实，不被逐目标结果覆盖", () => {
   const task = { ...initialTask, status: "failed" };

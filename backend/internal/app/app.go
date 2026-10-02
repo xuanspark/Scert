@@ -215,6 +215,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		ValidateCertificate: func(ctx context.Context, domainID string) (certificate.IssueResult, certificate.ValidationResult, error) {
 			return trackedWorkflow.Validate(ctx, domainID)
 		},
+		ValidateCertificateTask: workflow.ValidateCurrent,
 		RunRenewal: func(ctx context.Context) (certificate.RenewalReport, error) {
 			return renewal.RunOnce(ctx)
 		},

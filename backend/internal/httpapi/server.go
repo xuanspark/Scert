@@ -67,6 +67,8 @@ type Dependencies struct {
 	DeployCertificateTask     func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
 	ValidateCertificate       func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
+	// ValidateCertificateTask 直接校验当前证书，不重复创建任务。
+	ValidateCertificateTask func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
 	RunRenewal          func(context.Context) (certificate.RenewalReport, error)
 	UpdateRenewalPolicy func(certificate.RenewalPolicy)
@@ -106,6 +108,7 @@ type Server struct {
 	deployCertificateTask       func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	restoreVersion              func(context.Context, string, string) (certificate.IssueResult, error)
 	validateCertificateWorkflow func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
+	validateCertificateTask     func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
 	runRenewal          func(context.Context) (certificate.RenewalReport, error)
 	updateRenewalPolicy func(certificate.RenewalPolicy)
@@ -175,6 +178,7 @@ func New(deps Dependencies) *Server {
 		deployCertificateTask:       deps.DeployCertificateTask,
 		restoreVersion:              deps.RestoreCertificateVersion,
 		validateCertificateWorkflow: deps.ValidateCertificate,
+		validateCertificateTask:     deps.ValidateCertificateTask,
 		runRenewal:                  deps.RunRenewal,
 		updateRenewalPolicy:         deps.UpdateRenewalPolicy,
 		currentCertificate:          deps.CurrentCertificate,
@@ -231,6 +235,7 @@ func (s *Server) registerRoutes() {
 	api.POST("/tasks/:id/retry", s.retryTask)
 	api.GET("/tasks/:id/attempts", s.listTaskAttempts)
 	api.GET("/tasks/:id/deployment-results", s.listTaskDeploymentResults)
+	api.GET("/tasks/:id/validation-results", s.listTaskValidationResults)
 
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.requireSuperAdminSystemConfig, s.updateSettings)

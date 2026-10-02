@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 )
 
@@ -21,6 +22,7 @@ type TaskCompletion struct {
 	StartedAt      *time.Time
 	FinishedAt     time.Time
 	Report         *deployment.Report
+	Validation     *certificate.ValidationResult
 	AuditAction    string
 	Retry          bool
 	WithoutAttempt bool
@@ -41,7 +43,7 @@ func (r *SQLTaskRepository) FinishTaskAttempt(ctx context.Context, completion Ta
 	default:
 		return errors.New("任务终态无效")
 	}
-	if completion.WithoutAttempt && (completion.AttemptID != "" || completion.Report != nil || completion.Retry || (completion.Status != "failed" && completion.Status != "cancelled")) {
+	if completion.WithoutAttempt && (completion.AttemptID != "" || completion.Report != nil || completion.Validation != nil || completion.Retry || (completion.Status != "failed" && completion.Status != "cancelled")) {
 		return errors.New("无活动尝试的收尾参数无效")
 	}
 	if completion.Retry && (completion.Status != "failed" || completion.AuditAction != "") {
@@ -79,6 +81,11 @@ func (r *SQLTaskRepository) FinishTaskAttempt(ctx context.Context, completion Ta
 	}
 	if completion.Report != nil {
 		if err := r.recordCompletionReport(ctx, tx, completion); err != nil {
+			return err
+		}
+	}
+	if completion.Validation != nil {
+		if err := r.recordCompletionValidation(ctx, tx, completion); err != nil {
 			return err
 		}
 	}

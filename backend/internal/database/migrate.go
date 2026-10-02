@@ -21,6 +21,7 @@ import (
 //go:embed migrations/sqlite/0017_deployment_transactions.sql migrations/mysql/0017_deployment_transactions.sql migrations/postgres/0017_deployment_transactions.sql
 //go:embed migrations/sqlite/0018_recovery_evidence.sql migrations/mysql/0018_recovery_evidence.sql migrations/postgres/0018_recovery_evidence.sql migrations/sqlite/0019_password_auth_only.sql migrations/mysql/0019_password_auth_only.sql migrations/postgres/0019_password_auth_only.sql
 //go:embed migrations/sqlite/0020_task_deployment_reports.sql migrations/mysql/0020_task_deployment_reports.sql migrations/postgres/0020_task_deployment_reports.sql
+//go:embed migrations/sqlite/0021_task_validation_results.sql migrations/mysql/0021_task_validation_results.sql migrations/postgres/0021_task_validation_results.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -45,7 +46,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 20
+const latestMigrationVersion = 21
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -85,7 +86,7 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		return applySQLiteTaskMigration(ctx, db, statements, version)
 	}
 	if driver == "mysql" {
-		if (version >= 15 && version <= 17) || version == 20 {
+		if (version >= 15 && version <= 17) || version == 20 || version == 21 {
 			return applyMySQLDeploymentMigration(ctx, db, version, statements)
 		}
 		if version == 14 {
@@ -240,6 +241,8 @@ func migrationName(version int) string {
 		return "password_auth_only"
 	case 20:
 		return "task_deployment_reports"
+	case 21:
+		return "task_validation_results"
 	default:
 		return "unknown"
 	}
