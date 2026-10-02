@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -29,6 +30,34 @@ type certificatePathRequest struct {
 	CertificatePath  string `json:"certificate_path"`
 	PrivateKeyPath   string `json:"private_key_path"`
 	IssuerBundlePath string `json:"issuer_bundle_path"`
+}
+
+// certificateVersionResponse 只公开证书历史元数据，不公开服务器本地路径。
+type certificateVersionResponse struct {
+	Domain                string    `json:"domain"`
+	CertificateType       string    `json:"certificate_type,omitempty"`
+	CertificateIdentifier string    `json:"certificate_identifier,omitempty"`
+	Version               string    `json:"version,omitempty"`
+	HistoryID             string    `json:"history_id,omitempty"`
+	Current               bool      `json:"current"`
+	SavedAt               time.Time `json:"saved_at"`
+	SANs                  []string  `json:"sans,omitempty"`
+	SerialNumber          string    `json:"serial_number,omitempty"`
+	FingerprintSHA256     string    `json:"fingerprint_sha256,omitempty"`
+	ChainLength           int       `json:"chain_length,omitempty"`
+	NotBefore             time.Time `json:"not_before"`
+	NotAfter              time.Time `json:"not_after"`
+}
+
+func publicCertificateVersion(item certificate.SavedResource) certificateVersionResponse {
+	return certificateVersionResponse{
+		Domain: item.Domain, CertificateType: item.CertificateType,
+		CertificateIdentifier: item.CertificateIdentifier, Version: item.Version,
+		HistoryID: item.HistoryID, Current: item.Current, SavedAt: item.SavedAt,
+		SANs: append([]string(nil), item.SANs...), SerialNumber: item.SerialNumber,
+		FingerprintSHA256: item.FingerprintSHA256, ChainLength: item.ChainLength,
+		NotBefore: item.NotBefore, NotAfter: item.NotAfter,
+	}
 }
 
 func (s *Server) listCertificates(c *gin.Context) {
@@ -90,7 +119,11 @@ func (s *Server) listCertificateVersions(c *gin.Context) {
 		s.writeError(c, certificateErrorStatus(err), "查询证书历史版本失败", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	publicItems := make([]certificateVersionResponse, 0, len(items))
+	for _, item := range items {
+		publicItems = append(publicItems, publicCertificateVersion(item))
+	}
+	c.JSON(http.StatusOK, gin.H{"items": publicItems})
 }
 
 func (s *Server) validateCertificate(c *gin.Context) {

@@ -65,7 +65,7 @@ func TestFileStoreUsesSingleDatedCurrentVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取当前证书版本失败：%v", err)
 	}
-	if len(versions) != 1 || versions[0].Version != second.Version {
+	if len(versions) != 2 || versions[0].Version != second.Version || !versions[0].Current || versions[1].Version != first.Version || versions[1].Current {
 		t.Fatalf("当前证书版本列表错误：%+v", versions)
 	}
 	metadata, loaded, err := store.LoadCurrent(context.Background(), "example.com", "single")
@@ -147,10 +147,10 @@ func TestRollbackSavedResourceClearsNewCertificateFiles(t *testing.T) {
 	}
 }
 
-func TestFileStoreDoesNotRestoreHistoricalVersion(t *testing.T) {
+func TestFileStoreRejectsMissingHistoricalVersion(t *testing.T) {
 	store := FileStore{Root: t.TempDir()}
 	if _, err := store.RestoreVersion(context.Background(), "example.com", "single", "20260830-V1.0"); err == nil {
-		t.Fatal("仅保留当前版本时不应支持历史版本恢复")
+		t.Fatal("不存在的历史证书版本不应恢复成功")
 	}
 }
 
@@ -187,7 +187,7 @@ func TestFileStoreUsesStableSANIdentifierAndRemovesPreviousIdentifier(t *testing
 	if second.CertificateIdentifier == first.CertificateIdentifier {
 		t.Fatal("different SAN sets should use different identifiers")
 	}
-	if second.Version != "20260830-V1.0" {
+	if second.Version != "20260830-V1.1" {
 		t.Fatalf("unexpected second SAN version: %s", second.Version)
 	}
 	if _, err := os.Stat(first.Directory); !errors.Is(err, os.ErrNotExist) {

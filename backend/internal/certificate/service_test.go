@@ -22,9 +22,10 @@ import (
 )
 
 type serviceRepository struct {
-	item      domain.Domain
-	states    []string
-	updateErr error
+	item        domain.Domain
+	states      []string
+	updateErr   error
+	updateCalls int
 }
 
 func (r *serviceRepository) GetByID(_ context.Context, _ string) (domain.Domain, error) {
@@ -32,6 +33,7 @@ func (r *serviceRepository) GetByID(_ context.Context, _ string) (domain.Domain,
 }
 
 func (r *serviceRepository) UpdateCertificateState(_ context.Context, _ string, status string, expiresAt *time.Time) error {
+	r.updateCalls++
 	if status == "valid" && r.updateErr != nil {
 		return r.updateErr
 	}
@@ -301,8 +303,11 @@ func TestServiceRestoreVersionRollsBackFilesWhenStateUpdateFails(t *testing.T) {
 	}
 	repository := &serviceRepository{item: item, updateErr: errors.New("simulated state update failure")}
 	service := NewService(cfg, repository, nil, nil, nil)
-	if _, err := service.RestoreVersion(context.Background(), item.ID, first.Version); err == nil {
-		t.Fatal("state update failure should be returned")
+	if _, err := service.RestoreVersion(context.Background(), item.ID, first.Version); !errors.Is(err, repository.updateErr) {
+		t.Fatalf("必须实际到达状态更新并返回注入的错误：%v", err)
+	}
+	if repository.updateCalls != 1 {
+		t.Fatalf("恢复未实际到达状态更新：调用次数=%d", repository.updateCalls)
 	}
 	afterCertificate, err := os.ReadFile(second.CertificatePath)
 	if err != nil {

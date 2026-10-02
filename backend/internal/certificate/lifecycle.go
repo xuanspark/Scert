@@ -44,6 +44,8 @@ type SavedResource struct {
 	CertificateType       string    `json:"certificate_type,omitempty"`
 	CertificateIdentifier string    `json:"certificate_identifier,omitempty"`
 	Version               string    `json:"version,omitempty"`
+	HistoryID             string    `json:"history_id,omitempty"`
+	Current               bool      `json:"current"`
 	SavedAt               time.Time `json:"saved_at"`
 	SANs                  []string  `json:"sans,omitempty"`
 	SerialNumber          string    `json:"serial_number,omitempty"`
@@ -224,6 +226,13 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 		if err != nil {
 			return SavedResource{}, err
 		}
+		// SAN 组合变化或系统时间回拨时，新当前版本仍必须排在旧版本之后。
+		if activeDirectory != "" && !newerCertificateDirectory(version, filepath.Base(activeDirectory)) {
+			date, major, minor, valid := parseCertificateVersion(filepath.Base(activeDirectory))
+			if valid {
+				version = fmt.Sprintf("%s-V%d.%d", date, major, minor+1)
+			}
+		}
 		currentDirectory = filepath.Join(directory, version)
 	}
 	protected := false
@@ -234,13 +243,26 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 		}
 	}
 	backupDirectory := ""
+	if err := validateCertificateWritePath(currentDirectory); err != nil {
+		return SavedResource{}, err
+	}
 	if activeDirectory != "" {
+		if err := validateCertificateWritePath(activeDirectory); err != nil {
+			return SavedResource{}, err
+		}
 		backupDirectory, err = s.backupExisting(activeDirectory, primary)
 		if err != nil {
 			return SavedResource{}, err
 		}
 	}
-	if err := os.MkdirAll(currentDirectory, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(currentDirectory), 0o700); err != nil {
+		return SavedResource{}, fmt.Errorf("创建证书目录失败：%w", err)
+	}
+	if certificateType != "" {
+		if err := os.Mkdir(currentDirectory, 0o700); err != nil {
+			return SavedResource{}, fmt.Errorf("创建新证书版本失败：%w", err)
+		}
+	} else if err := os.MkdirAll(currentDirectory, 0o700); err != nil {
 		return SavedResource{}, fmt.Errorf("创建证书目录失败：%w", err)
 	}
 	fullChain := resource.Certificate
@@ -281,7 +303,7 @@ func (s FileStore) save(ctx context.Context, domain, certificateType string, res
 	}
 	if !s.RetainPrevious && !protected && certificateType != "" && activeDirectory != "" && activeDirectory != currentDirectory {
 		if err := removeCertificateDirectory(activeDirectory, typeDirectory); err != nil {
-			return SavedResource{}, fmt.Errorf("清理旧当前证书目录失败：%w", err)
+			return result, fmt.Errorf("清理旧当前证书目录失败：%w", err)
 		}
 	}
 	return result, nil
@@ -715,97 +737,31 @@ func (s FileStore) LoadCurrent(ctx context.Context, domain, certificateType stri
 	return saved, resource, nil
 }
 
-// LoadVersion 仅允许读取当前使用的版本，保留该方法用于兼容已有接口。
+// LoadVersion 读取可唯一识别的当前或历史版本，恢复前仍需校验当前域名配置。
 func (s FileStore) LoadVersion(ctx context.Context, domain, certificateType, version string) (SavedResource, Resource, error) {
-	if err := ctx.Err(); err != nil {
-		return SavedResource{}, Resource{}, err
-	}
-	if err := validateCertificateVersion(version); err != nil {
-		return SavedResource{}, Resource{}, err
-	}
-	directory, err := s.CurrentDirectory(domain, certificateType)
-	if err != nil {
-		return SavedResource{}, Resource{}, err
-	}
-	if filepath.Base(directory) != version {
-		return SavedResource{}, Resource{}, errors.New("指定版本不是当前使用的证书版本")
-	}
-	certificateData, err := os.ReadFile(filepath.Join(directory, "cert.pem"))
-	if err != nil {
-		return SavedResource{}, Resource{}, fmt.Errorf("读取当前证书失败：%w", err)
-	}
-	fullChainData, err := os.ReadFile(filepath.Join(directory, "fullchain.pem"))
-	if err != nil {
-		return SavedResource{}, Resource{}, fmt.Errorf("读取当前完整证书链失败：%w", err)
-	}
-	privateKeyData, err := os.ReadFile(filepath.Join(directory, "key.pem"))
-	if err != nil {
-		return SavedResource{}, Resource{}, fmt.Errorf("读取当前私钥失败：%w", err)
-	}
-	var saved SavedResource
-	metadata, err := os.ReadFile(filepath.Join(directory, "metadata.json"))
-	if err != nil {
-		return SavedResource{}, Resource{}, fmt.Errorf("读取当前证书元数据失败：%w", err)
-	}
-	if err := json.Unmarshal(metadata, &saved); err != nil {
-		return SavedResource{}, Resource{}, fmt.Errorf("解析当前证书元数据失败：%w", err)
-	}
-	if saved.Version != version {
-		return SavedResource{}, Resource{}, errors.New("当前证书版本标识不一致")
-	}
-	domains := saved.SANs
-	if len(domains) == 0 {
-		domains = []string{domain}
-	}
-	resource, err := ValidateResourceForDomains(Resource{
-		Domains:           domains,
-		Certificate:       certificateData,
-		IssuerCertificate: fullChainData,
-		PrivateKey:        privateKeyData,
-	}, domains)
-	if err != nil {
-		return SavedResource{}, Resource{}, fmt.Errorf("当前证书校验失败：%w", err)
-	}
-	saved.Directory = directory
-	saved.CertificatePath = filepath.Join(directory, "cert.pem")
-	saved.FullChainPath = filepath.Join(directory, "fullchain.pem")
-	saved.PrivateKeyPath = filepath.Join(directory, "key.pem")
-	saved.BackupDirectory = ""
-	resource.IssuerCertificate = nil
-	return saved, resource, nil
+	return s.loadHistoryVersion(ctx, domain, certificateType, version)
 }
 
-// RestoreVersion 已停用，正式证书目录只保留当前使用的版本。
+// RestoreVersion 从本地历史归档创建新的当前版本，不执行远端部署。
 func (s FileStore) RestoreVersion(ctx context.Context, domain, certificateType, version string) (SavedResource, error) {
-	if err := ctx.Err(); err != nil {
+	_, resource, err := s.LoadVersion(ctx, domain, certificateType, version)
+	if err != nil {
 		return SavedResource{}, err
 	}
-	if err := validateCertificateVersion(version); err != nil {
-		return SavedResource{}, err
-	}
-	return SavedResource{}, errors.New("当前仅保留当前使用的证书版本，不支持历史版本恢复")
+	return s.restoreResource(ctx, domain, certificateType, resource, resource.Domains, nil)
 }
 
-// ListVersions 返回当前唯一使用的证书版本，保留该方法用于兼容已有接口。
+// ListVersions 列出当前版本和本地归档，过期版本可展示但不可恢复。
 func (s FileStore) ListVersions(ctx context.Context, domain, certificateType string) ([]SavedResource, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	directory, err := s.CurrentDirectory(domain, certificateType)
+	entries, err := s.historyEntries(ctx, domain, certificateType)
 	if err != nil {
 		return nil, err
 	}
-	if _, statErr := os.Stat(filepath.Join(directory, "metadata.json")); statErr != nil {
-		if errors.Is(statErr, os.ErrNotExist) {
-			return []SavedResource{}, nil
-		}
-		return nil, fmt.Errorf("读取当前证书版本失败：%w", statErr)
+	items := make([]SavedResource, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, entry.saved)
 	}
-	saved, _, err := s.LoadCurrent(ctx, domain, certificateType)
-	if err != nil {
-		return nil, err
-	}
-	return []SavedResource{saved}, nil
+	return items, nil
 }
 
 func validateCertificateVersion(version string) error {

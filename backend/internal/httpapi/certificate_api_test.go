@@ -47,7 +47,7 @@ func TestCertificateReadAPIs(t *testing.T) {
 				NotAfter:        expiresAt,
 			},
 		},
-		versions: []certificate.SavedResource{{Version: "20260827-120000.000000000"}},
+		versions: []certificate.SavedResource{{Version: "20260827-120000.000000000", HistoryID: "history-test", Directory: "/private/cert", PrivateKeyPath: "/private/key.pem"}},
 	}
 	repo := &stubDomainRepository{items: []domain.Domain{{ID: "domain-1", Name: "example.com", CertificateType: domain.CertificateSAN}}}
 	repo.loaded = repo.items[0]
@@ -72,6 +72,9 @@ func TestCertificateReadAPIs(t *testing.T) {
 	serveAdminHTTP(server, versions, httptest.NewRequest(http.MethodGet, "/api/v1/domains/domain-1/certificate/versions", nil))
 	if versions.Code != http.StatusOK || !strings.Contains(versions.Body.String(), "20260827-120000.000000000") {
 		t.Fatalf("证书历史版本响应错误：%d %s", versions.Code, versions.Body.String())
+	}
+	if strings.Contains(versions.Body.String(), "private_key_path") || strings.Contains(versions.Body.String(), "/private/key.pem") || strings.Contains(versions.Body.String(), "directory") {
+		t.Fatalf("证书历史接口不应公开本地路径：%s", versions.Body.String())
 	}
 }
 

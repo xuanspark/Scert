@@ -535,19 +535,11 @@ func (s *Service) RestoreVersion(ctx context.Context, domainID, version string) 
 	if _, err := ValidateResourceForDomains(resource, domains); err != nil {
 		return IssueResult{}, fmt.Errorf("历史证书不匹配当前域名配置：%w", err)
 	}
-	saved, err := s.store.RestoreVersion(ctx, item.Name, string(item.CertificateType), strings.TrimSpace(version))
+	saved, err := s.store.restoreResource(ctx, item.Name, string(item.CertificateType), resource, domains, func(saved SavedResource) error {
+		return s.repository.UpdateCertificateState(ctx, item.ID, "valid", &saved.NotAfter)
+	})
 	if err != nil {
 		return IssueResult{}, err
-	}
-	if _, err := ValidateResourceForDomains(resource, domains); err != nil {
-		return IssueResult{}, fmt.Errorf("恢复后证书校验失败：%w", err)
-	}
-	if err := s.repository.UpdateCertificateState(ctx, item.ID, "valid", &saved.NotAfter); err != nil {
-		rollbackErr := RollbackSavedResource(context.Background(), saved)
-		if rollbackErr != nil {
-			return IssueResult{}, errors.Join(err, rollbackErr)
-		}
-		return IssueResult{}, fmt.Errorf("certificate state update failed after restore: %w", err)
 	}
 	saved.SANs = append([]string(nil), domains...)
 	return IssueResult{DomainID: item.ID, Domains: domains, Saved: saved}, nil
