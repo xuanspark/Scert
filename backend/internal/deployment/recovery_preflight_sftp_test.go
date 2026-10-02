@@ -49,16 +49,17 @@ func TestRecoveryPreflightOverPasswordSFTP(t *testing.T) {
 				delete(r.Evidence.TemporaryFiles, r.TemporaryPaths[2])
 			}
 			for path, file := range memory.files {
+				localPath := localSFTPPath(root, path)
 				if strings.HasSuffix(path, ".scert-lock") {
-					if err := os.MkdirAll(path, 0o700); err != nil {
+					if err := os.MkdirAll(localPath, 0o700); err != nil {
 						t.Fatal(err)
 					}
 					continue
 				}
-				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				if err := os.MkdirAll(filepath.Dir(localPath), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(path, file.data, 0o600); err != nil {
+				if err := os.WriteFile(localPath, file.data, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -78,7 +79,7 @@ func TestRecoveryPreflightOverPasswordSFTP(t *testing.T) {
 					t.Fatal("真实 SFTP 恢复未完成")
 				}
 				for _, target := range r.Paths {
-					data, err := os.ReadFile(target)
+					data, err := os.ReadFile(localSFTPPath(root, target))
 					if err != nil || string(data) != "old" {
 						t.Fatalf("真实文件恢复错误：%s %v", target, err)
 					}
@@ -99,6 +100,16 @@ func TestRecoveryPreflightOverPasswordSFTP(t *testing.T) {
 			}
 		})
 	}
+}
+
+func localSFTPPath(root, remotePath string) string {
+	if volume := filepath.ToSlash(filepath.VolumeName(root)); volume != "" {
+		remoteVolume := "/" + volume
+		if strings.HasPrefix(remotePath, remoteVolume) {
+			return filepath.FromSlash(strings.TrimPrefix(remotePath, "/"))
+		}
+	}
+	return filepath.FromSlash(remotePath)
 }
 
 func snapshotRecoveryDirectory(t *testing.T, root string) map[string]string {

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -60,7 +61,7 @@ func TestAsyncImportUploadLifecycle(t *testing.T) {
 						t.Errorf("上传文件被提前回收或内容变化：%v", err)
 					}
 					info, err := os.Stat(path)
-					if err != nil || info.Mode().Perm() != 0600 {
+					if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 						t.Errorf("上传文件权限错误：%v", err)
 					}
 				}

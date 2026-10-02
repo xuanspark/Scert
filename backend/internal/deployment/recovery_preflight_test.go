@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"path"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -12,9 +13,10 @@ import (
 func recoveryPreflightFixture(roots ...string) (Server, *memoryClient, TransactionRecord) {
 	server := testServer("preflight").Normalize()
 	if len(roots) == 1 {
-		server.CertificatePath = filepath.ToSlash(filepath.Join(roots[0], "cert.pem"))
-		server.CertificateChainPath = filepath.ToSlash(filepath.Join(roots[0], "fullchain.pem"))
-		server.PrivateKeyPath = filepath.ToSlash(filepath.Join(roots[0], "key.pem"))
+		remoteRoot := "/" + filepath.ToSlash(roots[0])
+		server.CertificatePath = path.Join(remoteRoot, "cert.pem")
+		server.CertificateChainPath = path.Join(remoteRoot, "fullchain.pem")
+		server.PrivateKeyPath = path.Join(remoteRoot, "key.pem")
 	}
 	client := newMemoryClient()
 	r := TransactionRecord{
