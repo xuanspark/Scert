@@ -23,6 +23,21 @@ func (s *Server) issueDomainAsTask(c *gin.Context) {
 }
 
 func (s *Server) submitDomainTask(c *gin.Context, taskType string) {
+	s.submitPreparedDomainTask(c, taskType, nil)
+}
+
+type preparedCertificateTask struct {
+	operation func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	cleanup   func()
+}
+
+func (s *Server) submitPreparedDomainTask(c *gin.Context, taskType string, prepared *preparedCertificateTask) {
+	transferred := false
+	defer func() {
+		if !transferred && prepared != nil && prepared.cleanup != nil {
+			prepared.cleanup()
+		}
+	}()
 	if (taskType == "certificate_issue" && s.issueCertificate == nil) || (taskType == "certificate_deploy" && s.deployCertificateTask == nil) {
 		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
 		return
@@ -50,7 +65,7 @@ func (s *Server) submitDomainTask(c *gin.Context, taskType string) {
 		s.writeError(c, http.StatusServiceUnavailable, "证书任务权限服务尚未就绪", errors.New("项目授权服务未配置"))
 		return
 	}
-	if taskType == "certificate_issue" {
+	if taskType == "certificate_issue" || taskType == "certificate_import" {
 		if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), resource.ResourceScope.Normalize().ProjectID, domain.PermissionCertificateManage); err != nil {
 			if errors.Is(err, repository.ErrProjectAccessDenied) {
 				s.writeError(c, http.StatusForbidden, "无权管理此项目的证书任务", nil)
@@ -149,6 +164,14 @@ func (s *Server) submitDomainTask(c *gin.Context, taskType string) {
 		s.writeError(c, http.StatusInternalServerError, "创建任务尝试失败", err)
 		return
 	}
+	if prepared != nil {
+		transferred = s.enqueueCertificateTask(c, task, attempt, taskType, prepared.operation,
+			taskType, "正在导入证书并部署", "证书导入和部署完成", prepared.cleanup)
+		if transferred {
+			writeAcceptedCertificateTask(c, task)
+		}
+		return
+	}
 	if taskType == "certificate_deploy" {
 		s.executeCertificateDeployTask(c, task, attempt, taskType)
 		return
@@ -157,11 +180,15 @@ func (s *Server) submitDomainTask(c *gin.Context, taskType string) {
 }
 
 func (s *Server) executeCertificateIssueTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
-	s.enqueueCertificateTask(c, task, attempt, auditAction, s.issueCertificate, "certificate_issue", "正在申请证书并部署", "证书申请和部署完成")
+	if s.enqueueCertificateTask(c, task, attempt, auditAction, s.issueCertificate, "certificate_issue", "正在申请证书并部署", "证书申请和部署完成", nil) {
+		writeAcceptedCertificateTask(c, task)
+	}
 }
 
 func (s *Server) executeCertificateDeployTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string) {
-	s.enqueueCertificateTask(c, task, attempt, auditAction, s.deployCertificateTask, "certificate_deploy", "正在部署证书", "证书部署完成")
+	if s.enqueueCertificateTask(c, task, attempt, auditAction, s.deployCertificateTask, "certificate_deploy", "正在部署证书", "证书部署完成", nil) {
+		writeAcceptedCertificateTask(c, task)
+	}
 }
 
 func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string, operation func(context.Context, string) (certificate.IssueResult, deployment.Report, error), stage, runningMessage, successMessage string) {
@@ -214,7 +241,11 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 	if s.finishCancelledTask(task, attempt, executionCtx) {
 		return
 	}
-	_, deploymentReport, issueErr := operation(executionCtx, task.DomainID)
+	certificateResult, deploymentReport, issueErr := operation(executionCtx, task.DomainID)
+	if task.TaskType == "certificate_import" {
+		deploymentReport.CertificateImported = issueErr == nil || (certificateResult.DomainID == task.DomainID &&
+			certificateResult.Saved.CertificatePath != "" && certificateResult.Saved.FullChainPath != "" && certificateResult.Saved.PrivateKeyPath != "")
+	}
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
 	deploymentReport = sanitizeDeploymentReport(deploymentReport)
@@ -237,6 +268,12 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 		}
 	} else if partial {
 		status = "partial_success"
+	}
+	if task.TaskType == "certificate_import" && issueErr != nil {
+		message = "证书导入失败"
+		if deploymentReport.CertificateImported {
+			message = "证书已导入，但部署未完成。请检查部署结果后重试部署，无需重新导入。"
+		}
 	}
 	s.taskMu.Lock()
 	defer s.taskMu.Unlock()

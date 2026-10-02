@@ -91,6 +91,30 @@ test("页面刷新查询完整报告并展示恢复状态", async (t) => {
   assert.match(deploymentSummary(state.taskDeploymentReport.value), /恢复/);
 });
 
+test("异步导入从持久化报告恢复保存状态，不因部署失败诱导重复导入", async (t) => {
+  const task = { ...initialTask, task_type: "certificate_import", status: "failed", message: "证书已导入，但部署未完成" };
+  const fetchTask = taskFetcher(() => task);
+  const { state } = await mountComposable(t, useDashboard, (path, options) => {
+    if (path.endsWith("/attempts")) {
+      return Response.json({ items: [{ id: "import-attempt", attempt_number: 1, status: "failed" }] });
+    }
+    if (path.endsWith("/deployment-results")) {
+      return Response.json({ items: [], reports: [{
+        task_id: task.id, attempt_id: "import-attempt", attempt_number: 1,
+        report: { status: "failed", results: [], certificate_imported: true },
+      }] });
+    }
+    return fetchTask(path, options);
+  });
+  state.deploymentResult.value = { taskID: task.id, pending: true };
+  await state.refreshTaskStatus();
+  assert.equal(state.deploymentResult.value.pending, false);
+  assert.equal(state.deploymentResult.value.certificateImported, true);
+  assert.equal(state.deploymentResult.value.taskStatus, "failed");
+  await state.openTaskDetails(task);
+  assert.equal(state.taskDeploymentReport.value.certificate_imported, true);
+});
+
 test("异步部署接收后不误报成功或缺失结果，最终失败不被逐目标成功覆盖", async (t) => {
   let current = { ...initialTask };
   const posts = [];
@@ -265,12 +289,14 @@ test("项目撤权后清除缓存的任务详情和部署结果", async (t) => {
   });
   await state.openTaskDetails(current);
   assert.equal(state.taskDeploymentReport.value.results.length, 1);
+  state.deploymentResult.value = { taskID: current.id, pending: true, certificateImported: true };
   denied = true;
   await state.refreshTaskStatus();
   assert.equal(state.taskDetails.value, null);
   assert.equal(state.taskDeploymentReport.value, null);
   assert.deepEqual(state.taskAttempts.value, []);
   assert.match(state.taskDetailsError.value, /无权读取/);
+  assert.equal(state.deploymentResult.value.certificateImported, false);
 });
 
 test("任务完成后自动刷新域名证书数据，但不覆盖正在编辑的设置", async (t) => {

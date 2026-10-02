@@ -192,6 +192,71 @@ test("certificateImport.submitsSelectedFilesAndResetsOnReopen", async (t) => {
   assert.ok(state.importError.value);
 });
 
+test("导入异步接收只展示任务并等待结果，不提前宣布保存成功", async (t) => {
+  let imports = 0;
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/certificate/import")) {
+      imports++;
+      return Response.json({ accepted: true, task: { id: "import-task", status: "queued" } }, { status: 202 });
+    }
+    return Response.json({ items: [] });
+  });
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key"]) {
+    state.selectCertificateImportFile(kind, { target: { files: [new File([kind], `${kind}.pem`)] } });
+  }
+  await state.importCertificate();
+  assert.equal(state.deploymentResult.value.taskID, "import-task");
+  assert.equal(state.deploymentResult.value.pending, true);
+  assert.equal(state.deploymentResult.value.report, null);
+  assert.notEqual(state.deploymentResult.value.certificateImported, true);
+  assert.equal(state.showCertificateImport.value, false);
+  assert.match(state.notice.value, /导入任务已提交/);
+  assert.doesNotMatch(state.notice.value, /证书已导入/);
+  await state.importCertificate();
+  assert.equal(imports, 1);
+});
+
+test("导入响应断开后使用原幂等键找回任务，不重复执行导入", async (t) => {
+  const keys = [];
+  const { state } = await mountComposable(t, useDashboard, async (path, options) => {
+    if (path.endsWith("/certificate/import")) {
+      keys.push(options.headers["Idempotency-Key"]);
+      if (keys.length === 1) throw new Error("连接断开");
+      return Response.json({ replayed: true, task: { id: "existing-import", status: "running" } }, { status: 409 });
+    }
+    return Response.json({ items: [] });
+  });
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key"]) {
+    state.selectCertificateImportFile(kind, { target: { files: [new File([kind], `${kind}.pem`)] } });
+  }
+  await state.importCertificate();
+  assert.match(state.importError.value, /连接断开/);
+  await state.importCertificate();
+  assert.equal(keys.length, 2);
+  assert.match(keys[0], /^import-domain-import-/);
+  assert.equal(keys[0], keys[1]);
+  assert.equal(state.importError.value, "");
+  assert.equal(state.deploymentResult.value.taskID, "existing-import");
+  assert.equal(state.deploymentResult.value.pending, true);
+});
+
+test("异步导入缺少任务编号时不能显示导入成功", async (t) => {
+  const { state } = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/certificate/import")) return Response.json({ accepted: true }, { status: 202 });
+    return Response.json({ items: [] });
+  });
+  state.openCertificateImport({ id: "domain-import", name: "example.test" });
+  for (const kind of ["certificate", "private_key"]) {
+    state.selectCertificateImportFile(kind, { target: { files: [new File([kind], `${kind}.pem`)] } });
+  }
+  await state.importCertificate();
+  assert.match(state.importError.value, /未返回任务编号/);
+  assert.equal(state.importResult.value, null);
+  assert.doesNotMatch(state.notice.value, /证书已导入/);
+});
+
 test("证书已导入但部署失败时展示服务器结果并刷新状态，不能重复导入", async (t) => {
   let imports = 0;
   let refreshes = 0;

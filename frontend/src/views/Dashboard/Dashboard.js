@@ -64,6 +64,7 @@ export function useDashboard() {
   const importSaving = ref(false);
   const importError = ref("");
   const importResult = ref(null);
+  let importIdempotencyKey = "";
   const importFiles = ref({
     certificate: null,
     private_key: null,
@@ -839,6 +840,8 @@ export function useDashboard() {
 
   function openCertificateImport(item) {
     importDomain.value = item;
+    const suffix = crypto.randomUUID ? crypto.randomUUID() : createRandomSuffix();
+    importIdempotencyKey = `import-${item.id}-${suffix}`;
     importFiles.value = {
       certificate: null,
       private_key: null,
@@ -882,9 +885,25 @@ export function useDashboard() {
       }
       const response = await fetchAdmin(
         `/api/v1/domains/${importDomain.value.id}/certificate/import`,
-        { method: "POST", body },
+        { method: "POST", body, headers: { "Idempotency-Key": importIdempotencyKey } },
       );
       const result = await response.json().catch(() => ({}));
+      if (response.status === 202 && !result.task?.id) {
+        throw new Error("服务未返回任务编号，请在运行概览确认是否已接收，勿重复提交");
+      }
+      if ((response.ok || response.status === 409 && result.replayed) && result.task?.id &&
+          (response.status === 202 || result.accepted || result.replayed)) {
+        importResult.value = result;
+        showCertificateImport.value = false;
+        notice.value = `导入任务已提交：${result.task.id}，可在运行概览查看执行结果`;
+        deploymentResult.value = {
+          domain: importDomain.value.name, running: false, pending: true,
+          taskID: result.task.id, taskStatus: result.task.status,
+          taskMessage: result.task.message || "", report: null, error: "", queryError: "",
+        };
+        await loadData();
+        return;
+      }
       if (!response.ok && result.imported !== true) {
         throw new Error(result.error || "导入证书失败");
       }

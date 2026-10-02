@@ -1,5 +1,18 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日19:34 证书导入异步自动回归（未部署）
+
+- [x] 修改前确认 main 工作区干净，09616e7 基线推送返回已同步。第二台复用已核验主机指纹的密码 SSH 会话；隔离路径 /var/tmp/scert-async-20261002-1556/source/backend，不触碰正式安装或线上数据。
+- [x] 最终后端输入 import-async-second-20261002.tar 两端 SHA256 一致：748f229134f568e7269d15d9cdd8412c5a62cec1f97ca65d28cda57e35f118c4。仅上传本批源码与原生 Go 测试，不是正式发布包。
+- [!] import-after.log：首轮专项退出一，仅排队取消子场景因测试调用不存在的 POST /cancel 返回 404；修正为真实 DELETE /tasks/:id、202 响应，不放宽最终 cancelled 和零外部调用断言。
+- [x] import-second.log：专项通过，IMPORT_SECOND_EXIT=0，6.967 秒。包含十一种上传生命周期场景、缺少任务仓储回收、导入新增十二个实时授权场景，以及原有申请／部署／重试授权回归。
+- [x] import-full.log：全后端 go test -p 1 ./... -count=1 通过，IMPORT_FULL_EXIT=0；import-vet.log：go vet -p 1 ./... 通过，IMPORT_VET_EXIT=0。使用 nobody、GOMAXPROCS=1、GOMEMLIMIT=384MiB，测试自行创建独立空 SQLite 数据库，不将此记录当作三库完整实库验收。
+- [x] import-repeat.log：新增 TestAsyncImport 专项重复二十次通过，IMPORT_REPEAT_EXIT=0，29.448 秒；普通重复测试不替代竞争检测。
+- [x] 本机 .runtime/import-async-frontend-final-20261002.log：260 项通过，零失败、零跳过；.runtime/import-async-build-final-20261002.log：生产构建通过，退出码均为零。
+- [x] 测试后第二台 Scert、Nginx、MySQL 均 active；磁盘余量约 863MB。未新增公网监听、未重启生产服务、未清理线上数据库。
+- [!] 本批无正式部署或浏览器生产上传验收，无强制终止后的上传残留清理证明，无竞争检测通过结论。历史恢复、其他长操作及原有整体门禁继续未关闭。
+
+
 ## 2026年10月2日19:01 排队任务实时授权回归（未部署）
 
 - [x] 修改前基线 657a9c0 已推送。第二台既有 SSH 会话已实时复核，测试目录为 /var/tmp/scert-async-20261002-1556/source/backend，磁盘剩余约 961MB；未清理或连接线上业务数据库。

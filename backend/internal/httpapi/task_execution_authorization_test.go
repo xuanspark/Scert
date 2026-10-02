@@ -17,7 +17,7 @@ import (
 )
 
 func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
-	for _, taskType := range []string{"certificate_issue", "certificate_deploy"} {
+	for _, taskType := range []string{"certificate_issue", "certificate_deploy", "certificate_import"} {
 		for _, scenario := range []string{
 			"unchanged", "disabled_user", "removed_member", "read_only_member",
 			"moved_domain", "deleted_domain", "deployment_denied", "certificate_denied",
@@ -32,6 +32,9 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 				server, tasks, audit, cleanup := newTaskAPITestServer(t, operation)
 				defer cleanup()
 				server.deployCertificateTask = operation
+				server.importCertificateTask = func(ctx context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+					return operation(ctx, request.DomainID)
+				}
 				server.asyncTasks = make(map[string]bool)
 				server.taskSlots = make(chan struct{}, 1)
 				server.taskSlots <- struct{}{}
@@ -39,8 +42,12 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 				if taskType == "certificate_deploy" {
 					path = "/api/v1/domains/domain-1/deploy"
 				}
+				if taskType == "certificate_import" {
+					path = "/api/v1/domains/domain-1/certificate/import"
+				}
 				response := httptest.NewRecorder()
-				serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, path, nil))
+				serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, path,
+					strings.NewReader(`{"certificate_path":"/managed/cert.pem","private_key_path":"/managed/key.pem"}`)))
 				task := submittedTask(t, response)
 				if calls.Load() != 0 {
 					t.Fatal("占满执行槽后任务仍执行")
@@ -95,7 +102,7 @@ func TestAsyncExecutionRechecksQueuedAuthorization(t *testing.T) {
 				<-server.taskSlots
 				waitTaskWorkersForTest(t, server)
 				want := "failed"
-				if scenario == "unchanged" || taskType == "certificate_deploy" && (scenario == "dns_denied" || scenario == "certificate_denied") {
+				if scenario == "unchanged" || taskType == "certificate_deploy" && (scenario == "dns_denied" || scenario == "certificate_denied") || taskType == "certificate_import" && scenario == "dns_denied" {
 					want = "success"
 				}
 				stored, err := tasks.GetTask(t.Context(), task.ID)

@@ -49,6 +49,8 @@ type Report struct {
 	// 站点校验与各服务器文件推送分开记录，不表示所有服务器均完成独立 HTTPS 验证。
 	VerificationStatus string `json:"verification_status,omitempty"`
 	RecoveryStatus     string `json:"recovery_status,omitempty"`
+	// 导入已保存与部署成功分开记录，不保存证书路径或私钥内容。
+	CertificateImported bool `json:"certificate_imported,omitempty"`
 }
 
 type Service struct {

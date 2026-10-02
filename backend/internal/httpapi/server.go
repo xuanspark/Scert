@@ -60,7 +60,9 @@ type Dependencies struct {
 	IssueSetupCertificate    func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
 	RollbackSetupCertificate func(context.Context, certificate.SavedResource) error
 	ImportCertificate        func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
-	DeployCertificate        func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	// ImportCertificateTask 只执行导入流程，复用 HTTP 层已经创建的任务。
+	ImportCertificateTask func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
+	DeployCertificate     func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	// DeployCertificateTask 执行已有任务，不得重复创建任务或尝试记录。
 	DeployCertificateTask     func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
@@ -99,6 +101,7 @@ type Server struct {
 	issueSetupCertificate       func(context.Context, certificate.SetupCertificateRequest) (certificate.SavedResource, error)
 	rollbackSetupCertificate    func(context.Context, certificate.SavedResource) error
 	importCertificate           func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
+	importCertificateTask       func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
 	deployCertificate           func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	deployCertificateTask       func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	restoreVersion              func(context.Context, string, string) (certificate.IssueResult, error)
@@ -167,6 +170,7 @@ func New(deps Dependencies) *Server {
 		issueSetupCertificate:       deps.IssueSetupCertificate,
 		rollbackSetupCertificate:    deps.RollbackSetupCertificate,
 		importCertificate:           deps.ImportCertificate,
+		importCertificateTask:       deps.ImportCertificateTask,
 		deployCertificate:           deps.DeployCertificate,
 		deployCertificateTask:       deps.DeployCertificateTask,
 		restoreVersion:              deps.RestoreCertificateVersion,

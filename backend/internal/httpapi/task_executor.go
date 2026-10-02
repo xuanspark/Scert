@@ -15,13 +15,13 @@ import (
 
 // 持久化任务与尝试后才调用此入口；后台执行不得持有请求或响应对象。
 // 进程中断由启动恢复标记失败，不自动重放可能已经签发或部署的外部操作。
-func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, action string, operation func(context.Context, string) (certificate.IssueResult, deployment.Report, error), stage, runningMessage, successMessage string) {
+func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, attempt repository.TaskAttempt, action string, operation func(context.Context, string) (certificate.IssueResult, deployment.Report, error), stage, runningMessage, successMessage string, cleanup func()) bool {
 	s.taskMu.Lock()
 	if s.taskWorkersStopped || len(s.asyncTasks) >= 32 {
 		s.taskMu.Unlock()
 		s.finishTaskBeforeExecution(task, attempt, "failed", "服务正在停止或任务队列已满，任务未执行")
 		s.writeError(c, http.StatusServiceUnavailable, "服务正在停止或任务队列已满，请稍后重试", nil)
-		return
+		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), certificateTaskTimeout)
 	if s.taskCancels == nil {
@@ -37,6 +37,9 @@ func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, at
 	s.taskMu.Unlock()
 	go func() {
 		defer s.taskWorkers.Done()
+		if cleanup != nil {
+			defer cleanup()
+		}
 		defer s.unregisterTaskCancel(task.ID)
 		defer cancel()
 		defer func() {
@@ -53,6 +56,11 @@ func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, at
 		}
 		s.runCertificateTask(ctx, task, attempt, action, operation, stage, runningMessage, successMessage)
 	}()
+	return true
+}
+
+// 上传文件所有权完成转交后再写响应；客户端断开或响应异常不得回收工作线程的文件。
+func writeAcceptedCertificateTask(c *gin.Context, task repository.Task) {
 	c.Header("Location", "/api/v1/tasks/"+task.ID)
 	c.JSON(http.StatusAccepted, gin.H{"task": task, "accepted": true})
 }

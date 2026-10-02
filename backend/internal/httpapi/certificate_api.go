@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
@@ -166,7 +167,7 @@ func (s *Server) importCertificateFiles(c *gin.Context) {
 	if !s.authorizeVisibleDomainPermissions(c, domain.PermissionCertificateManage, domain.PermissionDeploymentExecute) {
 		return
 	}
-	if s.importCertificate == nil {
+	if s.importCertificate == nil && s.importCertificateTask == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书导入接口尚未配置", errors.New("证书导入流程未配置"))
 		return
 	}
@@ -174,6 +175,16 @@ func (s *Server) importCertificateFiles(c *gin.Context) {
 	request, cleanup, err := parseCertificateImportRequest(c)
 	if err != nil {
 		s.writeError(c, http.StatusBadRequest, "证书上传参数无效", err)
+		return
+	}
+	if s.importCertificateTask != nil {
+		// 仅传递独立参数和文件所有权，后台不得引用请求上下文。
+		s.submitPreparedDomainTask(c, "certificate_import", &preparedCertificateTask{
+			operation: func(ctx context.Context, _ string) (certificate.IssueResult, deployment.Report, error) {
+				return s.importCertificateTask(ctx, request)
+			},
+			cleanup: cleanup,
+		})
 		return
 	}
 	defer cleanup()
@@ -206,6 +217,12 @@ func parseCertificateImportRequest(c *gin.Context) (certificate.ImportRequest, f
 	cleanup := func() {}
 	contentType := c.GetHeader("Content-Type")
 	if strings.HasPrefix(strings.ToLower(contentType), "multipart/form-data") {
+		// 表单解析产生的暂存文件不属于异步工作线程；独立复制后立即回收。
+		defer func() {
+			if c.Request.MultipartForm != nil {
+				_ = c.Request.MultipartForm.RemoveAll()
+			}
+		}()
 		if err := c.Request.ParseMultipartForm(certificateUploadLimit); err != nil {
 			return certificate.ImportRequest{}, cleanup, fmt.Errorf("解析上传表单失败：%w", err)
 		}

@@ -196,6 +196,10 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			result, err := trackedWorkflow.Import(ctx, request)
 			return result.Certificate, result.Deployment, err
 		},
+		ImportCertificateTask: func(ctx context.Context, request certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error) {
+			result, err := workflow.Import(ctx, request)
+			return result.Certificate, result.Deployment, err
+		},
 		DeployCertificate: func(ctx context.Context, domainID string) (certificate.IssueResult, deployment.Report, error) {
 			result, err := trackedWorkflow.DeployCurrent(ctx, domainID)
 			return result.Certificate, result.Deployment, err

@@ -110,6 +110,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
               taskStatus: snapshot.task.status,
               taskMessage: snapshot.task.message || "",
               report: snapshot.report,
+              certificateImported: snapshot.report?.certificate_imported === true,
               queryError: "",
             };
           }
@@ -130,6 +131,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
             deploymentResult.value.queryError = message;
             if (denied) {
               deploymentResult.value.report = null;
+              deploymentResult.value.certificateImported = false;
               deploymentResult.value.taskMessage = "";
               deploymentResult.value.taskStatus = "";
             }
@@ -149,6 +151,7 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
           taskDeploymentReport.value = null;
           if (deploymentResult.value) {
             deploymentResult.value.report = null;
+            deploymentResult.value.certificateImported = false;
             deploymentResult.value.taskMessage = "";
           }
         }
