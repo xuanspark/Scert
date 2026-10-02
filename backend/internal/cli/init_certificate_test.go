@@ -26,7 +26,7 @@ import (
 func initTestConfig(t *testing.T) config.Config {
 	t.Helper()
 	root := t.TempDir()
-	cfg := config.Default(root)
+	cfg := isolatedCLIConfig(root)
 	cfg.Paths.Config = filepath.Join(root, "conf")
 	cfg.Paths.Certificate = filepath.Join(root, "certificates")
 	cfg.Paths.Backup = filepath.Join(root, "backups")

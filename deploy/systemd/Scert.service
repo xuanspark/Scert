@@ -7,7 +7,9 @@ Wants=Scert-storage.socket
 After=Scert-storage.socket
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=90
 User=Scert
 Group=Scert
 WorkingDirectory=/scert

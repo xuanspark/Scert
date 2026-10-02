@@ -17,7 +17,7 @@ import (
 
 func TestCreateBackupIncludesSecretsCertificatesAndSQLiteSnapshot(t *testing.T) {
 	base := t.TempDir()
-	cfg := config.Default(base)
+	cfg := isolatedCLIConfig(base)
 	for _, directory := range []string{cfg.Paths.Config, cfg.Paths.Data, cfg.Paths.Certificate, cfg.Paths.Backup} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatalf("创建测试目录失败：%v", err)
@@ -134,7 +134,7 @@ func TestCreateBackupDoesNotChangeExistingParentPermissions(t *testing.T) {
 	if err := os.Mkdir(parent, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default(filepath.Join(base, "scert"))
+	cfg := isolatedCLIConfig(filepath.Join(base, "scert"))
 	for _, directory := range []string{cfg.Paths.Config, cfg.Paths.Data} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
@@ -161,7 +161,7 @@ func TestCreateBackupDoesNotChangeExistingParentPermissions(t *testing.T) {
 
 func TestCreateBackupRequiresSecretsWhenInitialized(t *testing.T) {
 	base := t.TempDir()
-	cfg := config.Default(base)
+	cfg := isolatedCLIConfig(base)
 	for _, directory := range []string{cfg.Paths.Config, cfg.Paths.Data} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
@@ -182,7 +182,7 @@ func TestCreateBackupRequiresSecretsWhenInitialized(t *testing.T) {
 
 func TestRestoreAdditionalAssetsPreservesCertificateRoot(t *testing.T) {
 	base := t.TempDir()
-	cfg := config.Default(filepath.Join(base, "target"))
+	cfg := isolatedCLIConfig(filepath.Join(base, "target"))
 	input := filepath.Join(base, "backup")
 	if err := os.MkdirAll(filepath.Join(input, "certificates", "example.com"), 0o700); err != nil {
 		t.Fatal(err)
@@ -241,7 +241,7 @@ func TestRestoreAdditionalAssetsPreservesCertificateRoot(t *testing.T) {
 
 func TestRestoreAdditionalAssetsRestoresAbsentState(t *testing.T) {
 	base := t.TempDir()
-	cfg := config.Default(filepath.Join(base, "target"))
+	cfg := isolatedCLIConfig(filepath.Join(base, "target"))
 	input := filepath.Join(base, "backup")
 	if err := os.MkdirAll(input, 0o700); err != nil {
 		t.Fatal(err)
@@ -330,7 +330,7 @@ func TestRestoreDirectoryWorksWhenCertificateParentIsNotWritable(t *testing.T) {
 }
 
 func TestValidateRestoreCompatibilityRejectsCrossDatabase(t *testing.T) {
-	current := config.Default(t.TempDir())
+	current := isolatedCLIConfig(t.TempDir())
 	backup := current
 	backup.Database.DSN = filepath.Join(t.TempDir(), "other.db")
 	if err := validateRestoreCompatibility(current, backup); err == nil || !strings.Contains(err.Error(), "跨数据库") {
@@ -463,7 +463,7 @@ func createSQLiteTestDatabase(path, action string) error {
 func prepareRestoreCommandFixture(t *testing.T, blockedCertificate bool) (config.Config, string, string) {
 	t.Helper()
 	base := t.TempDir()
-	cfg := config.Default(filepath.Join(base, "target"))
+	cfg := isolatedCLIConfig(filepath.Join(base, "target"))
 	for _, directory := range []string{cfg.Paths.Config, cfg.Paths.Data, cfg.Paths.Backup} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)

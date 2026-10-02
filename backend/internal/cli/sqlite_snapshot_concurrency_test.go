@@ -6,12 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 )
 
 func TestSQLiteSnapshotWhileWriterIsActive(t *testing.T) {
-	cfg := config.Default(t.TempDir())
+	cfg := isolatedCLIConfig(t.TempDir())
 	db, err := database.Open(t.Context(), cfg.Database)
 	if err != nil {
 		t.Fatal(err)

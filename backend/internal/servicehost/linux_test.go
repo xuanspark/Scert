@@ -32,7 +32,9 @@ func TestRenderUnitFileIncludesExecutableConfigurationAndWorkDir(t *testing.T) {
 		"Environment=SCERT_BOOTSTRAP_FIREWALL_MODE=external",
 		"Environment=SCERT_SERVER_HOST=127.0.0.1",
 		"[Service]",
-		"Type=simple",
+		"Type=notify",
+		"NotifyAccess=main",
+		"TimeoutStartSec=90",
 		"User=Scert",
 		"Group=Scert",
 		"WorkingDirectory=\"/opt/Scert data\"",
@@ -73,6 +75,9 @@ func TestPackagedUnitAllowsInterfaceDiscoveryWithoutCapabilities(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
+		"Type=notify",
+		"NotifyAccess=main",
+		"TimeoutStartSec=90",
 		"CapabilityBoundingSet=",
 		"AmbientCapabilities=",
 		"NoNewPrivileges=yes",

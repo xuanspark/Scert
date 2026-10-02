@@ -129,7 +129,7 @@ func TestDNSCheckReportsLiveResultWithoutPersistingConfiguration(t *testing.T) {
 func TestDNSCheckDoesNotCreateMissingMasterKey(t *testing.T) {
 	oldPath := configPath
 	t.Cleanup(func() { configPath = oldPath })
-	cfg := config.Default(t.TempDir())
+	cfg := isolatedCLIConfig(t.TempDir())
 	cfg.DNS.Provider, cfg.DNS.CredentialRef = "aliyun", "secret://dns/check"
 	configPath = filepath.Join(cfg.Paths.Config, "scert.json")
 	if err := cfg.Save(configPath); err != nil {
@@ -149,7 +149,7 @@ func prepareDNSCheckConfig(t *testing.T) config.Config {
 	t.Helper()
 	oldPath := configPath
 	t.Cleanup(func() { configPath = oldPath })
-	cfg := config.Default(t.TempDir())
+	cfg := isolatedCLIConfig(t.TempDir())
 	cfg.DNS.Provider, cfg.DNS.CredentialRef = "aliyun", "secret://dns/check"
 	configPath = filepath.Join(cfg.Paths.Config, "scert.json")
 	if err := cfg.Save(configPath); err != nil {

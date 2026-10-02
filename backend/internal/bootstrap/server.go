@@ -22,6 +22,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
+	"git.pcux.cn/xuans/Scert/backend/internal/serviceready"
 	"git.pcux.cn/xuans/Scert/backend/internal/setup"
 )
 
@@ -103,7 +104,13 @@ func Run(ctx context.Context, options ServerOptions) (bool, error) {
 			fmt.Fprintln(options.Output, "初始化防火墙采用 external 模式：不检查或修改主机规则及云安全组，请管理员预先放行所需端口。")
 		}
 	}
-	return serveTemporaryHTTPS(ctx, listener, material, handler, router.Completed())
+	readyListener := &serviceready.Listener{Listener: listener, Notify: func() error {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return serviceready.Ready("初始化 HTTPS 服务已监听，等待完成配置；业务尚未就绪")
+	}}
+	return serveTemporaryHTTPS(ctx, readyListener, material, handler, router.Completed())
 }
 
 func writeBootstrapNotice(output io.Writer, port int, path string, material TLSMaterial) {

@@ -11,6 +11,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/app"
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/localreset"
+	"git.pcux.cn/xuans/Scert/backend/internal/serviceready"
 	"github.com/spf13/cobra"
 )
 
@@ -89,7 +90,10 @@ func runApplication(ctx context.Context, cfg config.Config, path string) (bool, 
 	if service.Renewal != nil {
 		startRenewal = service.Renewal.Start
 	}
-	return runApplicationServices(ctx, service.HTTP, startRenewal, service.HTTP.LocalResetFactory(), func() (applicationControl, error) {
+	onReady := func() error {
+		return serviceready.Ready("正式 HTTPS 服务已监听；业务状态请检查 /readyz")
+	}
+	return runApplicationServices(ctx, service.HTTP, startRenewal, onReady, service.HTTP.LocalResetFactory(), func() (applicationControl, error) {
 		return localreset.Listen("")
 	})
 }

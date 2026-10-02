@@ -167,7 +167,9 @@ func renderUnitFile(options Options) (string, error) {
 		"Wants=network-online.target",
 		"",
 		"[Service]",
-		"Type=simple",
+		"Type=notify",
+		"NotifyAccess=main",
+		"TimeoutStartSec=90",
 	}
 	if normalized.User != "" {
 		lines = append(lines, "User="+normalized.User, "Group="+normalized.Group)

@@ -44,7 +44,7 @@ func applicationTestFactory(context.Context, localreset.Peer) (localreset.Sessio
 func TestApplicationControlFailurePreventsHTTPStartup(t *testing.T) {
 	web := &applicationTestHTTP{ready: make(chan struct{}), exit: make(chan error, 1)}
 	expected := errors.New("test-control-bind-failure")
-	_, err := runApplicationServices(t.Context(), web, nil, applicationTestFactory, func() (applicationControl, error) {
+	_, err := runApplicationServices(t.Context(), web, nil, nil, applicationTestFactory, func() (applicationControl, error) {
 		return nil, expected
 	})
 	if !errors.Is(err, expected) || web.started.Load() != 0 {
@@ -56,7 +56,7 @@ func TestApplicationCancellationBeforeStartupDoesNotOpenControl(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	opened := false
-	_, err := runApplicationServices(ctx, nil, nil, nil, func() (applicationControl, error) {
+	_, err := runApplicationServices(ctx, nil, nil, nil, nil, func() (applicationControl, error) {
 		opened = true
 		return nil, nil
 	})
@@ -98,7 +98,7 @@ func TestApplicationWaitsForControlWorkBeforeReturning(t *testing.T) {
 			renewal := make(chan struct{})
 			done := make(chan error, 1)
 			go func() {
-				_, err := runApplicationServices(ctx, web, func(context.Context) { close(renewal) }, applicationTestFactory, func() (applicationControl, error) { return control, nil })
+				_, err := runApplicationServices(ctx, web, func(context.Context) { close(renewal) }, nil, applicationTestFactory, func() (applicationControl, error) { return control, nil })
 				done <- err
 			}()
 			<-entered
@@ -163,7 +163,7 @@ func TestApplicationControlUnexpectedExitFailsClosed(t *testing.T) {
 			renewal := make(chan struct{})
 			done := make(chan error, 1)
 			go func() {
-				_, err := runApplicationServices(t.Context(), web, func(context.Context) { close(renewal) }, applicationTestFactory, func() (applicationControl, error) { return control, nil })
+				_, err := runApplicationServices(t.Context(), web, func(context.Context) { close(renewal) }, nil, applicationTestFactory, func() (applicationControl, error) { return control, nil })
 				done <- err
 			}()
 			if ready {

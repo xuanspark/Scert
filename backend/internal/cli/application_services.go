@@ -24,6 +24,7 @@ func runApplicationServices(
 	ctx context.Context,
 	web applicationHTTP,
 	startRenewal func(context.Context),
+	onReady func() error,
 	factory localreset.Factory,
 	openControl func() (applicationControl, error),
 ) (_ bool, resultErr error) {
@@ -59,6 +60,22 @@ func runApplicationServices(
 	}
 	if ctx.Err() != nil {
 		return false, nil
+	}
+	select {
+	case err := <-controlDone:
+		controlFinished = true
+		return false, applicationControlExit(ctx, err)
+	case err := <-httpDone:
+		return false, applicationHTTPExit(err)
+	default:
+	}
+	if onReady != nil {
+		if ctx.Err() != nil {
+			return false, nil
+		}
+		if err := onReady(); err != nil {
+			return false, fmt.Errorf("报告服务监听状态失败：%w", err)
+		}
 	}
 	if startRenewal != nil {
 		startRenewal(ctx)
