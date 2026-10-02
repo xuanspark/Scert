@@ -68,6 +68,7 @@ type TaskRepository interface {
 	FindTaskByIdempotencyKey(context.Context, string, string) (Task, error)
 	CreateAttempt(context.Context, TaskAttempt) error
 	FinishAttempt(context.Context, string, string, string, *time.Time) error
+	FinishTaskAttempt(context.Context, TaskCompletion) error
 	ListAttempts(context.Context, string) ([]TaskAttempt, error)
 	RecordTaskDeploymentResults(context.Context, string, string, int, []TaskDeploymentResult) error
 	ListTaskDeploymentResults(context.Context, string) ([]TaskDeploymentResult, error)

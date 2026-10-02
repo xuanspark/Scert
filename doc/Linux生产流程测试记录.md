@@ -1,5 +1,15 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日17:11 任务收尾事务与服务配置回归（未部署）
+
+- [x] 第二台隔离源码首次关联回归：internal/httpapi、internal/repository、internal/servicehost、internal/app 全部通过，COMPLETION_FIRST_EXIT=0；日志为 /var/tmp/scert-async-20261002-1556/completion-first.log。
+- [x] 补充回滚失败的取消边界后，使用非特权用户、GOMAXPROCS=2、包并行数一执行完整后端测试和 go vet，COMPLETION_FULL_EXIT=0、COMPLETION_VET_EXIT=0；日志为同目录 completion-full.log 与 completion-vet.log。
+- [x] 终态仓储失败注入、任务与尝试一致性、启动恢复接管、取消不覆盖实际结果、动态及静态单元预算断言均纳入本批测试；数据库用例为隔离 SQLite，未触及线上业务库。
+- [~] 同目录 completion-repeat.log 正在记录异步、终态事务及服务配置二十次普通重复回归；completion-unit.log 将记录静态单元检查。
+- [!] 第一台 race-second.log 的竞争检测尚未取得退出状态。新建本机 SSH 会话无握手结果；从第二台按固定 ED25519 指纹和密码方式连接同样在 banner exchange 超时。原执行会话无输出，已发送中断但无确认，不以本地句柄存活断言远端仍正常运行，也不擅自重复启动测试。
+- [!] Git 推送出现两次连接超时，本地提交 9e666be 已保存。网络问题不能算产品用例失败，也不能掩盖缺失的竞争检测证据。
+- [!] 本批没有安装线上程序、清空业务数据库、开放外部端口、关闭 TLS 校验或创建辅助验收脚本。最终构建部署、三数据库首次 Web 流程和生产复审仍需独立完成。
+
 ## 2026年10月2日16:47 异步任务开发回归记录（未部署）
 
 ### 已完成的开发回归

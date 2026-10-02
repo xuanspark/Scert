@@ -180,7 +180,7 @@ func renderUnitFile(options Options) (string, error) {
 		"Environment=SCERT_BOOTSTRAP_FIREWALL_MODE=external",
 		"Environment=SCERT_SERVER_HOST=127.0.0.1",
 		"KillSignal=SIGTERM",
-		"TimeoutStopSec=30",
+		"TimeoutStopSec=180",
 		"Restart=on-failure",
 		"UMask=0077",
 		"RuntimeDirectory=scert",

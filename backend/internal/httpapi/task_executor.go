@@ -69,11 +69,11 @@ func (s *Server) finishTaskBeforeExecution(task repository.Task, attempt reposit
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	finished := time.Now().UTC()
-	if err := s.tasks.FinishAttempt(ctx, attempt.ID, status, message, &finished); err != nil && s.logger != nil {
-		s.logger.Error("保存任务尝试失败", "task_id", task.ID, "error", err)
-	}
-	if err := s.tasks.UpdateTask(ctx, task.ID, status, attempt.Stage, message, nil, &finished); err != nil && s.logger != nil {
-		s.logger.Error("保存任务终态失败", "task_id", task.ID, "error", err)
+	if err := s.tasks.FinishTaskAttempt(ctx, repository.TaskCompletion{
+		TaskID: task.ID, AttemptID: attempt.ID, Status: status, Stage: attempt.Stage,
+		Message: message, FinishedAt: finished,
+	}); err != nil && s.logger != nil {
+		s.logger.Error("保存任务及尝试终态失败，保留中断恢复状态", "task_id", task.ID, "error", err)
 	}
 }
 

@@ -216,7 +216,8 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
 	deploymentReport = sanitizeDeploymentReport(deploymentReport)
-	if recordErr := s.tasks.RecordTaskDeploymentResults(finishCtx, task.ID, attempt.ID, attempt.AttemptNumber, taskDeploymentResults(deploymentReport)); recordErr != nil {
+	recordErr := s.tasks.RecordTaskDeploymentResults(finishCtx, task.ID, attempt.ID, attempt.AttemptNumber, taskDeploymentResults(deploymentReport))
+	if recordErr != nil {
 		issueErr = errors.Join(issueErr, recordErr)
 	}
 	finished := time.Now().UTC()
@@ -233,19 +234,27 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 		if s.logger != nil {
 			s.logger.Error("证书任务执行失败", "task_id", task.ID, "domain_id", task.DomainID, "error", issueErr)
 		}
-		if errors.Is(issueErr, context.Canceled) {
+		if errors.Is(issueErr, context.Canceled) && !partial && deploymentReport.RecoveryStatus != "unconfirmed" && deploymentReport.RecoveryStatus != "failed" {
 			status = "cancelled"
 		}
 	} else if partial {
 		status = "partial_success"
 	}
+	if recordErr != nil {
+		status, message = "failed", "部署结果保存失败，请核查实际部署状态后再重试"
+	}
 	s.taskMu.Lock()
 	defer s.taskMu.Unlock()
-	if persisted, err := s.tasks.GetTask(finishCtx, task.ID); err == nil && (persisted.Status == "cancelled" || persisted.Status == "cancelling") {
-		status = "cancelled"
-		message = persisted.Message
-		if issueErr == nil {
-			issueErr = errors.New(message)
+	if persisted, err := s.tasks.GetTask(finishCtx, task.ID); err != nil {
+		status, message = "failed", "无法确认任务收尾状态，请核查部署结果后再重试"
+		issueErr = errors.Join(issueErr, err)
+	} else if persisted.Status == "cancelled" || persisted.Status == "cancelling" {
+		// 取消请求只是意图，不能覆盖已经完成的外部操作，也不能隐藏失败及部分成功。
+		if issueErr == nil && !partial {
+			message = "任务已完成，取消请求未撤销已完成的操作"
+		} else if status == "cancelled" {
+			status = "cancelled"
+			message = "任务已停止；已执行操作是否回滚请查看部署结果"
 		}
 	}
 	if s.audit != nil {
@@ -260,11 +269,11 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 			status, message = "failed", "任务完成审计保存失败，请检查任务恢复状态"
 		}
 	}
-	if err := s.tasks.FinishAttempt(finishCtx, attempt.ID, status, message, &finished); err != nil {
-		status, message = "failed", "任务尝试结果保存失败，请检查任务恢复状态"
-	}
-	if err := s.tasks.UpdateTask(finishCtx, task.ID, status, stage, message, &now, &finished); err != nil && s.logger != nil {
-		s.logger.Error("保存任务终态失败", "task_id", task.ID, "error", err)
+	if err := s.tasks.FinishTaskAttempt(finishCtx, repository.TaskCompletion{
+		TaskID: task.ID, AttemptID: attempt.ID, Status: status, Stage: stage,
+		Message: message, StartedAt: &now, FinishedAt: finished,
+	}); err != nil && s.logger != nil {
+		s.logger.Error("保存任务及尝试终态失败，保留中断恢复状态", "task_id", task.ID, "error", err)
 	}
 }
 
