@@ -444,7 +444,12 @@ func (s *Server) cancelTask(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "管理证书任务由续期调度控制，不能单独修改取消状态", "task": item})
 		return
 	}
-	if !s.authorizeProjectPermissions(c, item.ProjectID, domain.PermissionTaskCancel) {
+	if item.TaskType == "renewal_check" {
+		if err := s.authorizeRenewalOperator(c.Request.Context(), s.currentOperatorID(c)); err != nil {
+			s.writeError(c, http.StatusForbidden, "只有当前有效的超级管理员可以取消全局续期检查", nil)
+			return
+		}
+	} else if !s.authorizeProjectPermissions(c, item.ProjectID, domain.PermissionTaskCancel) {
 		return
 	}
 	s.taskMu.Lock()

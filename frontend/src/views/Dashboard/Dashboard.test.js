@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import "./DeploymentResult.test.js";
 import "./TaskMonitor.test.js";
+import "./RenewalAction.test.js";
 import "./DashboardLogout.test.js";
 import "./DomainModal.test.js";
 import "./DomainForm.test.js";
@@ -1087,7 +1088,7 @@ test("workflowTasks.renderOnlySupportedActions", async () => {
   });
   assert.deepEqual(compiled.errors, []);
   const render = new Function("Vue", compiled.code)(Vue);
-  for (const taskType of ["certificate_issue", "renewal_run", "certificate_deploy", "management_renewal", "unknown"]) {
+  for (const taskType of ["certificate_issue", "certificate_import", "certificate_validate", "renewal_check", "renewal_run", "certificate_deploy", "management_renewal", "unknown"]) {
     for (const status of ["queued", "running", "success", "failed", "cancelled", "partial_success"]) {
       const html = await renderToString(Vue.createSSRApp({
         render,
@@ -1104,7 +1105,7 @@ test("workflowTasks.renderOnlySupportedActions", async () => {
           retryTask: () => {},
         }),
       }));
-      const canCancel = ["certificate_issue", "certificate_deploy"].includes(taskType) && ["queued", "running"].includes(status);
+      const canCancel = ["certificate_issue", "certificate_deploy", "certificate_import", "certificate_validate", "renewal_check"].includes(taskType) && ["queued", "running"].includes(status);
       const canRetry = (taskType === "certificate_issue" && ["failed", "cancelled"].includes(status)) || (taskType === "certificate_deploy" && ["failed", "cancelled", "partial_success"].includes(status));
       const buttonCount = (html.match(/<button\b/g) || []).length;
       assert.equal(buttonCount, canCancel || canRetry ? 2 : 1, `${taskType}:${status}`);

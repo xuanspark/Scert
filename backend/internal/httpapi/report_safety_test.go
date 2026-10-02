@@ -13,18 +13,20 @@ import (
 )
 
 func TestRenewalReportHidesNestedWorkflowErrors(t *testing.T) {
-	server := New(Dependencies{
-		Config: readyTestConfig(t.TempDir()),
-		RunRenewal: func(context.Context) (certificate.RenewalReport, error) {
-			return certificate.RenewalReport{Failed: 1, Errors: []string{"internal-secret-sentinel"}}, nil
-		},
-	})
+	server, tasks, _, cleanup := newTaskAPITestServer(t, nil)
+	defer cleanup()
+	server.runRenewal = func(context.Context) (certificate.RenewalReport, error) {
+		return certificate.RenewalReport{Failed: 1, Errors: []string{"internal-secret-sentinel"}}, nil
+	}
 	response := httptest.NewRecorder()
 	serveSuperAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil))
-	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "internal-secret-sentinel") {
-		t.Fatalf("续期报告不得返回底层敏感错误：%d", response.Code)
+	task := submittedTask(t, response)
+	waitTaskWorkersForTest(t, server)
+	stored, err := tasks.GetTask(t.Context(), task.ID)
+	if err != nil || stored.Status != "failed" || strings.Contains(stored.Message, "internal-secret-sentinel") {
+		t.Fatalf("续期报告不得返回底层敏感错误：%+v %v", stored, err)
 	}
-	if !strings.Contains(response.Body.String(), `"failed":1`) {
+	if !strings.Contains(stored.Message, "失败 1 项") {
 		t.Fatal("脱敏不能丢失续期失败计数")
 	}
 }

@@ -78,6 +78,7 @@ export function useRuntimeOverview(state) {
   }, clock.value));
   const visibleTasks = computed(() => detailView.value === "tasks" ? summary.value.tasks : summary.value.tasks.slice(0, 5));
   function taskDomain(task) {
+    if (task.task_type === "renewal_check") return "管理证书与全部业务域名";
     if (task.task_type === "management_renewal") return "管理页面证书";
     return state.domains.value.find((item) => item.id === task.domain_id)?.name || "系统任务或已移除域名";
   }

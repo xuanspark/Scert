@@ -26,6 +26,9 @@ func (r *SQLProjectMemberRepository) ListVisibleAuditLogs(ctx context.Context, a
 		logs.scope_type, logs.project_id, logs.task_id, logs.operator_id
 		FROM audit_logs logs WHERE EXISTS (
 			SELECT 1 FROM users actor WHERE actor.id = ? AND actor.status = 'active'
+			AND (actor.role = 'super_admin' OR NOT EXISTS (
+				SELECT 1 FROM tasks restricted_task WHERE restricted_task.id = logs.task_id
+				AND restricted_task.task_type = 'renewal_check'))
 			AND (actor.role IN ('super_admin', 'admin') OR (actor.role = 'user'
 				AND logs.scope_type = 'project' AND EXISTS (
 					SELECT 1 FROM project_members member

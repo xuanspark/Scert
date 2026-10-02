@@ -48,6 +48,7 @@ func taskVisibilityPredicate(alias string, permission domain.ProjectPermission) 
 	return `EXISTS (
 		SELECT 1 FROM users task_actor
 		WHERE task_actor.id = ? AND task_actor.status = 'active'
+		AND (` + alias + `.task_type <> 'renewal_check' OR task_actor.role = 'super_admin')
 		AND (task_actor.role IN ('super_admin', 'admin') OR (
 			task_actor.role = 'user' AND ` + alias + `.scope_type = 'project'
 			AND EXISTS (SELECT 1 FROM project_members task_member

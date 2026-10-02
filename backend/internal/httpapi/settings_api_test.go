@@ -362,57 +362,34 @@ func TestSettingsAPIReturnsChineseNotificationCredentialError(t *testing.T) {
 }
 
 func TestRenewalAPIUsesConfiguredRunner(t *testing.T) {
-	cfg := config.Default(t.TempDir())
-	cfg.SetupReady = true
-	cfg.DNS.VerificationState = "verified"
-	cfg.Web.Hostname = "scert.example.test"
-	cfg.Admin.Username = "admin"
-	cfg.Admin.Email = "admin@example.test"
-	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	called := false
-	server := New(Dependencies{
-		Config: cfg,
-		RunRenewal: func(context.Context) (certificate.RenewalReport, error) {
-			called = true
-			return certificate.RenewalReport{Checked: 2, Selected: 1, Succeeded: 1}, nil
-		},
-	})
-	cookie := loginForSettingsTest(t, server)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil)
-	request.AddCookie(cookie)
+	server, tasks, _, cleanup := newTaskAPITestServer(t, nil)
+	defer cleanup()
+	server.runRenewal = func(context.Context) (certificate.RenewalReport, error) {
+		return certificate.RenewalReport{Checked: 2, Selected: 1, Succeeded: 1}, nil
+	}
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !called || !strings.Contains(response.Body.String(), `"selected":1`) {
-		t.Fatalf("续期接口调用结果不正确：%d %s；called=%v", response.Code, response.Body.String(), called)
+	serveSuperAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil))
+	task := submittedTask(t, response)
+	waitTaskWorkersForTest(t, server)
+	stored, err := tasks.GetTask(t.Context(), task.ID)
+	if err != nil || stored.Status != "success" || !strings.Contains(stored.Message, "检查 2 项") || !strings.Contains(stored.Message, "成功 1 项") {
+		t.Fatalf("续期任务结果不正确：%+v %v", stored, err)
 	}
 }
 
 func TestRenewalAPIHidesWorkflowErrors(t *testing.T) {
-	cfg := config.Default(t.TempDir())
-	cfg.SetupReady = true
-	cfg.Admin.Username = "admin"
-	cfg.Admin.Email = "admin@example.test"
-	cfg.Admin.PasswordHash = mustTestPasswordHash(t, "Password123")
-	server := New(Dependencies{
-		Config: cfg,
-		RunRenewal: func(context.Context) (certificate.RenewalReport, error) {
-			return certificate.RenewalReport{}, errors.New("private-key-secret-path")
-		},
-	})
-	cookie := loginForSettingsTest(t, server)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil)
-	request.AddCookie(cookie)
+	server, tasks, _, cleanup := newTaskAPITestServer(t, nil)
+	defer cleanup()
+	server.runRenewal = func(context.Context) (certificate.RenewalReport, error) {
+		return certificate.RenewalReport{}, errors.New("private-key-secret-path")
+	}
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusConflict {
-		t.Fatalf("renewal failure returned an unexpected status: %d %s", response.Code, response.Body.String())
-	}
-	body := response.Body.String()
-	if strings.Contains(body, "private-key-secret-path") {
-		t.Fatalf("renewal API leaked an internal error: %s", body)
-	}
-	if !strings.Contains(body, "\u6267\u884c\u8bc1\u4e66\u7eed\u671f\u5931\u8d25") {
-		t.Fatalf("renewal API did not include the safe error message: %s", body)
+	serveSuperAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/renewal/run", nil))
+	task := submittedTask(t, response)
+	waitTaskWorkersForTest(t, server)
+	stored, err := tasks.GetTask(t.Context(), task.ID)
+	if err != nil || stored.Status != "failed" || strings.Contains(stored.Message, "private-key-secret-path") || !strings.Contains(stored.Message, "未全部完成") {
+		t.Fatalf("续期失败任务未安全保留结果：%+v %v", stored, err)
 	}
 }
 func TestRenewalAPIRequiresSuperAdmin(t *testing.T) {

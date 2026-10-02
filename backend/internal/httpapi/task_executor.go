@@ -54,6 +54,9 @@ func (s *Server) enqueueTaskWorker(c *gin.Context, task repository.Task, attempt
 				if task.TaskType == "certificate_validate" {
 					message = "证书校验异常中断，未保存通过结果"
 				}
+				if task.TaskType == "renewal_check" {
+					message = "续期检查异常中断，请检查已生成的续期任务，不会自动重放"
+				}
 				s.finishTaskBeforeExecution(task, attempt, "failed", message)
 			}
 		}()

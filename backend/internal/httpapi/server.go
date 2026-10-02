@@ -243,7 +243,7 @@ func (s *Server) registerRoutes() {
 	adminAPI.GET("/dns/accounts", s.listDNSAccounts)
 	adminAPI.POST("/dns/test", s.requireSuperAdminSystemConfig, s.dnsOperation, s.testAdminDNS)
 	adminAPI.POST("/dns/aliyun/check", s.requireSuperAdminSystemConfig, s.dnsOperation, s.checkAliyunDNSDomain)
-	adminAPI.POST("/renewal/run", s.requireSuperAdmin, s.longOperation(certificateTaskTimeout), s.runRenewalNow)
+	adminAPI.POST("/renewal/run", s.requireSuperAdmin, s.runRenewalNow)
 	domainAPI.POST("/domains/:id/certificate/import", s.longOperation(certificateTaskTimeout), s.importCertificateFiles)
 	domainAPI.POST("/domains/:id/certificate/validate", s.longOperation(certificateTaskTimeout), s.validateCertificate)
 	domainAPI.POST("/domains/:id/deploy", s.deployCertificateCurrent)

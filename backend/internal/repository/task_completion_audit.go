@@ -14,8 +14,8 @@ func (r *SQLTaskRepository) recordCompletionAudit(ctx context.Context, tx *sql.T
 	}
 	result, err := tx.ExecContext(ctx, r.query(`INSERT INTO audit_logs
 		(action, resource_type, resource_id, status, message, created_at, scope_type, project_id, task_id, operator_id)
-		SELECT ?, CASE WHEN scope_type = 'system' THEN 'management_certificate' ELSE 'domain' END,
-			domain_id, ?, ?, ?, scope_type, project_id, id, operator_id
+		SELECT ?, CASE WHEN task_type = 'renewal_check' THEN 'task' WHEN scope_type = 'system' THEN 'management_certificate' ELSE 'domain' END,
+			CASE WHEN task_type = 'renewal_check' THEN id ELSE domain_id END, ?, ?, ?, scope_type, project_id, id, operator_id
 		FROM tasks WHERE id = ?`), completion.AuditAction, status, completion.Message,
 		completion.FinishedAt.UTC(), completion.TaskID)
 	if err != nil {

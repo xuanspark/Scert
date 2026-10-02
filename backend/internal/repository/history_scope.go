@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	ScopeProject         = "project"
-	ScopeSystem          = "system"
-	ScopeUnknown         = "unknown"
-	ManagementResourceID = "management-certificate"
+	ScopeProject           = "project"
+	ScopeSystem            = "system"
+	ScopeUnknown           = "unknown"
+	ManagementResourceID   = "management-certificate"
+	RenewalCheckResourceID = "global-renewal-check"
 )
 
 // HistoryScope 保存事件发生时的范围，资源或项目删除后仍保留；不是项目授权凭证。

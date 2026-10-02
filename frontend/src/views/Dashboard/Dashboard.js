@@ -3,6 +3,7 @@ import { settingsPayload } from "./SettingsPayload.js";
 import { deploymentSummary, serverAuthLabel } from "./DeploymentFeedback.js";
 import { useDomainForm } from "./DomainForm.js";
 import { useTaskMonitor } from "./TaskMonitor.js";
+import { useRenewalAction } from "./RenewalAction.js";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
 const aliyunDNSVerificationTimeoutSeconds = 6;
@@ -82,6 +83,9 @@ export function useDashboard() {
     taskAttempts, taskDetailsLoading, taskDetailsError,
     refreshResources: refreshTaskResources,
   });
+  const { runRenewalNow, renewalSubmitting } = useRenewalAction({
+    canRunRenewal, error, notice, fetchAdmin, taskMonitor,
+  });
   const hasOpenModal = computed(
     () =>
       showForm.value ||
@@ -143,6 +147,7 @@ export function useDashboard() {
   };
   taskStatusLabels.error = taskStatusLabels.failed;
   const taskTypeLabels = {
+    renewal_check: "全局续期检查",
     management_renewal: "管理证书续期",
     certificate_issue: "申请证书",
     certificate_import: "导入证书",
@@ -153,6 +158,7 @@ export function useDashboard() {
     dns_test: "DNS 在线测试",
   };
   const auditActionLabels = {
+    renewal_check: "全局续期检查",
     management_renewal: "管理证书续期",
     certificate_issue: "申请证书",
     certificate_import: "导入证书",
@@ -170,6 +176,7 @@ export function useDashboard() {
     renewal_run: "执行自动续期",
   };
   const taskStageLabels = {
+    renewal_check: "检查管理证书和业务域名续期",
     management_renewal: "管理证书续期",
     preflight: "续期前置检查",
     issue: "申请管理证书",
@@ -680,25 +687,6 @@ export function useDashboard() {
     }
   }
 
-  async function runRenewalNow() {
-    if (!canRunRenewal.value) {
-      error.value = "只有超级管理员可以执行续期检查";
-      return;
-    }
-    error.value = "";
-    notice.value = "";
-    try {
-      const response = await fetchAdmin("/api/v1/renewal/run", { method: "POST" });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "执行续期检查失败");
-      const report = result.report || {};
-      notice.value = `续期检查完成：检查 ${report.checked || 0} 项，选中 ${report.selected || 0} 项，成功 ${report.succeeded || 0} 项，失败 ${report.failed || 0} 项`;
-      await loadData();
-    } catch (err) {
-      error.value = err.message || "执行续期检查失败";
-    }
-  }
-
   function handleDNSProviderChange() {
     dnsRequestVersion += 1;
     stopDNSVerificationTimer();
@@ -1159,6 +1147,7 @@ export function useDashboard() {
     taskStageLabel,
     attemptStatusLabel,
     runRenewalNow,
+    renewalSubmitting,
     openSettings,
     closeSettings,
     saveSettings,

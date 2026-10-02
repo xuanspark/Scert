@@ -92,7 +92,7 @@ const { detailView, summary, visibleTasks, taskDomain } = useRuntimeOverview(pro
                 <td>
                   <button type="button" @click="openTaskDetails(item)">查看详情</button>
                   <button
-                    v-if="(item.task_type === 'certificate_issue' || item.task_type === 'certificate_deploy') && (item.status === 'queued' || item.status === 'running')"
+                    v-if="['certificate_issue', 'certificate_deploy', 'certificate_import', 'certificate_validate', 'renewal_check'].includes(item.task_type) && (item.status === 'queued' || item.status === 'running')"
                     type="button"
                     @click="cancelTask(item)"
                   >取消任务</button>

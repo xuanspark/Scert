@@ -110,8 +110,12 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
 	}
 	insertQuery := `INSERT INTO tasks
 		(id, domain_id, task_type, status, stage, message, operator_id, certificate_version_id, idempotency_key, started_at, finished_at, created_at, updated_at, scope_type, project_id) `
-	if item.TaskType == "management_renewal" {
-		if item.DomainID != ManagementResourceID || !item.HistoryScope.matches(HistoryScope{ScopeType: ScopeSystem}) {
+	if item.TaskType == "management_renewal" || item.TaskType == "renewal_check" {
+		resourceID := ManagementResourceID
+		if item.TaskType == "renewal_check" {
+			resourceID = RenewalCheckResourceID
+		}
+		if item.DomainID != resourceID || !item.HistoryScope.matches(HistoryScope{ScopeType: ScopeSystem}) {
 			return errors.New("管理证书任务范围无效")
 		}
 		tx, err := r.db.BeginTx(ctx, nil)
@@ -139,7 +143,7 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, item Task) error {
 		}
 		return nil
 	}
-	if item.DomainID == ManagementResourceID || (item.ScopeType != "" && item.ScopeType != ScopeProject) {
+	if item.DomainID == ManagementResourceID || item.DomainID == RenewalCheckResourceID || (item.ScopeType != "" && item.ScopeType != ScopeProject) {
 		return errors.New("业务任务必须归属于实际域名项目")
 	}
 
@@ -441,6 +445,7 @@ func (r *SQLTaskRepository) CreateAttempt(ctx context.Context, item TaskAttempt)
 		SELECT ?, id, ?, ?, ?, ?, ?, ?, ? FROM tasks t WHERE id = ?
 		AND (? = '' OR scope_type = ?) AND (? = '' OR project_id = ?)
 		AND ((t.scope_type = 'system' AND t.task_type = 'management_renewal' AND t.domain_id = 'management-certificate')
+		OR (t.scope_type = 'system' AND t.task_type = 'renewal_check' AND t.domain_id = 'global-renewal-check')
 		OR (t.scope_type = 'project' AND EXISTS (SELECT 1 FROM domains d JOIN projects p ON p.id = d.project_id
 			WHERE d.id = t.domain_id AND d.project_id = t.project_id)))`), item.ID, item.AttemptNumber, item.Stage, item.Status, item.Message,
 		nullableTime(item.StartedAt), nullableTime(item.FinishedAt), item.CreatedAt.UTC(), item.TaskID,

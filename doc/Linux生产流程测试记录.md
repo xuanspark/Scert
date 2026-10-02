@@ -1,5 +1,17 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日21:30 手动全局续期后台化回归（未部署）
+
+- [x] 修改前基线 4ab3f93 已提交推送。本批继续只用密码 SSH/SCP 和严格主机密钥校验；第一台隔离目录 /var/tmp/scert-report-race-20261002-1801/renewal-source，以 nobody 运行原生测试，不创建辅助验收脚本。
+- [x] 最新后端增量 renewal-changes-second-20261002.tar 两端 SHA256 一致：ac2fa2715cb83848f54bbb25e235fe1bb079f5e21c39520dda03bd6b6a5b5f7d。完整基线 renewal-full-baseline-4ab3f93-20261002.tar 两端 SHA256 一致：e8efd10986484bad1d9d4bb0ffb01ef72b40f14c2d53f4fbffe253370ad3ae09。归档为测试源码，不是正式发布包。
+- [x] 第一版专项 renewal-first.log 完成，RENEWAL_FIRST_EXIT=0；断开 SSH 后重新核验进程及日志确认终态，未因会话断开重复开测。该版不含后补审计隔离及真实调度器联调用例，不用它代表最终全部改动。
+- [!] 最新源码第一次全量 renewal-second.log 退出一：后端单独基线漏带 deploy、build、.gitignore 等源树依赖，安装器、发布边界及服务单元测试失败；HTTP 与仓储包分别通过。没有删除失败日志或跳过检查。确认终态后补齐完整同提交基线、重新覆盖最新增量，并为源码边界测试建立隔离 Git 索引。
+- [x] renewal-final-full-vet.log：go test -p 1 ./... -count=1 与 go vet -p 1 ./... 均完成，RENEWAL_FINAL_FULL_EXIT=0、RENEWAL_FINAL_VET_EXIT=0。使用 Go 1.26.6、GOMAXPROCS=1、GOMEMLIMIT=384MiB 和现有本地模块代理；测试自行创建独立空数据库，外部实库默认跳过，不算三数据库完整验收。
+- [x] renewal-final-repeat.log：TestAsyncRenewal、TestRenewalAPI、TestRenewalReport、TestRenewalCheck 重复二十次通过，RENEWAL_FINAL_REPEAT_EXIT=0；HTTP 包 45.438 秒、仓储包 2.480 秒。包含十四种生命周期场景、运行取消保留计数、真实调度器管理与业务双路径、权限隔离及审计故障事务回滚；不是竞争检测。
+- [x] .runtime/renewal-frontend-second-20261002.log：272 项通过、零失败、零跳过；.runtime/renewal-frontend-build-20261002.log：生产构建退出零。新增测试已纳入正式入口，第一版 266 项结果不作为本批完整证明。
+- [x] 21:30 复核第一台 Scert、Nginx、MySQL 均 active，磁盘约剩 13GB；本批未替换线上程序、未重启生产服务、未清空线上数据库、未新增公网监听。
+- [!] 尚无本批竞争检测、浏览器或正式部署验收通过证据；不关闭其他长操作、历史恢复、升级、通知重置、三库首次 Web、备份恢复、监控及整体生产门禁。
+
 ## 2026年10月2日20:34 证书校验后台任务及幂等契约回归（未部署）
 
 ### 代码与隔离边界
