@@ -780,7 +780,7 @@ func newDomainImportCommand() *cobra.Command {
 	}}
 	command.Flags().StringVar(&id, "id", "", "域名 ID")
 	command.Flags().StringVar(&certificatePath, "certificate", "", "证书 PEM 文件路径")
-	command.Flags().StringVar(&privateKeyPath, "private-key", "", "私钥 PEM 文件路径")
+	command.Flags().StringVar(&privateKeyPath, "private-key", "", "HTTPS 证书私钥 PEM 文件路径")
 	command.Flags().StringVar(&issuerPath, "issuer", "", "签发者证书 PEM 文件路径，可选")
 	_ = command.MarkFlagRequired("id")
 	_ = command.MarkFlagRequired("certificate")

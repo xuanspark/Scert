@@ -10,5 +10,5 @@ import (
 func (s *Server) connectSSHAfterReload(ctx context.Context, item deployment.Server) (deployment.Client, error) {
 	_ = ctx
 	_ = item
-	return nil, errors.New("服务器仅支持 SSH 密码认证，已禁用 SSH 密钥登录")
+	return nil, errors.New("服务器连接仅支持 SSH 密码认证")
 }

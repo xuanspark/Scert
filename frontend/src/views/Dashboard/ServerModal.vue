@@ -107,8 +107,8 @@ const {
               </label>
               <label class="field server-form-field-wide">
                 <span>
-                  SSH 主机 SHA256 指纹
-                  <HelpTip>请填写通过可信渠道核对过的服务器主机指纹，避免连接到错误的服务器。</HelpTip>
+                  服务器 SHA256 指纹
+                  <HelpTip>请填写通过可信渠道核对过的服务器指纹，避免连接到错误的服务器。</HelpTip>
                 </span>
                 <input
                   v-model="serverForm.host_key_fingerprint"

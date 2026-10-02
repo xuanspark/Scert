@@ -8,7 +8,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/secretstore"
 )
 
-var ErrDisabled = errors.New("SSH 密钥登录功能已永久停用，仅支持 SSH 密码认证")
+var ErrDisabled = errors.New("服务器连接仅支持 SSH 密码认证")
 
 type Store interface {
 	Put(ctx context.Context, reference string, value map[string]string) error

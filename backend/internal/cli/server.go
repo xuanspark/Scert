@@ -192,7 +192,7 @@ func (f *serverFlags) bind(command *cobra.Command) {
 	command.Flags().StringVar(&f.username, "username", "", "SSH 用户")
 	command.Flags().StringVar(&f.fingerprint, "host-key-fingerprint", "", "SSH 主机 SHA256 指纹")
 	command.Flags().StringVar(&f.certificatePath, "certificate-path", deployment.DefaultCertificatePath, "远程证书文件路径模板")
-	command.Flags().StringVar(&f.privateKeyPath, "private-key-path", deployment.DefaultPrivateKeyPath, "远程私钥文件路径模板")
+	command.Flags().StringVar(&f.privateKeyPath, "private-key-path", deployment.DefaultPrivateKeyPath, "远程 HTTPS 证书私钥路径模板")
 	command.Flags().StringVar(&f.chainPath, "chain-path", deployment.DefaultCertificateChainPath, "远程完整证书链路径模板")
 	command.Flags().StringVar(&f.webServer, "web-server", string(deployment.WebServerNginx), "Web 服务类型：nginx、caddy、apache、custom")
 	command.Flags().StringSliceVar(&f.validationCommand, "validation-command", nil, "自定义配置校验命令及参数")

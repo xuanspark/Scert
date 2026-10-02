@@ -395,7 +395,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
       </div>
       <div v-if="servers.length === 0" class="empty-state">
         <strong>还没有部署服务器</strong
-        ><span>添加 SSH 服务器后，证书申请成功可自动部署。</span
+        ><span>添加部署服务器后，证书申请成功可自动部署。</span
         ><button class="primary-button" type="button" @click="openServerCreate">
           添加部署服务器
         </button>
@@ -460,7 +460,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <input type="file" accept=".pem,.crt,.cer,.txt" required @change="selectCertificateImportFile('certificate', $event)" />
           </label>
           <label class="field">
-            <span>证书密钥文件 <small>必选，仅用于 HTTPS 证书部署</small></span>
+            <span>HTTPS 证书私钥文件 <small>必选，仅用于 HTTPS 证书部署</small></span>
             <input type="file" accept=".pem,.key,.txt" required @change="selectCertificateImportFile('private_key', $event)" />
           </label>
           <label class="field">

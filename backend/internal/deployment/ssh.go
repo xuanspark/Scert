@@ -41,6 +41,9 @@ func (f SSHFactory) connect(ctx context.Context, server Server, requireSFTP bool
 	if err := server.Validate(); err != nil {
 		return nil, err
 	}
+	if server.AuthMethod != SSHAuthPassword {
+		return nil, errors.New("服务器连接仅支持 SSH 密码认证")
+	}
 	if f.Secrets == nil {
 		return nil, errors.New("SSH 敏感信息存储未初始化")
 	}
