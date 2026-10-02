@@ -65,6 +65,12 @@ export function useDashboard() {
   const importSaving = ref(false);
   const importError = ref("");
   const importResult = ref(null);
+  const showCertificateVersions = ref(false);
+  const versionDomain = ref(null);
+  const certificateVersions = ref([]);
+  const versionsLoading = ref(false);
+  const versionsError = ref("");
+  const restoreSubmitting = ref("");
   let importIdempotencyKey = "";
   const importFiles = ref({
     certificate: null,
@@ -92,6 +98,7 @@ export function useDashboard() {
       showServerForm.value ||
       showSettings.value ||
       showCertificateImport.value ||
+      showCertificateVersions.value ||
       deploymentResult.value !== null ||
       showTaskDetails.value,
   );
@@ -847,6 +854,64 @@ export function useDashboard() {
     if (!importSaving.value) showCertificateImport.value = false;
   }
 
+  async function openCertificateVersions(item) {
+    versionDomain.value = item;
+    certificateVersions.value = [];
+    versionsError.value = "";
+    versionsLoading.value = true;
+    showCertificateVersions.value = true;
+    try {
+      const response = await fetchAdmin(
+        `/api/v1/domains/${item.id}/certificate/versions`,
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "读取证书历史版本失败");
+      certificateVersions.value = Array.isArray(result.items) ? result.items : [];
+    } catch (err) {
+      versionsError.value = err.message || "读取证书历史版本失败";
+    } finally {
+      versionsLoading.value = false;
+    }
+  }
+
+  function closeCertificateVersions() {
+    if (!restoreSubmitting.value) showCertificateVersions.value = false;
+  }
+
+  async function restoreCertificateVersion(version) {
+    if (!version?.history_id || version.current || restoreSubmitting.value) return;
+    if (!window.confirm("确定恢复这个证书历史版本吗？恢复只更新 Scert 本地托管证书，不代表所有远端服务器已经部署。")) {
+      return;
+    }
+    const domain = versionDomain.value;
+    if (!domain) return;
+    const suffix = crypto.randomUUID ? crypto.randomUUID() : createRandomSuffix();
+    restoreSubmitting.value = version.history_id;
+    versionsError.value = "";
+    try {
+      const response = await fetchAdmin(
+        `/api/v1/domains/${domain.id}/certificate/versions/${encodeURIComponent(version.history_id)}/restore`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": `certificate-restore-${domain.id}-${suffix}` },
+        },
+      );
+      const result = await response.json().catch(() => ({}));
+      const replayed = response.status === 409 && result.replayed;
+      if (!(response.ok || replayed) || !result.task?.id) {
+        throw new Error(result.error || "提交证书历史版本恢复失败");
+      }
+      notice.value = `证书历史版本恢复任务已提交：${result.task.id}，恢复完成后请另行确认远端部署状态`;
+      showCertificateVersions.value = false;
+      await loadData();
+      await openTaskDetails(result.task);
+    } catch (err) {
+      versionsError.value = err.message || "提交证书历史版本恢复失败";
+    } finally {
+      restoreSubmitting.value = "";
+    }
+  }
+
   function selectCertificateImportFile(kind, event) {
     importFiles.value[kind] = event.target.files?.[0] || null;
     importError.value = "";
@@ -1127,6 +1192,15 @@ export function useDashboard() {
     closeCertificateImport,
     selectCertificateImportFile,
     importCertificate,
+    showCertificateVersions,
+    versionDomain,
+    certificateVersions,
+    versionsLoading,
+    versionsError,
+    restoreSubmitting,
+    openCertificateVersions,
+    closeCertificateVersions,
+    restoreCertificateVersion,
     saveServer,
     deleteServer,
     saveDomain,

@@ -74,6 +74,15 @@ const {
   closeCertificateImport,
   selectCertificateImportFile,
   importCertificate,
+  showCertificateVersions,
+  versionDomain,
+  certificateVersions,
+  versionsLoading,
+  versionsError,
+  restoreSubmitting,
+  openCertificateVersions,
+  closeCertificateVersions,
+  restoreCertificateVersion,
   settingsSaving,
   settingsError,
   dnsProviderCatalog,
@@ -384,6 +393,9 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <button class="text-button" type="button" @click="openCertificateImport(item)">
               导入证书
             </button>
+            <button class="text-button" type="button" @click="openCertificateVersions(item)">
+              历史版本
+            </button>
             <button class="text-button" type="button" @click="openEdit(item)">
               编辑</button
             ><button
@@ -492,6 +504,54 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <button class="primary-button" type="submit" :disabled="importSaving || !!importResult">{{ importSaving ? "导入中……" : importResult ? "已导入" : "导入证书" }}</button>
           </div>
         </form>
+      </section>
+    </div>
+
+    <div v-if="showCertificateVersions" class="modal-backdrop" @click.self="closeCertificateVersions">
+      <section class="modal-card certificate-history-modal" role="dialog" aria-modal="true" aria-label="证书历史版本">
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">证书管理</p>
+            <h2>证书历史版本</h2>
+            <p class="muted">托管域名：{{ versionDomain?.name }}</p>
+          </div>
+          <button class="close-button" type="button" aria-label="关闭" @click="closeCertificateVersions">×</button>
+        </div>
+        <p class="security-hint">
+          这里仅恢复 Scert 本地托管证书。恢复完成不等于远端服务器已部署，请在任务完成后单独确认部署状态。
+        </p>
+        <div v-if="versionsLoading" class="empty-state">正在读取证书历史版本……</div>
+        <p v-else-if="versionsError" class="form-error" role="alert">{{ versionsError }}</p>
+        <div v-else-if="certificateVersions.length === 0" class="empty-state compact-empty">
+          <strong>暂无可显示的历史版本</strong>
+          <span>证书成功保存后，历史版本会出现在这里。</span>
+        </div>
+        <div v-else class="certificate-history-list">
+          <article v-for="version in certificateVersions" :key="version.history_id || version.version" class="certificate-history-row">
+            <div>
+              <div class="domain-title-line">
+                <strong>{{ version.current ? "当前版本" : "历史版本" }}</strong>
+                <span v-if="version.current" class="tag success">正在使用</span>
+              </div>
+              <div class="domain-meta">
+                <span>版本：{{ version.version || "未记录" }}</span>
+                <span>保存时间：{{ formatDate(version.saved_at) }}</span>
+                <span>有效期至：{{ formatDate(version.not_after) }}</span>
+                <span v-if="version.fingerprint_sha256">指纹：{{ version.fingerprint_sha256 }}</span>
+              </div>
+            </div>
+            <button
+              v-if="!version.current"
+              class="secondary-button"
+              type="button"
+              :disabled="!!restoreSubmitting"
+              @click="restoreCertificateVersion(version)"
+            >
+              {{ restoreSubmitting === version.history_id ? "提交中……" : "恢复此版本" }}
+            </button>
+            <span v-else class="muted">当前版本不可重复恢复</span>
+          </article>
+        </div>
       </section>
     </div>
 
