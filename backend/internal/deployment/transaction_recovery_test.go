@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
