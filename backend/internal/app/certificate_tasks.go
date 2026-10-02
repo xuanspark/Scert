@@ -152,10 +152,11 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		})
 		result, resultErr = execute(issueCtx, id)
 		cancel()
-		if recordErr := w.tasks.RecordTaskDeploymentResults(taskCtx, task.ID, attempt.ID, number, taskDeploymentResults(result.Deployment)); recordErr != nil {
+		// 取消只停止外部操作，结果保存仍使用独立且有限时的收尾上下文。
+		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		if recordErr := w.tasks.RecordTaskDeploymentResults(finishCtx, task.ID, attempt.ID, number, taskDeploymentResults(result.Deployment)); recordErr != nil {
 			resultErr = errors.Join(resultErr, recordErr)
 		}
-		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		finished := time.Now().UTC()
 		status, message := certificateTaskOutcome(result, resultErr)
 		recordErr := w.tasks.FinishAttempt(finishCtx, attempt.ID, status, message, &finished)
@@ -196,16 +197,17 @@ func taskDeploymentResults(report deployment.Report) []repository.TaskDeployment
 }
 
 func certificateTaskOutcome(result CertificateWorkflowResult, err error) (string, string) {
-	if errors.Is(err, context.Canceled) {
-		return "cancelled", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u5df2\u53d6\u6d88"
-	}
 	if result.Deployment.Status == "partial" {
-		return "partial_success", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u5df2\u5b8c\u6210\u90e8\u5206\u90e8\u7f72"
+		return "partial_success", "证书工作流已完成部分部署"
+	}
+	// 未确认或失败的恢复不能被取消意图掩盖，部分成功也必须保留真实状态。
+	if errors.Is(err, context.Canceled) && result.Deployment.RecoveryStatus != "unconfirmed" && result.Deployment.RecoveryStatus != "failed" {
+		return "cancelled", "证书工作流已取消"
 	}
 	if err != nil {
-		return "failed", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u672a\u5b8c\u6210\uff0c\u8bf7\u68c0\u67e5\u53d7\u4fdd\u62a4\u7684\u670d\u52a1\u65e5\u5fd7"
+		return "failed", "证书工作流未完成，请检查受保护的服务日志"
 	}
-	return "success", "\u8bc1\u4e66\u5de5\u4f5c\u6d41\u6267\u884c\u5b8c\u6210"
+	return "success", "证书工作流执行完成"
 }
 
 var _ certificate.CertificateIssuer = (*certificateTaskWorkflow)(nil)

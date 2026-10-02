@@ -1,5 +1,16 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日18:11 后台取消与 MySQL 报告迁移回归（未部署）
+
+- [x] 新增原生 Go 回归 TestCertificateCancellationPreservesDeploymentOutcome；background-cancel-before.log 中四个场景全部失败，BACKGROUND_CANCEL_BEFORE_EXIT=1。三个场景被错误标为 cancelled，已恢复场景未保存逐服务器结果。
+- [x] 修复为部分成功优先、恢复未确认／失败不被取消掩盖，并使用独立十秒收尾上下文保存实际结果。background-cancel-after.log 重复二十次通过，BACKGROUND_CANCEL_AFTER_EXIT=0，耗时 17.847 秒。普通重复回归不替代竞争检测。
+- [x] 新增原生 Go 实库测试 TestMySQLRealTaskReportMigrationRecovery；使用系统已有 /usr/sbin/mysqld 8.0.46，不安装额外数据库，不接受已有实例连接串。运行前检查磁盘余量；新实例仅监听 127.0.0.1:3887，严格 TLS，测试使用随机凭据。
+- [x] report-mysql8.log：三条迁移恢复路径与五类冲突全部通过，REPORT_MYSQL8_EXIT=0，耗时 49.100 秒。覆盖超过普通 TEXT 容量的中文报告保持、主键顺序、可空字段、存储引擎及额外字段；冲突重复拒绝且结构和报告不被覆盖。
+- [x] 实库产物保留于 /var/tmp/scert-report-mysql-20261002-1808/scert-mysql-integration-1850050069；没有连接或清理线上业务数据库，没有创建辅助验收脚本。
+- [~] background-full.log 与 background-vet.log 为新增后台修复后的全量回归，当前尚待收集最终结果。
+- [~] 第一台从干净源码归档 4e8d509 启动受限竞争检测，归档 SHA256 为 401d480814aa3f777fcb51b36b7837ced08ba6964475b2d996066167da48eec8。独立单元 scert-report-race-20261002-1801，MemoryMax=512M、MemoryHigh=384M、MemorySwapMax=0、CPUQuota=50%、RuntimeMaxSec=600；限定任务与 HTTP 异步专项，不扩展成全项目竞争检测通过。
+- [!] 当前 MySQL 5.7、PostgreSQL 新迁移、后台全报告原子化、其他长操作、关停 502、通知重置及统一生产门禁仍待完成；本批未正式部署。
+
 ## 2026年10月2日17:56 完整报告与审计事务回归（未部署）
 
 - [x] 源码 4e8d509 已推送；第二台隔离目录 /var/tmp/scert-async-20261002-1556/source 执行，不修改正式安装目录或线上数据库。

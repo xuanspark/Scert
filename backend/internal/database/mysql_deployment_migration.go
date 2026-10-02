@@ -62,7 +62,7 @@ var (
 	mysqlIntegerWidthPattern     = regexp.MustCompile(`^int\([0-9]+\)$`)
 )
 
-// 只解析这三份内嵌迁移使用的语法；出现未知定义时拒绝迁移，避免漏检结构。
+// 只解析部署与报告内嵌迁移使用的语法；出现未知定义时拒绝迁移，避免漏检结构。
 func parseMySQLDeploymentShape(statement string) (mysqlDeploymentShape, error) {
 	var shape mysqlDeploymentShape
 	lines := strings.Split(strings.TrimSpace(statement), "\n")
