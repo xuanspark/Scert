@@ -1,5 +1,32 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日14:20 候选正式构建与双机核心升级
+
+### 构建与候选检查
+
+- [x] 源码提交：7ba4046135bae9d55468c5c132019073db280c37。第二台 `/var/tmp/scert-recovery-release-20261002-1401/source` 为独立干净检出，正式构建入口返回 `RELEASE_BUILD_EXIT=0`，manifest 的 source_dirty=false，构建后 Git 状态仍干净。
+- [x] 正式归档 SHA256：042f25acc87d8a68b0629f0b0bbacaa987204c00776e67ba0f5c3ddf2fd58edb。第二台、本机、第一台传输摘要一致，两台从正式归档解包后 SHA256SUMS 均通过，安装器具备归档声明的执行权限。
+- [x] 前端测试日志 `frontend-test.log`：二百四十项通过、零失败、一项 Windows 专用发布脚本用例跳过。Linux 范围不把该项记为通过。
+- [x] 候选全量模块检查 `module-verify.log` 返回 `RELEASE_MODULE_VERIFY_EXIT=0`，输出 all modules verified。第一台额外的全量模块检查因离线缓存仅含竞争用例所需模块而失败，不能记为全量模块通过；此前竞争检测本身退出零，范围不变。
+- [x] `listen-negative.log`：发行程序使用 nobody、独立且不存在的配置路径，0.0.0.0、::、192.0.2.1、localhost 均退出 1，未创建配置文件；没有开启额外公网监听来完成测试。
+
+### 第二台管理入口升级
+
+- [!] 北京时间 14:09:05 首次误从构建工作目录调用安装器，因文件无执行权限退出 126，产品安装未发生；停服已发生，立即恢复旧服务，14:09:34 严格域名 readyz 恢复成功。失败保留在 `install-second.log`，这次额外停服不得从记录中隐去。
+- [x] 随后使用正式归档解包目录 `package-second`，14:11:04 开始升级、14:11:06 服务 active；`install-second-archive.log` 对应 `SECOND_ARCHIVE_UPGRADE_EXIT=0`。未通过 chmod 构建目录文件来替代正式归档校验。
+- [x] Scert 主进程 36639，Type=notify，监听 127.0.0.1:8443；首页与 readyz 的普通域名 HTTPS 均为 HTTP 200、TLS 校验零，HTTP 入口为 301。后续五次 readyz 均 HTTP 200、TLS 零、curl 退出零。
+- [x] Nginx 与 MySQL 主进程分别仍为 792、775，Nginx 配置摘要未变；Scert-admin 保持 inactive。
+
+### 第一台部署目标升级与范围
+
+- [x] 第一台正式归档与包内摘要通过，14:13:30 至 14:13:32 完成核心升级，`install-first-archive.log` 返回 `FIRST_ARCHIVE_UPGRADE_EXIT=0`，Scert 主进程 25145，只监听 127.0.0.1:8443；未新增管理站点。
+- [x] Nginx、MySQL 主进程仍为 1015、1092，Nginx 配置摘要未变；xmail.service 升级前后均 active，未对它执行停止、重启或配置操作。首次只读查询误用大小写不同的 Xmail.service，随后按实际单元名核实，不据此误报邮件服务故障。
+- [x] 双机 scert、scert-admin、scert-storage 与对应候选包逐字节一致；主程序 SHA256：d7e05a0dcf2afc06b68dc00959fe2057eb40cc54bbfdabb26b12f84bcc88073f。
+- [x] 双机 unit 校验均退出零。升级后双向 IPv4 探测对方的 8443、3306、33060 均超时未建立连接，仅证明这两个来源的对应路径，不能扩大为全部来源或 IPv6 外部探测结论。
+- [x] 第一台跨机普通域名 https 检查 odacm.cn 的 readyz 返回 ready、HTTP 200、TLS 零、curl 退出零。
+- [ ] 第二台独立 `/usr/local/libexec/scert-nginx` 仍记录旧提交 431fd043，和候选包摘要不同；普通安装器不安装该独立组件，本轮未改其程序、策略或事务。当前只读事务状态为 rolled_back，socket active；这不是新候选的双层协调验收，后续需按独立升级流程完成配套验证。
+- [~] 本轮没有清业务库、没有执行浏览器首次流程，没有删除历史锁或事务；P0-10 业务负向矩阵、升级停服窗口、系统通知、三数据库首次流程和最终生产门禁仍未通过。
+
 ## 2026年10月2日13:59 测试隔离修复与完整检出回归
 
 - [x] 十个测试文件共二十一行调整：重置状态文件、敏感配置及 SQLite DSN 均进入临时目录；共享连接池和子进程仍复用同一个测试数据库。不改产品行为、不提权写正式目录。
