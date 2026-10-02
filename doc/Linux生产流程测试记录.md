@@ -1,5 +1,29 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日20:34 证书校验后台任务及幂等契约回归（未部署）
+
+### 代码与隔离边界
+
+- [x] 接续 fce5a84 校验开发批次，修复前精确提交推送 24a9683；没有暂存测试归档、日志、密钥或凭据。本批只使用原生 Go／前端用例，没有创建辅助验收脚本。
+- [x] 最终后端增量 validation-async-second-20261002.tar 的本机与双机 SHA256 均为 3f6d01008441f2053b7098732bf622aab16b6d9a34ee513967ff1deaa437227b。第一台额外使用 fce5a84 源码基线归档，SHA256 为 a82b68293c7ce1d0a8155e08164a3a6ad2b6ec57df8465731da1a6fad673aca2；均只包含源码，不是正式发布包。
+- [x] 密码 SSH/SCP 沿用严格主机密钥校验，未启用公钥登录。第二台复用 /var/tmp/scert-async-20261002-1556/source/backend；第一台使用 /var/tmp/scert-report-race-20261002-1801/validation-source/backend。测试以 nobody 执行，GOMAXPROCS=1、GOMEMLIMIT=384MiB、-p 1。
+
+### 后端与实库证据
+
+- [!] validation-second-full.log：第一次全量测试在 SSH 被重置后收到 Hangup；重连确认没有测试进程才重新启动。此记录不记为通过，未覆盖原始日志。
+- [x] 第二台 validation-final-full-vet.log：go test -p 1 ./... -count=1 与 go vet -p 1 ./... 完成，VALIDATION_FINAL_FULL_EXIT=0、VALIDATION_FINAL_VET_EXIT=0。外部实库默认跳过，不把此结果当成三库完整验收。
+- [x] 第二台 validation-final-repeat.log：TestAsyncValidation、TestAsyncExecutionRechecksQueuedAuthorization、TestTaskValidation 重复二十次通过，VALIDATION_FINAL_REPEAT_EXIT=0；HTTP 包 158.647 秒，仓储包 16.395 秒。覆盖独立结果、无伪报告、失败审计原子回滚、撤权与排队取消等路径，不替代竞争检测。
+- [x] 第一台 validation-mysql21.log：既有 /usr/sbin/mysqld 8.0.46 启动独立空实例，仅监听 127.0.0.1:42647，严格 TLS。TestMySQLRealTaskValidationMigrationRecovery 八场景通过，VALIDATION_MYSQL21_EXIT=0，45.369 秒。
+- [x] 第一台 validation-mysql57.log：复用既有 MySQL 5.7.44 程序，独立空实例仅监听 127.0.0.1:44333，严格 TLS；同一八场景通过，VALIDATION_MYSQL57_EXIT=0，21.575 秒。覆盖建表前后恢复、已有详情保持，以及字段容量、主键顺序、空值、引擎和额外字段冲突拒绝。
+- [x] 两个独立 MySQL 测试实例均已退出；正式 MySQL 进程仍为 1092。第一台 Scert、Nginx、MySQL、Xmail 和第二台 Scert、Nginx、MySQL 均 active。第二台磁盘剩余约 774MB，未在该机新增数据库实例或擅自清理产物。
+
+### 前端证据与未关闭项
+
+- [x] .runtime/validation-async-frontend-second-20261002.log：上一轮组件注册修复后 263 项通过，生产构建通过。但审查随后发现校验幂等键含斜线，旧测试只判断请求头存在，未覆盖后端合法字符契约。
+- [x] .runtime/validation-idempotency-contract-before-20261002.log：补充断言后四个相关测试中两个失败，明确复现 certificate/validate 前缀问题；申请、部署对照用例通过。修复使用 certificate-validate 前缀，没有放宽后端输入限制。
+- [x] .runtime/validation-async-frontend-final-20261002.log：最终 266 项全部通过，零失败、零跳过；.runtime/validation-async-build-final-20261002.log：最终生产构建退出零。新详情组件包含真实 Vue 模板编译和服务端渲染回归，不称为浏览器实机验证。
+- [!] 未替换线上程序、未清空线上数据库、未新增公网监听。本批不是正式包或生产部署验收；PostgreSQL 实库、三库首次 Web、历史恢复、其他长操作、升级、通知重置、备份恢复和完整生产门禁仍未关闭。
+
 ## 2026年10月2日19:34 证书导入异步自动回归（未部署）
 
 - [x] 修改前确认 main 工作区干净，09616e7 基线推送返回已同步。第二台复用已核验主机指纹的密码 SSH 会话；隔离路径 /var/tmp/scert-async-20261002-1556/source/backend，不触碰正式安装或线上数据。

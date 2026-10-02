@@ -41,7 +41,7 @@ test("校验任务提交后读取独立详情，页面重开可恢复，撤权�
   const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
     if (path.endsWith("/certificate/validate")) {
       submitted++;
-      assert.ok(options.headers["Idempotency-Key"]);
+      assert.match(options.headers["Idempotency-Key"], /^[A-Za-z0-9._-]{8,128}$/);
       return Response.json({ task, accepted: true }, { status: 202 });
     }
     if (path === `/api/v1/tasks/${task.id}`) return Response.json(task);
@@ -59,6 +59,7 @@ test("校验任务提交后读取独立详情，页面重开可恢复，撤权�
   });
   await state.validateDomain({ id: "domain-1", name: "example.test" });
   assert.equal(submitted, 1);
+  assert.equal(state.error.value, "");
   assert.equal(state.showTaskDetails.value, true);
   assert.match(state.notice.value, /任务已提交/);
   assert.equal(state.taskValidationResult.value, null);
@@ -157,6 +158,31 @@ test("完整报告无逐目标结果仍可读取，执行成功不能覆盖任�
   assert.equal(latestDeploymentReport(task, attempts, [], reports).status, "failed");
   assert.equal(latestDeploymentReport(initialTask, attempts, [], reports), null);
 });
+
+for (const [method, type, prefix] of [
+  ["issueDomain", "certificate_issue", "issue"],
+  ["deployDomain", "certificate_deploy", "deploy"],
+  ["validateDomain", "certificate_validate", "certificate-validate"],
+]) {
+  test(`域名操作 ${prefix} 生成符合后端契约且每次独立的幂等键`, async (t) => {
+    const posts = [];
+    const item = { id: "2fd1f484-0adc-4a14-a592-fd9342dc5720", name: "example.test" };
+    const task = { ...initialTask, task_type: type, domain_id: item.id };
+    const { state } = await mountComposable(t, useDashboard,
+      taskFetcher(() => task, (options) => posts.push(options)));
+    await state[method](item);
+    await state[method](item);
+    assert.equal(posts.length, 2);
+    const keys = posts.map((options) => options.headers["Idempotency-Key"]);
+    for (const key of keys) {
+      assert.match(key, /^[A-Za-z0-9._-]{8,128}$/);
+      assert.ok(key.startsWith(`${prefix}-${item.id}-`));
+    }
+    assert.notEqual(keys[0], keys[1]);
+    assert.equal(state.error.value, "");
+    assert.match(state.notice.value, /任务已提交/);
+  });
+}
 
 function taskFetcher(readTask, onPost = () => {}) {
   return async (path, options = {}) => {

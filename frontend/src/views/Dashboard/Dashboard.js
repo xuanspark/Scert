@@ -590,7 +590,8 @@ export function useDashboard() {
       const options = { method: "POST" };
       if (action === "issue" || action === "deploy" || action === "certificate/validate") {
         const suffix = crypto.randomUUID ? crypto.randomUUID() : createRandomSuffix();
-        options.headers = { "Idempotency-Key": `${action}-${item.id}-${suffix}` };
+        const prefix = action === "certificate/validate" ? "certificate-validate" : action;
+        options.headers = { "Idempotency-Key": `${prefix}-${item.id}-${suffix}` };
       }
       const response = await fetchAdmin(`/api/v1/domains/${item.id}/${action}`, options);
       const result = await response.json().catch(() => ({}));
