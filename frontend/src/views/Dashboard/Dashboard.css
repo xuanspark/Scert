@@ -614,42 +614,6 @@ code {
     0 0 0 5px rgba(227, 237, 248, 0.72),
     inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
-.ssh-key-modal {
-  width: min(100%, 1080px);
-  overflow: hidden;
-  padding: 30px 34px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
-}
-.ssh-key-modal form {
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
-  align-items: start;
-  gap: 24px;
-}
-.ssh-key-modal .ssh-key-guide {
-  grid-column: 1;
-  margin-bottom: 0;
-}
-.ssh-key-form-fields {
-  grid-column: 2;
-  min-width: 0;
-  padding: 18px 18px 16px;
-  border: 1px solid #cfdeed;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 22px rgba(45, 79, 123, 0.06);
-}
-.ssh-key-form-fields .field:last-of-type {
-  margin-bottom: 14px;
-}
-.ssh-key-form-fields .field textarea {
-  min-height: 230px;
-}
-.ssh-key-form-fields .modal-actions {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #dbe5f0;
-}
 .modal-heading {
   display: flex;
   align-items: flex-start;
@@ -871,20 +835,6 @@ code {
   }
 }
 
-@media (max-width: 900px) {
-  .ssh-key-modal {
-    width: min(100%, 760px);
-  }
-
-  .ssh-key-modal form {
-    display: block;
-  }
-
-  .ssh-key-modal .ssh-key-guide {
-    margin-bottom: 18px;
-  }
-}
-
 .field-label-row {
   display: flex;
   align-items: center;
@@ -913,204 +863,6 @@ code {
   background: #dceaff;
 }
 
-.ssh-key-guide {
-  margin: 0 0 18px;
-  padding: 16px;
-  border: 1px solid #c4d7eb;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f4f9ff, #edf4fc);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.ssh-key-guide-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  color: #183b68;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.ssh-key-guide-heading::before {
-  content: "K";
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  color: #ffffff;
-  background: #3677d8;
-  font-size: 12px;
-}
-
-.ssh-key-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin: 0;
-}
-
-.ssh-key-steps article {
-  display: flex;
-  gap: 9px;
-  min-width: 0;
-  padding: 11px;
-  border: 1px solid #d7e3f0;
-  border-radius: 9px;
-  background: #ffffff;
-}
-
-.ssh-key-steps b {
-  display: inline-flex;
-  flex: 0 0 22px;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  color: #ffffff;
-  background: #5f93dc;
-  font-size: 12px;
-}
-
-.ssh-key-steps div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.ssh-key-steps strong {
-  color: #23466f;
-  font-size: 12px;
-}
-
-.ssh-key-steps span {
-  color: #687b94;
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.ssh-key-platforms {
-  display: flex;
-  gap: 6px;
-  margin: 16px 0 10px;
-  padding: 4px;
-  border-radius: 8px;
-  background: #e8eff9;
-}
-
-.platform-tab {
-  flex: 1;
-  border: 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  color: #55708e;
-  background: transparent;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.platform-tab.active {
-  color: #214f98;
-  background: #ffffff;
-  box-shadow: 0 2px 8px rgba(48, 83, 132, 0.12);
-  font-weight: 700;
-}
-
-.ssh-key-path-line,
-.ssh-key-path-summary {
-  display: grid;
-  gap: 8px;
-  margin: 8px 0;
-  padding: 8px 10px;
-  border: 1px solid #c7d8e9;
-  border-radius: 9px;
-  color: #3b5778;
-  background: #ffffff;
-  font-size: 11px;
-}
-
-.ssh-key-path-line {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ssh-key-path-line code,
-.ssh-key-path-summary code {
-  overflow-wrap: anywhere;
-  color: #294765;
-  font-family: Consolas, "SFMono-Regular", monospace;
-}
-
-.ssh-key-path-summary {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 0;
-  gap: 6px;
-  background: #f8fbff;
-}
-
-.ssh-key-path-summary > div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.ssh-key-path-summary > div:last-child {
-  grid-column: 1 / -1;
-}
-
-.ssh-key-path-summary span {
-  color: #71839a;
-}
-
-.ssh-command-card {
-  margin-top: 10px;
-  padding: 11px 12px;
-  border: 1px solid #c7d8e9;
-  border-radius: 9px;
-  background: #ffffff;
-}
-
-.ssh-command-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 7px;
-  color: #3b5778;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.ssh-command-card > code {
-  display: block;
-  overflow-wrap: anywhere;
-  color: #294765;
-  font-family: Consolas, "SFMono-Regular", monospace;
-  font-size: 11px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-}
-
-.ssh-command-card small {
-  display: block;
-  margin-top: 8px;
-  color: #71839a;
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.ssh-key-guide-note {
-  margin: 12px 0 0;
-  color: #637895;
-  font-size: 11px;
-  line-height: 1.6;
-}
-
 .field input[type="file"] {
   padding: 9px;
   color: #5d6f86;
@@ -1119,44 +871,11 @@ code {
 }
 
 @media (max-width: 700px) {
-  .ssh-key-steps {
-    grid-template-columns: 1fr;
-  }
-
-  .ssh-key-path-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .ssh-key-path-summary > div:last-child {
-    grid-column: auto;
-  }
-
   .field-label-row {
     align-items: flex-start;
   }
 }
-.ssh-key-guide-heading > div:first-child {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
 
-.ssh-key-guide-heading > div:first-child span {
-  color: #6d819b;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.55;
-}
-
-.guide-badge {
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  border-radius: 999px;
-  color: #2c68ba;
-  background: #e2efff;
-  font-size: 11px;
-  white-space: nowrap;
-}
 
 .certificate-import-modal {
   width: min(100%, 680px);
