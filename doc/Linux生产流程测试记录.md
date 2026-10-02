@@ -1,5 +1,16 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日17:56 完整报告与审计事务回归（未部署）
+
+- [x] 源码 4e8d509 已推送；第二台隔离目录 /var/tmp/scert-async-20261002-1556/source 执行，不修改正式安装目录或线上数据库。
+- [x] 最新输入 async-report-20261002-1743.tar 在两端核对 SHA256 为 0b3ec412aa6d8d0c93e03d4c01b067ebe8e6047ecfc03eea4a0cdf4a9a2158d8；第一次等待密码的 SCP 已断开，确认终止后重新上传，重传退出 0。
+- [!] report-first.log：第一轮失败，仓储测试错误绕过正式重试入口，SQLite 取消测试在单执行线程下没有覆盖取消；已改用正式重试入口和显式让出调度，未放宽终态或取消覆盖断言。
+- [!] report-second.log：仓储和数据库通过，HTTP 三项失败；修复重复完成审计及 failed 到 error 的既有审计状态契约，更新启动审计失败时真实失败审计的断言。
+- [x] report-third.log：仓储 9.488 秒、HTTP 30.477 秒、数据库 31.531 秒，REPORT_THIRD_EXIT=0。覆盖完整报告重读、重试隔离、权限撤销、脱敏及报告／逐目标／审计故障整体回滚；使用隔离 SQLite，不当作 MySQL 或 PostgreSQL 实库通过。
+- [x] 本机 .runtime/async-report-third-frontend-20261002.log：256 项通过，零失败、零跳过；.runtime/async-report-third-build-20261002.log：生产构建通过，退出码均为 0。
+- [x] report-full.log 与 report-vet.log：全后端测试与静态检查通过，REPORT_FULL_EXIT=0、REPORT_VET_EXIT=0；使用 nobody、GOMAXPROCS=1、GOMEMLIMIT=384MiB、-p 1。未启用外部数据库的测试不计实库通过。
+- [!] 本批无正式部署、无首次 Web 验收、无竞争检测通过结论。第一台旧竞争检测已中断退出 130，不重启无限制负载；不新增公网端口、不放宽 TLS 或 SSH 主机校验。
+
 ## 2026年10月2日17:11 任务收尾事务与服务配置回归（未部署）
 
 - [x] 第二台隔离源码首次关联回归：internal/httpapi、internal/repository、internal/servicehost、internal/app 全部通过，COMPLETION_FIRST_EXIT=0；日志为 /var/tmp/scert-async-20261002-1556/completion-first.log。

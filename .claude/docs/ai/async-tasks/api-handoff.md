@@ -19,7 +19,7 @@
 | GET /api/v1/tasks | 当前身份可见任务列表 | 支持 domain_id 和 limit；返回 200 与 items 数组 |
 | GET /api/v1/tasks/:id | 单个任务最新状态 | 返回 200 与任务对象本身，不包 task 字段 |
 | GET /api/v1/tasks/:id/attempts | 任务尝试历史 | 返回 200 与 items 数组 |
-| GET /api/v1/tasks/:id/deployment-results | 逐尝试的逐服务器部署结果 | 返回 200 与 items 数组；前端按最近 attempt_number 筛选 |
+| GET /api/v1/tasks/:id/deployment-results | 逐尝试的逐服务器结果与完整报告 | 返回 200、items 和 reports 数组；按任务、最近尝试编号及尝试 ID 精确匹配 |
 
 列表 limit 默认 50，有效范围为 1～200，越界由仓储回退至 50。不存在和无权访问的任务都返回 403，不能根据接口泄露其他项目资源是否存在。
 
@@ -63,6 +63,7 @@
 | Task | id、domain_id、task_type、status、stage、message、scope_type、project_id、created_at、updated_at；可选 operator_id、certificate_version_id、idempotency_key、started_at、finished_at |
 | TaskAttempt | id、task_id、attempt_number、stage、status、message、scope_type、project_id、created_at；可选 started_at、finished_at |
 | TaskDeploymentResult | task_id、attempt_id、attempt_number、result_index、server_id、server、status、message、created_at；可选 backup_id |
+| TaskDeploymentReport | task_id、attempt_id、attempt_number、report、created_at；report 保留汇总、逐目标结果、verification_status 与 recovery_status |
 
 编号和时间为字符串，时间使用带时区的 RFC3339 表示；attempt_number 与 result_index 为整数。Task 与 TaskAttempt 的状态含义如下：
 
@@ -79,12 +80,42 @@
 
 未知状态不得默认视为成功。逐服务器结果不包含完整的站点验证及恢复报告，不能据此推导 HTTPS 校验成功。
 
+### 完整报告读取
+
+deployment-results 响应保留旧 items，新增 reports；每次尝试独立保存，重试不覆盖历史。report.results 即使零目标也返回数组。示例省略逐目标明细：
+
+```json
+{
+  "items": [],
+  "reports": [{
+    "task_id": "task-example",
+    "attempt_id": "attempt-example",
+    "attempt_number": 1,
+    "created_at": "2026-10-02T09:00:00Z",
+    "report": {
+      "total": 0,
+      "success": 0,
+      "failed": 0,
+      "status": "failed",
+      "verification_status": "failed",
+      "recovery_status": "success",
+      "results": []
+    }
+  }]
+}
+```
+
+- 完整报告写入和读取均按公开诊断规则处理；逐目标 failure_code 保留，原始远端错误不公开。
+- 前端只在任务终态与最近尝试一致后展示报告，以任务终态覆盖报告展示状态，不能由外部操作成功推断收尾成功。
+- 旧服务未提供 reports 或旧历史无完整报告时兼容逐目标汇总，但不补造验证／恢复状态。reports 存在而不是数组时视为读取异常。
+- 报告读取在仓储查询中实时检查任务项目权限；只读成员可读，撤权后不得凭旧会话读取。
+
 ## 执行及前端交互边界
 
 - 当前后台最多接收 32 个在途任务，4 个执行槽，总执行预算 30 分钟；这些是实现限制，不是保证耗时。
 - 队列满或关闭时拒绝执行，并尝试保存失败终态；持久化失败保留中断状态，不伪造已完成。
 - 服务关闭停止接收、发送取消信号并等待工作线程收尾。启动恢复将中断记录标为失败，不自动重放外部签发、部署。
-- 任务和本次尝试的终态通过同一数据库事务保存；逐目标结果和完成审计目前仍为独立写入，不能描述成所有记录完全原子化。
+- HTTP 异步收尾路径将任务、本次尝试、完整报告、逐目标结果及完成审计放入同一事务；任一写入失败整体回滚并保留中断状态，不伪造终态。其他后台工作流仍需独立核查，不能据此声明全项目所有写入原子化。
 - 前端每三秒查询一次，单次周期十秒超时且不重叠；卸载后停止轮询、取消请求。
 - 切换任务时丢弃旧选择的迟到响应；撤权清除详情及部署结果。一般查询故障保留最后有效状态并提示未知，不改变任务终态。
 - 三个详情 GET 不是一次原子快照；任务终态与最大 attempt_number 的状态不一致时暂不合并，下一周期重新查询。
@@ -95,7 +126,7 @@
 已加入自动用例：断线后继续执行、排队取消、取消收尾禁止重试、队列满、异常脱敏、读取和保存失败、跨任务尝试拒绝、终态事务回滚、已完成与部分成功不被取消意图覆盖、前端迟到响应和网络恢复。
 
 - [~] 当前 Linux 自动回归持续执行；竞争检测尚无可靠通过结果。
-- [ ] 完整验证及恢复报告持久化与页面展示仍需补齐。
-- [ ] 完成审计、逐服务器结果与任务终态之间的跨记录一致性继续复核。
+- [x] 完整验证及恢复报告持久化与页面读取已实现，关联回归和前端 256 项通过；未部署。
+- [x] HTTP 异步完成审计、逐服务器结果与任务终态同事务，已覆盖三类保存失败整体回滚；其他工作流及三库实机复审仍待完成。
 - [ ] 导入、版本恢复、校验及手动续期等其他长操作尚未全部异步化。
 - [ ] 正式构建部署后验证超过反代等待窗口的真实操作、断线查询、取消回滚和服务重启；本说明不替代生产验收。
