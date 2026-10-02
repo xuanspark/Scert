@@ -1,5 +1,5 @@
 <script setup>
-import { deploymentStatusLabel, deploymentSummary } from "./DeploymentFeedback.js";
+import { deploymentStatusLabel, deploymentSummary, taskExecutionLabel } from "./DeploymentFeedback.js";
 
 defineProps({ result: { type: Object, required: true } });
 defineEmits(["close"]);
@@ -27,8 +27,14 @@ defineEmits(["close"]);
           @click="$emit('close')"
         >×</button>
       </div>
-      <p v-if="result.running" role="status">正在连接服务器、推送证书并校验重载，请稍候……</p>
+      <p v-if="result.running" role="status">正在提交操作，请稍候……</p>
       <template v-else>
+        <template v-if="result.taskID">
+          <p class="muted">任务编号：{{ result.taskID }}</p>
+          <p role="status">{{ taskExecutionLabel(result.taskStatus) }}：{{ result.taskMessage }}</p>
+          <p v-if="result.pending" class="muted">任务已在后台接收，可关闭此窗口，在运行概览继续查看；请勿重复提交。</p>
+          <p v-if="result.queryError" class="form-error" role="alert">{{ result.queryError }}</p>
+        </template>
         <p v-if="result.certificateImported" role="status">证书已导入并保存。</p>
         <p v-if="result.error" class="form-error" role="alert">{{ result.error }}</p>
         <p v-if="result.report" class="deployment-summary" role="status">
@@ -49,7 +55,7 @@ defineEmits(["close"]);
             </span>
           </article>
         </div>
-        <p class="muted">各服务器结果记录文件推送、配置校验与重载；站点 HTTPS 校验单独汇总，不代表逐台服务器均已验证。</p>
+        <p v-if="result.report" class="muted">各服务器结果仅记录本次尝试的推送结果，整体状态以任务终态为准；不能据此推断每台站点的 HTTPS 校验均通过。</p>
       </template>
       <div class="modal-actions">
         <button class="secondary-button" type="button" :disabled="result.running" @click="$emit('close')">

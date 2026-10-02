@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -47,13 +48,21 @@ func (s *Server) enqueueCertificateTask(c *gin.Context, task repository.Task, at
 		case s.taskSlots <- struct{}{}:
 			defer func() { <-s.taskSlots }()
 		case <-ctx.Done():
-			s.finishTaskBeforeExecution(task, attempt, "cancelled", "任务在开始前已停止")
+			s.finishTaskContext(task, attempt, ctx.Err())
 			return
 		}
 		s.runCertificateTask(ctx, task, attempt, action, operation, stage, runningMessage, successMessage)
 	}()
 	c.Header("Location", "/api/v1/tasks/"+task.ID)
 	c.JSON(http.StatusAccepted, gin.H{"task": task, "accepted": true})
+}
+
+func (s *Server) finishTaskContext(task repository.Task, attempt repository.TaskAttempt, err error) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		s.finishTaskBeforeExecution(task, attempt, "failed", "任务执行超时，未继续执行")
+		return
+	}
+	s.finishTaskBeforeExecution(task, attempt, "cancelled", "任务已取消，未继续执行")
 }
 
 func (s *Server) finishTaskBeforeExecution(task repository.Task, attempt repository.TaskAttempt, status, message string) {

@@ -28,9 +28,10 @@ func TestTaskDeploymentResultsIssueAndRead(t *testing.T) {
 	defer closeDB()
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusMultiStatus {
-		t.Fatalf("部分部署失败响应错误：%d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("任务提交响应错误：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	items, err := tasks.ListTasks(t.Context(), "", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "partial_success" {
 		t.Fatalf("部分成功任务记录错误：%+v %v", items, err)
@@ -86,9 +87,10 @@ func TestTaskDeploymentResultsKeepAllowlistedLockDiagnosis(t *testing.T) {
 	defer closeDB()
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusBadGateway || strings.Contains(response.Body.String(), "secret-path") || !strings.Contains(response.Body.String(), "lock_unavailable") {
-		t.Fatalf("部署接口缺少安全的锁诊断：%d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted || strings.Contains(response.Body.String(), "secret-path") {
+		t.Fatalf("任务提交失败或泄露诊断原文：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	items, err := tasks.ListTasks(t.Context(), "", 10)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("任务未保存：%+v %v", items, err)
@@ -116,21 +118,19 @@ func TestTaskDeploymentResultsHTTPSFailurePreservesTransferEvidence(t *testing.T
 	defer closeDB()
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusBadGateway {
-		t.Fatalf("HTTPS 校验失败应返回失败响应：%d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("任务提交失败：%d %s", response.Code, response.Body.String())
 	}
-	var payload struct {
-		Deployment deployment.Report `json:"deployment"`
-		TaskStatus string            `json:"task_status"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+	waitTaskWorkersForTest(t, server)
+	location := response.Header().Get("Location")
+	response = httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodGet, location, nil))
+	var task repository.Task
+	if err := json.Unmarshal(response.Body.Bytes(), &task); err != nil {
 		t.Fatal(err)
 	}
-	if payload.TaskStatus != "failed" || payload.Deployment.Status != "failed" || payload.Deployment.VerificationStatus != "failed" {
-		t.Fatalf("接口未保留整体失败与站点校验失败：%+v", payload)
-	}
-	if payload.Deployment.Success != 1 || payload.Deployment.Results[0].Status != "success" || strings.Contains(response.Body.String(), "/secret-path") {
-		t.Fatalf("接口丢失真实推送结果或泄露底层错误：%s", response.Body.String())
+	if response.Code != http.StatusOK || task.Status != "failed" || strings.Contains(response.Body.String(), "/secret-path") {
+		t.Fatalf("状态查询未保留整体失败或泄露底层错误：%d %s", response.Code, response.Body.String())
 	}
 	items, err := tasks.ListTasks(t.Context(), "", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "failed" {

@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { settingsPayload } from "./SettingsPayload.js";
 import { deploymentSummary, serverAuthLabel } from "./DeploymentFeedback.js";
 import { useDomainForm } from "./DomainForm.js";
+import { useTaskMonitor } from "./TaskMonitor.js";
 
 const defaultDNSVerificationTimeoutSeconds = 60;
 const aliyunDNSVerificationTimeoutSeconds = 6;
@@ -75,6 +76,11 @@ export function useDashboard() {
   const taskDetailsError = ref("");
   const deploymentResult = ref(null);
   const domainActionRunning = ref(false);
+  const taskMonitor = useTaskMonitor({
+    fetchAdmin, tasks, deploymentResult, showTaskDetails, taskDetails,
+    taskAttempts, taskDetailsLoading, taskDetailsError,
+    refreshResources: refreshTaskResources,
+  });
   const hasOpenModal = computed(
     () =>
       showForm.value ||
@@ -549,6 +555,28 @@ export function useDashboard() {
     }
   }
 
+  async function refreshTaskResources(signal) {
+    // 任务结束后只刷新运行数据，不覆盖用户正在编辑的系统设置或表单。
+    const responses = await Promise.all([
+      fetchAdmin("/api/v1/status", { signal }),
+      fetchAdmin("/api/v1/domains", { signal }),
+      fetchAdmin("/api/v1/certificates", { signal }),
+      fetchAdmin("/api/v1/audit-logs?limit=20", { signal }),
+    ]);
+    if (responses.some((response) => !response.ok)) throw new Error("刷新任务关联数据失败");
+    const [statusResult, domainResult, certificateResult, auditResult] = await Promise.all(
+      responses.map((response) => response.json()),
+    );
+    if (signal.aborted) return;
+    if (![domainResult, certificateResult, auditResult].every((result) => Array.isArray(result.items))) {
+      throw new Error("任务关联数据响应不完整");
+    }
+    status.value = statusResult;
+    domains.value = domainResult.items;
+    certificates.value = certificateResult.items;
+    auditLogs.value = auditResult.items;
+  }
+
   async function runDomainAction(item, action, successMessage) {
     if (domainActionRunning.value) return;
     domainActionRunning.value = true;
@@ -559,12 +587,26 @@ export function useDashboard() {
     notice.value = "";
     try {
       const options = { method: "POST" };
-      if (action === "issue") {
+      if (action === "issue" || action === "deploy") {
         const suffix = crypto.randomUUID ? crypto.randomUUID() : createRandomSuffix();
-        options.headers = { "Idempotency-Key": `issue-${item.id}-${suffix}` };
+        options.headers = { "Idempotency-Key": `${action}-${item.id}-${suffix}` };
       }
       const response = await fetchAdmin(`/api/v1/domains/${item.id}/${action}`, options);
       const result = await response.json().catch(() => ({}));
+      if (response.status === 202 && !result.task?.id) {
+        throw new Error("服务未返回任务编号，请在运行概览确认是否已接收，勿重复提交");
+      }
+      if (response.ok && result.task?.id && (response.status === 202 || result.accepted || result.replayed)) {
+        notice.value = `任务已提交：${result.task.id}，可在运行概览查看执行结果`;
+        if (action === "deploy") {
+          deploymentResult.value = {
+            domain: item.name, running: false, pending: true,
+            taskID: result.task.id, taskStatus: result.task.status,
+            taskMessage: result.task.message || "", report: null, error: "", queryError: "",
+          };
+        }
+        return;
+      }
       if (action === "deploy") {
         deploymentResult.value = {
           domain: item.name,
@@ -601,39 +643,6 @@ export function useDashboard() {
     return runDomainAction(item, "deploy", `已提交 ${item.name} 的证书部署`);
   }
 
-  async function openTaskDetails(item) {
-    showTaskDetails.value = true;
-    taskDetails.value = null;
-    taskAttempts.value = [];
-    taskDetailsError.value = "";
-    taskDetailsLoading.value = true;
-    try {
-      const [taskResponse, attemptsResponse] = await Promise.all([
-        fetchAdmin(`/api/v1/tasks/${item.id}`),
-        fetchAdmin(`/api/v1/tasks/${item.id}/attempts`),
-      ]);
-      if (!taskResponse.ok) {
-        throw new Error(await responseError(taskResponse, "读取任务详情失败"));
-      }
-      if (!attemptsResponse.ok) {
-        throw new Error(await responseError(attemptsResponse, "读取任务尝试记录失败"));
-      }
-      taskDetails.value = await taskResponse.json();
-      taskAttempts.value = (await attemptsResponse.json()).items || [];
-    } catch (err) {
-      taskDetailsError.value = err.message || "读取任务详情失败";
-    } finally {
-      taskDetailsLoading.value = false;
-    }
-  }
-
-  function closeTaskDetails() {
-    showTaskDetails.value = false;
-    taskDetails.value = null;
-    taskAttempts.value = [];
-    taskDetailsError.value = "";
-  }
-
   async function cancelTask(item) {
     if (!window.confirm("确定取消这项正在执行的证书任务吗？")) return;
     error.value = "";
@@ -642,8 +651,11 @@ export function useDashboard() {
       const response = await fetchAdmin(`/api/v1/tasks/${item.id}`, { method: "DELETE" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "取消任务失败");
-      notice.value = "证书任务已取消";
+      notice.value = response.status === 202 || result.task?.status === "cancelling"
+        ? "正在取消，等待任务停止和部署收尾；此时不能重试"
+        : "证书任务已取消";
       await loadData();
+      await taskMonitor.refreshTaskStatus();
     } catch (err) {
       error.value = err.message || "取消任务失败";
     }
@@ -656,8 +668,9 @@ export function useDashboard() {
       const response = await fetchAdmin(`/api/v1/tasks/${item.id}/retry`, { method: "POST" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "重试任务失败");
-      notice.value = "证书任务已重新执行";
+      notice.value = "重试已提交，请在任务详情查看本次执行结果";
       await loadData();
+      await taskMonitor.refreshTaskStatus();
     } catch (err) {
       error.value = err.message || "重试任务失败";
     }
@@ -1022,6 +1035,7 @@ export function useDashboard() {
 
   return {
     ...domainForm,
+    ...taskMonitor,
     status,
     currentUser,
     canManageSystemSettings,
@@ -1112,8 +1126,6 @@ export function useDashboard() {
     deployDomain,
     cancelTask,
     retryTask,
-    openTaskDetails,
-    closeTaskDetails,
     showTaskDetails,
     taskDetails,
     taskAttempts,

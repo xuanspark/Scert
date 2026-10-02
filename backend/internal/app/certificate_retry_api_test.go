@@ -12,6 +12,7 @@ import (
 
 	"git.pcux.cn/xuans/Scert/backend/internal/certificate"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
+	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
 func TestApplicationDeployRetryUsesExistingTask(t *testing.T) {
@@ -62,21 +63,43 @@ func TestApplicationDeployRetryUsesExistingTask(t *testing.T) {
 	}
 	cookies = login.Result().Cookies()
 	initial := request("/api/v1/domains/task-domain/deploy", "")
-	if initial.Code != http.StatusBadGateway || calls.Load() != 1 {
-		t.Fatalf("首次故障未经过真实部署接线：%d %s", initial.Code, initial.Body.String())
+	if initial.Code != http.StatusAccepted {
+		t.Fatalf("首次部署没有异步接收：%d %s", initial.Code, initial.Body.String())
 	}
-	tasks, err := application.Tasks.ListTasks(t.Context(), "task-domain", 10)
-	if err != nil || len(tasks) != 1 || tasks[0].Status != "failed" {
-		t.Fatalf("首次部署未生成唯一失败任务：%+v %v", tasks, err)
+	waitTerminal := func(status string) []repository.Task {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			items, err := application.Tasks.ListTasks(t.Context(), "task-domain", 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) == 1 && items[0].Status == status {
+				return items
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		t.Fatalf("等待任务终态超时：%s", status)
+		return nil
+	}
+	tasks := waitTerminal("failed")
+	if calls.Load() != 1 {
+		t.Fatal("首次故障未经过真实部署接线")
 	}
 	task := tasks[0]
 	retryPath := "/api/v1/tasks/" + task.ID + "/retry"
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- request(retryPath, "") }()
+	retry := request(retryPath, "")
+	// 终态持久化后执行器可能仍在释放资源，收尾期间重试必须保持拒绝。
+	deadline := time.Now().Add(5 * time.Second)
+	for retry.Code == http.StatusConflict && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+		retry = request(retryPath, "")
+	}
+	if retry.Code != http.StatusAccepted {
+		t.Fatalf("真实部署重试未接收：%d %s", retry.Code, retry.Body.String())
+	}
 	select {
 	case <-started:
-	case response := <-done:
-		t.Fatalf("重试未进入原始部署工作流：%d %s", response.Code, response.Body.String())
 	case <-time.After(5 * time.Second):
 		t.Fatal("重试工作流启动超时")
 	}
@@ -85,17 +108,9 @@ func TestApplicationDeployRetryUsesExistingTask(t *testing.T) {
 		t.Fatalf("并发重试未被阻止：%d %s", concurrent.Code, concurrent.Body.String())
 	}
 	release <- struct{}{}
-	select {
-	case response := <-done:
-		if response.Code != http.StatusOK {
-			t.Fatalf("真实应用部署重试失败：%d %s", response.Code, response.Body.String())
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("重试工作流收尾超时")
-	}
-	tasks, err = application.Tasks.ListTasks(t.Context(), "task-domain", 10)
-	if err != nil || len(tasks) != 1 || tasks[0].ID != task.ID || tasks[0].Status != "success" {
-		t.Fatalf("重试重复创建任务或未成功：%+v %v", tasks, err)
+	tasks = waitTerminal("success")
+	if tasks[0].ID != task.ID {
+		t.Fatalf("重试重复创建任务：%+v", tasks)
 	}
 	attempts, err := application.Tasks.ListAttempts(t.Context(), task.ID)
 	if err != nil || len(attempts) != 2 {

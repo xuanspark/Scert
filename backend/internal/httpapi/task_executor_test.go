@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +16,128 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
+
+func TestAsyncQueueOverloadClosesPersistedTask(t *testing.T) {
+	server, tasks, _, cleanup := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		t.Error("队列已满时不能执行外部操作")
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer cleanup()
+	server.asyncTasks = make(map[string]bool)
+	for i := 0; i < 32; i++ {
+		server.asyncTasks[strconv.Itoa(i)] = true
+	}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("队列过载未拒绝：%d %s", response.Code, response.Body.String())
+	}
+	items, err := tasks.ListTasks(t.Context(), "", 10)
+	if err != nil || len(items) != 1 || items[0].Status != "failed" {
+		t.Fatalf("过载后遗留活动任务：%+v %v", items, err)
+	}
+	attempts, err := tasks.ListAttempts(t.Context(), items[0].ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "failed" {
+		t.Fatalf("过载后尝试未关闭：%+v %v", attempts, err)
+	}
+}
+
+func TestAsyncQueuedCancellationNeverStartsOperation(t *testing.T) {
+	server, tasks, _, cleanup := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		t.Error("排队期间取消的任务不能执行外部操作")
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	})
+	defer cleanup()
+	server.asyncTasks = make(map[string]bool)
+	server.taskSlots = make(chan struct{}, 4)
+	for i := 0; i < 4; i++ {
+		server.taskSlots <- struct{}{}
+	}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	task := submittedTask(t, response)
+	response = httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+task.ID, nil))
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("排队取消未接收：%d %s", response.Code, response.Body.String())
+	}
+	waitTaskWorkersForTest(t, server)
+	stored, err := tasks.GetTask(t.Context(), task.ID)
+	if err != nil || stored.Status != "cancelled" {
+		t.Fatalf("排队取消终态错误：%+v %v", stored, err)
+	}
+}
+
+func TestAsyncPanicClosesTaskWithoutExposingPanic(t *testing.T) {
+	server, tasks, _, cleanup := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		panic("private-panic-secret")
+	})
+	defer cleanup()
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	task := submittedTask(t, response)
+	waitTaskWorkersForTest(t, server)
+	stored, err := tasks.GetTask(t.Context(), task.ID)
+	if err != nil || stored.Status != "failed" || strings.Contains(stored.Message, "private-panic-secret") {
+		t.Fatalf("异常任务未安全关闭：%+v %v", stored, err)
+	}
+	attempts, err := tasks.ListAttempts(t.Context(), task.ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "failed" || strings.Contains(attempts[0].Message, "private-panic-secret") {
+		t.Fatalf("异常尝试未安全关闭：%+v %v", attempts, err)
+	}
+}
+
+func TestAsyncDeadlineBeforeExecutionIsFailureNotUserCancellation(t *testing.T) {
+	server, tasks, _, cleanup := newTaskAPITestServer(t, nil)
+	defer cleanup()
+	task := repository.Task{ID: "deadline-task", DomainID: "domain-1", TaskType: "certificate_issue", Status: "queued", Stage: "queued"}
+	attempt := repository.TaskAttempt{ID: "deadline-attempt", TaskID: task.ID, AttemptNumber: 1, Status: "queued", Stage: "queued"}
+	if err := tasks.CreateTask(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+	if err := tasks.CreateAttempt(t.Context(), attempt); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	server.runCertificateTask(ctx, task, attempt, "certificate_issue", func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		t.Error("超时任务不能执行外部操作")
+		return certificate.IssueResult{}, deployment.Report{}, nil
+	}, "issue", "执行中", "执行完成")
+	stored, err := tasks.GetTask(t.Context(), task.ID)
+	if err != nil || stored.Status != "failed" || !strings.Contains(stored.Message, "超时") {
+		t.Fatalf("超时被误记为用户取消：%+v %v", stored, err)
+	}
+}
+
+type failingTaskFinishAuditRepository struct{ repository.AuditRepository }
+
+func (r failingTaskFinishAuditRepository) CreateAuditLog(ctx context.Context, item repository.AuditLog) error {
+	if item.Status == "success" {
+		return errors.New("模拟完成审计写入失败")
+	}
+	return r.AuditRepository.CreateAuditLog(ctx, item)
+}
+
+func TestAsyncFinishAuditFailureDoesNotLeaveSuccessfulAttempt(t *testing.T) {
+	server, tasks, audit, cleanup := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+		return certificate.IssueResult{}, deployment.Report{Status: "success"}, nil
+	})
+	defer cleanup()
+	server.audit = failingTaskFinishAuditRepository{audit}
+	response := httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
+	task := submittedTask(t, response)
+	waitTaskWorkersForTest(t, server)
+	stored, err := tasks.GetTask(t.Context(), task.ID)
+	if err != nil || stored.Status != "failed" {
+		t.Fatalf("完成审计失败却标记成功：%+v %v", stored, err)
+	}
+	attempts, err := tasks.ListAttempts(t.Context(), task.ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Status != "failed" || attempts[0].Message != stored.Message {
+		t.Fatalf("任务与尝试终态不一致：%+v %v", attempts, err)
+	}
+}
 
 func submittedTask(t *testing.T, response *httptest.ResponseRecorder) repository.Task {
 	t.Helper()

@@ -1,0 +1,226 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { useDashboard } from "./Dashboard.js";
+import { latestDeploymentReport } from "./TaskMonitor.js";
+import { deploymentSummary } from "./DeploymentFeedback.js";
+import { deferred, mountComposable } from "../../test-support/mount.js";
+
+const initialTask = { id: "async-task", domain_id: "domain-1", task_type: "certificate_deploy", status: "running" };
+const target = { server_id: "server-1", server: "部署目标", status: "success", attempt_number: 1 };
+
+function taskFetcher(readTask, onPost = () => {}) {
+  return async (path, options = {}) => {
+    const task = readTask();
+    if (options.method === "POST") {
+      onPost(options);
+      return Response.json({ task, accepted: true }, { status: 202 });
+    }
+    if (path === `/api/v1/tasks/${task.id}`) return Response.json(task);
+    if (path.endsWith("/attempts")) return Response.json({ items: [{ attempt_number: 1, status: task.status }] });
+    if (path.endsWith("/deployment-results")) return Response.json({ items: task.status === "running" ? [] : [target] });
+    if (path.startsWith("/api/v1/tasks?")) return Response.json({ items: [task] });
+    return Response.json({ items: [] });
+  };
+}
+
+test("异步部署接收后不误报成功或缺失结果，最终失败不被逐目标成功覆盖", async (t) => {
+  let current = { ...initialTask };
+  const posts = [];
+  const { state } = await mountComposable(t, useDashboard, taskFetcher(() => current, (options) => posts.push(options)));
+  await state.deployDomain({ id: "domain-1", name: "example.test" });
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].headers["Idempotency-Key"], /^deploy-domain-1-/);
+  assert.equal(state.deploymentResult.value.pending, true);
+  assert.equal(state.deploymentResult.value.running, false);
+  assert.equal(state.deploymentResult.value.error, "");
+  assert.equal(state.deploymentResult.value.report, null);
+  assert.match(state.notice.value, /任务已提交/);
+  current = { ...current, status: "failed", message: "站点校验未通过" };
+  await state.refreshTaskStatus();
+  assert.equal(state.deploymentResult.value.pending, false);
+  assert.equal(state.deploymentResult.value.taskStatus, "failed");
+  assert.equal(state.deploymentResult.value.report.results[0].status, "success");
+  assert.doesNotMatch(deploymentSummary(state.deploymentResult.value.report), /部署完成/);
+  assert.equal(posts.length, 1);
+});
+
+test("刷新页面从持久化任务恢复详情，关闭结果窗口不取消任务", async (t) => {
+  let current = { ...initialTask };
+  const { state } = await mountComposable(t, useDashboard, taskFetcher(() => current));
+  assert.equal(state.tasks.value[0].id, current.id);
+  await state.openTaskDetails(current);
+  assert.equal(state.taskDetails.value.status, "running");
+  state.deploymentResult.value = null;
+  current = { ...current, status: "success", message: "证书部署成功" };
+  await state.refreshTaskStatus();
+  assert.equal(state.taskDetails.value.status, "success");
+  assert.equal(state.taskDeploymentReport.value.results.length, 1);
+  state.closeTaskDetails();
+  assert.equal(state.taskDetails.value, null);
+});
+
+test("部署结果只汇总最新尝试，不混用上一次失败或伪造站点验证", () => {
+  const task = { ...initialTask, status: "success" };
+  const attempts = [{ attempt_number: 1 }, { attempt_number: 2 }];
+  const report = latestDeploymentReport(task, attempts, [
+    { ...target, status: "failed" }, { ...target, attempt_number: 2 },
+  ]);
+  assert.equal(report.total, 1);
+  assert.equal(report.failed, 0);
+  assert.equal(report.verification_status, undefined);
+  assert.equal(latestDeploymentReport(task, attempts, [target]), null);
+  assert.equal(latestDeploymentReport(initialTask, attempts, [target]), null);
+});
+
+test("状态查询断线保留后台任务，恢复后继续读取且不会再次提交", async (t) => {
+  let unavailable = false;
+  let posts = 0;
+  const fetchTask = taskFetcher(() => initialTask, () => { posts += 1; });
+  const { state } = await mountComposable(t, useDashboard, (path, options) => {
+    if (unavailable && path.startsWith("/api/v1/tasks")) return Promise.reject(new Error("连接中断"));
+    return fetchTask(path, options);
+  });
+  await state.deployDomain({ id: "domain-1", name: "example.test" });
+  unavailable = true;
+  await state.refreshTaskStatus();
+  assert.equal(state.deploymentResult.value.pending, true);
+  assert.equal(state.deploymentResult.value.taskStatus, "running");
+  assert.match(state.deploymentResult.value.queryError, /勿重复提交/);
+  unavailable = false;
+  await state.refreshTaskStatus();
+  assert.equal(state.deploymentResult.value.queryError, "");
+  assert.equal(posts, 1);
+});
+
+test("任务轮询不重叠，卸载取消在途查询并停止计时器", async (t) => {
+  let block = false;
+  let requests = 0;
+  let aborted = false;
+  const fetchTask = taskFetcher(() => initialTask);
+  const { state, unmount, runIntervals } = await mountComposable(t, useDashboard, (path, options) => {
+    if (block && path.startsWith("/api/v1/tasks?")) {
+      requests += 1;
+      return new Promise((resolve, reject) => {
+        options.signal.addEventListener("abort", () => { aborted = true; reject(new Error("已停止查询")); });
+      });
+    }
+    return fetchTask(path, options);
+  });
+  block = true;
+  const pending = state.refreshTaskStatus();
+  runIntervals();
+  runIntervals();
+  assert.equal(requests, 1);
+  unmount();
+  await pending;
+  runIntervals();
+  assert.equal(aborted, true);
+  assert.equal(requests, 1);
+  assert.equal(state.taskQueryError.value, "");
+});
+
+test("切换详情时迟到请求不能覆盖新任务", async (t) => {
+  const delayed = deferred();
+  let blocked = true;
+  const fetchTask = taskFetcher(() => initialTask);
+  const { state } = await mountComposable(t, useDashboard, async (path, options) => {
+    if (path === "/api/v1/tasks/first" && blocked) return delayed.promise;
+    if (path === "/api/v1/tasks/second") return Response.json({ ...initialTask, id: "second" });
+    return fetchTask(path, options);
+  });
+  const first = state.openTaskDetails({ id: "first" });
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = state.openTaskDetails({ id: "second" });
+  blocked = false;
+  delayed.resolve(Response.json({ ...initialTask, id: "first" }));
+  await Promise.all([first, second]);
+  assert.equal(state.taskDetails.value.id, "second");
+  assert.equal(state.taskDetailsLoading.value, false);
+});
+
+test("异步取消与重试只提示请求已接收，不提前宣布终态", async (t) => {
+  const fetchTask = taskFetcher(() => initialTask);
+  const { state } = await mountComposable(t, useDashboard, (path, options = {}) => {
+    if (options.method === "DELETE") return Response.json({ task: { ...initialTask, status: "cancelling" } }, { status: 202 });
+    return fetchTask(path, options);
+  });
+  window.confirm = () => true;
+  await state.cancelTask(initialTask);
+  assert.match(state.notice.value, /等待任务停止和部署收尾/);
+  assert.doesNotMatch(state.notice.value, /任务已取消/);
+  await state.retryTask({ ...initialTask, status: "failed" });
+  assert.match(state.notice.value, /重试已提交/);
+  assert.doesNotMatch(state.notice.value, /已重新执行/);
+});
+
+test("代理返回非 JSON 时保留原状态，不泄露 HTML 或误报完成", async (t) => {
+  let invalid = false;
+  const fetchTask = taskFetcher(() => initialTask);
+  const { state } = await mountComposable(t, useDashboard, (path, options) => {
+    if (invalid && path.startsWith("/api/v1/tasks/")) return Promise.resolve(new Response("<html>504</html>", { status: 504 }));
+    return fetchTask(path, options);
+  });
+  await state.openTaskDetails(initialTask);
+  invalid = true;
+  await state.refreshTaskStatus();
+  assert.equal(state.taskDetails.value.status, "running");
+  assert.match(state.taskDetailsError.value, /不代表任务失败/);
+  assert.doesNotMatch(state.taskDetailsError.value, /<html>|Unexpected/);
+});
+
+test("任务与尝试读取遇到并发重试时不混用旧终态和新结果", async (t) => {
+  let retrying = false;
+  const current = { ...initialTask, status: "success" };
+  const fetchTask = taskFetcher(() => current);
+  const { state } = await mountComposable(t, useDashboard, (path, options) => {
+    if (retrying && path.endsWith("/attempts")) {
+      return Promise.resolve(Response.json({ items: [{ attempt_number: 2, status: "running" }] }));
+    }
+    return fetchTask(path, options);
+  });
+  await state.openTaskDetails(current);
+  retrying = true;
+  await state.refreshTaskStatus();
+  assert.match(state.taskDetailsError.value, /暂时无法查询/);
+  assert.equal(state.taskAttempts.value[0].attempt_number, 1);
+});
+
+test("项目撤权后清除缓存的任务详情和部署结果", async (t) => {
+  let denied = false;
+  const current = { ...initialTask, status: "success" };
+  const fetchTask = taskFetcher(() => current);
+  const { state } = await mountComposable(t, useDashboard, (path, options) => {
+    if (denied && path.startsWith("/api/v1/tasks/")) {
+      return Promise.resolve(Response.json({ error: "无权访问此任务" }, { status: 403 }));
+    }
+    return fetchTask(path, options);
+  });
+  await state.openTaskDetails(current);
+  assert.equal(state.taskDeploymentReport.value.results.length, 1);
+  denied = true;
+  await state.refreshTaskStatus();
+  assert.equal(state.taskDetails.value, null);
+  assert.equal(state.taskDeploymentReport.value, null);
+  assert.deepEqual(state.taskAttempts.value, []);
+  assert.match(state.taskDetailsError.value, /无权读取/);
+});
+
+test("任务完成后自动刷新域名证书数据，但不覆盖正在编辑的设置", async (t) => {
+  let current = { ...initialTask };
+  let resourceReads = 0;
+  const fetchTask = taskFetcher(() => current);
+  const { state } = await mountComposable(t, useDashboard, (path, options) => {
+    if (path === "/api/v1/domains") {
+      resourceReads += 1;
+      return Promise.resolve(Response.json({ items: [{ id: "domain-1", status: current.status === "success" ? "active" : "pending" }] }));
+    }
+    return fetchTask(path, options);
+  });
+  state.settingsForm.value.notification.sender_name = "正在编辑的名称";
+  assert.equal(state.domains.value[0].status, "pending");
+  current = { ...current, status: "success" };
+  await state.refreshTaskStatus();
+  assert.equal(state.domains.value[0].status, "active");
+  assert.equal(state.settingsForm.value.notification.sender_name, "正在编辑的名称");
+  assert.equal(resourceReads, 2);
+});

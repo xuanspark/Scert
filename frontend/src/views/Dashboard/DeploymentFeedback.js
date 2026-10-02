@@ -2,6 +2,14 @@ export function serverAuthLabel(server) {
   return server.password_configured ? "SSH 密码已配置" : "SSH 密码未配置";
 }
 
+export function taskExecutionLabel(status) {
+  return {
+    queued: "排队中", running: "执行中", retry_wait: "等待重试",
+    cancelling: "正在取消，等待收尾", cancelled: "已取消",
+    success: "已完成", failed: "失败", partial_success: "部分成功",
+  }[status] || "等待确认状态";
+}
+
 export function deploymentSummary(report) {
   if (!report || !Array.isArray(report.results)) return "未收到有效部署结果";
   if (report.status !== "success" && report.recovery_status === "success") {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import "./DeploymentResult.test.js";
+import "./TaskMonitor.test.js";
 import "./DashboardLogout.test.js";
 import "./DomainModal.test.js";
 import "./DomainForm.test.js";
@@ -139,6 +140,7 @@ test("完整页面逐个渲染六个板块，每次只有一个内容标题", as
     app.component("ProjectManagement", { render: () => Vue.h("h2", headings.projects) });
     app.component("DNSAccounts", { render: () => Vue.h("h2", headings["dns-accounts"]) });
     app.component("DeploymentResult", { render: () => null });
+    app.component("TaskDeploymentResults", { render: () => null });
     const warnings = [];
     app.config.warnHandler = (message) => warnings.push(message);
     const html = await renderToString(app);

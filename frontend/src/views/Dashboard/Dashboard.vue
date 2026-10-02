@@ -10,6 +10,7 @@ import DashboardNavigation from "./DashboardNavigation.vue";
 import { useDashboardNavigation } from "./DashboardNavigation.js";
 import { useDashboard } from "./Dashboard.js";
 import DeploymentResult from "./DeploymentResult.vue";
+import TaskDeploymentResults from "./TaskDeploymentResults.vue";
 
 const dashboard = useDashboard();
 const {
@@ -37,6 +38,8 @@ const {
   saving,
   error,
   notice,
+  taskQueryError,
+  taskDeploymentReport,
   formError,
   showForm,
   editingId,
@@ -152,6 +155,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
     <div class="dashboard-messages" aria-live="polite">
       <p v-if="error" class="error-banner">{{ error }}</p>
       <p v-if="notice" class="notice-banner">{{ notice }}</p>
+      <p v-if="taskQueryError" class="error-banner" role="alert">{{ taskQueryError }}</p>
     </div>
 
     <div class="dashboard-workspace">
@@ -504,8 +508,8 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
           <button class="close-button" type="button" aria-label="关闭" @click="closeTaskDetails">×</button>
         </div>
         <div v-if="taskDetailsLoading" class="empty-state">正在读取任务详情……</div>
-        <p v-else-if="taskDetailsError" class="form-error">{{ taskDetailsError }}</p>
-        <template v-else-if="taskDetails">
+        <p v-if="taskDetailsError" class="form-error" role="alert">{{ taskDetailsError }}</p>
+        <template v-if="taskDetails">
           <div class="task-detail-summary">
             <div><span>当前状态</span><strong class="tag" :class="statusClass(taskDetails.status)">{{ displayLabel(taskStatusLabels, taskDetails.status) }}</strong></div>
             <div><span>执行阶段</span><strong>{{ taskStageLabel(taskDetails.stage) }}</strong></div>
@@ -516,6 +520,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             <span>任务信息</span>
             <p>{{ taskDetails.message || "无附加信息" }}</p>
           </div>
+          <TaskDeploymentResults v-if="taskDeploymentReport" :report="taskDeploymentReport" />
           <h3 class="modal-section-title">执行尝试</h3>
           <div v-if="taskAttempts.length === 0" class="empty-state compact-empty">暂无执行尝试记录</div>
           <div v-else class="attempt-list">

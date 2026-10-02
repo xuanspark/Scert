@@ -170,19 +170,20 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 	})
 	now := time.Now().UTC()
 	if err := executionCtx.Err(); err != nil {
-		s.finishTaskBeforeExecution(task, attempt, "cancelled", "任务在开始前已停止")
+		s.finishTaskContext(task, attempt, err)
 		return
 	}
 	if err := s.tasks.UpdateTask(executionCtx, task.ID, "running", stage, runningMessage, &now, nil); err != nil {
-		finished := time.Now().UTC()
 		failureMessage := "任务启动失败"
 		if s.finishCancelledTask(task, attempt, executionCtx) {
 			return
 		}
-		_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", stage, failureMessage, &now, &finished)
-		_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
+		attempt.Stage = stage
+		s.finishTaskBeforeExecution(task, attempt, "failed", failureMessage)
 		if s.audit != nil {
-			_ = s.audit.CreateAuditLog(context.Background(), repository.AuditLog{
+			auditCtx, auditCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer auditCancel()
+			_ = s.audit.CreateAuditLog(auditCtx, repository.AuditLog{
 				TaskID: task.ID, OperatorID: task.OperatorID,
 				Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID,
 				Status: "error", Message: failureMessage,
@@ -196,13 +197,12 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 			Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID,
 			Status: "running", Message: runningMessage,
 		}); err != nil {
-			finished := time.Now().UTC()
 			failureMessage := "任务启动审计记录失败"
 			if s.finishCancelledTask(task, attempt, executionCtx) {
 				return
 			}
-			_ = s.tasks.UpdateTask(context.Background(), task.ID, "failed", "record", failureMessage, &now, &finished)
-			_ = s.tasks.FinishAttempt(context.Background(), attempt.ID, "failed", failureMessage, &finished)
+			attempt.Stage = "record"
+			s.finishTaskBeforeExecution(task, attempt, "failed", failureMessage)
 			return
 		}
 	}
@@ -248,15 +248,6 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 			issueErr = errors.New(message)
 		}
 	}
-	if err := s.tasks.FinishAttempt(finishCtx, attempt.ID, status, message, &finished); err != nil {
-		status, message = "failed", "任务尝试结果保存失败，请检查任务恢复状态"
-	}
-	task.Status = status
-	task.Stage = stage
-	task.Message = message
-	task.StartedAt = &now
-	task.FinishedAt = &finished
-	task.UpdatedAt = finished
 	if s.audit != nil {
 		auditStatus := status
 		if issueErr != nil && status != "cancelled" && status != "partial_success" {
@@ -269,15 +260,28 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 			status, message = "failed", "任务完成审计保存失败，请检查任务恢复状态"
 		}
 	}
+	if err := s.tasks.FinishAttempt(finishCtx, attempt.ID, status, message, &finished); err != nil {
+		status, message = "failed", "任务尝试结果保存失败，请检查任务恢复状态"
+	}
 	if err := s.tasks.UpdateTask(finishCtx, task.ID, status, stage, message, &now, &finished); err != nil && s.logger != nil {
 		s.logger.Error("保存任务终态失败", "task_id", task.ID, "error", err)
 	}
 }
 
 func (s *Server) finishCancelledTask(task repository.Task, attempt repository.TaskAttempt, ctx context.Context) bool {
-	persisted, err := s.tasks.GetTask(context.Background(), task.ID)
-	if (err == nil && (persisted.Status == "cancelled" || persisted.Status == "cancelling")) || errors.Is(ctx.Err(), context.Canceled) {
-		s.finishTaskBeforeExecution(task, attempt, "cancelled", "任务已取消，未继续执行")
+	if ctx.Err() != nil {
+		s.finishTaskContext(task, attempt, ctx.Err())
+		return true
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	persisted, err := s.tasks.GetTask(checkCtx, task.ID)
+	if err != nil {
+		s.finishTaskBeforeExecution(task, attempt, "failed", "无法确认任务状态，未执行外部操作")
+		return true
+	}
+	if persisted.Status == "cancelled" || persisted.Status == "cancelling" {
+		s.finishTaskContext(task, attempt, context.Canceled)
 		return true
 	}
 	return false
