@@ -666,6 +666,14 @@ func (s *Service) recoverTransaction(ctx context.Context, record *TransactionRec
 		return fmt.Errorf("连接服务器失败：%w", err)
 	}
 	defer client.Close()
+	if record.Phase == TransactionPhaseReloadAttempted && transactionTargetsWereAbsent(*record) && transactionFilesMatchExpected(recoveryContext, client, *record) {
+		// 首次部署没有可恢复的旧文件，只能在目标文件和远端站点均确认本次证书后收尾。
+		if err := s.recoverCommittedTransaction(recoveryContext, record, server, client); err == nil {
+			return nil
+		} else {
+			return fmt.Errorf("首次部署结果核验失败，保留现场等待人工核查：%w", err)
+		}
+	}
 	if record.Phase == TransactionPhaseAcquiring || record.Phase == TransactionPhaseRollbackVerified || record.Phase == TransactionPhaseCommitVerified {
 		return releaseTransactionLocks(recoveryContext, client, *record, true, true)
 	}
@@ -746,6 +754,30 @@ func (s *Service) recoverCommittedTransaction(ctx context.Context, record *Trans
 	return releaseTransactionLocks(ctx, client, *record, true, false)
 }
 
+func transactionTargetsWereAbsent(record TransactionRecord) bool {
+	if len(record.Backups) == 0 || len(record.Backups) != len(record.Paths) {
+		return false
+	}
+	for _, backup := range record.Backups {
+		if backup.OriginalExists {
+			return false
+		}
+	}
+	return true
+}
+
+func transactionFilesMatchExpected(ctx context.Context, client Client, record TransactionRecord) bool {
+	if record.Evidence == nil || len(record.Paths) == 0 {
+		return false
+	}
+	for _, path := range record.Paths {
+		expected := record.Evidence.Files[path]
+		if expected == "" || checkFileDigest(ctx, client, path, expected) != nil {
+			return false
+		}
+	}
+	return true
+}
 func restoreTransactionFiles(ctx context.Context, client Client, record TransactionRecord) error {
 	if err := validateRollbackFiles(ctx, client, record); err != nil {
 		return err

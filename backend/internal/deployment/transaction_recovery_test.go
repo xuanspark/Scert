@@ -213,3 +213,67 @@ func TestRecoverPendingAcquiringPreservesLocksWithoutOwner(t *testing.T) {
 		t.Fatal("无归属锁必须保留事务等待人工核查")
 	}
 }
+func TestRecoverPendingCommitsVerifiedFirstDeployment(t *testing.T) {
+	server, client, record := recoveryPreflightFixture()
+	for index := range record.Backups {
+		record.Backups[index].OriginalExists = false
+		record.Backups[index].OriginalDigest = ""
+		delete(client.files, record.Backups[index].Saved)
+	}
+	journal := &memoryTransactionJournal{pending: []TransactionRecord{record}}
+	service := NewServiceWithJournal(fixedClientFactory{client}, journal)
+	service.VerifyRecoveryTarget = func(_ context.Context, _ Server, _ RecoveryBaseline, committed bool) error {
+		if !committed {
+			t.Fatal("首次部署现场应按新证书提交核验")
+		}
+		return nil
+	}
+	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err != nil {
+		t.Fatalf("首次部署提交恢复失败：%v", err)
+	}
+	if len(journal.finished) != 1 || journal.finished[0].status != TransactionStatusCommitted {
+		t.Fatalf("首次部署提交状态不正确：%+v", journal.finished)
+	}
+	for index, target := range record.Paths {
+		if _, ok := client.files[target+".scert-lock"]; ok {
+			t.Fatalf("提交完成后不应残留部署锁：%s", target)
+		}
+		if _, ok := client.files[record.TemporaryPaths[index]]; ok {
+			t.Fatalf("提交完成后不应残留临时文件：%s", record.TemporaryPaths[index])
+		}
+		if string(client.files[target].data) != "new" {
+			t.Fatalf("提交完成后目标文件被错误修改：%s", target)
+		}
+	}
+}
+
+func TestRecoverPendingKeepsFirstDeploymentForManualReviewWhenVerificationFails(t *testing.T) {
+	server, client, record := recoveryPreflightFixture()
+	for index := range record.Backups {
+		record.Backups[index].OriginalExists = false
+		record.Backups[index].OriginalDigest = ""
+		delete(client.files, record.Backups[index].Saved)
+	}
+	journal := &memoryTransactionJournal{pending: []TransactionRecord{record}}
+	service := NewServiceWithJournal(fixedClientFactory{client}, journal)
+	service.VerifyRecoveryTarget = func(context.Context, Server, RecoveryBaseline, bool) error {
+		return errors.New("站点尚未确认新证书")
+	}
+	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err == nil {
+		t.Fatal("首次部署站点未确认时必须保留人工核查状态")
+	}
+	if len(journal.finished) != 0 || len(journal.updated) != 1 || journal.updated[0].Status != TransactionStatusRecoveryRequired {
+		t.Fatalf("失败核验状态不正确：%+v", journal)
+	}
+	for index, target := range record.Paths {
+		if _, ok := client.files[target+".scert-lock"]; !ok {
+			t.Fatalf("失败核验时不得释放部署锁：%s", target)
+		}
+		if string(client.files[target].data) != "new" {
+			t.Fatalf("失败核验时不得删除新目标文件：%s", target)
+		}
+		if _, ok := client.files[record.TemporaryPaths[index]]; !ok {
+			t.Fatalf("失败核验时应保留临时现场：%s", record.TemporaryPaths[index])
+		}
+	}
+}
