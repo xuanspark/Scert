@@ -26,7 +26,7 @@ func recoveryPreflightFixture(roots ...string) (Server, *memoryClient, Transacti
 			Version: 1, LockToken: contentDigest([]byte("preflight-owner")),
 			Address: server.Address, Port: server.Port, HostKeyFingerprint: server.HostKeyFingerprint,
 			ValidationCommand: server.ValidationCommand, ReloadCommand: server.ReloadCommand,
-			Files: map[string]string{}, Baseline: RecoveryBaseline{
+			Files: map[string]string{}, TemporaryFiles: map[string]string{}, Baseline: RecoveryBaseline{
 				Endpoint: "https://example.com", Domains: []string{"example.com"},
 				PreviousFingerprint: "old", ExpectedFingerprint: "new",
 			},
@@ -41,6 +41,7 @@ func recoveryPreflightFixture(roots ...string) (Server, *memoryClient, Transacti
 			Original: path, Saved: backup, OriginalExists: true, OriginalDigest: contentDigest([]byte("old")),
 		})
 		r.Evidence.Files[path] = contentDigest([]byte("new"))
+		r.Evidence.TemporaryFiles[temporary] = contentDigest([]byte("partial"))
 		client.files[lock] = memoryFile{}
 		client.files[lock+"/owner"] = memoryFile{data: []byte(r.Evidence.LockToken), mode: 0o600}
 		client.files[backup] = memoryFile{data: []byte("old"), mode: 0o600}

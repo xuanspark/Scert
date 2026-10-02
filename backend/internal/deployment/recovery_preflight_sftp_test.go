@@ -25,7 +25,7 @@ func TestRecoveryPreflightOverPasswordSFTP(t *testing.T) {
 		}
 		return nil
 	}, serveTestSFTP, hostSigner)
-	for _, scenario := range []string{"foreign_lock", "missing_owner", "changed_backup", "changed_target", "valid_restore"} {
+	for _, scenario := range []string{"foreign_lock", "missing_owner", "changed_backup", "changed_target", "changed_temporary", "unrecorded_temporary", "valid_restore"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			server, memory, r := recoveryPreflightFixture(root)
@@ -43,6 +43,10 @@ func TestRecoveryPreflightOverPasswordSFTP(t *testing.T) {
 				memory.files[r.Backups[0].Saved] = memoryFile{data: []byte("unexpected-backup")}
 			case "changed_target":
 				memory.files[r.Paths[0]] = memoryFile{data: []byte("unexpected-target")}
+			case "changed_temporary":
+				memory.files[r.TemporaryPaths[2]] = memoryFile{data: []byte("unexpected-temporary")}
+			case "unrecorded_temporary":
+				delete(r.Evidence.TemporaryFiles, r.TemporaryPaths[2])
 			}
 			for path, file := range memory.files {
 				if strings.HasSuffix(path, ".scert-lock") {

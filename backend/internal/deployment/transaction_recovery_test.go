@@ -69,6 +69,10 @@ func TestRecoverPendingRollsBackOwnedDeployment(t *testing.T) {
 		Phase: TransactionPhaseReloadAttempted, Status: TransactionStatusPending,
 		Evidence: &RecoveryEvidence{Version: 1, LockToken: contentDigest([]byte("scert-lock:" + id)), Address: server.Address, Port: server.Port, HostKeyFingerprint: server.HostKeyFingerprint, ValidationCommand: append([]string(nil), server.ValidationCommand...), ReloadCommand: append([]string(nil), server.ReloadCommand...), Files: files, Baseline: RecoveryBaseline{PreviousFingerprint: "old", Endpoint: "https://example.com", Domains: []string{"example.com"}}},
 	}}}
+	journal.pending[0].Evidence.TemporaryFiles = make(map[string]string)
+	for _, path := range temporary {
+		journal.pending[0].Evidence.TemporaryFiles[path] = contentDigest([]byte("partial"))
+	}
 	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
 	service.VerifyRecoveryTarget = func(context.Context, Server, RecoveryBaseline, bool) error { return nil }
 	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err != nil {

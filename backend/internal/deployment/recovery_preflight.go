@@ -32,6 +32,9 @@ func validateRollbackFiles(ctx context.Context, client Client, record Transactio
 	if err := validateTransactionLocks(ctx, client, record, false); err != nil {
 		return err
 	}
+	if err := validateTemporaryFiles(ctx, client, record); err != nil {
+		return err
+	}
 	for _, backup := range record.Backups {
 		backupExists, err := validateRecoveryBackup(ctx, client, backup)
 		if err != nil {

@@ -368,13 +368,21 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		temporaryPath := file.path + ".scert-tmp-" + backupID
 		// 上传失败也可能留下半份私钥，必须在开始上传前登记清理路径。
 		temporary = append(temporary, temporaryPath)
-		if err := client.Upload(ctx, temporaryPath, file.data, file.mode); err != nil {
+		uploadErr := client.Upload(ctx, temporaryPath, file.data, file.mode)
+		if uploadErr != nil {
 			var notCreated *uploadNotCreatedError
-			if errors.As(err, &notCreated) {
+			if errors.As(uploadErr, &notCreated) {
 				temporary = temporary[:len(temporary)-1]
-				return failed(fmt.Sprintf("上传失败且未确认临时路径所有权，已保留 %s 供人工核查：%v", temporaryPath, err))
+				return failed(fmt.Sprintf("上传失败且未确认临时路径所有权，已保留 %s 供人工核查：%v", temporaryPath, uploadErr))
 			}
-			return failed(fmt.Sprintf("上传远程证书失败：%v", err))
+		}
+		if transactionEnabled {
+			if err := s.captureUploadEvidence(ctx, server, &client, journalRecord, temporaryPath, file.data, uploadErr); err != nil {
+				return failed(fmt.Sprintf("保存临时文件归属证据失败：%v", err))
+			}
+		}
+		if uploadErr != nil {
+			return failed(fmt.Sprintf("上传远程证书失败：%v", uploadErr))
 		}
 	}
 	if err := persistTransaction(ctx, TransactionPhaseUploaded); err != nil {
@@ -698,6 +706,9 @@ func (s *Service) recoverCommittedTransaction(ctx context.Context, record *Trans
 		if err := checkFileDigest(ctx, client, path, record.Evidence.Files[path]); err != nil {
 			return err
 		}
+	}
+	if err := validateTemporaryFiles(ctx, client, *record); err != nil {
+		return err
 	}
 	for _, backup := range record.Backups {
 		if _, err := validateRecoveryBackup(ctx, client, backup); err != nil {

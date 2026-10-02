@@ -27,6 +27,7 @@ type RecoveryEvidence struct {
 	ValidationCommand  []string          `json:"validation_command"`
 	ReloadCommand      []string          `json:"reload_command"`
 	Files              map[string]string `json:"files"`
+	TemporaryFiles     map[string]string `json:"temporary_files,omitempty"`
 	Baseline           RecoveryBaseline  `json:"baseline"`
 }
 
@@ -112,13 +113,20 @@ func validateRecoveryEvidence(record TransactionRecord, server Server) error {
 		}
 		locks[lock] = true
 	}
+	temporaryPaths := make(map[string]bool)
 	for _, temporary := range record.TemporaryPaths {
 		matched := false
 		for path := range paths {
 			matched = matched || temporary == path+".scert-tmp-"+record.ID
 		}
-		if !matched {
+		if !matched || temporaryPaths[temporary] {
 			return errors.New("部署事务临时路径无效")
+		}
+		temporaryPaths[temporary] = true
+	}
+	for path, digest := range e.TemporaryFiles {
+		if !temporaryPaths[path] || !validDigest(digest) {
+			return errors.New("部署事务临时文件归属证据无效")
 		}
 	}
 	seen := make(map[string]bool)
