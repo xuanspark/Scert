@@ -1,5 +1,16 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日18:35 后台原子收尾整改（未部署）
+
+- [x] 上批 background-full.log 与 background-vet.log 已取回：BACKGROUND_FULL_EXIT=0、BACKGROUND_VET_EXIT=0。第二台既有服务 active，进程检查仅保留系统 MySQL；磁盘剩余约 1014MB，不新增数据库实例。
+- [!] 第一台 scert-report-race-20261002-1801 的 Result=timeout，运行十分钟退出一；内存上限 512MB、CPU 上限 50% 实际生效。没有竞争检测通过结论，无残留测试／编译进程，Scert、Nginx、MySQL active，可用内存约 903MB。
+- [x] 修改前已推送 cf3bc7a。后台原子化测试归档 SHA256 为 d32c8d1849ebbd542523006cb131275e2f6ed925401e143ac69d4f1dc5a3ff40，两端一致；旧实现 background-atomic-before.log 退出一，报告缺失、任务／尝试／审计部分提交被复现。结果写入失败场景还触发重复重试后的同名触发器错误，测试已改为幂等安装触发器，不将该错误作为独立产品缺陷。
+- [x] 修复归档 background-atomic-fix-20261002.tar，SHA256 为 78a140e9f16f83ca3eeac7e86635afe6f199cc1351210b48589f9ece7acb1123，两端校验通过；background-atomic-after.log：应用 21.663 秒、仓储 10.407 秒、HTTP 29.936 秒，BACKGROUND_ATOMIC_AFTER_EXIT=0。
+- [x] 新测试覆盖五处写入故障整体回滚、每次重试完整报告、重试等待取消、禁止重试重新激活取消任务、无尝试收尾不能绕过活动尝试，以及无尝试路径的审计失败回滚。
+- [x] background-atomic-full.log 与 background-atomic-vet.log：全后端测试及 go vet 均通过，BACKGROUND_ATOMIC_FULL_EXIT=0、BACKGROUND_ATOMIC_VET_EXIT=0；既有三项服务 active，磁盘剩余约 961MB。外部数据库未启用时的全量测试不当作三库实库回归。
+- [x] background-atomic-repeat.log：新增收尾和取消专项重复二十次通过，应用 48.982 秒、仓储 49.985 秒，BACKGROUND_ATOMIC_REPEAT_EXIT=0；普通重复测试不替代竞争检测。
+- [!] 本批仅隔离源码开发及自动回归，不修改正式程序和线上数据库；未运行三库首次 Web 或正式部署，不代替生产验收。
+
 ## 2026年10月2日18:11 后台取消与 MySQL 报告迁移回归（未部署）
 
 - [x] 新增原生 Go 回归 TestCertificateCancellationPreservesDeploymentOutcome；background-cancel-before.log 中四个场景全部失败，BACKGROUND_CANCEL_BEFORE_EXIT=1。三个场景被错误标为 cancelled，已恢复场景未保存逐服务器结果。

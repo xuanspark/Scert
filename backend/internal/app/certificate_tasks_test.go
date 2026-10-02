@@ -59,10 +59,14 @@ func assertCertificateTask(t *testing.T, a *App, status string, statuses ...stri
 		}
 	}
 	var count int
-	if err := a.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE action = ? AND resource_id = ? AND status = ?", item.TaskType, item.DomainID, status).Scan(&count); err != nil || count != 1 {
+	auditStatus := status
+	if auditStatus == "failed" {
+		auditStatus = "error"
+	}
+	if err := a.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE action = ? AND resource_id = ? AND status = ?", item.TaskType, item.DomainID, auditStatus).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("审计记录缺失：%d %v", count, err)
 	}
-	if err := a.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE task_id = ? AND scope_type = 'project' AND project_id = ? AND operator_id = '' AND status IN ('running', ?)", item.ID, item.ProjectID, status).Scan(&count); err != nil || count != 2 {
+	if err := a.Database.DB.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_logs WHERE task_id = ? AND scope_type = 'project' AND project_id = ? AND operator_id = '' AND status IN ('running', ?)", item.ID, item.ProjectID, auditStatus).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("后台任务开始与收尾审计关联缺失：%d，%v", count, err)
 	}
 	return item
@@ -168,11 +172,11 @@ func (r failingCertificateTasks) CreateTask(ctx context.Context, task repository
 	return r.TaskRepository.CreateTask(ctx, task)
 }
 
-func (r failingCertificateTasks) FinishAttempt(ctx context.Context, id, status, message string, at *time.Time) error {
+func (r failingCertificateTasks) FinishTaskAttempt(ctx context.Context, completion repository.TaskCompletion) error {
 	if r.failFinish {
 		return errors.New("attempt-store-unavailable")
 	}
-	return r.TaskRepository.FinishAttempt(ctx, id, status, message, at)
+	return r.TaskRepository.FinishTaskAttempt(ctx, completion)
 }
 
 func TestCertificateTaskPersistenceFailuresStopExecutionOrRetries(t *testing.T) {
@@ -320,11 +324,8 @@ type failingCertificateTerminal struct {
 	failure error
 }
 
-func (r failingCertificateTerminal) UpdateTask(ctx context.Context, id, status, stage, message string, started, finished *time.Time) error {
-	if finished != nil {
-		return r.failure
-	}
-	return r.TaskRepository.UpdateTask(ctx, id, status, stage, message, started, finished)
+func (r failingCertificateTerminal) FinishTaskAttempt(ctx context.Context, completion repository.TaskCompletion) error {
+	return r.failure
 }
 
 func TestCertificateAuditFailuresPersistFailedTaskWithoutReissue(t *testing.T) {
@@ -333,6 +334,13 @@ func TestCertificateAuditFailuresPersistFailedTaskWithoutReissue(t *testing.T) {
 			w, a := newCertificateTaskFixture(t)
 			failure := errors.New("audit-store-unavailable")
 			w.audit = failingCertificateAudit{AuditRepository: w.audit, failStatus: failStatus, failure: failure}
+			if failStatus == "success" {
+				// 完成审计已移入数据库事务，在真实写入点注入失败。
+				if _, err := a.Database.DB.ExecContext(t.Context(), `CREATE TRIGGER reject_success_audit BEFORE INSERT ON audit_logs
+					WHEN NEW.status = 'success' BEGIN SELECT RAISE(ABORT, 'audit-store-unavailable'); END`); err != nil {
+					t.Fatal(err)
+				}
+			}
 			calls := 0
 			var logged error
 			w.logError = func(err error) { logged = err }
@@ -344,15 +352,19 @@ func TestCertificateAuditFailuresPersistFailedTaskWithoutReissue(t *testing.T) {
 			if failStatus == "running" {
 				expectedCalls = 0
 			}
-			if !errors.Is(err, failure) || !errors.Is(logged, failure) || calls != expectedCalls {
+			if err == nil || logged == nil || !strings.Contains(err.Error(), failure.Error()) || !strings.Contains(logged.Error(), failure.Error()) || calls != expectedCalls {
 				t.Fatalf("calls=%d error=%v logged=%v", calls, err, logged)
 			}
 			tasks, listErr := a.Tasks.ListTasks(t.Context(), "task-domain", 10)
-			if listErr != nil || len(tasks) != 1 || tasks[0].Status != "failed" || tasks[0].FinishedAt == nil {
+			if listErr != nil || len(tasks) != 1 {
 				t.Fatalf("tasks=%+v error=%v", tasks, listErr)
 			}
-			if failStatus == "success" && tasks[0].Stage != "record" {
-				t.Fatalf("stage=%s", tasks[0].Stage)
+			if failStatus == "success" {
+				if tasks[0].Status != "running" || tasks[0].FinishedAt != nil {
+					t.Fatalf("完成审计失败必须回滚终态：%+v", tasks[0])
+				}
+			} else if tasks[0].Status != "failed" || tasks[0].FinishedAt == nil {
+				t.Fatalf("开始审计失败必须停止执行并收尾：%+v", tasks[0])
 			}
 			if strings.Contains(tasks[0].Message, failure.Error()) {
 				t.Fatal("audit-store-unavailable")

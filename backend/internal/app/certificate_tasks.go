@@ -101,26 +101,32 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 	taskCtx = certificate.WithProgressReporter(taskCtx, func(progressCtx context.Context, progressStage, progressMessage string) error {
 		return w.tasks.UpdateTask(progressCtx, task.ID, "running", progressStage, progressMessage, &started, nil)
 	})
+	var activeAttempt string
+	completionFailed := false
 	defer func() {
+		defer func() {
+			if resultErr != nil && w.logError != nil {
+				w.logError(resultErr)
+			}
+		}()
+		// 收尾事务失败后保留中断记录，不能再用分散写入覆盖现场。
+		if completionFailed {
+			return
+		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		finished := time.Now().UTC()
 		status, message := certificateTaskOutcome(result, resultErr)
-		auditErr := w.audit.CreateAuditLog(finishCtx, repository.AuditLog{
-			TaskID: task.ID,
-			Action: taskType, ResourceType: "domain", ResourceID: id,
-			OperatorID: task.OperatorID,
-			Status:     status, Message: message,
+		var report *deployment.Report
+		if activeAttempt != "" {
+			report = &result.Deployment
+		}
+		recordErr := w.tasks.FinishTaskAttempt(finishCtx, repository.TaskCompletion{
+			TaskID: task.ID, AttemptID: activeAttempt, Status: status, Stage: stage,
+			Message: message, StartedAt: &started, FinishedAt: finished,
+			Report: report, AuditAction: taskType, WithoutAttempt: activeAttempt == "",
 		})
-		if auditErr != nil {
-			status, message = certificateTaskOutcome(result, auditErr)
-			stage = "record"
-		}
-		taskErr := w.tasks.UpdateTask(finishCtx, task.ID, status, stage, message, &started, &finished)
-		resultErr = errors.Join(resultErr, taskErr, auditErr)
-		if resultErr != nil && w.logError != nil {
-			w.logError(resultErr)
-		}
+		resultErr = errors.Join(resultErr, recordErr)
 	}()
 	if err := w.audit.CreateAuditLog(taskCtx, repository.AuditLog{
 		TaskID: task.ID,
@@ -146,30 +152,30 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		if err := w.tasks.CreateAttempt(taskCtx, attempt); err != nil {
 			return result, err
 		}
+		activeAttempt = attempt.ID
 		issueCtx, cancel := context.WithTimeout(taskCtx, 30*time.Minute)
 		issueCtx = deployment.WithTransactionContext(issueCtx, deployment.TransactionContext{
 			TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
 		})
 		result, resultErr = execute(issueCtx, id)
 		cancel()
-		// 取消只停止外部操作，结果保存仍使用独立且有限时的收尾上下文。
-		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		if recordErr := w.tasks.RecordTaskDeploymentResults(finishCtx, task.ID, attempt.ID, number, taskDeploymentResults(result.Deployment)); recordErr != nil {
-			resultErr = errors.Join(resultErr, recordErr)
-		}
-		finished := time.Now().UTC()
-		status, message := certificateTaskOutcome(result, resultErr)
-		recordErr := w.tasks.FinishAttempt(finishCtx, attempt.ID, status, message, &finished)
-		finishCancel()
-		if recordErr != nil {
-			return result, errors.Join(resultErr, recordErr)
-		}
-		if resultErr == nil || number == attempts || result.Certificate.Saved.CertificatePath != "" || errors.Is(resultErr, context.Canceled) || errors.Is(resultErr, context.DeadlineExceeded) {
+		if resultErr == nil || number == attempts || result.Certificate.Saved.CertificatePath != "" || result.Deployment.Status == "partial" || result.Deployment.RecoveryStatus == "unconfirmed" || result.Deployment.RecoveryStatus == "failed" || errors.Is(resultErr, context.Canceled) || errors.Is(resultErr, context.DeadlineExceeded) {
 			return result, resultErr
 		}
-		if err := w.tasks.UpdateTask(taskCtx, task.ID, "retry_wait", "retry_wait", "证书申请失败，等待重试", &started, nil); err != nil {
-			return result, errors.Join(resultErr, err)
+		// 取消只停止外部操作，结果保存仍使用独立且有限时的收尾上下文。
+		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		finished := time.Now().UTC()
+		status, message := certificateTaskOutcome(result, resultErr)
+		recordErr := w.tasks.FinishTaskAttempt(finishCtx, repository.TaskCompletion{
+			TaskID: task.ID, AttemptID: attempt.ID, Status: status, Stage: stage,
+			Message: message, StartedAt: &started, FinishedAt: finished, Report: &result.Deployment, Retry: true,
+		})
+		finishCancel()
+		if recordErr != nil {
+			completionFailed = true
+			return result, errors.Join(resultErr, recordErr)
 		}
+		activeAttempt = ""
 		if err := waitForManagementRetry(taskCtx, interval); err != nil {
 			return result, errors.Join(resultErr, err)
 		}
