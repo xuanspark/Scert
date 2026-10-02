@@ -1,5 +1,19 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日13:30 恢复预检原生 Linux 回归
+
+本轮为第二台隔离源码测试，不是清库首次生产验收。使用 nobody、Go 1.26.6 和临时目录；未修改业务数据库、服务配置、Nginx 或公网端口。线上仍为此前 1150c39 对应发行包。
+
+- [x] 隔离证据目录：`/var/tmp/scert-recovery-preflight-20261002-1308/`。`baseline.log` 记录旧代码八个不可信状态、两个部分解锁重入场景失败，退出码为 1。
+- [x] 修复后部署包完整测试退出零；`regression-final.log` 中 deployment、repository、app 三包均通过，退出码为 0；`vet.log` 对应三包 go vet 退出零。
+- [x] 新增八个不可信状态、两个已验证阶段重入、六个合法中断状态、HTTPS 失败后再恢复、五个认证前身份检查及五个真实回环密码 SSH/SFTP 子场景。SFTP 测试检查磁盘内容和权限，拒绝不可信现场时不能有文件变更。
+- [x] `repeat-final.log`：`go test ./internal/deployment -run 'TestRecoveryPreflight|TestRecoveryVerifiedCleanup' -count=20` 实际退出零。
+- [x] 首次扩大回归中仓储测试错误尝试写入 `/scert/data`，被 nobody 拒绝；六个相关测试改用临时 SQLite DSN 后完整重跑。未提权、未放宽正式路径权限；原失败保留在 `regression.log`。
+- [!] `race-repeat.log` 首次因 CGO 未启用退出 2；`race-repeat-cgo.log` 显式启用后因找不到 gcc 退出 1。均未完成竞争检测，不记为通过。
+- [x] 北京时间 13:25 第二台 Scert 为 active，Scert 8443、MySQL 3306/33060 均仅监听 127.0.0.1；这不代表修复版已经部署。
+- [~] 上传碰撞与事务日志组合仍需核查，本批正式构建部署、业务实机负向恢复和历史事务证据核查待完成。可选真实数据库用例未显式开启，不宣称三数据库验收通过。
+
+
 ## 2026年10月2日12:54 双机正式候选升级记录
 
 本节属于升级与安全复核，不是清库首次生产验收。未开放额外端口，未修改 Nginx，未关闭 TLS 或 SSH 主机指纹校验，未创建辅助验收脚本。只使用正式安装器自带发布事务，没有额外远端备份。

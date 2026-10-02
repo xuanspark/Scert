@@ -3,6 +3,7 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -12,7 +13,9 @@ import (
 )
 
 func TestProjectDirectorySQLite(t *testing.T) {
-	checkProjectDirectory(t, config.Default(t.TempDir()).Database)
+	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "project-directory.db")
+	checkProjectDirectory(t, cfg)
 }
 
 func TestProjectDirectoryMySQLReal(t *testing.T) {

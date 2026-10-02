@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 func TestProjectAuditReaderScopesLogsAndHonorsRevocation(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "project-audit.db")
 	db, err := database.Open(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)

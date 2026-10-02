@@ -60,7 +60,7 @@ func TestRecoverPendingRollsBackOwnedDeployment(t *testing.T) {
 		client.files[backupPath] = memoryFile{data: []byte("old"), mode: 0o600}
 		client.files[path] = memoryFile{data: []byte("new"), mode: 0o600}
 		client.files[temporaryPath] = memoryFile{data: []byte("partial"), mode: 0o600}
-		files[path] = contentDigest([]byte("old"))
+		files[path] = contentDigest([]byte("new"))
 	}
 	journal := &memoryTransactionJournal{pending: []TransactionRecord{{
 		ID: id, TaskID: "task", AttemptID: "attempt", AttemptNumber: 1, ResultIndex: 0,
@@ -172,7 +172,7 @@ func TestDeployPartialLockConflictReleasesOwnedLocks(t *testing.T) {
 	}
 }
 
-func TestRecoverPendingAcquiringCleansLocksWithoutOwner(t *testing.T) {
+func TestRecoverPendingAcquiringPreservesLocksWithoutOwner(t *testing.T) {
 	server := testServer("acquiring-missing-owner").Normalize()
 	client := newMemoryClient()
 	id := "acquiring-missing-owner-transaction"
@@ -197,15 +197,15 @@ func TestRecoverPendingAcquiringCleansLocksWithoutOwner(t *testing.T) {
 		},
 	}}}
 	service := NewServiceWithJournal(memoryFactory{clients: map[string]*memoryClient{server.ID: client}}, journal)
-	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err != nil {
-		t.Fatalf("无归属的中断获取阶段恢复失败：%v", err)
+	if err := service.RecoverPending(t.Context(), func(context.Context, string) (Server, error) { return server, nil }); err == nil {
+		t.Fatal("无归属锁不能证明属于本次中断事务，必须拒绝自动清理")
 	}
 	for _, lockPath := range locks {
-		if _, ok := client.files[lockPath]; ok {
-			t.Fatalf("无归属锁目录未清理：%s", lockPath)
+		if _, ok := client.files[lockPath]; !ok {
+			t.Fatalf("不得删除无归属锁目录：%s", lockPath)
 		}
 	}
-	if len(journal.finished) != 1 || journal.finished[0].status != TransactionStatusRolledBack {
-		t.Fatalf("无归属锁恢复未完成回滚：%+v", journal.finished)
+	if len(journal.finished) != 0 || len(journal.updated) != 1 || journal.updated[0].Status != TransactionStatusRecoveryRequired {
+		t.Fatal("无归属锁必须保留事务等待人工核查")
 	}
 }

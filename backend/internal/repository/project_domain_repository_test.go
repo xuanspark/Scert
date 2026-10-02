@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -14,6 +15,7 @@ import (
 
 func TestProjectDomainRepositorySQLite(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "project-domains.db")
 	db, err := database.Open(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -646,6 +646,9 @@ func (s *Service) recoverTransaction(ctx context.Context, record *TransactionRec
 	if err := server.Validate(); err != nil {
 		return fmt.Errorf("服务器配置无效：%w", err)
 	}
+	if err := validateRecoveryEvidence(*record, server); err != nil {
+		return err
+	}
 	recoveryContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), deploymentRollbackTimeout)
 	defer cancel()
 	client, err := s.factory.Connect(recoveryContext, server)
@@ -653,11 +656,8 @@ func (s *Service) recoverTransaction(ctx context.Context, record *TransactionRec
 		return fmt.Errorf("连接服务器失败：%w", err)
 	}
 	defer client.Close()
-	if err := validateRecoveryEvidence(*record, server); err != nil {
-		return err
-	}
 	if record.Phase == TransactionPhaseAcquiring || record.Phase == TransactionPhaseRollbackVerified || record.Phase == TransactionPhaseCommitVerified {
-		return releaseTransactionLocks(recoveryContext, client, *record, true, record.Phase == TransactionPhaseAcquiring)
+		return releaseTransactionLocks(recoveryContext, client, *record, true, true)
 	}
 	if record.Phase == TransactionPhaseCommitting {
 		return s.recoverCommittedTransaction(recoveryContext, record, server, client)
@@ -699,6 +699,11 @@ func (s *Service) recoverCommittedTransaction(ctx context.Context, record *Trans
 			return err
 		}
 	}
+	for _, backup := range record.Backups {
+		if _, err := validateRecoveryBackup(ctx, client, backup); err != nil {
+			return err
+		}
+	}
 	if s.VerifyRecoveryTarget == nil || record.Evidence.Baseline.ExpectedFingerprint == "" {
 		return errors.New("缺少可信提交站点基线，已保留现场等待人工核查")
 	}
@@ -729,6 +734,9 @@ func (s *Service) recoverCommittedTransaction(ctx context.Context, record *Trans
 }
 
 func restoreTransactionFiles(ctx context.Context, client Client, record TransactionRecord) error {
+	if err := validateRollbackFiles(ctx, client, record); err != nil {
+		return err
+	}
 	for _, temporaryPath := range record.TemporaryPaths {
 		if exists, err := client.Exists(ctx, temporaryPath); err != nil {
 			return fmt.Errorf("检查临时文件失败：%w", err)
@@ -778,6 +786,11 @@ func restoreTransactionFiles(ctx context.Context, client Client, record Transact
 }
 
 func releaseTransactionLocks(ctx context.Context, client Client, record TransactionRecord, verifyOwner, allowMissingOwner bool) error {
+	if verifyOwner {
+		if err := validateTransactionLocks(ctx, client, record, allowMissingOwner); err != nil {
+			return err
+		}
+	}
 	for index := len(record.LockPaths) - 1; index >= 0; index-- {
 		lockPath := record.LockPaths[index]
 		if verifyOwner {

@@ -264,6 +264,7 @@ func TestProjectLifecycleSQLiteAuditRollback(t *testing.T) {
 		for _, mode := range []string{"ABORT, 'audit-failure'", "IGNORE"} {
 			t.Run(action+mode, func(t *testing.T) {
 				cfg := config.Default(t.TempDir()).Database
+				cfg.DSN = filepath.Join(t.TempDir(), "project-audit-rollback.db")
 				db, err := database.Open(t.Context(), cfg)
 				if err != nil {
 					t.Fatal(err)

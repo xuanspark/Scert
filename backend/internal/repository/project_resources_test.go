@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -14,7 +15,9 @@ import (
 )
 
 func TestProjectResourcesSQLite(t *testing.T) {
-	checkProjectResources(t, config.Default(t.TempDir()).Database, nil)
+	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "project-resources.db")
+	checkProjectResources(t, cfg, nil)
 }
 
 func TestProjectResourcesMySQLReal(t *testing.T) {

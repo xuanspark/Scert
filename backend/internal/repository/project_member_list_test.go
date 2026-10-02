@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -13,7 +14,9 @@ import (
 )
 
 func TestProjectMemberListingSQLite(t *testing.T) {
-	checkProjectMemberListing(t, config.Default(t.TempDir()).Database)
+	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "project-members.db")
+	checkProjectMemberListing(t, cfg)
 }
 
 func TestProjectMemberListingMySQLReal(t *testing.T) {
