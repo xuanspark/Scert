@@ -38,7 +38,10 @@ func (s *Server) submitPreparedDomainTask(c *gin.Context, taskType string, prepa
 			prepared.cleanup()
 		}
 	}()
-	if (taskType == "certificate_issue" && s.issueCertificate == nil) || (taskType == "certificate_deploy" && s.deployCertificateTask == nil) || (taskType == "certificate_validate" && s.validateCertificateTask == nil) {
+	if (taskType == "certificate_issue" && s.issueCertificate == nil) ||
+		(taskType == "certificate_deploy" && s.deployCertificateTask == nil) ||
+		(taskType == "certificate_validate" && s.validateCertificateTask == nil) ||
+		(taskType == "certificate_restore" && s.restoreVersionTask == nil) {
 		s.writeError(c, http.StatusNotImplemented, "证书申请接口尚未配置", errors.New("证书申请工作流未配置"))
 		return
 	}

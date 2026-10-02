@@ -66,6 +66,7 @@ type Dependencies struct {
 	// DeployCertificateTask 执行已有任务，不得重复创建任务或尝试记录。
 	DeployCertificateTask     func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
+	RestoreCertificateVersionTask func(context.Context, string, string) (certificate.IssueResult, error)
 	ValidateCertificate       func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 	// ValidateCertificateTask 直接校验当前证书，不重复创建任务。
 	ValidateCertificateTask func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
@@ -107,6 +108,7 @@ type Server struct {
 	deployCertificate           func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	deployCertificateTask       func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	restoreVersion              func(context.Context, string, string) (certificate.IssueResult, error)
+	restoreVersionTask          func(context.Context, string, string) (certificate.IssueResult, error)
 	validateCertificateWorkflow func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 	validateCertificateTask     func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
@@ -177,6 +179,7 @@ func New(deps Dependencies) *Server {
 		deployCertificate:           deps.DeployCertificate,
 		deployCertificateTask:       deps.DeployCertificateTask,
 		restoreVersion:              deps.RestoreCertificateVersion,
+		restoreVersionTask:          deps.RestoreCertificateVersionTask,
 		validateCertificateWorkflow: deps.ValidateCertificate,
 		validateCertificateTask:     deps.ValidateCertificateTask,
 		runRenewal:                  deps.RunRenewal,
