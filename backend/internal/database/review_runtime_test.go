@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 func TestDatabasePingAndSQLitePragmas(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "runtime.db")
 	db, err := Open(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("打开 SQLite 失败：%v", err)

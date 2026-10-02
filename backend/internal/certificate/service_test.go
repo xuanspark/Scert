@@ -326,6 +326,7 @@ func TestServiceRestoreVersionRollsBackFilesWhenStateUpdateFails(t *testing.T) {
 
 func certificateTestConfig(root string) config.Config {
 	cfg := config.Default(root)
+	cfg.Paths.Config = filepath.Join(root, "conf")
 	cfg.Paths.Certificate = filepath.Join(root, "ssl")
 	cfg.Paths.Backup = filepath.Join(root, "backups")
 	cfg.DNS.Provider = "cloudflare"

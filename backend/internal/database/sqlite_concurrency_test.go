@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 func newSQLiteConcurrencyPools(t *testing.T) (*sql.DB, *sql.DB) {
 	t.Helper()
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "concurrency.db")
 	first := openSQLiteTestPool(t, cfg)
 	second := openSQLiteTestPool(t, cfg)
 	if _, err := first.ExecContext(t.Context(), "CREATE TABLE lock_probe (id INTEGER PRIMARY KEY, value INTEGER NOT NULL); INSERT INTO lock_probe VALUES (1, 0)"); err != nil {

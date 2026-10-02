@@ -1,5 +1,16 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日13:59 测试隔离修复与完整检出回归
+
+- [x] 十个测试文件共二十一行调整：重置状态文件、敏感配置及 SQLite DSN 均进入临时目录；共享连接池和子进程仍复用同一个测试数据库。不改产品行为、不提权写正式目录。
+- [x] `/var/tmp/scert-recovery-full-20261002-1344/full-backend.log` 保留归档复测失败：三个原路径污染包已通过，仅发布边界测试因没有 Git 元数据失败；同目录 `full-vet.log` 退出零。
+- [x] `/var/tmp/scert-recovery-checkout-20261002-1348/source` 为完整 Git 检出 3b25449，叠加十个测试文件修复；nobody 执行 `go test ./... -count=1`，输出 `CHECKOUT_FULL_EXIT=0`，`full-backend.log` 记录三十一个通过包。未跳过发布边界检查。
+- [x] 13:55 双机监听核查：Scert 均仅监听 127.0.0.1:8443，Nginx 占用 80/443，Scert 与 Nginx 均 active；未改公网端口或共存业务。
+- [!] 第一台 `/var/tmp/scert-recovery-race-20261002-1345/race.log` 的竞争检测未完成：依赖下载连接持续 SYN-SENT，13:58 中断后退出 130，不能记为通过。
+- [x] 缓存归档三端 SHA256 一致，使用独立离线代理及新 GOPATH 执行 `go test -p 2 -race ./internal/deployment -run 'TestRecovery|TestJournal' -count=20`；保留 go.sum 校验，13:58:59 返回 `OFFLINE_RACE_EXIT=0`，`race-offline.log` 记录通过。仅覆盖恢复与事务用例，不声称全后端竞争检测通过。
+- [x] 完整 Git 检出目录重新执行全后端 go vet，日志为同目录 `full-vet.log`，返回 `CHECKOUT_VET_EXIT=0`。
+- [~] 本批修复未正式构建部署，线上仍为此前 1150c39 对应版本；未清业务库，未显式开启外部数据库用例，不扩大为三数据库生产验收。
+
 ## 2026年10月2日13:41 上传归属与扩大回归
 
 - [x] 同一隔离目录的 `upload-baseline.log`：带事务日志的上传碰撞保护和未知临时文件恢复保护两个场景均失败，退出码 1，确认原实现会误删。

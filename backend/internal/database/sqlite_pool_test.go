@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
@@ -44,6 +45,7 @@ func TestSQLitePoolConfiguresEveryConnection(t *testing.T) {
 	for _, name := range []string{"parallel_connections", "no_idle_connections", "replacement_connections", "uri_options"} {
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Default(t.TempDir()).Database
+			cfg.DSN = filepath.Join(t.TempDir(), "pool.db")
 			cfg.MaxOpenConns = 4
 			cfg.MaxIdleConns = 4
 			if name == "no_idle_connections" {

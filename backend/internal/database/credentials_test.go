@@ -87,6 +87,7 @@ func TestValidateConfigKeepsExternalDatabaseUsernameOutOfPersistedDSN(t *testing
 
 func TestVerifyWritableSQLiteCleansTemporaryTable(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "verification.db")
 	if err := VerifyWritable(t.Context(), cfg); err != nil {
 		t.Fatalf("SQLite 可写验证失败：%v", err)
 	}

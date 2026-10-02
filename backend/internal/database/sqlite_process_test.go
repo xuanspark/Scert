@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +30,7 @@ func TestSQLiteProcessConcurrency(t *testing.T) {
 		return
 	}
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "process.db")
 	db := openSQLiteTestPool(t, cfg)
 	if _, err := db.ExecContext(t.Context(), "CREATE TABLE lock_probe (id INTEGER PRIMARY KEY, value INTEGER NOT NULL); INSERT INTO lock_probe VALUES (1, 0)"); err != nil {
 		t.Fatal(err)

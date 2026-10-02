@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 // 覆盖真实连接间的写入与检查点竞争，不将概率性压力测试当成上游缺陷的确定性复现。
 func TestSQLiteWALCheckpointIntegrity(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "checkpoint.db")
 	cfg.MaxOpenConns, cfg.MaxIdleConns = 3, 3
 	db := openSQLiteTestPool(t, cfg)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)

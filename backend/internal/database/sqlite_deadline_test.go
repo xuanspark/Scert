@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -98,6 +99,7 @@ func TestSQLiteDeadlineAcrossExecutionPaths(t *testing.T) {
 
 func TestSQLitePoolWaitHonorsContext(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "pool-wait.db")
 	cfg.MaxOpenConns = 1
 	cfg.MaxIdleConns = 1
 	db := openSQLiteTestPool(t, cfg)
@@ -146,6 +148,7 @@ func TestSQLiteDeadlinePreservesQueryMetadata(t *testing.T) {
 
 func TestSQLiteOpenDeadlineWhileChangingJournalMode(t *testing.T) {
 	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "journal-mode.db")
 	if err := ensureSQLiteDir(cfg.DSN); err != nil {
 		t.Fatal(err)
 	}

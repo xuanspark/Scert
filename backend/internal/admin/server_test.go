@@ -60,6 +60,7 @@ func TestScertAdminSystemdUnitKeepsManualOnlyPolicy(t *testing.T) {
 
 func TestControllerActivatesAndStopsResetPath(t *testing.T) {
 	cfg := config.Default(t.TempDir())
+	cfg.Paths.Data = t.TempDir()
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	cfg.Server.Port = 8443
@@ -111,6 +112,7 @@ func TestExpiredLeaseIsInactive(t *testing.T) {
 
 func TestResetCodeCanOnlyBeConsumedOnce(t *testing.T) {
 	cfg := config.Default(t.TempDir())
+	cfg.Paths.Data = t.TempDir()
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	controller := New(cfg)
@@ -137,6 +139,7 @@ func TestResetCodeCanOnlyBeConsumedOnce(t *testing.T) {
 
 func TestControllerWritesAndDestroysProtectedCodeFile(t *testing.T) {
 	cfg := config.Default(t.TempDir())
+	cfg.Paths.Data = t.TempDir()
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	codePath := filepath.Join(t.TempDir(), "runtime", "reset-code")
@@ -172,6 +175,7 @@ func TestControllerWritesAndDestroysProtectedCodeFile(t *testing.T) {
 
 func TestConsumeDestroysCodeFile(t *testing.T) {
 	cfg := config.Default(t.TempDir())
+	cfg.Paths.Data = t.TempDir()
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	codePath := filepath.Join(t.TempDir(), "runtime", "reset-code")
@@ -217,6 +221,7 @@ func TestExpiredLeaseDestroysCodeFile(t *testing.T) {
 
 func TestControllerDoesNotOverwriteExistingCodeFile(t *testing.T) {
 	cfg := config.Default(t.TempDir())
+	cfg.Paths.Data = t.TempDir()
 	cfg.SetupReady = true
 	cfg.Web.Hostname = "scert.example.test"
 	codePath := filepath.Join(t.TempDir(), "runtime", "reset-code")

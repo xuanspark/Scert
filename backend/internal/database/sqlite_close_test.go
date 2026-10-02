@@ -22,6 +22,7 @@ func TestSQLiteCanceledQueriesReleaseFiles(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			cfg := config.Default(t.TempDir()).Database
+			cfg.DSN = filepath.Join(t.TempDir(), "close.db")
 			cfg.MaxOpenConns, cfg.MaxIdleConns = 1, 1
 			db, err := Open(t.Context(), cfg)
 			if err != nil {
