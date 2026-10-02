@@ -203,6 +203,17 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 	executionCtx = certificate.WithProgressReporter(executionCtx, func(progressCtx context.Context, progressStage, progressMessage string) error {
 		return s.tasks.UpdateTask(progressCtx, task.ID, "running", progressStage, progressMessage, &now, nil)
 	})
+	if err := s.authorizeCertificateTaskExecution(executionCtx, task, attempt); err != nil {
+		if s.finishCancelledTask(task, attempt, executionCtx) {
+			return
+		}
+		attempt.Stage = "authorize"
+		s.finishTaskBeforeExecution(task, attempt, "failed", "任务执行前权限或资源归属校验未通过，未执行证书操作")
+		return
+	}
+	if s.finishCancelledTask(task, attempt, executionCtx) {
+		return
+	}
 	_, deploymentReport, issueErr := operation(executionCtx, task.DomainID)
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()

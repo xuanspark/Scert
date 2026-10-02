@@ -1,5 +1,16 @@
 # Linux 生产流程测试记录
 
+## 2026年10月2日19:01 排队任务实时授权回归（未部署）
+
+- [x] 修改前基线 657a9c0 已推送。第二台既有 SSH 会话已实时复核，测试目录为 /var/tmp/scert-async-20261002-1556/source/backend，磁盘剩余约 961MB；未清理或连接线上业务数据库。
+- [x] 新测试文件两端 SHA256 为 18047f955d7509f9a1258aaffd1f5df92f5ba5e64b98ddc082f8b56aa30fb8de。authorization-before.log 中旧代码在排队后权限变化时仍执行一次外部操作，AUTHORIZATION_BEFORE_EXIT=1，耗时 3.498 秒。
+- [x] 修复及扩展重试测试归档 authorization-fix-20261002.tar，两端核验 SHA256 为 acb218c45242e08d2637fb7df397778daea7da8eb4671a1665c28e8ebf3603f4；仅展开至隔离源码目录，不替换线上程序。
+- [x] authorization-after.log：二十四个申请／部署场景及四个重试场景通过，AUTHORIZATION_AFTER_EXIT=0，耗时 3.476 秒；拒绝时外部调用为零，任务与尝试终态一致且保留失败审计；错误详情未进入任务消息。
+- [x] authorization-full.log 和 authorization-vet.log：本批原生 Linux 全后端与静态检查通过，AUTHORIZATION_FULL_EXIT=0、AUTHORIZATION_VET_EXIT=0。采用 nobody、单并行、GOMEMLIMIT=384MiB，不提权执行测试；未启用外部数据库的全量测试不算三库实库验收。
+- [x] authorization-repeat.log：新增两组专项重复二十次通过，AUTHORIZATION_REPEAT_EXIT=0，耗时 74.602 秒；旧代码失败子场景实数为二十。既有 Scert、Nginx、MySQL 均 active；磁盘剩余约 920MB，不新增数据库实例或无限制竞争检测。
+- [!] 仅证明 HTTP 异步工作线程开始执行前的实时复核，不代表自动续期链路、操作开始后撤权强制中止或全部权限竞态均已验收；本批未部署，三库首次 Web、竞争检测及总体生产门禁仍未完成。
+
+
 ## 2026年10月2日18:35 后台原子收尾整改（未部署）
 
 - [x] 上批 background-full.log 与 background-vet.log 已取回：BACKGROUND_FULL_EXIT=0、BACKGROUND_VET_EXIT=0。第二台既有服务 active，进程检查仅保留系统 MySQL；磁盘剩余约 1014MB，不新增数据库实例。
