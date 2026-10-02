@@ -72,6 +72,7 @@ func (s *Server) finishTaskBeforeExecution(task repository.Task, attempt reposit
 	if err := s.tasks.FinishTaskAttempt(ctx, repository.TaskCompletion{
 		TaskID: task.ID, AttemptID: attempt.ID, Status: status, Stage: attempt.Stage,
 		Message: message, FinishedAt: finished,
+		AuditAction: task.TaskType,
 	}); err != nil && s.logger != nil {
 		s.logger.Error("保存任务及尝试终态失败，保留中断恢复状态", "task_id", task.ID, "error", err)
 	}

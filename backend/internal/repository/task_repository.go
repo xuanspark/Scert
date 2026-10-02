@@ -72,6 +72,7 @@ type TaskRepository interface {
 	ListAttempts(context.Context, string) ([]TaskAttempt, error)
 	RecordTaskDeploymentResults(context.Context, string, string, int, []TaskDeploymentResult) error
 	ListTaskDeploymentResults(context.Context, string) ([]TaskDeploymentResult, error)
+	ListTaskDeploymentReports(context.Context, string) ([]TaskDeploymentReport, error)
 }
 
 type SQLTaskRepository struct {

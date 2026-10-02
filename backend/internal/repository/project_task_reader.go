@@ -17,6 +17,7 @@ type ProjectTaskReader interface {
 	GetVisibleTask(context.Context, string, string) (Task, error)
 	ListVisibleTaskAttempts(context.Context, string, string) ([]TaskAttempt, error)
 	ListVisibleTaskDeploymentResults(context.Context, string, string) ([]TaskDeploymentResult, error)
+	ListVisibleTaskDeploymentReports(context.Context, string, string) ([]TaskDeploymentReport, error)
 	CancelVisibleTask(context.Context, string, string, string, *time.Time) error
 	RequestCancelVisibleTask(context.Context, string, string) error
 	RetryVisibleTask(context.Context, string, string, *time.Time) (Task, TaskAttempt, error)

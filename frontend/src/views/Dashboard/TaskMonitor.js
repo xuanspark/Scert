@@ -6,8 +6,15 @@ export function taskIsPending(task) {
   return !terminalStatuses.has(task?.status);
 }
 
-export function latestDeploymentReport(task, attempts, results) {
+export function latestDeploymentReport(task, attempts, results, reports = []) {
   const latest = Math.max(0, ...attempts.map((item) => item.attempt_number || 0));
+  if (taskIsPending(task) || latest === 0) return null;
+  const attempt = attempts.find((item) => item.attempt_number === latest);
+  const stored = reports.find((item) => item.task_id === task.id &&
+    item.attempt_id === attempt.id && item.attempt_number === latest);
+  if (stored && Array.isArray(stored.report?.results)) {
+    return { ...stored.report, status: task.status };
+  }
   const items = results.filter((item) => item.attempt_number === latest);
   if (taskIsPending(task) || latest === 0 || items.length === 0) return null;
   return {
@@ -58,7 +65,14 @@ export function useTaskMonitor({ fetchAdmin, tasks, deploymentResult, showTaskDe
     if (!taskIsPending(task) && latestAttempt && latestAttempt.status !== task.status) {
       throw new Error("任务记录正在更新，将重新查询一致的执行结果");
     }
-    return { task, attempts: attempts.items, report: latestDeploymentReport(task, attempts.items, results.items) };
+    if (results.reports !== undefined && !Array.isArray(results.reports)) {
+      throw new Error("完整部署报告响应不完整，将自动重试");
+    }
+    return {
+      task,
+      attempts: attempts.items,
+      report: latestDeploymentReport(task, attempts.items, results.items, results.reports),
+    };
   }
 
   async function poll() {

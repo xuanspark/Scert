@@ -180,15 +180,6 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 		}
 		attempt.Stage = stage
 		s.finishTaskBeforeExecution(task, attempt, "failed", failureMessage)
-		if s.audit != nil {
-			auditCtx, auditCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer auditCancel()
-			_ = s.audit.CreateAuditLog(auditCtx, repository.AuditLog{
-				TaskID: task.ID, OperatorID: task.OperatorID,
-				Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID,
-				Status: "error", Message: failureMessage,
-			})
-		}
 		return
 	}
 	if s.audit != nil {
@@ -216,10 +207,6 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
 	deploymentReport = sanitizeDeploymentReport(deploymentReport)
-	recordErr := s.tasks.RecordTaskDeploymentResults(finishCtx, task.ID, attempt.ID, attempt.AttemptNumber, taskDeploymentResults(deploymentReport))
-	if recordErr != nil {
-		issueErr = errors.Join(issueErr, recordErr)
-	}
 	finished := time.Now().UTC()
 	status := "success"
 	message := successMessage
@@ -240,9 +227,6 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 	} else if partial {
 		status = "partial_success"
 	}
-	if recordErr != nil {
-		status, message = "failed", "部署结果保存失败，请核查实际部署状态后再重试"
-	}
 	s.taskMu.Lock()
 	defer s.taskMu.Unlock()
 	if persisted, err := s.tasks.GetTask(finishCtx, task.ID); err != nil {
@@ -257,21 +241,10 @@ func (s *Server) runCertificateTask(ctx context.Context, task repository.Task, a
 			message = "任务已停止；已执行操作是否回滚请查看部署结果"
 		}
 	}
-	if s.audit != nil {
-		auditStatus := status
-		if issueErr != nil && status != "cancelled" && status != "partial_success" {
-			auditStatus = "error"
-		}
-		if err := s.audit.CreateAuditLog(finishCtx, repository.AuditLog{
-			TaskID: task.ID, OperatorID: task.OperatorID,
-			Action: auditAction, ResourceType: "domain", ResourceID: task.DomainID, Status: auditStatus, Message: message,
-		}); err != nil {
-			status, message = "failed", "任务完成审计保存失败，请检查任务恢复状态"
-		}
-	}
 	if err := s.tasks.FinishTaskAttempt(finishCtx, repository.TaskCompletion{
 		TaskID: task.ID, AttemptID: attempt.ID, Status: status, Stage: stage,
 		Message: message, StartedAt: &now, FinishedAt: finished,
+		Report: &deploymentReport, AuditAction: auditAction,
 	}); err != nil && s.logger != nil {
 		s.logger.Error("保存任务及尝试终态失败，保留中断恢复状态", "task_id", task.ID, "error", err)
 	}
@@ -620,7 +593,12 @@ func (s *Server) listTaskDeploymentResults(c *gin.Context) {
 			items[index].Message = deployment.PublicStoredFailureMessage(items[index].Message)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	reports, err := reader.ListVisibleTaskDeploymentReports(c.Request.Context(), actorID, c.Param("id"))
+	if err != nil {
+		s.writeError(c, http.StatusInternalServerError, "查询完整部署报告失败", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "reports": reports})
 }
 
 func taskDeploymentResults(report deployment.Report) []repository.TaskDeploymentResult {

@@ -60,6 +60,10 @@ func TestSQLiteCanceledQueriesReleaseFiles(t *testing.T) {
 				rows, err := query(ctx)
 				if rows != nil {
 					for rows.Next() {
+						// 单执行线程也要覆盖结果集已打开后的取消，保留其余轮次的自然竞争。
+						if attempt%2 == 0 {
+							runtime.Gosched()
+						}
 						var value int
 						if scanErr := rows.Scan(&value); scanErr != nil {
 							err = scanErr

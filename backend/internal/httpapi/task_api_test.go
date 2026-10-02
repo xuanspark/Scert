@@ -246,8 +246,8 @@ func TestTaskAPIClosesTaskWhenStartAuditFails(t *testing.T) {
 		t.Fatalf("任务启动审计失败后尝试未收敛：%+v %v", attempts, err)
 	}
 	logs, err := auditRepo.ListAuditLogs(context.Background(), 10)
-	if err != nil || len(logs) != 0 {
-		t.Fatalf("启动审计写入失败时不应生成伪造终态审计：%+v %v", logs, err)
+	if err != nil || len(logs) != 1 || logs[0].Status != "error" || logs[0].Message != items[0].Message || logs[0].TaskID != items[0].ID {
+		t.Fatalf("启动失败必须由终态事务记录真实失败，不能伪造运行或成功审计：%+v %v", logs, err)
 	}
 }
 func TestTaskAPIClosesTaskWhenStartStateUpdateFails(t *testing.T) {

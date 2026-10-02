@@ -57,7 +57,7 @@ type mysqlDeploymentShape struct {
 
 var (
 	mysqlDeploymentTablePattern  = regexp.MustCompile(`^CREATE TABLE ([a-z_]+) \($`)
-	mysqlDeploymentColumnPattern = regexp.MustCompile(`^([a-z_]+) (VARCHAR\([0-9]+\)|INT|TEXT|DATETIME) NOT NULL(?: DEFAULT (CURRENT_TIMESTAMP|0))?( PRIMARY KEY)?$`)
+	mysqlDeploymentColumnPattern = regexp.MustCompile(`^([a-z_]+) (VARCHAR\([0-9]+\)|INT|TEXT|MEDIUMTEXT|DATETIME) NOT NULL(?: DEFAULT (CURRENT_TIMESTAMP|0))?( PRIMARY KEY)?$`)
 	mysqlDeploymentIndexPattern  = regexp.MustCompile(`^(PRIMARY KEY|UNIQUE KEY ([a-z_]+)|INDEX ([a-z_]+)) \(([a-z_, ]+)\)$`)
 	mysqlIntegerWidthPattern     = regexp.MustCompile(`^int\([0-9]+\)$`)
 )

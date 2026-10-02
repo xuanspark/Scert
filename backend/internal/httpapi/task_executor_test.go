@@ -110,31 +110,31 @@ func TestAsyncDeadlineBeforeExecutionIsFailureNotUserCancellation(t *testing.T) 
 	}
 }
 
-type failingTaskFinishAuditRepository struct{ repository.AuditRepository }
+type failingTaskFinishAuditRepository struct{ repository.TaskRepository }
 
-func (r failingTaskFinishAuditRepository) CreateAuditLog(ctx context.Context, item repository.AuditLog) error {
-	if item.Status == "success" {
+func (r failingTaskFinishAuditRepository) FinishTaskAttempt(ctx context.Context, item repository.TaskCompletion) error {
+	if item.AuditAction != "" {
 		return errors.New("模拟完成审计写入失败")
 	}
-	return r.AuditRepository.CreateAuditLog(ctx, item)
+	return r.TaskRepository.FinishTaskAttempt(ctx, item)
 }
 
 func TestAsyncFinishAuditFailureDoesNotLeaveSuccessfulAttempt(t *testing.T) {
-	server, tasks, audit, cleanup := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
+	server, tasks, _, cleanup := newTaskAPITestServer(t, func(context.Context, string) (certificate.IssueResult, deployment.Report, error) {
 		return certificate.IssueResult{}, deployment.Report{Status: "success"}, nil
 	})
 	defer cleanup()
-	server.audit = failingTaskFinishAuditRepository{audit}
+	server.tasks = failingTaskFinishAuditRepository{tasks}
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
 	task := submittedTask(t, response)
 	waitTaskWorkersForTest(t, server)
 	stored, err := tasks.GetTask(t.Context(), task.ID)
-	if err != nil || stored.Status != "failed" {
+	if err != nil || !isActiveTaskStatus(stored.Status) || stored.FinishedAt != nil {
 		t.Fatalf("完成审计失败却标记成功：%+v %v", stored, err)
 	}
 	attempts, err := tasks.ListAttempts(t.Context(), task.ID)
-	if err != nil || len(attempts) != 1 || attempts[0].Status != "failed" || attempts[0].Message != stored.Message {
+	if err != nil || len(attempts) != 1 || !isActiveTaskStatus(attempts[0].Status) || attempts[0].FinishedAt != nil {
 		t.Fatalf("任务与尝试终态不一致：%+v %v", attempts, err)
 	}
 }

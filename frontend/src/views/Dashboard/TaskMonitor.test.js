@@ -8,6 +8,50 @@ import { deferred, mountComposable } from "../../test-support/mount.js";
 const initialTask = { id: "async-task", domain_id: "domain-1", task_type: "certificate_deploy", status: "running" };
 const target = { server_id: "server-1", server: "部署目标", status: "success", attempt_number: 1 };
 
+test("完整报告恢复站点验证与回滚事实，不被逐目标结果覆盖", () => {
+  const task = { ...initialTask, status: "failed" };
+  const attempts = [{ id: "attempt-2", attempt_number: 2, status: "failed" }];
+  const persisted = {
+    task_id: task.id, attempt_id: "attempt-2", attempt_number: 2,
+    report: {
+      total: 1, success: 0, failed: 1, status: "failed",
+      verification_status: "failed", recovery_status: "success",
+      results: [{ ...target, status: "failed", failure_code: "recovery_restored" }],
+    },
+  };
+  const report = latestDeploymentReport(task, attempts, [target], [persisted]);
+  assert.equal(report.verification_status, "failed");
+  assert.equal(report.recovery_status, "success");
+  assert.equal(report.results[0].failure_code, "recovery_restored");
+  assert.equal(report.success, 0);
+  assert.match(deploymentSummary(report), /恢复/);
+});
+
+test("完整报告按任务和尝试精确匹配，不复用旧尝试或其他任务报告", () => {
+  const task = { ...initialTask, status: "success" };
+  const attempts = [{ id: "attempt-2", attempt_number: 2 }];
+  for (const mismatch of [
+    { task_id: "another-task", attempt_id: "attempt-2", attempt_number: 2 },
+    { task_id: task.id, attempt_id: "attempt-1", attempt_number: 2 },
+    { task_id: task.id, attempt_id: "attempt-2", attempt_number: 1 },
+  ]) {
+    assert.equal(latestDeploymentReport(task, attempts, [], [{
+      ...mismatch, report: { status: "success", verification_status: "success", results: [] },
+    }]), null);
+  }
+});
+
+test("完整报告无逐目标结果仍可读取，执行成功不能覆盖任务收尾失败", () => {
+  const task = { ...initialTask, status: "failed" };
+  const attempts = [{ id: "attempt-1", attempt_number: 1 }];
+  const reports = [{
+    task_id: task.id, attempt_id: "attempt-1", attempt_number: 1,
+    report: { status: "success", total: 0, success: 0, failed: 0, results: [] },
+  }];
+  assert.equal(latestDeploymentReport(task, attempts, [], reports).status, "failed");
+  assert.equal(latestDeploymentReport(initialTask, attempts, [], reports), null);
+});
+
 function taskFetcher(readTask, onPost = () => {}) {
   return async (path, options = {}) => {
     const task = readTask();
@@ -22,6 +66,30 @@ function taskFetcher(readTask, onPost = () => {}) {
     return Response.json({ items: [] });
   };
 }
+
+test("页面刷新查询完整报告并展示恢复状态", async (t) => {
+  const task = { ...initialTask, status: "failed" };
+  const fetchTask = taskFetcher(() => task);
+  const { state } = await mountComposable(t, useDashboard, (path, options) => {
+    if (path.endsWith("/attempts")) {
+      return Response.json({ items: [{ id: "stored-attempt", attempt_number: 1, status: "failed" }] });
+    }
+    if (path.endsWith("/deployment-results")) {
+      return Response.json({ items: [target], reports: [{
+        task_id: task.id, attempt_id: "stored-attempt", attempt_number: 1,
+        report: {
+          status: "failed", total: 1, success: 0, failed: 1,
+          verification_status: "failed", recovery_status: "unconfirmed", results: [target],
+        },
+      }] });
+    }
+    return fetchTask(path, options);
+  });
+  await state.openTaskDetails(task);
+  assert.equal(state.taskDeploymentReport.value.verification_status, "failed");
+  assert.equal(state.taskDeploymentReport.value.recovery_status, "unconfirmed");
+  assert.match(deploymentSummary(state.taskDeploymentReport.value), /恢复/);
+});
 
 test("异步部署接收后不误报成功或缺失结果，最终失败不被逐目标成功覆盖", async (t) => {
   let current = { ...initialTask };

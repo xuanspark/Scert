@@ -7,17 +7,21 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 )
 
 // TaskCompletion 同时关闭任务与对应尝试，避免只保存其中一方的终态。
 type TaskCompletion struct {
-	TaskID     string
-	AttemptID  string
-	Status     string
-	Stage      string
-	Message    string
-	StartedAt  *time.Time
-	FinishedAt time.Time
+	TaskID      string
+	AttemptID   string
+	Status      string
+	Stage       string
+	Message     string
+	StartedAt   *time.Time
+	FinishedAt  time.Time
+	Report      *deployment.Report
+	AuditAction string
 }
 
 func (r *SQLTaskRepository) FinishTaskAttempt(ctx context.Context, completion TaskCompletion) error {
@@ -65,6 +69,16 @@ func (r *SQLTaskRepository) FinishTaskAttempt(ctx context.Context, completion Ta
 		return fmt.Errorf("读取任务尝试收尾结果失败：%w", err)
 	} else if count != 1 {
 		return sql.ErrNoRows
+	}
+	if completion.Report != nil {
+		if err := r.recordCompletionReport(ctx, tx, completion); err != nil {
+			return err
+		}
+	}
+	if completion.AuditAction != "" {
+		if err := r.recordCompletionAudit(ctx, tx, completion); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("提交任务收尾事务失败：%w", err)
