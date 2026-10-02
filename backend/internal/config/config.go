@@ -131,7 +131,7 @@ func Default(baseDir string) Config {
 		Version:    CurrentVersion,
 		SetupReady: false,
 		Admin:      AdminConfig{},
-		Server:     ServerConfig{Host: "0.0.0.0", Port: 8080, HTTPSMode: "direct"},
+		Server:     ServerConfig{Host: defaultServerHost(), Port: 8080, HTTPSMode: "direct"},
 		Web:        WebConfig{Enabled: true},
 		Database: DatabaseConfig{
 			Driver: "sqlite", DSN: filepath.Join(paths.Data, "scert.db"),
@@ -330,7 +330,7 @@ func (c *Config) Normalize() {
 		return
 	}
 	if c.Server.Host == "" {
-		c.Server.Host = "0.0.0.0"
+		c.Server.Host = defaultServerHost()
 	}
 	if c.Server.HTTPSMode == "" {
 		c.Server.HTTPSMode = "direct"

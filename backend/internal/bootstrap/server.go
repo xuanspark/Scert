@@ -40,6 +40,9 @@ func Run(ctx context.Context, options ServerOptions) (bool, error) {
 	if options.Config.SetupReady {
 		return false, errors.New("已经初始化，不能启动临时初始化服务")
 	}
+	if err := options.Config.ValidateServerListener(); err != nil {
+		return false, err
+	}
 	firewallManager, err := firewall.NewManagerWithMode(options.FirewallMode)
 	if err != nil {
 		return false, err

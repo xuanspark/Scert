@@ -24,7 +24,14 @@ func loadServeConfig(path string, defaults config.Config) (config.Config, error)
 		if !info.Mode().IsRegular() {
 			return config.Config{}, errors.New("服务配置必须是普通文件")
 		}
-		return config.LoadWithEnv(path)
+		cfg, err := config.LoadWithEnv(path)
+		if err != nil {
+			return config.Config{}, err
+		}
+		if err := cfg.ValidateServerListener(); err != nil {
+			return config.Config{}, err
+		}
+		return cfg, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return config.Config{}, err
@@ -34,6 +41,9 @@ func loadServeConfig(path string, defaults config.Config) (config.Config, error)
 		return config.Config{}, err
 	}
 	if err := defaults.Validate(); err != nil {
+		return config.Config{}, err
+	}
+	if err := defaults.ValidateServerListener(); err != nil {
 		return config.Config{}, err
 	}
 	return defaults, nil

@@ -20,7 +20,7 @@ func TestProxyHTTPSPortValidationAndPersistence(t *testing.T) {
 		if err := cfg.Validate(); err != nil {
 			t.Fatal(err)
 		}
-		path := filepath.Join(cfg.Paths.Config, "scert.json")
+		path := filepath.Join(t.TempDir(), "scert.json")
 		if err := cfg.Save(path); err != nil {
 			t.Fatal(err)
 		}
