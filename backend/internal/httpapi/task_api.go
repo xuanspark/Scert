@@ -222,7 +222,7 @@ type certificateTaskResult struct {
 func (s *Server) runCertificateOperation(ctx context.Context, task repository.Task, attempt repository.TaskAttempt, auditAction string, operation func(context.Context, string) (certificateTaskResult, error), stage, runningMessage, successMessage string) {
 	if task.TaskType == "certificate_restore" {
 		runningMessage = "\u6b63\u5728\u6062\u590d\u672c\u5730\u8bc1\u4e66\u5386\u53f2\u7248\u672c"
-		successMessage = "\u672c\u5730\u8bc1\u4e66\u5386\u53f2\u7248\u672c\u6062\u590d\u5b8c\u6210\uff0c\u5c1a\u672a\u4ee3\u8868\u8fdc\u7aef\u670d\u52a1\u5668\u90e8\u7f6e\u5b8c\u6210"
+		successMessage = "\u672c\u5730\u8bc1\u4e66\u5386\u53f2\u7248\u672c\u6062\u590d\u5b8c\u6210\uff0c\u5c1a\u672a\u4ee3\u8868\u8fdc\u7aef\u670d\u52a1\u5668\u90e8\u7f72\u5b8c\u6210"
 	}
 	executionCtx := deployment.WithTransactionContext(ctx, deployment.TransactionContext{
 		TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
