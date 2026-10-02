@@ -264,8 +264,8 @@ func (r *SQLTaskRepository) UpdateTask(ctx context.Context, id, status, stage, m
 	if !validTaskStatus(status) || stage == "" {
 		return errors.New("任务状态或阶段无效")
 	}
-	result, err := r.db.ExecContext(ctx, r.query(`UPDATE tasks SET status = ?, stage = ?, message = ?, started_at = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling')`),
-		status, stage, message, nullableTime(startedAt), nullableTime(finishedAt), time.Now().UTC(), id)
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE tasks SET status = ?, stage = ?, message = ?, started_at = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling') AND NOT (status = 'cancelling' AND ? IN ('queued', 'running', 'retry_wait'))`),
+		status, stage, message, nullableTime(startedAt), nullableTime(finishedAt), time.Now().UTC(), id, status)
 	if err != nil {
 		return fmt.Errorf("更新任务失败：%w", err)
 	}

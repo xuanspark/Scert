@@ -136,6 +136,10 @@ func (s *Server) deployCertificateCurrent(c *gin.Context) {
 	if !s.authorizeVisibleDomainPermission(c, domain.PermissionDeploymentExecute) {
 		return
 	}
+	if !taskRepositoryUnavailable(s.tasks) {
+		s.submitDomainTask(c, "certificate_deploy")
+		return
+	}
 	if s.deployCertificate == nil {
 		s.writeError(c, http.StatusNotImplemented, "证书部署接口尚未配置", errors.New("证书部署流程未配置"))
 		return

@@ -292,9 +292,11 @@ func (a *App) Close() error {
 		<-a.managementDone
 	}
 	if a.HTTP != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := a.HTTP.Shutdown(ctx); err != nil && first == nil {
-			first = err
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		if err := a.HTTP.Shutdown(ctx); err != nil {
+			cancel()
+			// 后台任务可能仍在回滚；不得先关闭其数据库或日志。
+			return err
 		}
 		cancel()
 	}

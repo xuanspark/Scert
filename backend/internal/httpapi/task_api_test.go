@@ -61,7 +61,24 @@ func newTaskAPITestServer(t *testing.T, issue func(context.Context, string) (cer
 		ProjectResources: repository.NewSQLProjectMemberRepository(db.DB, cfg.Database.Driver),
 		Users:            repository.NewSQLUserRepository(db.DB, cfg.Database.Driver),
 	})
-	return server, taskRepo, auditRepo, func() { _ = db.Close() }
+	return server, taskRepo, auditRepo, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			t.Errorf("测试任务未能停止：%v", err)
+			return
+		}
+		_ = db.Close()
+	}
+}
+
+func waitTaskWorkersForTest(t *testing.T, server *Server) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.waitTaskWorkers(ctx); err != nil {
+		t.Fatalf("等待后台任务结束失败：%v", err)
+	}
 }
 
 type blockingTaskAuditRepository struct {
@@ -94,9 +111,10 @@ func TestTaskAPIRecordsSuccessfulIssueAndAudit(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("成功任务响应错误：%d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("提交任务响应错误：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	items, err := taskRepo.ListTasks(context.Background(), "", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "success" {
 		t.Fatalf("任务没有进入成功状态：%+v %v", items, err)
@@ -215,9 +233,10 @@ func TestTaskAPIClosesTaskWhenStartAuditFails(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "任务启动审计记录失败") {
+	if response.Code != http.StatusAccepted {
 		t.Fatalf("任务启动审计失败响应错误：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	items, err := taskRepo.ListTasks(context.Background(), "", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "failed" || items[0].Stage != "record" {
 		t.Fatalf("任务启动审计失败后任务未收敛：%+v %v", items, err)
@@ -241,9 +260,10 @@ func TestTaskAPIClosesTaskWhenStartStateUpdateFails(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "更新任务状态失败") {
+	if response.Code != http.StatusAccepted {
 		t.Fatalf("任务启动状态写入失败响应错误：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	items, err := taskRepo.ListTasks(context.Background(), "", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "failed" || items[0].Message != "任务启动失败" {
 		t.Fatalf("任务启动失败后未正确收敛任务状态：%+v %v", items, err)
@@ -269,30 +289,30 @@ func TestTaskAPIReturnsFailureAndKeepsTaskTrace(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "证书申请或部署失败") {
+	if response.Code != http.StatusAccepted {
 		t.Fatalf("失败任务响应错误：%d %s", response.Code, response.Body.String())
+	}
+	waitTaskWorkersForTest(t, server)
+	location := response.Header().Get("Location")
+	if location == "" {
+		t.Fatal("任务提交未返回查询地址")
+	}
+	response = httptest.NewRecorder()
+	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodGet, location, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("查询失败任务错误：%d %s", response.Code, response.Body.String())
 	}
 	if strings.Contains(response.Body.String(), "/etc/scert/secret/config.json") || strings.Contains(response.Body.String(), "/etc/nginx/private/key.pem") || strings.Contains(response.Body.String(), "permission denied") {
 		t.Fatalf("失败任务响应泄露底层错误：%s", response.Body.String())
 	}
-	var payload struct {
-		Task struct {
-			Status     string `json:"status"`
-			Stage      string `json:"stage"`
-			Message    string `json:"message"`
-			FinishedAt string `json:"finished_at"`
-			UpdatedAt  string `json:"updated_at"`
-		} `json:"task"`
-		TaskStatus string `json:"task_status"`
-		FinishedAt string `json:"finished_at"`
-	}
+	var payload repository.Task
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("失败任务响应不是有效 JSON：%v；响应：%s", err, response.Body.String())
 	}
-	if payload.Task.Status != "failed" || payload.Task.Stage != "certificate_issue" || payload.Task.Message != "证书申请或部署失败" {
-		t.Fatalf("失败任务嵌套状态不一致：%+v", payload.Task)
+	if payload.Status != "failed" || payload.Stage != "certificate_issue" || payload.Message != "证书申请或部署失败" {
+		t.Fatalf("失败任务状态不一致：%+v", payload)
 	}
-	if payload.TaskStatus != "failed" || payload.FinishedAt == "" || payload.Task.FinishedAt == "" || payload.Task.UpdatedAt == "" {
+	if payload.FinishedAt == nil || payload.UpdatedAt.IsZero() {
 		t.Fatalf("失败任务顶层状态或时间字段不完整：%+v", payload)
 	}
 	items, err := taskRepo.ListTasks(context.Background(), "", 10)
@@ -359,7 +379,7 @@ func TestTaskAPICanCancelRunningIssue(t *testing.T) {
 	}
 	cancelResponse := httptest.NewRecorder()
 	serveAdminHTTP(server, cancelResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+items[0].ID, nil))
-	if cancelResponse.Code != http.StatusOK || !strings.Contains(cancelResponse.Body.String(), "cancelled") {
+	if cancelResponse.Code != http.StatusAccepted || !strings.Contains(cancelResponse.Body.String(), "cancelling") {
 		t.Fatalf("取消任务响应错误：%d %s", cancelResponse.Code, cancelResponse.Body.String())
 	}
 	select {
@@ -367,9 +387,10 @@ func TestTaskAPICanCancelRunningIssue(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("取消后证书任务没有结束")
 	}
-	if issueResponse.Code != http.StatusConflict {
-		t.Fatalf("取消任务的申请请求应返回 409：%d %s", issueResponse.Code, issueResponse.Body.String())
+	if issueResponse.Code != http.StatusAccepted {
+		t.Fatalf("申请请求应先返回 202：%d %s", issueResponse.Code, issueResponse.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	item, err := taskRepo.GetTask(context.Background(), items[0].ID)
 	if err != nil || item.Status != "cancelled" {
 		t.Fatalf("任务取消状态没有持久化：%+v %v", item, err)
@@ -417,7 +438,7 @@ func TestTaskAPICancellationDuringStartupDoesNotExecuteCertificate(t *testing.T)
 	}
 	cancelResponse := httptest.NewRecorder()
 	serveAdminHTTP(server, cancelResponse, httptest.NewRequest(http.MethodDelete, "/api/v1/tasks/"+items[0].ID, nil))
-	if cancelResponse.Code != http.StatusOK {
+	if cancelResponse.Code != http.StatusAccepted {
 		t.Fatalf("启动阶段取消任务失败：%d %s", cancelResponse.Code, cancelResponse.Body.String())
 	}
 	close(blockingAudit.release)
@@ -426,12 +447,13 @@ func TestTaskAPICancellationDuringStartupDoesNotExecuteCertificate(t *testing.T)
 	case <-time.After(2 * time.Second):
 		t.Fatal("取消后的启动任务没有结束")
 	}
+	waitTaskWorkersForTest(t, server)
 	select {
 	case <-issueCalled:
 		t.Fatal("任务取消后不应再调用证书申请")
 	default:
 	}
-	if issueResponse.Code != http.StatusConflict {
+	if issueResponse.Code != http.StatusAccepted {
 		t.Fatalf("启动阶段取消响应错误：%d %s", issueResponse.Code, issueResponse.Body.String())
 	}
 	item, err := taskRepo.GetTask(context.Background(), items[0].ID)
@@ -456,9 +478,10 @@ func TestTaskAPIReplaysIdempotentIssue(t *testing.T) {
 	firstRequest.Header.Set("Idempotency-Key", "issue-key-20260830")
 	firstResponse := httptest.NewRecorder()
 	serveAdminHTTP(server, firstResponse, firstRequest)
-	if firstResponse.Code != http.StatusOK {
+	if firstResponse.Code != http.StatusAccepted {
 		t.Fatalf("首次幂等请求失败：%d %s", firstResponse.Code, firstResponse.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil)
 	secondRequest.Header.Set("Idempotency-Key", "issue-key-20260830")
 	secondResponse := httptest.NewRecorder()
@@ -658,9 +681,10 @@ func TestTaskAPIRetriesFailedCertificateIssue(t *testing.T) {
 
 	first := httptest.NewRecorder()
 	serveAdminHTTP(server, first, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if first.Code != http.StatusBadGateway {
+	if first.Code != http.StatusAccepted {
 		t.Fatalf("initial failure response: %d %s", first.Code, first.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	tasks, err := taskRepo.ListTasks(context.Background(), "domain-1", 10)
 	if err != nil || len(tasks) != 1 || tasks[0].Status != "failed" {
 		t.Fatalf("failed task was not persisted: %+v %v", tasks, err)
@@ -668,9 +692,10 @@ func TestTaskAPIRetriesFailedCertificateIssue(t *testing.T) {
 
 	retry := httptest.NewRecorder()
 	serveAdminHTTP(server, retry, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+tasks[0].ID+"/retry", nil))
-	if retry.Code != http.StatusOK {
+	if retry.Code != http.StatusAccepted {
 		t.Fatalf("retry response: %d %s", retry.Code, retry.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	updated, err := taskRepo.GetTask(context.Background(), tasks[0].ID)
 	if err != nil || updated.Status != "success" || updated.OperatorID != "test-admin" {
 		t.Fatalf("retried task did not converge: %+v %v", updated, err)
@@ -699,9 +724,10 @@ func TestTaskAPIRecordsPartialDeploymentSuccess(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("partial response: %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("部分成功任务提交响应错误：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	items, err := taskRepo.ListTasks(context.Background(), "domain-1", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "partial_success" {
 		t.Fatalf("partial task status: %+v %v", items, err)
@@ -726,9 +752,10 @@ func TestTaskAPIRecordsPartialDeploymentFailureAsPartialSuccess(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/domains/domain-1/issue", nil))
-	if response.Code != http.StatusMultiStatus {
+	if response.Code != http.StatusAccepted {
 		t.Fatalf("partial failure response: %d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	items, err := taskRepo.ListTasks(context.Background(), "domain-1", 10)
 	if err != nil || len(items) != 1 || items[0].Status != "partial_success" {
 		t.Fatalf("partial failure task status: %+v %v", items, err)
@@ -772,9 +799,10 @@ func TestTaskAPIRetriesFailedCertificateDeploymentWithoutDNSCredential(t *testin
 	}
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/retry", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("retry response: %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("重试提交响应错误：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	if calls != 1 {
 		t.Fatalf("deployment workflow calls: %d", calls)
 	}
@@ -849,9 +877,10 @@ func TestTaskAPIRetriesPartialCertificateDeployment(t *testing.T) {
 	}
 	response := httptest.NewRecorder()
 	serveAdminHTTP(server, response, httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/retry", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("partial retry response: %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("部分成功重试提交响应错误：%d %s", response.Code, response.Body.String())
 	}
+	waitTaskWorkersForTest(t, server)
 	updated, err := taskRepo.GetTask(t.Context(), task.ID)
 	if err != nil || updated.Status != "success" {
 		t.Fatalf("partial deployment retry did not converge: %+v %v", updated, err)

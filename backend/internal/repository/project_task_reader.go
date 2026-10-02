@@ -18,6 +18,7 @@ type ProjectTaskReader interface {
 	ListVisibleTaskAttempts(context.Context, string, string) ([]TaskAttempt, error)
 	ListVisibleTaskDeploymentResults(context.Context, string, string) ([]TaskDeploymentResult, error)
 	CancelVisibleTask(context.Context, string, string, string, *time.Time) error
+	RequestCancelVisibleTask(context.Context, string, string) error
 	RetryVisibleTask(context.Context, string, string, *time.Time) (Task, TaskAttempt, error)
 }
 
@@ -162,6 +163,27 @@ func (r *SQLTaskRepository) ListVisibleTaskDeploymentResults(ctx context.Context
 		return nil, fmt.Errorf("读取可见部署结果列表失败：%w", err)
 	}
 	return items, nil
+}
+
+// 请求取消仍保留活动状态，直到执行器完成回滚收尾，禁止提前重试。
+func (r *SQLTaskRepository) RequestCancelVisibleTask(ctx context.Context, actorID, taskID string) error {
+	predicate, predicateArgs := taskVisibilityPredicate("tasks", domain.PermissionTaskCancel)
+	predicateArgs[0] = strings.TrimSpace(actorID)
+	args := []any{"正在取消任务并等待部署收尾", time.Now().UTC(), strings.TrimSpace(taskID)}
+	args = append(args, predicateArgs...)
+	result, err := r.db.ExecContext(ctx, r.query(`UPDATE tasks SET status = 'cancelling', message = ?, updated_at = ?
+		WHERE id = ? AND status IN ('queued', 'running', 'retry_wait', 'cancelling') AND `+predicate), args...)
+	if err != nil {
+		return fmt.Errorf("请求取消任务失败：%w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrProjectAccessDenied
+	}
+	return nil
 }
 
 func (r *SQLTaskRepository) CancelVisibleTask(ctx context.Context, actorID, taskID, message string, finishedAt *time.Time) error {

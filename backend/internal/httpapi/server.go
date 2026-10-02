@@ -114,6 +114,10 @@ type Server struct {
 	aliyunChecker       aliyunScopeChecker
 	taskMu              sync.Mutex
 	taskCancels         map[string]context.CancelFunc
+	taskWorkers         sync.WaitGroup
+	taskWorkersStopped  bool
+	asyncTasks          map[string]bool
+	taskSlots           chan struct{}
 	issueTaskMu         sync.Mutex
 	setupMu             sync.Mutex
 	resetMu             sync.Mutex
@@ -371,18 +375,20 @@ func isLoopbackHost(host string) bool {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.stopTaskWorkers()
 	s.httpMu.Lock()
 	s.httpStopped = true
 	server := s.httpServer
 	s.httpMu.Unlock()
 	if server == nil {
-		return nil
+		return s.waitTaskWorkers(ctx)
 	}
 	err := server.Shutdown(ctx)
+	workerErr := s.waitTaskWorkers(ctx)
 	if errors.Is(err, http.ErrServerClosed) {
-		return nil
+		return workerErr
 	}
-	return err
+	return errors.Join(err, workerErr)
 }
 
 type domainRequest struct {
