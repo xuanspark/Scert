@@ -1,5 +1,29 @@
 # Linux 生产流程测试记录
 
+## 2026年10月4日03:14 HTTP 验证回归与第一台正式升级
+
+时间按运行环境 UTC+8。本轮接续重新读取第一台执行单元终态、下列日志与运行摘要，没有重复执行已成功的测试。第二台未操作；没有新增辅助验收脚本、备份或清空业务数据。
+
+### 回归、修复及复审证据
+
+- 首批 `scert-http01-check-20261004-0240.service` 退出码 1：接口测试把嵌入 HistoryScope 字段直接写到 Task 字面量，SQLite 快照 SELECT 星号又因迁移新增列误报。改为显式嵌入字面量与历史列清单，保留 rowid 和历史数据完整性断言，不跳过测试。
+- [✓] `scert-http01-fix-20261004-0251.service`：inactive、Result=success、ExecMainStatus=0；源码 `201a272`。依次执行 `go test -p 1 -count=1 -timeout=8m ./...`、`go vet -p 1 ./...` 和 httpchallenge/certificate/httpapi/database 专项竞态。日志位于 `/var/tmp/scert-http01-20261004/`：`backend-fix-full.log`、`fix-vet.log`、`fix-race.log`。vet 日志零字节，后续竞态四包均通过。
+- [✓] 实际签发配置授权覆盖 HTTP 不变、切换 DNS、空值默认 DNS、项目/域名变化、证书/部署撤权及重试权限；拒绝早于副作用。系统续期仍用原系统工作流，不宣称全部权限通道已经审计。
+- [✓] `scert-http01-nginx-20261004-0257.service`：inactive、success、退出码 0；源码 `9c26db0`。日志 `/var/tmp/scert-http01-nginx-20261004/nginx-integration.log`：challenge、head、wrong_host、unknown、query、encoded、post、redirect、business、tls_rejected 十项通过，总计 0.133 秒。使用正式 Nginx 模板、独立回环进程、严格 TLS 测试上游，包含凭据剥离和 Host 隔离，不重载线上站点。
+- [✓] `scert-http01-db-review.service`：inactive、success、退出码 0；同目录 `database-integration.log`。`TestDomainChallengeMigration` 在 SQLite、MySQL 8.0.46、PostgreSQL 14.24 全部通过，MySQL 中断重入及冲突字段拒绝通过，33.259 秒，无 skip。外部数据库为隔离回环实例、严格 TLS；这是迁移专项，不是三库首次 Web 或 MySQL 5.7 验收。
+
+### 正式包与实际安装
+
+- [✓] 官方 `build/build-release.ps1 -Target linux-amd64` 构建成功；manifest 的 source_commit 为 `9c26db081e0ab4c3e126ed7e3b0122a5110b4dbe`、source_dirty=false、trimpath=true、local_path_check=passed。前端 279/279 通过，Vite 构建通过，24 项产物摘要匹配，包内包含两个 Nginx 模板。
+- [✓] 归档 `Scert-20261004-V0.1.0-linux-amd64.tar.gz` 两端 SHA256：`4f41314f48f40c67290f211d0a46859a18d26a86d88a6b13db579155f748f071`；远端 `/var/tmp/scert-http01-9c26db0-linux-amd64.tar.gz` 本轮再次读取得到相同摘要。
+- [✓] 解包后 SHA256SUMS 全部通过，第一台官方安装器退出 0。安装记录 `/var/tmp/scert-release-http01-9c26db0/install.log`；只有安装器自身事务机制，没有额外远端备份。
+- [✓] 实际 `/scert/scert` SHA256：`36d8769f7164539e831e19bddb5bd6bec759f3bcc05ee150624b93a35e3e2735`，本轮重新读取一致。前批已核对包内、安装及 Nginx 返回的 `index-AwxGoqOG.js` 摘要均为 `e5d5834529b30d6de46da851f5b55c76ae9f8ecd931ffa5c2916729d51280b04`。
+- [✓] Scert、Scert-storage.socket、Nginx 本轮重新读取均 active。第一台本机严格 TLS `/readyz` 返回 ready；Nginx 80 未知挑战返回 404、no-store、nosniff。普通路径仍 HTTPS 跳转。reload 后最初旧 worker 的 301 观察保留，后续已得到 404。
+
+### 未关闭的验收边界
+
+上述请求使用第一台回环定向诊断，不是正常公共入口验收。正常 DNS 当前仍指第二台，未获确认前不切换、不在第二台配置发信。完整 lego ACME 协议、公网 HTTP-01 签发、各托管域名站点接入、Smail 系统通知和重置、三库首次 Web、完整 DNS 账户与 CNAME 委派仍待完成。线上迁移版本二十六未在本节直接查表，不用 ready 代替该证据；两条缺可信基线旧事务未篡改。P1-03 与整体上线门禁保持未通过。
+
 ## 2026年10月4日02:03 DNS 隔离正式升级与全量环境修正
 
 本节时间为 UTC+8。沿用已确认任务，仅第一台执行主程序回归与升级，第二台不重复测试。发布源码为干净提交 `2513f935bc8c52622d79a3409a15051bc7d14c5c`；未对正式测试断言作任何修改。
