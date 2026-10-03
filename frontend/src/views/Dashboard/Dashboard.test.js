@@ -3,6 +3,7 @@ import "./DeploymentResult.test.js";
 import "./TaskMonitor.test.js";
 import "./RenewalAction.test.js";
 import "./DashboardLogout.test.js";
+import "./SettingsAccess.test.js";
 import "./DomainModal.test.js";
 import "./DomainForm.test.js";
 import test from "node:test";
@@ -435,6 +436,7 @@ test("导入执行中阻止重复提交，成功后展示实际部署结果", as
 
 async function setup(t, request) {
   const mounted = await mountComposable(t, useDashboard, async (path) => {
+    if (path.endsWith("/auth/session")) return Response.json({ account: "test-admin", role: "super_admin" });
     if (path === "/api/v1/dns/test") return request();
     if (path.endsWith("/dns/providers")) return Response.json({ items: [aliyunProvider] });
     if (path.endsWith("/settings")) return Response.json({ dns: { provider: "aliyun", credential_configured: true, verification_state: "verified" } });

@@ -247,8 +247,8 @@ func (s *Server) registerRoutes() {
 	api.GET("/tasks/:id/deployment-results", s.listTaskDeploymentResults)
 	api.GET("/tasks/:id/validation-results", s.listTaskValidationResults)
 
-	adminAPI.GET("/settings", s.getSettings)
-	adminAPI.PUT("/settings", s.requireSuperAdminSystemConfig, s.updateSettings)
+	s.router.GET("/api/v1/settings", privateProjectResponse, s.requireSuperAdminSystemConfig, s.getSettings)
+	s.router.PUT("/api/v1/settings", privateProjectResponse, s.requireSuperAdminSystemConfig, s.updateSettings)
 	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
 	adminAPI.POST("/dns/test", s.requireSuperAdminSystemConfig, s.dnsOperation, s.testAdminDNS)
 	adminAPI.POST("/dns/aliyun/check", s.requireSuperAdminSystemConfig, s.dnsOperation, s.checkAliyunDNSDomain)

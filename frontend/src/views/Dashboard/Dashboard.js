@@ -1023,13 +1023,27 @@ export function useDashboard() {
     }
   }
 
+  let loadDataVersion = 0;
+
   async function loadData() {
+    const version = ++loadDataVersion;
     loading.value = true;
     error.value = "";
+    currentUser.value = null;
+    settings.value = null;
+    settingsForm.value = normalizeSettings(null);
+    showSettings.value = false;
     try {
+      const authResponse = await fetchAdmin("/api/v1/auth/session");
+      if (version !== loadDataVersion) return;
+      if (!authResponse.ok) {
+        throw new Error(await responseError(authResponse, "读取登录会话失败"));
+      }
+      const session = await authResponse.json();
+      if (version !== loadDataVersion) return;
+      currentUser.value = session;
       const [
         statusResponse,
-        authResponse,
         domainResponse,
         serverResponse,
         certificateResponse,
@@ -1039,15 +1053,15 @@ export function useDashboard() {
         dnsProviderResponse,
       ] = await Promise.all([
         fetchAdmin("/api/v1/status"),
-        fetchAdmin("/api/v1/auth/session"),
         fetchAdmin("/api/v1/domains"),
         fetchAdmin("/api/v1/servers"),
         fetchAdmin("/api/v1/certificates"),
         fetchAdmin("/api/v1/tasks?limit=20"),
         fetchAdmin("/api/v1/audit-logs?limit=20"),
-        fetchAdmin("/api/v1/settings"),
+        session.role === "super_admin" ? fetchAdmin("/api/v1/settings") : Promise.resolve(null),
         fetchAdmin("/api/v1/dns/providers"),
       ]);
+      if (version !== loadDataVersion) return;
       const failedResponse = [
         statusResponse,
         domainResponse,
@@ -1057,18 +1071,19 @@ export function useDashboard() {
         auditResponse,
         settingsResponse,
         dnsProviderResponse,
-      ].find((response) => !response.ok);
+      ].find((response) => response && !response.ok);
       if (failedResponse) {
         throw new Error(await responseError(failedResponse, "读取管理数据失败"));
       }
       status.value = await statusResponse.json();
-      currentUser.value = await authResponse.json();
       domains.value = (await domainResponse.json()).items || [];
       servers.value = (await serverResponse.json()).items || [];
       certificates.value = (await certificateResponse.json()).items || [];
       tasks.value = (await taskResponse.json()).items || [];
       auditLogs.value = (await auditResponse.json()).items || [];
-      settings.value = await settingsResponse.json();
+      const nextSettings = settingsResponse ? await settingsResponse.json() : null;
+      if (version !== loadDataVersion) return;
+      settings.value = nextSettings;
       const providerResult = await dnsProviderResponse.json();
       dnsProviderCatalog.value = (providerResult.items || []).map((item) => ({
         ...item,
@@ -1087,11 +1102,15 @@ export function useDashboard() {
           ];
         }),
       );
-      domainServers.value = Object.fromEntries(associations);
+      if (version === loadDataVersion) domainServers.value = Object.fromEntries(associations);
     } catch (err) {
+      if (version !== loadDataVersion) return;
+      currentUser.value = null;
+      settings.value = null;
+      settingsForm.value = normalizeSettings(null);
       error.value = err.message || "无法连接核心服务，请先启动 scert serve";
     } finally {
-      loading.value = false;
+      if (version === loadDataVersion) loading.value = false;
     }
   }
 
