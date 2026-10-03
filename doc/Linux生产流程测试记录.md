@@ -1,5 +1,17 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日20:52 一次性确认与执行器回归
+
+范围为第一台隔离源码目录 `/var/tmp/scert-local-recovery-20261003-1828`，不替代正式安装包；远端文件和 HTTPS 回调在本批 Go 测试中使用测试实现，SQLite 为真实临时数据库。线上业务数据库未清理、正式服务未升级。
+
+- [✓] `scert-executor-20261003-2035.service`：部署全包竞态通过，约 3.254 秒，`EXECUTOR_RACE_EXIT=0`。
+- [✓] `scert-executor-extra-20261003-2041.service` 的部署竞态通过，约 3.510 秒；但同组 SQLite 五场景因测试客户端缺少证据接口方法而失败，整组失败记录保留于 `executor-extra.log`，不能记整组成功。
+- [x] 测试夹具补齐拒绝建锁的方法及编译期证据接口断言，未放宽生产核查边界。
+- [✓] `scert-executor-sqlite-20261003-2045.service`：SQLite 五场景竞态复测通过，仓储约 5.303 秒，`EXECUTOR_SQLITE_FIX_EXIT=0`；完整静态检查和后端全量通过，`EXECUTOR_VET_EXIT=0`、`EXECUTOR_FULL_EXIT=0`。服务已退出，`MainPID=0`、`Result=success`。
+- [~] 最新追加未知临时文件漏项拦截与脱敏查询，八份源码归档 SHA-256：`101eb370619bac98d4b069ea3c242206b3035fca7cd097006b83fb8f4494a83f`，本地与第一台一致。重新执行任务 `scert-executor-final-20261003-2052.service`，日志 `executor-final.log`，当前未记通过。
+- [x] 本轮第二台根分区复核可用 26 GB、使用率 10%，未继续删除文件；第一台 Scert、Nginx 运行，可用约 9.7 GB。
+- [ ] 本机协议/终端、PostgreSQL 等必要实库和正式双机生产闭环仍待完成；生产验收未通过。
+
 ## 2026年10月3日20:20 后端全量最终结果
 
 - [✓] 第一台 `scert-operation-full-20261003-2012.service` 已终止，`MainPID=0`、`Result=success`、`ActiveState=inactive`；整组约四分五十八秒，`OPERATION_FULL_RUN_EXIT=0`。
