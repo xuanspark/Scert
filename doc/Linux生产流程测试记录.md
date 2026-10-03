@@ -1,5 +1,30 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日22:44 多对多、恢复负向与外部门禁
+
+### 正确域名的第二组双机推送
+
+- 核对两台 Nginx 的真实站点均为 `scert-multi-20260930.apmmk.cn`，没有 `.odacm.cn` 的同名前缀站点；原失败记录和锁未修改。
+- 经正式 API 创建正确域名 `b6824906-fea9-4f2a-a682-3c2b1ade1ee3` 并绑定原两台服务器，分别返回 201、200；导入已有有效正式证书，未重新签发，也未展示或记录私钥内容。该测试域名关闭自动续期，避免本轮导入引发额外签发。
+- 导入任务 `af31d106-9231-4659-bab1-bca2932f8ff4` 于 22:38:41—22:38:56 完成，success=2、failed=0、verification_status=success、certificate_imported=true。
+- 两条事务 `20261003-143842.607984571-0bffe1eb5ef9`、`20261003-143848.492916882-246b37ecbcc4` 均 committed；双机证书 SHA-256 为 `7e8b56227b345ed9b66659e428f9bd4421604f11253ab88d65b3ed61737f35cf`。
+- 第二台普通 DNS 的 HTTPS 返回 200、peer=45.136.13.241、ssl_verify_result=0；与先前有效域名合计两个域名、两台服务器、四个成功目标。第一台 Scert、存储 socket 和 Nginx active，Scert/MySQL 仍回环；第二台五项既有服务 active。
+
+### 恢复拒绝的正式终端验证
+
+- 原失败两条事务的历史基线 `previous_fingerprint` 均为空；现场没有对应 `.odacm.cn` 站点，不能凭当前文件不存在宣称恢复通过。
+- 对第一条失败事务通过菜单三选择恢复基线，完整确认后返回已拒绝、未执行远端变更；处置编号 `278d050dc33d6775d8eb453b74e0a0691f8cff9be2531476678b34b423fc9e85`。
+- 数据库只读核对结果为 restore_baseline/rejected/rejected，原事务仍需恢复。该负向不覆盖人工恢复成功或强制断连场景。
+
+### 第一台公网与系统邮件阻塞
+
+- 从第二台以目标域名、Host/SNI 和固定第一台地址诊断：HTTP 返回 403、Server Beaver，页面标题 Non-compliance ICP Filing；测试域名及 `odacm.cn` 的 HTTPS 均 connection reset。Windows 独立探测第一台测试域名也在 TLS 握手失败。未关闭 TLS，固定地址仅用于定位，不能当作正常 DNS 验收。
+- 第一台访问 `https://web.cdis.cn/` 严格 TLS 返回 HTTP 200，真实远端为 47.108.78.12；通知状态 API HTTP 为 200，但业务 errorNo=403、Login has expired，不能误判已授权。
+- 正式 Scert 设置接口只读投影：smtp_enabled=0、smtp_host 为空、smtp_port=587、smtp_mode=starttls、smtp_credential_configured=0，非系统通知账号。
+- 阅读当前 `D:\Desktop\Smail\backend\controllers\system_notification.go`：系统通知状态需登录，返回实际 SMTP 主机、端口、notify: 用户名及系统发件身份；授权/凭据由 Smail 管理范围和近期身份确认控制。网站地址不是可自动推导的 SMTP 授权，未猜测凭据或改用自定义邮箱。
+
+整体生产验收未通过。需继续人工写动作成功与历史恢复、三数据库清库首次 Web、真实系统邮件与重置、DNS/ACME 全矩阵；第一台公网部署入口和 Smail 系统授权是已实测的外部门禁。
+
 ## 2026年10月3日22:32 正式包升级与双机真实推送
 
 范围：第一台 `8.137.23.95` 运行新包并发起部署，第二台 `45.136.13.241` 接收证书。保留既有数据库的升级验证，不是清库首次流程；第二台未升级本批管理程序。没有创建辅助验收脚本、额外远端备份或关闭 TLS。
