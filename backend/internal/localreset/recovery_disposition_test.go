@@ -89,6 +89,7 @@ func TestDispositionRequestFieldIsolation(t *testing.T) {
 		{Action: "recovery_prepare", TransactionID: "tx-1", RecoveryAction: deployment.RecoveryActionRecord},
 		{Action: "recovery_execute", DispositionID: strings.Repeat("b", 64), ConfirmationToken: strings.Repeat("c", 64)},
 		{Action: "recovery_result", DispositionID: strings.Repeat("b", 64)},
+		{Action: "recovery_reconcile_prepare", DispositionID: strings.Repeat("b", 64)},
 	}
 	fields := []struct {
 		name    string
@@ -101,7 +102,7 @@ func TestDispositionRequestFieldIsolation(t *testing.T) {
 		{"cursor", func(r *Request) { r.Cursor = "tx-0" }, map[string]bool{"recovery_list": true}},
 		{"transaction", func(r *Request) { r.TransactionID = "tx-1" }, map[string]bool{"recovery_inspect": true, "recovery_prepare": true}},
 		{"action", func(r *Request) { r.RecoveryAction = deployment.RecoveryActionRecord }, map[string]bool{"recovery_prepare": true}},
-		{"id", func(r *Request) { r.DispositionID = strings.Repeat("b", 64) }, map[string]bool{"recovery_execute": true, "recovery_result": true}},
+		{"id", func(r *Request) { r.DispositionID = strings.Repeat("b", 64) }, map[string]bool{"recovery_execute": true, "recovery_result": true, "recovery_reconcile_prepare": true}},
 		{"token", func(r *Request) { r.ConfirmationToken = strings.Repeat("c", 64) }, map[string]bool{"recovery_execute": true}},
 	}
 	for _, request := range requests {

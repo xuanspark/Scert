@@ -87,3 +87,26 @@ func (r *localResetSession) GetRecoveryDisposition(ctx context.Context, id strin
 }
 
 var _ localreset.RecoveryDispositionSession = (*localResetSession)(nil)
+
+type localRecoveryReconciler interface {
+	PrepareRecoveryReconciliation(context.Context, string, string, func(context.Context, string) (deployment.Server, error)) (deployment.RecoveryConfirmation, string, error)
+}
+
+func (r *localResetSession) PrepareRecoveryReconciliation(ctx context.Context, sourceID string) (localreset.RecoveryPreparation, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recoveryConfirmation = deployment.RecoveryConfirmation{}
+	executor, ok := r.server.recoveryInspection.(localRecoveryReconciler)
+	if !r.enterRecovery(ctx) || !ok || !r.DispositionAvailable() {
+		return localreset.RecoveryPreparation{}, localreset.ErrProtocol
+	}
+	confirmation, token, err := executor.PrepareRecoveryReconciliation(ctx, sourceID, r.peer.Identity, r.recoveryServer)
+	if err != nil || !r.current(ctx) || confirmation.Summary().SourceDispositionID != sourceID {
+		r.stage = -1
+		return localreset.RecoveryPreparation{}, localreset.ErrUnavailable
+	}
+	r.recoveryConfirmation = confirmation
+	return localreset.RecoveryPreparation{DispositionID: confirmation.DispositionID(), Token: token, Summary: confirmation.Summary()}, nil
+}
+
+var _ localreset.RecoveryReconciliationSession = (*localResetSession)(nil)

@@ -43,6 +43,11 @@ func (r *SQLDeploymentTransactionRepository) FinishRecoveryDisposition(ctx conte
 	if err := tx.QueryRowContext(ctx, r.query(`SELECT event_type FROM recovery_events WHERE disposition_id = ? AND event_type = 'started'`), id).Scan(&start); err != nil {
 		return deployment.RecoveryDisposition{}, dispositionError(ctx)
 	}
+	if item.Intent.SourceDispositionID != "" {
+		if err := r.validateReconciliationSource(ctx, tx, item.Intent); err != nil {
+			return deployment.RecoveryDisposition{}, err
+		}
+	}
 	now := time.Now().UTC()
 	if err := r.finishRecoveryOriginal(ctx, tx, item.Intent, resultCode, now); err != nil {
 		return deployment.RecoveryDisposition{}, err
@@ -58,7 +63,13 @@ func (r *SQLDeploymentTransactionRepository) FinishRecoveryDisposition(ctx conte
 	if _, err := tx.ExecContext(ctx, r.query(`INSERT INTO recovery_events (disposition_id, event_type, result_code, created_at) VALUES (?, 'finished', ?, ?)`), id, resultCode, now); err != nil {
 		return deployment.RecoveryDisposition{}, dispositionError(ctx)
 	}
-	if resultCode != deployment.RecoveryResultUncertain {
+	if item.Intent.SourceDispositionID != "" && (resultCode == deployment.RecoveryResultRejected || resultCode == deployment.RecoveryResultUncertain) {
+		// 只读核查未通过时归还原占用，保留两次审计；绝不解锁原事务。
+		result, err := tx.ExecContext(ctx, r.query(`UPDATE recovery_claims SET disposition_id = ?, created_at = ? WHERE transaction_id = ? AND disposition_id = ?`), item.Intent.SourceDispositionID, now, item.Intent.TransactionID, id)
+		if err != nil || !oneRecoveryRow(result) {
+			return deployment.RecoveryDisposition{}, dispositionError(ctx)
+		}
+	} else if resultCode != deployment.RecoveryResultUncertain {
 		result, err := tx.ExecContext(ctx, r.query(`DELETE FROM recovery_claims WHERE transaction_id = ? AND disposition_id = ?`), item.Intent.TransactionID, id)
 		if err != nil || !oneRecoveryRow(result) {
 			return deployment.RecoveryDisposition{}, dispositionError(ctx)
@@ -95,6 +106,9 @@ func (r *SQLDeploymentTransactionRepository) finishRecoveryOriginal(ctx context.
 	if record.ServerID != intent.ServerID || record.Evidence == nil || record.Phase != phase ||
 		(record.Status != deployment.TransactionStatusPending && record.Status != deployment.TransactionStatusRecoveryRequired) {
 		return deployment.ErrRecoveryDispositionConflict
+	}
+	if intent.SourceDispositionID != "" && !intent.MatchesRecord(record) {
+		return deployment.ErrRecoveryReviewChanged
 	}
 	result, err := tx.ExecContext(ctx, r.query(`UPDATE deployment_transactions SET status = ?, phase = ?, message = ?, updated_at = ?
 		WHERE id = ? AND phase = ? AND status IN ('pending', 'recovery_required')`), status, status, message, now, intent.TransactionID, phase)

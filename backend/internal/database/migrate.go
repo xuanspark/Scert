@@ -25,6 +25,7 @@ import (
 //go:embed migrations/sqlite/0022_recovery_dispositions.sql migrations/mysql/0022_recovery_dispositions.sql migrations/postgres/0022_recovery_dispositions.sql
 //go:embed migrations/sqlite/0023_recovery_claims.sql migrations/mysql/0023_recovery_claims.sql migrations/postgres/0023_recovery_claims.sql
 //go:embed migrations/sqlite/0024_recovery_events.sql migrations/mysql/0024_recovery_events.sql migrations/postgres/0024_recovery_events.sql
+//go:embed migrations/sqlite/0025_recovery_reconciliation.sql migrations/mysql/0025_recovery_reconciliation.sql migrations/postgres/0025_recovery_reconciliation.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -49,7 +50,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 24
+const latestMigrationVersion = 25
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -112,6 +113,14 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		if version == 13 {
 			if err := backfillHistoryScope(ctx, db); err != nil {
 				return err
+			}
+		}
+		if version == 25 {
+			var compatible int
+			if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE()
+				AND table_name = 'recovery_dispositions' AND column_name = 'source_disposition_id'
+				AND data_type = 'varchar' AND character_maximum_length = 64 AND is_nullable = 'NO' AND column_default = ''`).Scan(&compatible); err != nil || compatible != 1 {
+				return fmt.Errorf("人工处置来源字段与预期不一致，拒绝记录迁移版本")
 			}
 		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
@@ -252,6 +261,8 @@ func migrationName(version int) string {
 		return "recovery_claims"
 	case 24:
 		return "recovery_events"
+	case 25:
+		return "recovery_reconciliation"
 	default:
 		return "unknown"
 	}

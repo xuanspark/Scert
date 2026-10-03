@@ -9,7 +9,7 @@ import (
 
 func TestPostgresRealRecoveryDispositionMigration(t *testing.T) {
 	server := postgrestest.New(t)
-	for version := 22; version <= 24; version++ {
+	for version := 22; version <= 25; version++ {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			cfg := server.Database(t)
 			db, err := Open(t.Context(), cfg)

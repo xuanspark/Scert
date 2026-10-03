@@ -60,7 +60,7 @@ func runConnected(ctx context.Context, conn net.Conn, screen terminal) error {
 	if client.RecoveryAvailable() {
 		prompt := "本机管理：1 重置超级管理员密码；2 只读核查部署事务；其他输入退出"
 		if client.DispositionAvailable() {
-			prompt = "本机管理：1 重置超级管理员密码；2 只读核查部署事务；3 人工处置部署事务；4 查询人工处置结果；其他输入退出"
+			prompt = "本机管理：1 重置超级管理员密码；2 只读核查部署事务；3 人工处置部署事务；4 查询人工处置结果；5 重新核查不确定处置；其他输入退出"
 		}
 		choice, err := screen.Read(ctx, prompt, false)
 		if err != nil {
@@ -74,12 +74,15 @@ func runConnected(ctx context.Context, conn net.Conn, screen terminal) error {
 				return err
 			}
 			return nil
-		case "3", "4":
+		case "3", "4", "5":
 			if !client.DispositionAvailable() {
 				return localreset.ErrUnavailable
 			}
 			if strings.TrimSpace(choice) == "4" {
 				return recoveryResultFlow(ctx, client, screen)
+			}
+			if strings.TrimSpace(choice) == "5" {
+				return recoveryReconciliationFlow(ctx, client, screen)
 			}
 			return recoveryDispositionFlow(ctx, client, screen)
 		default:

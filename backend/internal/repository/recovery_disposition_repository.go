@@ -12,13 +12,13 @@ import (
 var _ deployment.RecoveryDispositionJournal = (*SQLDeploymentTransactionRepository)(nil)
 
 const recoveryDispositionColumns = `id, transaction_id, server_id, operator_id, action, request_key,
-	record_digest, server_digest, observation_digest, status, result_code, created_at, updated_at`
+	record_digest, server_digest, observation_digest, status, result_code, created_at, updated_at, source_disposition_id`
 
 func scanRecoveryDisposition(row deploymentTransactionScanner) (deployment.RecoveryDisposition, error) {
 	var item deployment.RecoveryDisposition
 	i := &item.Intent
 	err := row.Scan(&i.ID, &i.TransactionID, &i.ServerID, &i.Operator, &i.Action, &i.RequestKey,
-		&i.RecordDigest, &i.ServerDigest, &i.ObservationDigest, &item.Status, &item.ResultCode, &item.CreatedAt, &item.UpdatedAt)
+		&i.RecordDigest, &i.ServerDigest, &i.ObservationDigest, &item.Status, &item.ResultCode, &item.CreatedAt, &item.UpdatedAt, &i.SourceDispositionID)
 	return item, err
 }
 
@@ -75,9 +75,9 @@ func (r *SQLDeploymentTransactionRepository) BeginRecoveryDisposition(ctx contex
 	defer tx.Rollback()
 	now := time.Now().UTC()
 	item := deployment.RecoveryDisposition{Intent: intent, Status: "running", CreatedAt: now, UpdatedAt: now}
-	_, err = tx.ExecContext(ctx, r.query(`INSERT INTO recovery_dispositions (`+recoveryDispositionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+	_, err = tx.ExecContext(ctx, r.query(`INSERT INTO recovery_dispositions (`+recoveryDispositionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		intent.ID, intent.TransactionID, intent.ServerID, intent.Operator, intent.Action, intent.RequestKey,
-		intent.RecordDigest, intent.ServerDigest, intent.ObservationDigest, item.Status, "", now, now)
+		intent.RecordDigest, intent.ServerDigest, intent.ObservationDigest, item.Status, "", now, now, intent.SourceDispositionID)
 	if err != nil {
 		_ = tx.Rollback()
 		if existing, readErr := r.findRecoveryRequest(ctx, intent.RequestKey); readErr == nil {
@@ -85,7 +85,7 @@ func (r *SQLDeploymentTransactionRepository) BeginRecoveryDisposition(ctx contex
 		}
 		return deployment.RecoveryDisposition{}, false, dispositionError(ctx)
 	}
-	if _, err := tx.ExecContext(ctx, r.query(`INSERT INTO recovery_claims (transaction_id, disposition_id, created_at) VALUES (?, ?, ?)`), intent.TransactionID, intent.ID, now); err != nil {
+	if err := r.claimRecoveryDisposition(ctx, tx, intent, now); err != nil {
 		_ = tx.Rollback()
 		if claimed, readErr := r.HasRecoveryClaim(ctx, intent.TransactionID); readErr == nil && claimed {
 			return deployment.RecoveryDisposition{}, false, deployment.ErrRecoveryDispositionBusy
@@ -107,6 +107,39 @@ func (r *SQLDeploymentTransactionRepository) BeginRecoveryDisposition(ctx contex
 		return deployment.RecoveryDisposition{}, false, dispositionError(ctx)
 	}
 	return item, true, nil
+}
+
+func (r *SQLDeploymentTransactionRepository) claimRecoveryDisposition(ctx context.Context, tx *sql.Tx, intent deployment.RecoveryDispositionIntent, now time.Time) error {
+	if intent.SourceDispositionID == "" {
+		_, err := tx.ExecContext(ctx, r.query(`INSERT INTO recovery_claims (transaction_id, disposition_id, created_at) VALUES (?, ?, ?)`), intent.TransactionID, intent.ID, now)
+		return err
+	}
+	if err := r.validateReconciliationSource(ctx, tx, intent); err != nil {
+		return err
+	}
+	// 只从指定的已结束处置接管占用；运行中、其他处置或丢失的占用均不接管。
+	result, err := tx.ExecContext(ctx, r.query(`UPDATE recovery_claims SET disposition_id = ?, created_at = ? WHERE transaction_id = ? AND disposition_id = ?`), intent.ID, now, intent.TransactionID, intent.SourceDispositionID)
+	if err != nil || !oneRecoveryRow(result) {
+		return deployment.ErrRecoveryDispositionBusy
+	}
+	return nil
+}
+
+func (r *SQLDeploymentTransactionRepository) validateReconciliationSource(ctx context.Context, tx *sql.Tx, intent deployment.RecoveryDispositionIntent) error {
+	query := `SELECT ` + recoveryDispositionColumns + ` FROM recovery_dispositions WHERE id = ?`
+	if r.driver != "sqlite" {
+		query += " FOR UPDATE"
+	}
+	source, err := scanRecoveryDisposition(tx.QueryRowContext(ctx, r.query(query), intent.SourceDispositionID))
+	if err != nil || !intent.Reconciles(source) {
+		return deployment.ErrRecoveryDispositionConflict
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT COUNT(*) FROM recovery_events WHERE disposition_id = ? AND
+		((event_type = 'started' AND result_code = '') OR (event_type = 'finished' AND result_code = 'uncertain'))`), intent.SourceDispositionID).Scan(&count); err != nil || count != 2 {
+		return deployment.ErrRecoveryDispositionConflict
+	}
+	return nil
 }
 
 func recoveryRetry(existing deployment.RecoveryDisposition, intent deployment.RecoveryDispositionIntent) (deployment.RecoveryDisposition, bool, error) {

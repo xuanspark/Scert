@@ -30,7 +30,7 @@ func validRecoveryRequest(request Request, nonce string) bool {
 		return request.Cursor == "" && validRecoveryID(request.TransactionID) && validRecoveryAction(request.RecoveryAction) && request.DispositionID == "" && request.ConfirmationToken == ""
 	case "recovery_execute":
 		return request.Cursor == "" && request.TransactionID == "" && request.RecoveryAction == "" && validRecoverySecret(request.DispositionID) && validRecoverySecret(request.ConfirmationToken)
-	case "recovery_result":
+	case "recovery_result", "recovery_reconcile_prepare":
 		return request.Cursor == "" && request.TransactionID == "" && request.RecoveryAction == "" && validRecoverySecret(request.DispositionID) && request.ConfirmationToken == ""
 	}
 	return false

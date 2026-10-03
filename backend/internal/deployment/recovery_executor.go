@@ -100,6 +100,12 @@ func (s *Service) executeRecoveryAction(ctx context.Context, review RecoveryRevi
 	case RecoveryActionRollback:
 		err = s.executeRecoveryRollback(ctx, &record, server, client, &mutated)
 		result = RecoveryResultRolledBack
+	case RecoveryActionVerifyCommit, RecoveryActionVerifyRollback:
+		err = s.verifyRecoveryCompletion(ctx, record, server, client, review.summary.Action)
+		result = RecoveryResultCommitted
+		if review.summary.Action == RecoveryActionVerifyRollback {
+			result = RecoveryResultRolledBack
+		}
 	default:
 		return
 	}
@@ -117,6 +123,13 @@ func validateRecoveryAction(record TransactionRecord, action RecoveryAction, ver
 		return ErrRecoveryActionRejected
 	}
 	switch action {
+	case RecoveryActionVerifyCommit, RecoveryActionVerifyRollback:
+		if !verificationPhase(record.Phase, action) ||
+			(action == RecoveryActionVerifyCommit && record.Evidence.Baseline.ExpectedFingerprint == "") ||
+			(action == RecoveryActionVerifyRollback && record.Evidence.Baseline.PreviousFingerprint == "") {
+			return ErrRecoveryActionRejected
+		}
+		return nil
 	case RecoveryActionCommit:
 		if record.Evidence.Baseline.ExpectedFingerprint == "" {
 			return ErrRecoveryActionRejected

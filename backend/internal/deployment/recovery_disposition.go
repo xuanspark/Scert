@@ -17,15 +17,16 @@ var (
 
 // RecoveryDispositionIntent 仅保存绑定摘要；不能包含历史证据、凭据或确认令牌原文。
 type RecoveryDispositionIntent struct {
-	ID                string
-	TransactionID     string
-	ServerID          string
-	Operator          string
-	Action            RecoveryAction
-	RequestKey        string
-	RecordDigest      string
-	ServerDigest      string
-	ObservationDigest string
+	SourceDispositionID string
+	ID                  string
+	TransactionID       string
+	ServerID            string
+	Operator            string
+	Action              RecoveryAction
+	RequestKey          string
+	RecordDigest        string
+	ServerDigest        string
+	ObservationDigest   string
 }
 
 type RecoveryDisposition struct {
@@ -58,7 +59,8 @@ func (r RecoveryReview) DispositionIntent(id, requestKey string) (RecoveryDispos
 		return RecoveryDispositionIntent{}, ErrRecoveryReviewExpired
 	}
 	intent := RecoveryDispositionIntent{
-		ID: id, TransactionID: r.summary.TransactionID, ServerID: r.summary.ServerID,
+		SourceDispositionID: r.summary.SourceDispositionID,
+		ID:                  id, TransactionID: r.summary.TransactionID, ServerID: r.summary.ServerID,
 		Operator: r.operator, Action: r.summary.Action, RequestKey: requestKey,
 		RecordDigest:      hex.EncodeToString(r.recordDigest[:]),
 		ServerDigest:      hex.EncodeToString(r.serverDigest[:]),
@@ -68,6 +70,9 @@ func (r RecoveryReview) DispositionIntent(id, requestKey string) (RecoveryDispos
 }
 
 func (i RecoveryDispositionIntent) Validate() error {
+	if isRecoveryVerification(i.Action) != (i.SourceDispositionID != "") || (i.SourceDispositionID != "" && (!validDispositionID(i.SourceDispositionID) || i.SourceDispositionID == i.ID)) {
+		return ErrRecoveryDispositionInvalid
+	}
 	if !validInspectionID(i.TransactionID) || !validRecoverySummary(i.ServerID) ||
 		!validReviewOperator(i.Operator) || !validRecoveryAction(i.Action) {
 		return ErrRecoveryDispositionInvalid
@@ -106,9 +111,9 @@ func (i RecoveryDispositionIntent) AllowsResult(result string) bool {
 	case RecoveryResultObserved:
 		return i.Action == RecoveryActionRecord
 	case RecoveryResultCommitted:
-		return i.Action == RecoveryActionCommit
+		return i.Action == RecoveryActionCommit || i.Action == RecoveryActionVerifyCommit
 	case RecoveryResultRolledBack:
-		return i.Action == RecoveryActionRollback
+		return i.Action == RecoveryActionRollback || i.Action == RecoveryActionVerifyRollback
 	}
 	return false
 }

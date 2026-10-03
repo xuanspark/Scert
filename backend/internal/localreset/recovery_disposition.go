@@ -21,6 +21,10 @@ type RecoveryDispositionSession interface {
 	GetRecoveryDisposition(context.Context, string) (deployment.RecoveryDispositionSummary, error)
 }
 
+type RecoveryReconciliationSession interface {
+	PrepareRecoveryReconciliation(context.Context, string) (RecoveryPreparation, error)
+}
+
 func validRecoveryAction(action deployment.RecoveryAction) bool {
 	return action == deployment.RecoveryActionRecord || action == deployment.RecoveryActionCommit || action == deployment.RecoveryActionRollback
 }
@@ -60,6 +64,11 @@ func validDispositionResponse(request Request, response Response) bool {
 		return response.Disposition == nil && validPreparation(response.Preparation) &&
 			response.Preparation.Summary.TransactionID == request.TransactionID && response.Preparation.Summary.Action == request.RecoveryAction
 	}
+	if request.Action == "recovery_reconcile_prepare" {
+		return response.Disposition == nil && validPreparation(response.Preparation) &&
+			response.Preparation.Summary.SourceDispositionID == request.DispositionID &&
+			response.Preparation.DispositionID != request.DispositionID
+	}
 	return response.Preparation == nil && response.Disposition != nil && response.Disposition.Validate() == nil && response.Disposition.ID == request.DispositionID
 }
 
@@ -70,6 +79,14 @@ func dispatchRecoveryDisposition(ctx context.Context, session RecoverySession, r
 	}
 	var err error
 	switch request.Action {
+	case "recovery_reconcile_prepare":
+		reconciler, ok := session.(RecoveryReconciliationSession)
+		if !ok {
+			return ErrUnavailable
+		}
+		var value RecoveryPreparation
+		value, err = reconciler.PrepareRecoveryReconciliation(ctx, request.DispositionID)
+		response.Preparation = &value
 	case "recovery_prepare":
 		var value RecoveryPreparation
 		value, err = actions.PrepareRecovery(ctx, request.TransactionID, request.RecoveryAction)
@@ -95,6 +112,14 @@ func (c *Client) DispositionAvailable() bool { return c.dispositionAvailable }
 
 func (c *Client) PrepareRecovery(id string, action deployment.RecoveryAction) (RecoveryPreparation, error) {
 	response, err := c.recoveryExchange(Request{Action: "recovery_prepare", TransactionID: id, RecoveryAction: action})
+	if err != nil {
+		return RecoveryPreparation{}, err
+	}
+	return *response.Preparation, nil
+}
+
+func (c *Client) PrepareRecoveryReconciliation(sourceID string) (RecoveryPreparation, error) {
+	response, err := c.recoveryExchange(Request{Action: "recovery_reconcile_prepare", DispositionID: sourceID})
 	if err != nil {
 		return RecoveryPreparation{}, err
 	}

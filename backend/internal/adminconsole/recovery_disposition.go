@@ -130,11 +130,21 @@ func showRecoveryDisposition(screen terminal, result deployment.RecoveryDisposit
 			message = "本次人工提交核验及结束审计完成；不代表项目全部生产验收通过。"
 		case deployment.RecoveryActionRollback:
 			message = "本次恢复基线核验及结束审计完成；不代表项目全部生产验收通过。"
+		case deployment.RecoveryActionVerifyCommit, deployment.RecoveryActionVerifyRollback:
+			message = "重新核查与新审计已完成，占用已安全释放；原不确定处置历史保留，本次未重放远端动作。"
 		}
 	case "rejected":
 		message = "处置已拒绝，未执行本次远端变更；请重新核查拒绝原因。"
+		if result.SourceDispositionID != "" {
+			message = "重新核查未通过，原占用继续保留；本次未执行远端变更，不得手动删锁或重放原动作。"
+		}
 	case "uncertain":
 		message = "处置结果不确定，可能已修改远端；占用继续保留，禁止重复执行或手动删锁。"
+	}
+	if result.SourceDispositionID != "" {
+		if err := screen.Show("关联原处置：" + terminalValue(result.SourceDispositionID)); err != nil {
+			return err
+		}
 	}
 	if err := screen.Show(fmt.Sprintf("处置：%s；事务：%s；服务器：%s；动作：%s", terminalValue(result.ID), terminalValue(result.TransactionID), terminalValue(result.ServerID), dispositionActionLabel(result.Action))); err != nil {
 		return err
@@ -150,6 +160,10 @@ func dispositionActionLabel(action deployment.RecoveryAction) string {
 		return "完成提交"
 	case deployment.RecoveryActionRollback:
 		return "恢复基线"
+	case deployment.RecoveryActionVerifyCommit:
+		return "重新核查提交结果"
+	case deployment.RecoveryActionVerifyRollback:
+		return "重新核查回滚结果"
 	}
 	return "未知动作"
 }

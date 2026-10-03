@@ -8,19 +8,21 @@ import (
 
 // RecoveryDispositionSummary 是本机查询的明确输出边界，不包含请求键、绑定摘要或操作者凭据。
 type RecoveryDispositionSummary struct {
-	ID            string         `json:"id"`
-	TransactionID string         `json:"transaction_id"`
-	ServerID      string         `json:"server_id"`
-	Action        RecoveryAction `json:"action"`
-	Status        string         `json:"status"`
-	ResultCode    string         `json:"result_code"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	SourceDispositionID string         `json:"source_disposition_id,omitempty"`
+	ID                  string         `json:"id"`
+	TransactionID       string         `json:"transaction_id"`
+	ServerID            string         `json:"server_id"`
+	Action              RecoveryAction `json:"action"`
+	Status              string         `json:"status"`
+	ResultCode          string         `json:"result_code"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
 }
 
 func (r RecoveryDisposition) Summary() RecoveryDispositionSummary {
 	return RecoveryDispositionSummary{
-		ID: r.Intent.ID, TransactionID: r.Intent.TransactionID, ServerID: r.Intent.ServerID,
+		SourceDispositionID: r.Intent.SourceDispositionID,
+		ID:                  r.Intent.ID, TransactionID: r.Intent.TransactionID, ServerID: r.Intent.ServerID,
 		Action: r.Intent.Action, Status: r.Status, ResultCode: r.ResultCode,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
@@ -31,6 +33,9 @@ func validDispositionID(id string) bool {
 }
 
 func (r RecoveryDispositionSummary) Validate() error {
+	if isRecoveryVerification(r.Action) != (r.SourceDispositionID != "") || (r.SourceDispositionID != "" && (!validDispositionID(r.SourceDispositionID) || r.SourceDispositionID == r.ID)) {
+		return ErrRecoveryDispositionInvalid
+	}
 	if !validDispositionID(r.ID) || !validInspectionID(r.TransactionID) || !validRecoverySummary(r.ServerID) ||
 		!validRecoveryAction(r.Action) || r.CreatedAt.IsZero() || r.UpdatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) {
 		return ErrRecoveryDispositionInvalid

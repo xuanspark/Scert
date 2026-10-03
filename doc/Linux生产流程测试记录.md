@@ -6,7 +6,7 @@
 
 - 第一轮任务 `b795be80-e086-46b4-a2ba-e7b51c8662f0` 因旧 systemd 不支持 `--kill-whom`，注入失败并正常完成；不能计为崩溃测试通过。确认本机帮助后改用 `--kill-who=main`。
 - 22:57:25 对正式 Scert 主进程发送 SIGKILL，命中任务 `c68e3956-1b6d-42c7-ba9a-753ef2d1a44b` 第二目标事务的 reload_attempted 阶段。
-- systemd 的 MainPID 从 130794 变为 134595，NRestarts=1；23:58 前已核实服务恢复 active、回环严格 TLS 就绪检查通过。此处实际核查时间为 22:58:16。
+- systemd 的 MainPID 从 130794 变为 134595，NRestarts=1；22:58:16 已核实服务恢复 active、回环严格 TLS 就绪检查通过。
 - 事务 `20261003-145716.121859533-09a2a331489a` 与 `20261003-145720.641188477-c769c8d3e153` 均 rolled_back；任务为 failed/service_restart，没有覆盖为成功。
 - 双机 cert/fullchain 摘要保持 `7e8b56227b345ed9b66659e428f9bd4421604f11253ab88d65b3ed61737f35cf`，未发现该域名遗留事务文件。第二台正常 DNS HTTPS 200、peer=45.136.13.241、TLS 校验结果零。
 

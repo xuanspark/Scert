@@ -13,10 +13,12 @@ import (
 type RecoveryAction string
 
 const (
-	RecoveryActionRecord   RecoveryAction = "record_inspection"
-	RecoveryActionCommit   RecoveryAction = "finish_commit"
-	RecoveryActionRollback RecoveryAction = "restore_baseline"
-	RecoveryReviewLifetime                = time.Minute
+	RecoveryActionRecord         RecoveryAction = "record_inspection"
+	RecoveryActionCommit         RecoveryAction = "finish_commit"
+	RecoveryActionRollback       RecoveryAction = "restore_baseline"
+	RecoveryActionVerifyCommit   RecoveryAction = "verify_commit"
+	RecoveryActionVerifyRollback RecoveryAction = "verify_rollback"
+	RecoveryReviewLifetime                      = time.Minute
 )
 
 var (
@@ -27,13 +29,14 @@ var (
 )
 
 type RecoveryReviewSummary struct {
-	TransactionID      string         `json:"transaction_id"`
-	ServerID           string         `json:"server_id"`
-	Phase              string         `json:"phase"`
-	Action             RecoveryAction `json:"action"`
-	HistoricalEvidence bool           `json:"historical_evidence"`
-	ObservedAt         time.Time      `json:"observed_at"`
-	ExpiresAt          time.Time      `json:"expires_at"`
+	SourceDispositionID string         `json:"source_disposition_id,omitempty"`
+	TransactionID       string         `json:"transaction_id"`
+	ServerID            string         `json:"server_id"`
+	Phase               string         `json:"phase"`
+	Action              RecoveryAction `json:"action"`
+	HistoricalEvidence  bool           `json:"historical_evidence"`
+	ObservedAt          time.Time      `json:"observed_at"`
+	ExpiresAt           time.Time      `json:"expires_at"`
 }
 
 // Validate 与服务端历史记录使用同一摘要边界，允许旧记录没有阶段，但不允许控制字符或超长字段。
@@ -42,6 +45,9 @@ func (r RecoveryReviewSummary) Validate() error {
 		(r.Phase != "" && !validRecoverySummary(r.Phase)) || !validRecoveryAction(r.Action) ||
 		r.ObservedAt.IsZero() || !r.ExpiresAt.After(r.ObservedAt) || r.ExpiresAt.Sub(r.ObservedAt) > RecoveryReviewLifetime ||
 		(r.Action != RecoveryActionRecord && !r.HistoricalEvidence) {
+		return ErrRecoveryReviewInvalid
+	}
+	if isRecoveryVerification(r.Action) != (r.SourceDispositionID != "") || (r.SourceDispositionID != "" && !validDispositionID(r.SourceDispositionID)) {
 		return ErrRecoveryReviewInvalid
 	}
 	return nil
@@ -65,12 +71,20 @@ func validReviewOperator(operator string) bool {
 }
 
 func validRecoveryAction(action RecoveryAction) bool {
-	return action == RecoveryActionRecord || action == RecoveryActionCommit || action == RecoveryActionRollback
+	return action == RecoveryActionRecord || action == RecoveryActionCommit || action == RecoveryActionRollback || isRecoveryVerification(action)
 }
 
 // PrepareRecoveryReview 在同一操作上限内读取前后记录，拒绝采样期间发生的配置或事务变化。
 // 当前采样摘要只绑定本次准备，不补写到历史 Evidence，也不改变事务终态。
 func (s *Service) PrepareRecoveryReview(ctx context.Context, id, operator string, action RecoveryAction, resolve func(context.Context, string) (Server, error)) (RecoveryReview, error) {
+	// 重新核查必须通过独立入口绑定原处置，不能作为普通动作绕过来源检查。
+	if isRecoveryVerification(action) {
+		return RecoveryReview{}, ErrRecoveryReviewInvalid
+	}
+	return s.prepareRecoveryReview(ctx, id, operator, action, resolve)
+}
+
+func (s *Service) prepareRecoveryReview(ctx context.Context, id, operator string, action RecoveryAction, resolve func(context.Context, string) (Server, error)) (RecoveryReview, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if !validReviewOperator(operator) || !validRecoveryAction(action) || !validInspectionID(id) {
@@ -140,14 +154,20 @@ func (s *Service) RecheckRecoveryReview(ctx context.Context, review RecoveryRevi
 	if s.now == nil || !s.now().Before(review.summary.ExpiresAt) {
 		return ErrRecoveryReviewExpired
 	}
-	current, err := s.PrepareRecoveryReview(ctx, review.summary.TransactionID, operator, review.summary.Action, resolve)
+	var current RecoveryReview
+	var err error
+	if isRecoveryVerification(review.summary.Action) {
+		current, err = s.prepareRecoveryReconciliation(ctx, review.summary.SourceDispositionID, operator, resolve)
+	} else {
+		current, err = s.PrepareRecoveryReview(ctx, review.summary.TransactionID, operator, review.summary.Action, resolve)
+	}
 	if err != nil {
 		return err
 	}
 	if !s.now().Before(review.summary.ExpiresAt) {
 		return ErrRecoveryReviewExpired
 	}
-	if current.recordDigest != review.recordDigest || current.serverDigest != review.serverDigest || current.observationDigest != review.observationDigest {
+	if current.recordDigest != review.recordDigest || current.serverDigest != review.serverDigest || current.observationDigest != review.observationDigest || current.summary.SourceDispositionID != review.summary.SourceDispositionID || current.summary.Action != review.summary.Action {
 		return ErrRecoveryReviewChanged
 	}
 	return ctx.Err()

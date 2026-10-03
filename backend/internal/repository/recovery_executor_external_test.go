@@ -68,6 +68,16 @@ func openRecoveryExternal(t *testing.T, cfg config.DatabaseConfig) *sql.DB {
 // 只替换远端文件实现，准备、确认、执行、迁移、占用和审计均走实际产品代码。
 func runExternalRecovery(t *testing.T, fixture recoveryExternalFixture) {
 	t.Helper()
+	for _, action := range []deployment.RecoveryAction{deployment.RecoveryActionCommit, deployment.RecoveryActionRollback} {
+		t.Run("reconciliation/"+string(action), func(t *testing.T) {
+			cfg := fixture.database(t)
+			db := openRecoveryExternal(t, cfg)
+			if err := database.Migrate(t.Context(), db, cfg.Driver); err != nil {
+				t.Fatal(err)
+			}
+			runReconciliationSuccess(t, NewSQLDeploymentTransactionRepository(db, cfg.Driver), db, action)
+		})
+	}
 	for _, action := range []deployment.RecoveryAction{deployment.RecoveryActionRecord, deployment.RecoveryActionCommit, deployment.RecoveryActionRollback} {
 		for _, stage := range []string{"none", "started", "finished"} {
 			t.Run(string(action)+"/"+stage, func(t *testing.T) {

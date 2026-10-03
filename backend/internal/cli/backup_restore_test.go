@@ -134,6 +134,10 @@ func TestCreateBackupDoesNotChangeExistingParentPermissions(t *testing.T) {
 	if err := os.Mkdir(parent, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// 显式建立权限基线，避免宿主 umask 将创建权限收紧后造成误报。
+	if err := os.Chmod(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cfg := isolatedCLIConfig(filepath.Join(base, "scert"))
 	for _, directory := range []string{cfg.Paths.Config, cfg.Paths.Data} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {

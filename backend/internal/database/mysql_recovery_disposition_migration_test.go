@@ -25,6 +25,10 @@ func TestMySQLRealRecoveryDispositionMigrationRecovery(t *testing.T) {
 			`ALTER TABLE recovery_claims DROP PRIMARY KEY`},
 		{24, "recovery_events", `INSERT INTO recovery_events VALUES ('kept', 'started', '', NOW())`,
 			`ALTER TABLE recovery_events DROP PRIMARY KEY, ADD PRIMARY KEY (event_type, disposition_id)`},
+		{25, "recovery_dispositions", `INSERT INTO recovery_dispositions (id, transaction_id, server_id, operator_id, action, request_key,
+			record_digest, server_digest, observation_digest, status, result_code, created_at, updated_at) VALUES
+			('kept', 'transaction', 'server', 'unix:0', 'finish_commit', 'request', 'record', 'server', 'observation', 'uncertain', 'uncertain', NOW(), NOW())`,
+			`ALTER TABLE recovery_dispositions MODIFY COLUMN source_disposition_id VARCHAR(8) NOT NULL DEFAULT ''`},
 	} {
 		for _, boundary := range []string{"before_create", "after_create", "with_record", "conflict"} {
 			t.Run(fmt.Sprintf("%d/%s", item.version, boundary), func(t *testing.T) {
