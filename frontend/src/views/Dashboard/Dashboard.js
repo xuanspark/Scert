@@ -1075,16 +1075,24 @@ export function useDashboard() {
       if (failedResponse) {
         throw new Error(await responseError(failedResponse, "读取管理数据失败"));
       }
-      status.value = await statusResponse.json();
-      domains.value = (await domainResponse.json()).items || [];
-      servers.value = (await serverResponse.json()).items || [];
-      certificates.value = (await certificateResponse.json()).items || [];
-      tasks.value = (await taskResponse.json()).items || [];
-      auditLogs.value = (await auditResponse.json()).items || [];
-      const nextSettings = settingsResponse ? await settingsResponse.json() : null;
+      const [nextStatus, nextDomains, nextServers, nextCertificates, nextTasks, nextAudit, nextSettings, providerResult] = await Promise.all([
+        statusResponse.json(),
+        domainResponse.json(),
+        serverResponse.json(),
+        certificateResponse.json(),
+        taskResponse.json(),
+        auditResponse.json(),
+        settingsResponse ? settingsResponse.json() : Promise.resolve(null),
+        dnsProviderResponse.json(),
+      ]);
       if (version !== loadDataVersion) return;
+      status.value = nextStatus;
+      domains.value = nextDomains.items || [];
+      servers.value = nextServers.items || [];
+      certificates.value = nextCertificates.items || [];
+      tasks.value = nextTasks.items || [];
+      auditLogs.value = nextAudit.items || [];
       settings.value = nextSettings;
-      const providerResult = await dnsProviderResponse.json();
       dnsProviderCatalog.value = (providerResult.items || []).map((item) => ({
         ...item,
         value: item.id,

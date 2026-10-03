@@ -719,6 +719,9 @@ test("settingsReadEditSaveContract", async (t) => {
   };
   let submitted;
   const { state } = await mountComposable(t, useDashboard, async (path, options = {}) => {
+    if (path.endsWith("/auth/session")) {
+      return Response.json({ account: "test-admin", role: "super_admin" });
+    }
     if (path.endsWith("/settings")) {
       if (options.method === "PUT") {
         submitted = JSON.parse(options.body);

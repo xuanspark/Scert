@@ -57,8 +57,12 @@ func TestAuthSessionsSupportOptionalEmail(t *testing.T) {
 			if !payload.Authenticated || payload.Email != "" || payload.Role != role || payload.IsAdmin != (role == repository.UserRoleAdmin) {
 				t.Fatalf("unexpected session identity: %+v", payload)
 			}
-			// 全局管理角色边界使用系统设置；域名读取现按项目成员身份判定。
-			request := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+			// 普通管理员可读服务商目录，但不能读取超级管理员专属系统设置。
+			settings := serveUserRequest(server, cookies[0], http.MethodGet, "/api/v1/settings", "")
+			if settings.Code != http.StatusForbidden {
+				t.Fatalf("非超级管理员读取系统设置应返回 403，实际为 %d", settings.Code)
+			}
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/dns/providers", nil)
 			request.AddCookie(cookies[0])
 			access := httptest.NewRecorder()
 			server.Handler().ServeHTTP(access, request)

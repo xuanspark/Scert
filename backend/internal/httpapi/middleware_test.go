@@ -108,7 +108,7 @@ func TestAdminAPIRejectsAuthenticatedRegularUser(t *testing.T) {
 	cfg.Admin.PasswordHash = string(hash)
 	server := New(Dependencies{Config: cfg, Repository: &stubDomainRepository{}})
 	cookie := httpUserSessionCookie(server, "user-1", repository.UserRoleUser)
-	response := serveUserRequest(server, cookie, http.MethodGet, "/api/v1/settings", "")
+	response := serveUserRequest(server, cookie, http.MethodGet, "/api/v1/dns/providers", "")
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("普通用户访问管理接口应返回 403，实际为 %d：%s", response.Code, response.Body.String())
 	}
