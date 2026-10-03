@@ -33,6 +33,10 @@ func (s *Server) frontend(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
+	if isHiddenFrontendPath(requestPath) {
+		c.Status(http.StatusNotFound)
+		return
+	}
 
 	staticDir, err := filepath.Abs(s.frontendDir)
 	if err != nil {
@@ -79,6 +83,15 @@ func isCoreRequestPath(path string) bool {
 		path == "/readyz" ||
 		path == "/reset" ||
 		strings.HasPrefix(path, "/reset/")
+}
+
+func isHiddenFrontendPath(path string) bool {
+	for _, segment := range strings.Split(strings.Trim(path, "/"), "/") {
+		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func isWithinDirectory(directory, candidate string) bool {
