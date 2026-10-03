@@ -1,9 +1,11 @@
 package deployment
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,8 +15,9 @@ import (
 )
 
 type Target struct {
-	Server   Server
-	Baseline RecoveryBaseline
+	Server     Server
+	DomainName string
+	Baseline   RecoveryBaseline
 }
 
 type Artifact struct {
@@ -95,7 +98,7 @@ func (s *Service) deploy(ctx context.Context, targets []Target, artifact Artifac
 		return report
 	}
 	for index, target := range targets {
-		result := s.deployOne(ctx, target.Server, artifact, pending, index, target.Baseline)
+		result := s.deployOne(ctx, target.Server, target.DomainName, artifact, pending, index, target.Baseline)
 		report.Results = append(report.Results, result)
 		if result.Status == "success" {
 			report.Success++
@@ -138,7 +141,7 @@ func loadArtifact(saved SavedFiles) (Artifact, error) {
 	return Artifact{Certificate: certificateData, FullChain: fullChainData, PrivateKey: privateKeyData}, nil
 }
 
-func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifact, pending *[]*pendingDeployment, index int, baseline RecoveryBaseline) (result Result) {
+func (s *Service) deployOne(ctx context.Context, server Server, domainName string, artifact Artifact, pending *[]*pendingDeployment, index int, baseline RecoveryBaseline) (result Result) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	server = server.Normalize()
@@ -159,6 +162,15 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 			_ = client.Close()
 		}
 	}()
+	if err := checkManagementDomainConflict(ctx, client, domainName); err != nil {
+		if errors.Is(err, ErrManagementDomainConflict) {
+			result.FailureCode = FailureManagementConflict
+		} else {
+			result.FailureCode = FailureConfiguration
+		}
+		result.Message = err.Error()
+		return result
+	}
 	paths := []remoteFile{
 		{path: RemotePath(server.CertificatePath), data: artifact.Certificate, mode: 0o644},
 		{path: RemotePath(server.CertificateChainPath), data: artifact.FullChain, mode: 0o644},
@@ -575,6 +587,56 @@ func (s *Service) deployOne(ctx context.Context, server Server, artifact Artifac
 		finishTransaction(TransactionStatusCommitted, result.Message)
 	}
 	return result
+}
+
+const managementPolicyPath = "/etc/scert-nginx/policy.json"
+
+var ErrManagementDomainConflict = errors.New("该服务器的管理域名由受限激活服务接管，不能使用普通业务证书路径部署。请使用管理证书续期流程，或为业务域名配置独立 Nginx 站点")
+
+type managementPolicyProbe struct {
+	Version  int    `json:"version"`
+	Hostname string `json:"hostname"`
+}
+
+func checkManagementDomainConflict(ctx context.Context, client Client, domainName string) error {
+	domainName = normalizeDeploymentDomain(domainName)
+	if domainName == "" {
+		return nil
+	}
+	probe, err := client.Run(ctx, []string{"test", "-f", managementPolicyPath})
+	if err != nil {
+		return fmt.Errorf("核查服务器管理入口失败：%w", err)
+	}
+	if probe.ExitCode == 1 {
+		return nil
+	}
+	if probe.ExitCode != 0 {
+		return fmt.Errorf("核查服务器管理入口失败：命令退出码 %d", probe.ExitCode)
+	}
+	read, err := client.Run(ctx, []string{"cat", managementPolicyPath})
+	if err != nil {
+		return fmt.Errorf("读取服务器管理入口策略失败：%w", err)
+	}
+	if read.ExitCode != 0 {
+		return fmt.Errorf("读取服务器管理入口策略失败：命令退出码 %d", read.ExitCode)
+	}
+	var policy managementPolicyProbe
+	decoder := json.NewDecoder(bytes.NewReader(read.Output))
+	if err := decoder.Decode(&policy); err != nil || policy.Version != 1 {
+		return errors.New("服务器管理入口策略无效，已停止普通证书部署")
+	}
+	managementDomain := normalizeDeploymentDomain(policy.Hostname)
+	if managementDomain == "" {
+		return errors.New("服务器管理入口策略缺少管理域名，已停止普通证书部署")
+	}
+	if managementDomain == domainName {
+		return ErrManagementDomainConflict
+	}
+	return nil
+}
+
+func normalizeDeploymentDomain(value string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
 }
 
 func (s *Service) newTransactionRecord(ctx context.Context, server Server, paths []remoteFile, lockPaths []string, id string, index int, baseline RecoveryBaseline) (*TransactionRecord, bool) {

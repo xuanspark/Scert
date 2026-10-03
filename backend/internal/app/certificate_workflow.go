@@ -242,7 +242,7 @@ func (w *CertificateWorkflow) deploy(ctx context.Context, result certificate.Iss
 		if resolveErr != nil {
 			return deployment.Report{}, fmt.Errorf("解析服务器 %s 的证书路径失败：%w", server.Name, resolveErr)
 		}
-		targets = append(targets, deployment.Target{Server: resolved})
+		targets = append(targets, deployment.Target{Server: resolved, DomainName: domainItem.Name})
 	}
 	remoteVerificationEnabled := w.RemoteVerifier != nil || w.RemoteVerifierForServer != nil
 	expectedFingerprint := ""

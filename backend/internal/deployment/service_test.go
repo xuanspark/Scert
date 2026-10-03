@@ -192,6 +192,33 @@ func TestDeployReplacesFilesAndCleansBackups(t *testing.T) {
 	}
 }
 
+func TestDeployRejectsProtectedManagementDomainBeforeChangingFiles(t *testing.T) {
+	client := newMemoryClient()
+	server := testServer("management-server")
+	client.runResults = []CommandResult{
+		{ExitCode: 0},
+		{Output: []byte(`{"version":1,"hostname":"odacm.cn"}`), ExitCode: 0},
+	}
+	service := NewService(memoryFactory{clients: map[string]*memoryClient{server.ID: client}})
+	before := map[string]memoryFile{}
+	for path, file := range client.files {
+		before[path] = file
+	}
+	report := service.Deploy(context.Background(), []Target{{Server: server, DomainName: "odacm.cn"}}, testArtifact(t))
+	if report.Status != "failed" || report.Failed != 1 {
+		t.Fatalf("管理域名冲突应拒绝部署：%+v", report)
+	}
+	if report.Results[0].FailureCode != FailureManagementConflict {
+		t.Fatalf("失败码错误：%+v", report.Results[0])
+	}
+	if len(client.files) != len(before) {
+		t.Fatalf("管理域名冲突前不应修改远端文件：before=%v after=%v", before, client.files)
+	}
+	if len(client.commands) != 2 || client.commands[0][0] != "test" || client.commands[1][0] != "cat" {
+		t.Fatalf("管理域名冲突检查命令错误：%v", client.commands)
+	}
+}
+
 func TestDeployReportsBackupCleanupFailure(t *testing.T) {
 	client := newMemoryClient()
 	client.removeError = ".scert-backup-"
