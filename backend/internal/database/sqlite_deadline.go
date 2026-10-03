@@ -51,10 +51,14 @@ func sqliteWithDeadline[T any](c *sqliteDeadlineConn, ctx context.Context, run f
 		return result, err
 	}
 	defer func() {
+		contextErr := ctx.Err()
+		if deadline, ok := ctx.Deadline(); contextErr == nil && ok && !time.Now().Before(deadline) {
+			contextErr = context.DeadlineExceeded
+		}
 		var sqliteErr *sqlite.Error
-		if ctx.Err() != nil && errors.As(err, &sqliteErr) && (sqliteErr.Code()&255 == 5 || sqliteErr.Code()&255 == 9) {
+		if contextErr != nil && errors.As(err, &sqliteErr) && (sqliteErr.Code()&255 == 5 || sqliteErr.Code()&255 == 9) {
 			// 原生 BEGIN 不一定转换上下文错误；保留 SQLite 错误供调用者诊断。
-			err = errors.Join(ctx.Err(), err)
+			err = errors.Join(contextErr, err)
 		}
 	}()
 	deadline, limited := ctx.Deadline()
