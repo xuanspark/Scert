@@ -2,6 +2,13 @@
 
 ## 2026年10月4日07:40 执行租约复审准备
 
+### 07:51 运行状态与授权探测增量
+
+- 第一台干净 `f17ea6c99e3bd4472813853294347bdfad0b8b17` 已于 07:43:33 运行 `scert-dns-leases-20261004-0743.service`；观察 07:49:16 为 active/running，已进入 MySQL 租约专项，仍待最终结果。
+- 源码 `/var/tmp/scert-dns-leases-20261004-0743/source`；日志同级 `review.log`。bundle 双端 SHA-256 一致：`3b362fd536022ccefcf1ac808a80fb750e83921e92e29f17e8c2e4ca3b84f2ef`。首次按 main 读取 bundle 失败，核对实际只含 HEAD 后成功导入，不改写验证结果。
+- 授权探测增量在本地单独验证：证书全量 6.524 秒、HTTP 26.459 秒、app 11.122 秒及 vet 通过；独立账户十轮专项 8.896 秒通过。后端 761、前端 119 个已跟踪源码换行检查通过。
+- 原 `0743` 单元不包含授权探测增量，必须追加固定新提交复审；未因观察等待重启任务。
+
 - 修改前检查点 `7a3b78d` 已提交推送，之后补齐完整配置快照、底层域名租约保护及接口冲突回归。
 - 本地 `go test ./internal/repository ./internal/certificate ./internal/database ./internal/httpapi ./internal/app` 和同范围 vet 通过；仓储 8.790 秒、HTTP 26.759 秒、app 11.943 秒，certificate/database 为缓存结果。
 - 租约专项十轮通过，原子创建及租约冲突接口专项五轮通过；前端重新执行 339 项，零失败零跳过，构建 103 模块通过。

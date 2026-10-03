@@ -28,6 +28,41 @@ func (s *Service) SetDNSExecutionLeaseStore(store DNSExecutionLeaseStore) {
 	}
 }
 
+// 授权探测也会写临时 TXT；错误可能表示远端写入或清理结果未知。
+// 不以缺少 ACME 挑战记录作为释放依据，成功探测才确认本次引用可以收尾。
+type leasedDNSAuthorization struct {
+	checker DNSAuthorizationChecker
+	store   DNSExecutionLeaseStore
+	lease   domain.DNSExecutionLease
+	mu      sync.Mutex
+	pending int
+}
+
+func (a *leasedDNSAuthorization) VerifyDomain(ctx context.Context, providerID, name string, credentials map[string]string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := a.store.ValidateDNSExecutionLease(ctx, a.lease); err != nil {
+		return errors.New("DNS 执行授权已失效，未执行授权探测")
+	}
+	a.mu.Lock()
+	a.pending++
+	a.mu.Unlock()
+	if err := a.checker.VerifyDomain(ctx, providerID, name, credentials); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.pending--
+	a.mu.Unlock()
+	return nil
+}
+
+func (a *leasedDNSAuthorization) clean() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.pending == 0
+}
+
 // 每次写挑战前再次检查任务和权限；清理只能使用原 Provider 和固定凭据。
 // 失败的 Present 也可能已写入远端，因此必须等待匹配的 CleanUp 成功才释放引用。
 type leasedDNSProvider struct {

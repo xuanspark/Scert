@@ -170,6 +170,7 @@ func (s *Service) Issue(ctx context.Context, domainID string) (result IssueResul
 	credentialRef := s.config.DNS.CredentialRef
 	var dnsLease domain.DNSExecutionLease
 	var guardedProvider *leasedDNSProvider
+	var guardedAuthorization *leasedDNSAuthorization
 	var lease *httpchallenge.Lease
 	if independent {
 		if challengeType != domain.ChallengeDNS01 || s.credentials == nil || s.providers == nil {
@@ -184,6 +185,10 @@ func (s *Service) Issue(ctx context.Context, domainID string) (result IssueResul
 			return IssueResult{}, errors.New("获取独立 DNS 账户执行租约失败，未使用系统凭据")
 		}
 		defer func() {
+			if guardedAuthorization != nil && !guardedAuthorization.clean() {
+				returnErr = errors.Join(returnErr, errors.New("DNS 授权探测清理尚未确认，执行租约及原凭据引用已保留"))
+				return
+			}
 			if guardedProvider != nil && !guardedProvider.clean() {
 				returnErr = errors.Join(returnErr, errors.New("DNS 挑战清理尚未确认，执行租约及原凭据引用已保留"))
 				return
@@ -240,7 +245,12 @@ func (s *Service) Issue(ctx context.Context, domainID string) (result IssueResul
 		if err := ReportProgress(ctx, "dns_validation", "正在验证 DNS 凭据权限"); err != nil {
 			return fail(err)
 		}
-		if err := s.verifyDNSAuthorization(ctx, providerID, domains, credentials); err != nil {
+		checker := s.authorization
+		if independent && checker != nil {
+			guardedAuthorization = &leasedDNSAuthorization{checker: checker, store: s.dnsLeases, lease: dnsLease}
+			checker = guardedAuthorization
+		}
+		if err := s.verifyDNSAuthorizationUsing(ctx, providerID, domains, credentials, checker); err != nil {
 			return fail(err)
 		}
 		if err := ReportProgress(ctx, "certificate_issue", "DNS 凭据验证通过，正在申请证书"); err != nil {
@@ -379,11 +389,19 @@ func (s *Service) IssueForSetup(ctx context.Context, request SetupCertificateReq
 }
 
 func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string, domains []string, credentials map[string]string) error {
+	var checker DNSAuthorizationChecker
+	if s != nil {
+		checker = s.authorization
+	}
+	return s.verifyDNSAuthorizationUsing(ctx, providerID, domains, credentials, checker)
+}
+
+func (s *Service) verifyDNSAuthorizationUsing(ctx context.Context, providerID string, domains []string, credentials map[string]string, checker DNSAuthorizationChecker) error {
 	// 必须先校验全部 SAN；后续域名越界时也不能先写入前面的域名。
 	if err := dnsprovider.ValidateAliyunTargetDomains(providerID, domains); err != nil {
 		return err
 	}
-	if s == nil || s.authorization == nil {
+	if checker == nil {
 		if strings.EqualFold(strings.TrimSpace(providerID), dnsprovider.Aliyun) {
 			return errors.New("阿里云权限探测器未初始化，已阻止证书申请")
 		}
@@ -393,7 +411,7 @@ func (s *Service) verifyDNSAuthorization(ctx context.Context, providerID string,
 		if err := ReportProgress(ctx, "dns_validation", fmt.Sprintf("正在验证域名 %s 的 DNS 权限", requestedDomain)); err != nil {
 			return err
 		}
-		if err := s.authorization.VerifyDomain(ctx, providerID, requestedDomain, credentials); err != nil {
+		if err := checker.VerifyDomain(ctx, providerID, requestedDomain, credentials); err != nil {
 			return fmt.Errorf("DNS 凭据无权操作域名 %s：%w", requestedDomain, err)
 		}
 	}

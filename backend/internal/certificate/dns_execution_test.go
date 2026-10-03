@@ -85,8 +85,14 @@ func (i executionIssuer) Obtain(ctx context.Context, _ ObtainRequest) (Resource,
 	return i.run(ctx)
 }
 
+type executionAuthorization func(context.Context, string, string, map[string]string) error
+
+func (a executionAuthorization) VerifyDomain(ctx context.Context, provider, name string, credentials map[string]string) error {
+	return a(ctx, provider, name, credentials)
+}
+
 func TestIndependentDNSExecutionLifecycle(t *testing.T) {
-	for _, scenario := range []string{"success", "acquire-failed", "validate-failed", "credential-failed", "present-failed", "cleanup-failed", "missing-cleanup", "release-failed", "cancelled", "revoked-before-present", "revoked-before-cleanup"} {
+	for _, scenario := range []string{"success", "acquire-failed", "validate-failed", "credential-failed", "present-failed", "cleanup-failed", "missing-cleanup", "release-failed", "cancelled", "revoked-before-present", "revoked-before-cleanup", "authorization-failed", "revoked-before-authorization", "cancelled-before-authorization"} {
 		t.Run(scenario, func(t *testing.T) {
 			cfg := certificateTestConfig(t.TempDir())
 			cfg.DNS.Provider, cfg.DNS.CredentialRef, cfg.DNS.VerificationState = "aliyun", "secret://dns/system-must-not-read", "unverified"
@@ -108,6 +114,28 @@ func TestIndependentDNSExecutionLifecycle(t *testing.T) {
 			defer cancel()
 			ctx = WithDNSExecutionIdentity(ctx, domain.DNSExecutionIdentity{TaskID: "task", AttemptID: "attempt", AttemptNumber: 2})
 			failure := errors.New("测试失败")
+			authorizationCalls := 0
+			service.authorization = executionAuthorization(func(ctx context.Context, id, name string, credentials map[string]string) error {
+				authorizationCalls++
+				if id != "cloudflare" || name != item.Name || credentials["api_token"] != "independent-test-only" {
+					t.Fatal("授权探测未使用租约的固定账户")
+				}
+				if scenario == "authorization-failed" {
+					return failure
+				}
+				return nil
+			})
+			ctx = WithProgressReporter(ctx, func(_ context.Context, _, message string) error {
+				if strings.HasPrefix(message, "正在验证域名 ") {
+					if scenario == "revoked-before-authorization" {
+						store.validateErr = failure
+					}
+					if scenario == "cancelled-before-authorization" {
+						cancel()
+					}
+				}
+				return nil
+			})
 			switch scenario {
 			case "acquire-failed":
 				store.acquireErr = failure
@@ -165,7 +193,7 @@ func TestIndependentDNSExecutionLifecycle(t *testing.T) {
 			if scenario != "acquire-failed" && scenario != "validate-failed" && reader.reference != "secret://dns/independent" {
 				t.Fatal("未读取固定凭据")
 			}
-			retained := scenario == "present-failed" || scenario == "cleanup-failed" || scenario == "missing-cleanup" || scenario == "acquire-failed"
+			retained := scenario == "present-failed" || scenario == "cleanup-failed" || scenario == "missing-cleanup" || scenario == "acquire-failed" || scenario == "authorization-failed"
 			if (store.released == 0) != retained {
 				t.Fatalf("不确定挑战清理时释放引用，或正常收尾未释放：%d", store.released)
 			}
@@ -178,7 +206,49 @@ func TestIndependentDNSExecutionLifecycle(t *testing.T) {
 			if scenario == "release-failed" && (err == nil || !strings.Contains(err.Error(), "租约释放失败")) {
 				t.Fatal("释放失败未上报")
 			}
+			if scenario == "authorization-failed" && (authorizationCalls != 1 || !strings.Contains(err.Error(), "授权探测清理尚未确认")) {
+				t.Fatal("探测失败后未保留不确定清理引用")
+			}
+			if (scenario == "revoked-before-authorization" || scenario == "cancelled-before-authorization") && authorizationCalls != 0 {
+				t.Fatal("撤权或取消后仍发起远端授权探测")
+			}
 		})
+	}
+}
+
+func TestIndependentDNSAuthorizationEachDomainRevalidates(t *testing.T) {
+	store := &executionLeaseStub{}
+	calls := 0
+	checker := &leasedDNSAuthorization{store: store, checker: executionAuthorization(func(context.Context, string, string, map[string]string) error {
+		calls++
+		store.validateErr = errors.New("权限已撤回")
+		return nil
+	})}
+	service := &Service{}
+	err := service.verifyDNSAuthorizationUsing(t.Context(), "cloudflare", []string{"one.example.test", "two.example.test"}, nil, checker)
+	if err == nil || calls != 1 || store.validated != 2 || !checker.clean() {
+		t.Fatal("第二个域名前撤权应停止探测，已确认清理的引用可释放", err, calls, store.validated)
+	}
+}
+
+func TestIndependentDNSAuthorizationFailureCannotBeClearedByLaterSuccess(t *testing.T) {
+	store := &executionLeaseStub{}
+	calls := 0
+	checker := &leasedDNSAuthorization{store: store, checker: executionAuthorization(func(context.Context, string, string, map[string]string) error {
+		calls++
+		if calls == 1 {
+			return errors.New("探测远端状态不确定")
+		}
+		return nil
+	})}
+	if err := checker.VerifyDomain(t.Context(), "cloudflare", "one.example.test", nil); err == nil {
+		t.Fatal("首次探测应失败")
+	}
+	if err := checker.VerifyDomain(t.Context(), "cloudflare", "two.example.test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if checker.clean() {
+		t.Fatal("后续域名成功不能清除先前未知外部状态")
 	}
 }
 
