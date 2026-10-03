@@ -12,9 +12,11 @@ export const dashboardSections = [
 
 export function useDashboardNavigation(currentUser) {
   const selectedSection = ref("overview");
-  const sections = computed(() => dashboardSections.filter(
-    (section) => !["users", "dns-accounts"].includes(section.id) || ["super_admin", "admin"].includes(currentUser.value?.role),
-  ));
+  const sections = computed(() => dashboardSections.filter((section) => {
+    if (section.id === "users") return ["super_admin", "admin"].includes(currentUser.value?.role);
+    if (section.id === "dns-accounts") return Boolean(currentUser.value);
+    return true;
+  }));
   const activeSection = computed(() => sections.value.some(
     (section) => section.id === selectedSection.value,
   ) ? selectedSection.value : "overview");

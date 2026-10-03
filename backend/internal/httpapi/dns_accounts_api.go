@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
 
@@ -28,7 +29,6 @@ type dnsAccountView struct {
 
 // listDNSAccounts 仅列出当前绑定的配置，不枚举凭据仓库中的临时或历史密钥。
 func (s *Server) listDNSAccounts(c *gin.Context) {
-	c.Header("Cache-Control", "no-store")
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
@@ -37,15 +37,35 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"items": items})
 		return
 	}
+	projectID := strings.TrimSpace(cfg.DNS.ProjectID)
+	if projectID == "" {
+		projectID = domain.DefaultProjectID
+	}
+	// 在查询账户归属或解密凭据之前，按配置中的真实项目实时判权。
+	// 全局管理员身份不能代替项目授权，撤权后的旧会话也不能继续读取。
+	authorizer, ok := s.projectMembers.(repository.ProjectAuthorizer)
+	if !ok {
+		authorizer, ok = s.projectDomains.(repository.ProjectAuthorizer)
+	}
+	if !ok {
+		s.writeError(c, http.StatusServiceUnavailable, "项目 DNS 权限服务尚未就绪", nil)
+		return
+	}
+	if err := authorizer.AuthorizeProject(c.Request.Context(), c.GetString(authenticatedActorKey), projectID, domain.PermissionDNSRead); err != nil {
+		if errors.Is(err, repository.ErrProjectAccessDenied) {
+			// 列表只返回可见账户，不泄露其他项目是否配置了凭据。
+			c.JSON(http.StatusOK, gin.H{"items": items})
+			return
+		}
+		s.writeError(c, http.StatusServiceUnavailable, "读取项目 DNS 权限失败，请稍后重试", nil)
+		return
+	}
 	item := dnsAccountView{
 		ID: "system-dns", Name: "系统 DNS 账户", Provider: cfg.DNS.Provider,
-		ProjectID:    strings.TrimSpace(cfg.DNS.ProjectID),
+		ProjectID:    projectID,
 		ProviderName: "未知服务商", AccountIdentifier: "未提供账号标识",
 		OwnerUserID: cfg.DNS.OwnerUserID, OwnerState: "unassigned", OwnerUsername: "未分配",
 		VerificationState: cfg.DNS.VerificationState, CredentialState: "available",
-	}
-	if item.ProjectID == "" {
-		item.ProjectID = "default"
 	}
 	var owner repository.User
 	ownerID := strings.TrimSpace(cfg.DNS.OwnerUserID)

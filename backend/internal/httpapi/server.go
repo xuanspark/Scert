@@ -65,10 +65,10 @@ type Dependencies struct {
 	ImportCertificateTask func(context.Context, certificate.ImportRequest) (certificate.IssueResult, deployment.Report, error)
 	DeployCertificate     func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
 	// DeployCertificateTask 执行已有任务，不得重复创建任务或尝试记录。
-	DeployCertificateTask     func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
-	RestoreCertificateVersion func(context.Context, string, string) (certificate.IssueResult, error)
+	DeployCertificateTask         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
+	RestoreCertificateVersion     func(context.Context, string, string) (certificate.IssueResult, error)
 	RestoreCertificateVersionTask func(context.Context, string, string) (certificate.IssueResult, error)
-	ValidateCertificate       func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
+	ValidateCertificate           func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 	// ValidateCertificateTask 直接校验当前证书，不重复创建任务。
 	ValidateCertificateTask func(context.Context, string) (certificate.IssueResult, certificate.ValidationResult, error)
 
@@ -246,7 +246,6 @@ func (s *Server) registerRoutes() {
 	adminAPI.GET("/settings", s.getSettings)
 	adminAPI.PUT("/settings", s.requireSuperAdminSystemConfig, s.updateSettings)
 	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
-	adminAPI.GET("/dns/accounts", s.listDNSAccounts)
 	adminAPI.POST("/dns/test", s.requireSuperAdminSystemConfig, s.dnsOperation, s.testAdminDNS)
 	adminAPI.POST("/dns/aliyun/check", s.requireSuperAdminSystemConfig, s.dnsOperation, s.checkAliyunDNSDomain)
 	adminAPI.POST("/renewal/run", s.requireSuperAdmin, s.runRenewalNow)

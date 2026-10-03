@@ -91,7 +91,7 @@ func TestAdminDNSAccountsExposeProjectScope(t *testing.T) {
 	secrets := &fakeSecretReaderStore{data: map[string]map[string]string{
 		cfg.DNS.CredentialRef: {"api_token": "test-token"},
 	}}
-	server := New(Dependencies{Config: cfg, Secrets: secrets})
+	server := New(Dependencies{Config: cfg, Secrets: secrets, ProjectDomains: projectDomainRepositoryStub{}})
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/dns/accounts", nil)
 	serveAdminHTTP(server, response, request)

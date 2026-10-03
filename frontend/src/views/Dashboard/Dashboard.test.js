@@ -65,6 +65,18 @@ test("用户管理导航按权限显示，权限变化后回到基本信息", ()
     assert.equal(navigation.sections.value.length, 5);
 });
 
+test("DNS 账户入口允许项目角色访问，数据范围由后端实时授权", () => {
+  const user = ref({ role: "user" });
+  const navigation = useDashboardNavigation(user);
+  assert.equal(navigation.sections.value.some((section) => section.id === "dns-accounts"), true);
+  assert.equal(navigation.sections.value.some((section) => section.id === "users"), false);
+  navigation.selectSection("dns-accounts");
+  assert.equal(navigation.activeSection.value, "dns-accounts");
+  user.value = null;
+  assert.equal(navigation.activeSection.value, "overview");
+  assert.equal(navigation.sections.value.some((section) => section.id === "dns-accounts"), false);
+});
+
 test("单板块布局使用互斥条件，切换重置滚动且保留弹窗入口", async () => {
   const { readFile } = await import("node:fs/promises");
   const template = await readFile(new URL("./Dashboard.vue", import.meta.url), "utf8");
