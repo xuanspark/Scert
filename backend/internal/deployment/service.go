@@ -608,7 +608,7 @@ func checkManagementDomainConflict(ctx context.Context, client Client, domainNam
 		return fmt.Errorf("核查服务器管理入口失败：%w", err)
 	}
 	if probe.ExitCode == 1 {
-		return nil
+		return checkNginxManagementDomainConflict(ctx, client, domainName)
 	}
 	if probe.ExitCode != 0 {
 		return fmt.Errorf("核查服务器管理入口失败：命令退出码 %d", probe.ExitCode)
@@ -633,6 +633,80 @@ func checkManagementDomainConflict(ctx context.Context, client Client, domainNam
 		return ErrManagementDomainConflict
 	}
 	return nil
+}
+
+func checkNginxManagementDomainConflict(ctx context.Context, client Client, domainName string) error {
+	result, err := client.Run(ctx, []string{"nginx", "-T"})
+	if err != nil {
+		return fmt.Errorf("?? Nginx ???????%w", err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("?? Nginx ???????????? %d", result.ExitCode)
+	}
+	if nginxContainsManagedServer(string(result.Output), domainName) {
+		return ErrManagementDomainConflict
+	}
+	return nil
+}
+
+func nginxContainsManagedServer(config, domainName string) bool {
+	domainName = normalizeDeploymentDomain(domainName)
+	if domainName == "" {
+		return false
+	}
+	depth := 0
+	serverDepth := -1
+	serverLines := make([]string, 0, 32)
+	for _, line := range strings.Split(config, "\n") {
+		trimmed := strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+		if serverDepth < 0 && strings.HasPrefix(trimmed, "server") && strings.Contains(trimmed, "{") {
+			serverDepth = depth
+			serverLines = serverLines[:0]
+		}
+		if serverDepth >= 0 {
+			serverLines = append(serverLines, trimmed)
+		}
+		depth += strings.Count(trimmed, "{") - strings.Count(trimmed, "}")
+		if serverDepth >= 0 && depth <= serverDepth {
+			if nginxServerBlockIsManaged(serverLines, domainName) {
+				return true
+			}
+			serverDepth = -1
+			serverLines = serverLines[:0]
+		}
+	}
+	return false
+}
+
+func nginxServerBlockIsManaged(lines []string, domainName string) bool {
+	hasDomain := false
+	hasUpstream := false
+	hasSNI := false
+	hasVerify := false
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		for i := range fields {
+			fields[i] = strings.Trim(fields[i], ";{}")
+		}
+		switch fields[0] {
+		case "server_name":
+			for _, value := range fields[1:] {
+				if normalizeDeploymentDomain(value) == domainName {
+					hasDomain = true
+				}
+			}
+		case "proxy_pass":
+			hasUpstream = fields[1] == "https://127.0.0.1:8443"
+		case "proxy_ssl_name":
+			hasSNI = normalizeDeploymentDomain(fields[1]) == domainName
+		case "proxy_ssl_verify":
+			hasVerify = fields[1] == "on"
+		}
+	}
+	return hasDomain && hasUpstream && hasSNI && hasVerify
 }
 
 func normalizeDeploymentDomain(value string) string {
