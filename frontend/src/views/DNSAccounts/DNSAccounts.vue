@@ -1,11 +1,14 @@
 <script setup>
 import { watch } from "vue";
-import { dnsProjectLabel, dnsVerificationLabel, useDNSAccounts } from "./DNSAccounts.js";
+import { dnsVerificationLabel, useDNSAccounts } from "./DNSAccounts.js";
+import DNSAccountDialog from "./DNSAccountDialog.vue";
 
 const props = defineProps({ refreshKey: { type: Object, default: null } });
 const {
   accounts, loading, error, pageSize, page, pageCount,
   visibleAccounts, loadAccounts, changePageSize,
+  editor, saving, mutationError, notice, managedProjects, selectedProvider, editorTitle,
+  canManage, openEditor, closeEditor, changeProvider, saveEditor, providers, projectLabel,
 } = useDNSAccounts();
 
 watch(() => props.refreshKey, loadAccounts);
@@ -18,11 +21,16 @@ watch(() => props.refreshKey, loadAccounts);
         <h2>DNS 账户管理</h2>
         <span class="dns-accounts-count">{{ loading ? '正在加载' : error ? '加载失败' : `共 ${accounts.length} 个账号` }}</span>
       </div>
-      <button class="dns-refresh" type="button" :disabled="loading" @click="loadAccounts">
-        {{ loading ? '加载中…' : '刷新列表' }}
-      </button>
+      <div class="dns-page-actions">
+        <button v-if="managedProjects.length" class="dns-refresh" type="button" :disabled="loading || saving" @click="openEditor('create')">新增账户</button>
+        <button class="dns-refresh" type="button" :disabled="loading || saving" @click="loadAccounts">
+          {{ loading ? '加载中…' : '刷新列表' }}
+        </button>
+      </div>
     </header>
 
+    <p v-if="notice" class="dns-notice" role="status">{{ notice }}</p>
+    <p v-if="mutationError && !editor" class="dns-error" role="alert">{{ mutationError }}</p>
     <p v-if="error" class="dns-error" role="alert">{{ error }}</p>
     <p v-else-if="loading" class="dns-empty" role="status">正在读取已配置的 DNS 账号…</p>
     <p v-else-if="accounts.length === 0" class="dns-empty">暂无可查看的已配置 DNS 账号</p>
@@ -37,20 +45,30 @@ watch(() => props.refreshKey, loadAccounts);
               <th scope="col" title="仅展示脱敏后的公开账号标识，不展示密钥或令牌">账号标识</th>
               <th scope="col" title="归属来自已保存的用户记录；历史配置未记录归属时显示未分配">归属用户</th>
               <th scope="col" title="已验证表示保存配置时通过验证，不代表此刻云端权限仍然有效">验证状态</th>
+              <th scope="col">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="account in visibleAccounts" :key="account.id">
               <td>{{ account.name }}</td>
               <td>{{ account.provider_name }}</td>
-              <td>{{ dnsProjectLabel(account) }}</td>
+              <td :title="account.project_id">{{ projectLabel(account) }}</td>
               <td class="dns-identifier">{{ account.account_identifier }}</td>
               <td :class="{ 'dns-muted': account.owner_state !== 'assigned' }">{{ account.owner_username }}</td>
               <td>
                 <span
                   class="dns-status"
-                  :class="{ verified: account.credential_state === 'available' && account.verification_state === 'verified' }"
+                  :class="{ verified: account.status !== 'disabled' && ['stored', 'available'].includes(account.credential_state) && account.verification_state === 'verified' }"
                 >{{ dnsVerificationLabel(account) }}</span>
+              </td>
+              <td>
+                <div v-if="canManage(account)" class="dns-row-actions">
+                  <button type="button" :disabled="saving" @click="openEditor('rename', account)">改名</button>
+                  <button type="button" :disabled="saving || account.status !== 'active'" @click="openEditor('verify', account)">验证</button>
+                  <button type="button" :disabled="saving" title="保存新凭据并使旧验证状态失效" @click="openEditor('rotate', account)">轮换</button>
+                  <button type="button" :disabled="saving" @click="openEditor('status', account)">{{ account.status === 'active' ? '停用' : '启用' }}</button>
+                </div>
+                <span v-else class="dns-muted" :title="account.managed ? '当前项目只读，操作权限由服务器实时复核' : '历史系统账户尚未迁移，此处仅展示，不支持独立账户操作'">{{ account.managed ? '只读' : '历史配置' }}</span>
               </td>
             </tr>
           </tbody>
@@ -71,6 +89,19 @@ watch(() => props.refreshKey, loadAccounts);
         </div>
       </footer>
     </template>
+    <DNSAccountDialog
+      v-if="editor"
+      :editor="editor"
+      :title="editorTitle"
+      :projects="managedProjects"
+      :providers="providers"
+      :provider="selectedProvider"
+      :saving="saving"
+      :error="mutationError"
+      @close="closeEditor"
+      @save="saveEditor"
+      @provider-change="changeProvider"
+    />
   </section>
 </template>
 

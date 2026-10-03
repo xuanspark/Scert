@@ -252,7 +252,6 @@ func (s *Server) registerRoutes() {
 
 	s.router.GET("/api/v1/settings", privateProjectResponse, s.requireSuperAdminSystemConfig, s.getSettings)
 	s.router.PUT("/api/v1/settings", privateProjectResponse, s.requireSuperAdminSystemConfig, s.updateSettings)
-	adminAPI.GET("/dns/providers", s.listAdminDNSProviders)
 	adminAPI.POST("/dns/test", s.requireSuperAdminSystemConfig, s.dnsOperation, s.testAdminDNS)
 	adminAPI.POST("/dns/aliyun/check", s.requireSuperAdminSystemConfig, s.dnsOperation, s.checkAliyunDNSDomain)
 	adminAPI.POST("/renewal/run", s.requireSuperAdmin, s.runRenewalNow)

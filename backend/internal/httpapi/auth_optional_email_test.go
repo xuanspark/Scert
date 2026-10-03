@@ -57,7 +57,7 @@ func TestAuthSessionsSupportOptionalEmail(t *testing.T) {
 			if !payload.Authenticated || payload.Email != "" || payload.Role != role || payload.IsAdmin != (role == repository.UserRoleAdmin) {
 				t.Fatalf("unexpected session identity: %+v", payload)
 			}
-			// 普通管理员可读服务商目录，但不能读取超级管理员专属系统设置。
+			// 服务商目录仅含公共字段定义，已登录用户可读；系统设置仍仅超级管理员可读。
 			settings := serveUserRequest(server, cookies[0], http.MethodGet, "/api/v1/settings", "")
 			if settings.Code != http.StatusForbidden {
 				t.Fatalf("非超级管理员读取系统设置应返回 403，实际为 %d", settings.Code)
@@ -66,10 +66,7 @@ func TestAuthSessionsSupportOptionalEmail(t *testing.T) {
 			request.AddCookie(cookies[0])
 			access := httptest.NewRecorder()
 			server.Handler().ServeHTTP(access, request)
-			expectedStatus := http.StatusForbidden
-			if role == repository.UserRoleAdmin {
-				expectedStatus = http.StatusOK
-			}
+			expectedStatus := http.StatusOK
 			if access.Code != expectedStatus {
 				t.Fatalf("role boundary: status=%d want=%d", access.Code, expectedStatus)
 			}

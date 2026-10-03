@@ -16,6 +16,8 @@ func (s *Server) registerProjectResourceRoutes() {
 	api.GET("/domains/:id/dns-account", s.getDomainDNSAccount)
 	api.PUT("/domains/:id/dns-account", s.requireSameOrigin, s.setDomainDNSAccount)
 	api.GET("/dns/accounts", s.listDNSAccounts)
+	// 服务商目录不包含账户数据；项目 DNS 管理员不必拥有全局管理员身份。
+	api.GET("/dns/providers", s.listAdminDNSProviders)
 	api.GET("/dns/accounts/:id", s.getManagedDNSAccount)
 	api.POST("/dns/accounts", s.requireSameOrigin, s.createManagedDNSAccount)
 	api.PUT("/dns/accounts/:id", s.requireSameOrigin, s.renameManagedDNSAccount)

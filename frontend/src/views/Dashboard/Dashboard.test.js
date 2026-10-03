@@ -6,6 +6,7 @@ import "./DashboardLogout.test.js";
 import "./SettingsAccess.test.js";
 import "./DomainModal.test.js";
 import "./DomainForm.test.js";
+import "../DNSAccounts/DNSAccounts.test.js";
 import test from "node:test";
 import { nextTick, ref } from "vue";
 import { useDashboard } from "./Dashboard.js";

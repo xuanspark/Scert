@@ -19,6 +19,7 @@ type VisibleProject struct {
 	CanManageMembers bool   `json:"can_manage_members"`
 	CanManageProject bool   `json:"can_manage_project"`
 	CanDeleteProject bool   `json:"can_delete_project"`
+	CanManageDNS     bool   `json:"can_manage_dns"`
 }
 
 type VisibleProjectPage struct {
@@ -45,6 +46,10 @@ func (r *SQLProjectMemberRepository) ListVisibleProjects(ctx context.Context, ac
 		CASE WHEN a.role = 'super_admin' OR EXISTS (
 			SELECT 1 FROM project_members manager WHERE manager.project_id = p.id
 			AND manager.user_id = a.id AND manager.role = 'project_admin'
+		) THEN 1 ELSE 0 END,
+		CASE WHEN a.role = 'super_admin' OR EXISTS (
+			SELECT 1 FROM project_members dns_manager WHERE dns_manager.project_id = p.id
+			AND dns_manager.user_id = a.id AND dns_manager.role IN ('project_admin', 'dns_admin')
 		) THEN 1 ELSE 0 END
 		FROM users a LEFT JOIN projects p ON p.id > ? AND (
 			a.role = 'super_admin' OR EXISTS (
@@ -62,8 +67,8 @@ func (r *SQLProjectMemberRepository) ListVisibleProjects(ctx context.Context, ac
 	for rows.Next() {
 		var actor, globalRole string
 		var id, name, description sql.NullString
-		var manager int
-		if err := rows.Scan(&actor, &globalRole, &id, &name, &description, &manager); err != nil {
+		var manager, dnsManager int
+		if err := rows.Scan(&actor, &globalRole, &id, &name, &description, &manager, &dnsManager); err != nil {
 			return page, fmt.Errorf("读取可见项目失败：%w", err)
 		}
 		allowed = true
@@ -72,6 +77,7 @@ func (r *SQLProjectMemberRepository) ListVisibleProjects(ctx context.Context, ac
 			page.Items = append(page.Items, VisibleProject{
 				ID: id.String, Name: name.String, Description: description.String, CanManageMembers: manager == 1,
 				CanManageProject: manager == 1, CanDeleteProject: manager == 1 && id.String != "default",
+				CanManageDNS: dnsManager == 1,
 			})
 		}
 	}
