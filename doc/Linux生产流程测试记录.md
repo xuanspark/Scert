@@ -1,6 +1,6 @@
 # Linux 生产流程测试记录
 
-## 2026年10月4日03:40 系统设置越权读取修复
+## 2026年10月4日03:55 系统设置越权读取修复及正式部署
 
 - 旧 `9c26db0` 工作树加入 `settings_scope_test.go`，执行 `scert-settings-scope-red-20261004-0333.service`，真实失败，退出码一。普通管理员 GET 原返回二百而非四百零三，响应未隔离缓存；角色降权后的旧会话原已返回四百零一，不误报为原认证失效。
 - 修复：GET/PUT 均使用超级管理员实时会话中间件并先设置 `private, no-store` 与 `Vary: Cookie`；读取不访问明文凭据。前端先确认会话，仅超级管理员请求设置，响应解码完成后再次核验加载版本，避免旧请求覆盖新会话。
@@ -10,8 +10,13 @@
 - [x] 调整旧权限契约测试：可选邮箱会话继续验证普通管理员可读服务商目录，同时新增普通用户与普通管理员均不可读系统设置的断言；通用管理拒绝文案使用真正的普通管理路由，系统设置专属拒绝由新范围测试覆盖。没有放宽实际系统设置权限。
 - [✓] 复跑单元 `scert-settings-scope-fixed-20261004-0343.service` 已 inactive、Result=success、ExecMainStatus=0；HTTP API 全量 49.496 秒、vet 和设置、DNS 范围、可选邮箱、管理中间件三轮竞态 45.136 秒通过。日志同目录 `settings-scope-fixed.log`。
 - [x] 继续核对真实路由发现服务商目录仍要求全局管理员；前端普通用户或降权后的加载不再请求该目录，测试夹具模拟真实四百零三，避免无条件成功响应掩盖页面失败。
-- [~] 干净 `3ff59dd` 第一台后端全量及 vet 执行中，单元 `scert-settings-full-20261004-0346.service`，日志 `/var/tmp/scert-settings-clean-20261004-0344/full.log`；后续只有前端兼容增量，没有后端变更。旧候选包已构建但未安装，正式部署必须使用包含最终前端的重新构建产物。
-- [ ] 全量 Linux 回归和正式新包部署待完成；线上第一台仍为 `9c26db0`。没有清理生产数据库、操作第二台、修改公共 DNS、增加辅助脚本或备份。
+- [✓] 干净 `3ff59dd` 第一台后端全量及 vet 已通过，单元 `scert-settings-full-20261004-0346.service` 为 inactive、success、退出码零；日志 `/var/tmp/scert-settings-clean-20261004-0344/full.log`。实际执行 `go test -p 1 -count=1 -timeout=8m ./...` 后执行 `go vet -p 1 ./...`。这不是三库首次 Web 或外部数据库全部矩阵验收。
+- [✓] 最终前端增量提交 `c5774f3` 与 `3ff59dd` 的后端 Git 树均为 `8bf6518caee0cbcc979e89672497a7d754a240fc`，没有后端变更；最终前端全量 286 项及官方构建通过。没有重复执行相同后端全量，也未安装旧候选包。
+- [✓] 干净 `c5774f3` 官方发布：`source_dirty=false`、`trimpath=true`、`local_path_check=passed`，仅 Linux amd64。归档 SHA-256 `7aa4e0cf6c79975675231688a8e430398c7da26b8d4750dbad9e5aa1e02a4ff9`，第一台归档及包内二十二个文件摘要全部通过。
+- [✓] 第一台通过归档内正式安装器升级；执行单元 `scert-settings-install-20261004-0355.service` 已 inactive、success、退出码零，日志 `/var/tmp/scert-release-settings-c5774f3/install.log`。实际开始为 UTC+8 03:54:20，03:54:29 服务 active；名称中的时间仅为任务标识，不作为实际时间。
+- [✓] `/scert/scert` SHA-256 `ff6e2ca82ba5f3661689fc760ebe3a6698865b6f860b07455191d84b1b85e068`；新前端 `index-G-gSx-q1.js` 的磁盘及实际 HTTPS 返回摘要均为 `f3145e70fd60b2a3658a3e652ebba5a03375885cc53103251c993db1c7878d99`，与本地正式包一致。
+- [✓] Scert、存储 socket、Nginx active；Nginx 配置检查通过，已有 http2 弃用警告保留。回环定向严格 TLS 就绪返回二百、TLS 校验零；匿名设置返回四百零一、`Cache-Control: private, no-store` 和 `Vary: Cookie`；80 未知挑战返回无缓存四百零四。Scert 仅 `127.0.0.1:8443`，MySQL 仅回环，公网仍由 Nginx 80/443 接入。
+- [!] 上述 HTTP 检查均为第一台回环定向内部证据，不计作公共 DNS、浏览器多角色或公共 CA 验收。03:35 公共 DNS 仍指第二台，未获确认切换；未清理生产数据库、操作第二台、修改 DNS 或新增辅助脚本及额外备份。安装器自身升级事务保留不等于另做数据备份。
 
 ## 2026年10月4日 真实 lego 客户端隔离协议回归
 

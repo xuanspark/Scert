@@ -27,6 +27,8 @@
 
 ## 当前验收边界
 
+2026年10月4日03:55（UTC+8）补充：第一台已升级至系统设置权限修复版 `c5774f3`，Linux 全量、vet 与相关权限竞态通过；HTTP-01 实现未修改，升级后 80 未知挑战仍为无缓存四百零四。以下协议和 Nginx 历史证据保留，公共 CA 签发仍未验收。
+
 2026年10月4日03:14（UTC+8）：正式代码与前端已接入，前端 279 项、Linux 全量、vet 和专项竞态通过；真实独立 Nginx 十项、SQLite/MySQL 8.0.46/PostgreSQL 14.24 迁移专项通过。干净 `9c26db0` 官方 Linux 包已部署第一台，80 挑战路径内部检查通过；未知令牌无缓存 404，业务仍跳转 HTTPS，上游严格 TLS 不变。
 
 第一台实际文件为 `/etc/nginx/conf.d/scert-odacm.conf` 和 `/etc/nginx/snippets/scert-http-challenge.conf`；仅接入管理域名对应 server，不表示其他托管域名已配置。Nginx reload 后最初请求曾由旧 worker 返回 301，随后重复检查已按新配置返回 404，原观察不隐藏。
