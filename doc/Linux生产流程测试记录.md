@@ -1,5 +1,18 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日23:58 重新核查源码验证
+
+第一台隔离源码目录：`/var/tmp/scert-local-recovery-20261003-1828/backend`；使用 nobody 和原生 Go 1.26.6，不替换运行中的正式服务。
+
+- [✓] `reconciliation-latest.log`：五包专项退出码零，筛选包含 Recovery、Disposition、Reconciliation，覆盖新本机会话测试。
+- [✓] `reconciliation-race.log`：同五包竞态退出码零。
+- [~] `reconciliation-external.log`：显式启用隔离 MySQL 8.0 与 PostgreSQL 14，验证迁移二十五、中断重入、两个收尾方向、审计失败及连接池重开；尚未取得最终结果。
+- [~] `reconciliation-full.log`、`reconciliation-vet.log`：最新后端全量和静态检查正在顺序运行。
+
+上批 `STRICT_UMASK_FULL_EXIT=0` 仅覆盖关闭修复及备份测试权限基线；不能替代本批结果。五包竞态结束后只补充了外部实库测试，产品实现未再改变。所有日志位于上述源码目录的父目录。
+
+当前线上仍为 `a5dfd42`、schema24；真实处置 `bc4099fd53c10ce0ae643ae2a89c2597fa48ed7ea6d6661fe4126f7f310b7007` 及占用未手动修改。正式新包、schema25、真实本机菜单五收尾均待验。
+
 ## 2026年10月3日23:14 真实中断恢复与关闭误判
 
 ### 重载阶段中断与自动恢复

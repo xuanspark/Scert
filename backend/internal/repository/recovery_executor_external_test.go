@@ -76,7 +76,23 @@ func runExternalRecovery(t *testing.T, fixture recoveryExternalFixture) {
 				t.Fatal(err)
 			}
 			runReconciliationSuccess(t, NewSQLDeploymentTransactionRepository(db, cfg.Driver), db, action)
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			db = openRecoveryExternal(t, cfg)
+			recoveryCount(t, db, "recovery_dispositions", 2)
+			recoveryCount(t, db, "recovery_events", 4)
+			recoveryCount(t, db, "recovery_claims", 0)
+			pending, err := NewSQLDeploymentTransactionRepository(db, cfg.Driver).ListPendingDeploymentTransactions(t.Context())
+			if err != nil || len(pending) != 0 {
+				t.Fatal("重新打开实库后成功收尾丢失", err)
+			}
 		})
+		for _, stage := range []string{"started", "finished"} {
+			t.Run("reconciliation_audit/"+string(action)+"/"+stage, func(t *testing.T) {
+				runExternalReconciliationAuditFailure(t, fixture, action, stage)
+			})
+		}
 	}
 	for _, action := range []deployment.RecoveryAction{deployment.RecoveryActionRecord, deployment.RecoveryActionCommit, deployment.RecoveryActionRollback} {
 		for _, stage := range []string{"none", "started", "finished"} {
