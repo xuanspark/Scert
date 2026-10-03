@@ -77,6 +77,11 @@ func executorIntegrationFixture(t *testing.T) (*SQLDeploymentTransactionReposito
 	_, db := newTaskRepositoryTest(t)
 	t.Cleanup(func() { _ = db.Close() })
 	repo := NewSQLDeploymentTransactionRepository(db)
+	return seedRecoveryExecutor(t, repo, db)
+}
+
+func seedRecoveryExecutor(t *testing.T, repo *SQLDeploymentTransactionRepository, db *sql.DB) (*SQLDeploymentTransactionRepository, *sql.DB, *deployment.Service, *executorIntegrationClient, deployment.Server, deployment.TransactionRecord) {
+	t.Helper()
 	server := deployment.Server{
 		ID: "executor-server", Name: "executor-server", Address: "192.0.2.10", Port: 22, Username: "deploy",
 		AuthMethod: deployment.SSHAuthPassword, PasswordRef: "secret://ssh/password/test", HostKeyFingerprint: "SHA256:test",

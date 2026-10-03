@@ -1,5 +1,17 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日21:48 外部数据库专项
+
+- [✓] 21:41 实查 `scert-local-actions-fixed-20261003-2125.service` 已 inactive、MainPID=0、Result=success，`LOCAL_ACTIONS_FIXED_HTTP_FULL_RACE_EXIT=0`；HTTP 全包竞态约 393.752 秒，五项检查完整通过。
+- [x] 新四份测试源码归档 SHA-256 为 `421b52f1916f7be8cf088e0c0bd9623ad71e777f7b1439277a7e58faa4045e24`，本地与第一台一致；旧任务终止后才更新隔离源码。
+- [x] PostgreSQL 14.24 工具经 APT 下载校验后仅解压在 `/var/tmp/scert-pg14-disposition-20261003`，未安装系统服务。Git 隔离目录属主检查首次阻止任务启动，改用单条命令的 safe.directory 后启动，没有修改全局 Git 配置或重复启动测试。
+- [✓] `scert-external-disposition-20261003-2143.service` 的 `external-disposition.log`：PostgreSQL 迁移 22—24 三场景通过，数据库包约 3.672 秒；执行器十场景通过，仓储包约 7.603 秒；`EXTERNAL_POSTGRES_EXIT=0`。
+- [✓] 同日志 MySQL 5.7.44 执行器十场景通过，约 25.574 秒；`EXTERNAL_MYSQL_EXIT=0`。三动作分别覆盖正常、开始审计失败、结束审计失败，另外包含八并发幂等；重开的是实际连接池，远端文件和站点核验是测试实现。
+- [x] 21:46 查询无 PostgreSQL 残留进程，测试自动停止独立集群；仅 SQL 存储专项，不替代 PostgreSQL 16 备份工具、正式包或首次 Web 验收。
+- [✓] 本地 `npm.cmd test`：275 项通过，零失败、零跳过。
+- [~] 最新 SQLite 执行器、完整静态检查及后端普通全量仍在上述同一单元继续执行；不提前标记整组成功。
+
+
 ## 2026年10月3日21:32 本机接入修复版回归
 
 - [x] 首轮任务 `scert-local-actions-20261003-2116.service` 已失败终止，`LOCAL_ACTIONS_RACE_EXIT=1`。分片测试夹具使用默认四 KiB 读取器导致过早失败；已改用协议最大帧大小的读取器，没有放宽生产协议。HTTP 全包竞态五分钟超时，堆栈位于既有 SQLite 迁移，不能记为通过。
