@@ -31,10 +31,10 @@ const visibleDomainSelect = `SELECT domains.id, domains.name, domains.certificat
 // 列名只接受内部固定值，角色能力复用领域模型；所有身份和角色值均使用绑定参数。
 // EXISTS 避免多角色账户重复返回资源，不按用户分组或全局普通管理员身份放行。
 func resourceReadPredicate(projectColumn, actorID string, permission domain.ProjectPermission) (string, []any) {
-	if projectColumn != "domains.project_id" && projectColumn != "servers.project_id" {
-		return "1 = 0", nil
-	}
-	if permission != domain.PermissionCertificateRead && permission != domain.PermissionServerRead {
+	valid := projectColumn == "domains.project_id" && permission == domain.PermissionCertificateRead ||
+		projectColumn == "servers.project_id" && permission == domain.PermissionServerRead ||
+		projectColumn == "dns_accounts.project_id" && (permission == domain.PermissionDNSRead || permission == domain.PermissionDNSCredentialUse)
+	if !valid {
 		return "1 = 0", nil
 	}
 	roles := []domain.ProjectRole{

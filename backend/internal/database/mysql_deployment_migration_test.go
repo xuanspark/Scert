@@ -8,7 +8,7 @@ import (
 )
 
 func TestMySQLDeploymentShapeDefinitions(t *testing.T) {
-	for _, version := range []int{15, 16, 17, 20, 21, 22, 23, 24} {
+	for _, version := range []int{15, 16, 17, 20, 21, 22, 23, 24, 27} {
 		statements := mysqlDeploymentStatements(t, version)
 		shape, err := parseMySQLDeploymentShape(statements[0])
 		if err != nil || len(shape.Columns) == 0 || len(shape.Indexes) == 0 {

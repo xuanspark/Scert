@@ -50,9 +50,10 @@ type mysqlDeploymentColumn struct {
 }
 
 type mysqlDeploymentShape struct {
-	Table   string
-	Columns []mysqlDeploymentColumn
-	Indexes []string
+	Table     string
+	Collation string
+	Columns   []mysqlDeploymentColumn
+	Indexes   []string
 }
 
 var (
@@ -70,7 +71,13 @@ func parseMySQLDeploymentShape(statement string) (mysqlDeploymentShape, error) {
 		return shape, fmt.Errorf("部署迁移表定义不完整")
 	}
 	match := mysqlDeploymentTablePattern.FindStringSubmatch(strings.TrimSpace(lines[0]))
-	if len(match) != 2 || strings.TrimSpace(lines[len(lines)-1]) != ")" {
+	closing := strings.TrimSpace(lines[len(lines)-1])
+	if closing == ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin" {
+		shape.Collation = "utf8mb4_bin"
+	} else if closing != ")" {
+		return shape, fmt.Errorf("迁移表结尾定义不受支持")
+	}
+	if len(match) != 2 {
 		return shape, fmt.Errorf("部署迁移表定义不受支持")
 	}
 	shape.Table = match[1]
@@ -108,7 +115,11 @@ func validateMySQLDeploymentShape(ctx context.Context, db *sql.DB, expected mysq
 		WHERE t.table_schema = DATABASE() AND t.table_name = ?`, expected.Table).Scan(&tableCollation, &schemaCollation); err != nil {
 		return err
 	}
-	if tableCollation != schemaCollation {
+	expectedCollation := schemaCollation
+	if expected.Collation != "" {
+		expectedCollation = expected.Collation
+	}
+	if tableCollation != expectedCollation {
 		return fmt.Errorf("部署迁移表排序规则与数据库默认定义不匹配：%s", expected.Table)
 	}
 	var engine, tableType string

@@ -27,6 +27,7 @@ import (
 //go:embed migrations/sqlite/0024_recovery_events.sql migrations/mysql/0024_recovery_events.sql migrations/postgres/0024_recovery_events.sql
 //go:embed migrations/sqlite/0025_recovery_reconciliation.sql migrations/mysql/0025_recovery_reconciliation.sql migrations/postgres/0025_recovery_reconciliation.sql
 //go:embed migrations/sqlite/0026_domain_challenge.sql migrations/mysql/0026_domain_challenge.sql migrations/postgres/0026_domain_challenge.sql
+//go:embed migrations/sqlite/0027_dns_accounts.sql migrations/mysql/0027_dns_accounts.sql migrations/postgres/0027_dns_accounts.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -51,7 +52,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 26
+const latestMigrationVersion = 27
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -91,6 +92,9 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		return applySQLiteTaskMigration(ctx, db, statements, version)
 	}
 	if driver == "mysql" {
+		if version == 27 {
+			return applyMySQLDNSAccountMigration(ctx, db, version, statements)
+		}
 		if (version >= 15 && version <= 17) || (version >= 20 && version <= 24) {
 			return applyMySQLDeploymentMigration(ctx, db, version, statements)
 		}
@@ -167,6 +171,12 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 	}
 	if driver == "sqlite" && version == 14 {
 		if err := installSQLiteProjectMemberGuards(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if driver == "sqlite" && version == 27 {
+		if err := installSQLiteDNSAccountConstraints(ctx, tx); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -274,6 +284,8 @@ func migrationName(version int) string {
 		return "recovery_reconciliation"
 	case 26:
 		return "domain_challenge"
+	case 27:
+		return "dns_accounts"
 	default:
 		return "unknown"
 	}
