@@ -9,6 +9,7 @@ function emptyForm() {
     auto_renew: true,
     acme_environment: "staging",
     dns_provider: "",
+    challenge_type: "dns-01",
     server_ids: [],
   };
 }
@@ -20,7 +21,8 @@ function domainPayload(form) {
     sans: form.sans.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
     auto_renew: form.auto_renew,
     acme_environment: form.acme_environment,
-    dns_provider: form.dns_provider,
+    dns_provider: form.challenge_type === "http-01" ? "" : form.dns_provider,
+    challenge_type: form.challenge_type || "dns-01",
   };
 }
 
@@ -71,6 +73,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
       auto_renew: item.auto_renew !== false,
       acme_environment: item.acme_environment || "staging",
       dns_provider: item.dns_provider || "",
+      challenge_type: item.challenge_type || "dns-01",
     };
     formError.value = "";
     savedPayload = "";
@@ -128,6 +131,13 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
       return;
     }
     const payload = domainPayload(form.value);
+    if (payload.challenge_type === "http-01" && (
+      payload.certificate_type === "wildcard" ||
+      [payload.name, ...payload.sans].some((name) => name.trim().startsWith("*."))
+    )) {
+      formError.value = "HTTP-01 不支持泛域名，请选择 DNS-01";
+      return;
+    }
     if (!payload.name.trim()) {
       formError.value = "请输入主域名";
       return;

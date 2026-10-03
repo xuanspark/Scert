@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	acme "github.com/go-acme/lego/v5/acme"
 	"github.com/go-acme/lego/v5/certcrypto"
 	legoCertificate "github.com/go-acme/lego/v5/certificate"
@@ -59,9 +60,13 @@ func (i *LegoIssuer) Obtain(ctx context.Context, request ObtainRequest) (Resourc
 		return Resource{}, errors.New("ACME 账户未配置")
 	}
 	if i.Provider == nil {
-		return Resource{}, errors.New("DNS 验证服务商未配置")
+		return Resource{}, errors.New("证书验证服务未配置")
 	}
 	domains, err := NormalizeDomains(request.Domains)
+	if err != nil {
+		return Resource{}, err
+	}
+	challengeType, err := domain.NormalizeChallengeType(request.ChallengeType, domains)
 	if err != nil {
 		return Resource{}, err
 	}
@@ -85,9 +90,15 @@ func (i *LegoIssuer) Obtain(ctx context.Context, request ObtainRequest) (Resourc
 	if err != nil {
 		return Resource{}, fmt.Errorf("创建 ACME 客户端失败：%w", err)
 	}
-	provider := withPropagationSettings(i.Provider, i.PropagationTimeout, i.PropagationInterval)
-	if err := client.Challenge.SetDNS01Provider(provider); err != nil {
-		return Resource{}, fmt.Errorf("配置 DNS-01 验证失败：%w", err)
+	if challengeType == domain.ChallengeHTTP01 {
+		if err := client.Challenge.SetHTTP01Provider(i.Provider); err != nil {
+			return Resource{}, fmt.Errorf("配置 HTTP-01 验证失败：%w", err)
+		}
+	} else {
+		provider := withPropagationSettings(i.Provider, i.PropagationTimeout, i.PropagationInterval)
+		if err := client.Challenge.SetDNS01Provider(provider); err != nil {
+			return Resource{}, fmt.Errorf("配置 DNS-01 验证失败：%w", err)
+		}
 	}
 	if i.User.Registration == nil {
 		account, err := client.Registration.Register(ctx, registration.RegisterOptions{TermsOfServiceAgreed: true})
@@ -102,7 +113,7 @@ func (i *LegoIssuer) Obtain(ctx context.Context, request ObtainRequest) (Resourc
 		PreferredChain: request.PreferredChain,
 	})
 	if err != nil {
-		if i.PropagationTimeout > 0 && i.PropagationInterval > 0 && i.PropagationInterval <= i.PropagationTimeout {
+		if challengeType == domain.ChallengeDNS01 && i.PropagationTimeout > 0 && i.PropagationInterval > 0 && i.PropagationInterval <= i.PropagationTimeout {
 			return Resource{}, fmt.Errorf("申请证书失败（DNS 传播等待时间 %s，检测间隔 %s）：%w", i.PropagationTimeout, i.PropagationInterval, err)
 		}
 		return Resource{}, fmt.Errorf("申请证书失败：%w", err)

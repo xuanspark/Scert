@@ -32,6 +32,43 @@ function startCreate(state) {
   state.form.value.server_ids = [firstServer.id, secondServer.id];
 }
 
+test("HTTP 验证保存方式且不携带 DNS 服务商", async (t) => {
+  const requests = [];
+  const { state } = await mountForm(t, async (path, options) => {
+    requests.push({ path, ...options });
+    if (path.endsWith("/servers")) return Response.json({ items: [] });
+    return Response.json({ ...firstDomain, ...JSON.parse(options.body) });
+  });
+  startCreate(state);
+  state.form.value.challenge_type = "http-01";
+  state.form.value.dns_provider = "aliyun";
+  await state.saveDomain();
+  assert.equal(JSON.parse(requests[0].body).challenge_type, "http-01");
+  assert.equal(JSON.parse(requests[0].body).dns_provider, "");
+});
+
+test("HTTP 验证拒绝主泛域名和附加泛域名，不提交请求", async (t) => {
+  let calls = 0;
+  const { state } = await mountForm(t, async () => { calls += 1; return Response.json({}); });
+  for (const type of ["wildcard", "san"]) {
+    startCreate(state);
+    state.form.value.challenge_type = "http-01";
+    state.form.value.certificate_type = type;
+    state.form.value.sans = "*.example.com";
+    await state.saveDomain();
+    assert.match(state.formError.value, /不支持泛域名/);
+  }
+  assert.equal(calls, 0);
+});
+
+test("编辑时保留已有 HTTP 验证方式", async (t) => {
+  const { state } = await mountForm(t, async () => Response.json({ items: [] }));
+  await state.openEdit({ ...firstDomain, challenge_type: "http-01" });
+  assert.equal(state.form.value.challenge_type, "http-01");
+  await state.openEdit(firstDomain);
+  assert.equal(state.form.value.challenge_type, "dns-01");
+});
+
 test("创建成功但关联冲突后只重试关联，不重复创建且不改变另一域名", async (t) => {
   const requests = [];
   let attempts = 0;

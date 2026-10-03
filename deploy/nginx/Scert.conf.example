@@ -6,7 +6,14 @@ server {
     listen __HTTP_PORT__;
     listen [::]:__HTTP_PORT__;
     server_name __MANAGEMENT_HOST__;
-    return 308 __MANAGEMENT_ORIGIN__$request_uri;
+
+    # 不能使用 server 级 return，否则会先于挑战路径反代执行。
+    # 将 http-challenge.conf.example 替换占位符后保存到此绝对路径。
+    include __HTTP_CHALLENGE_SNIPPET_PATH__;
+
+    location / {
+        return 308 __MANAGEMENT_ORIGIN__$request_uri;
+    }
 }
 
 server {

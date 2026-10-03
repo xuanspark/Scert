@@ -94,7 +94,7 @@ func (s *Server) submitPreparedDomainTask(c *gin.Context, taskType string, prepa
 		s.writeError(c, http.StatusInternalServerError, "检查证书部署权限失败", err)
 		return
 	}
-	if taskType == "certificate_issue" && !s.authorizeDNSCredentialUse(c, resource.ResourceScope.Normalize().ProjectID) {
+	if taskType == "certificate_issue" && !s.authorizeIssueChallenge(c, resource) {
 		return
 	}
 	s.issueTaskMu.Lock()
@@ -577,8 +577,18 @@ func (s *Server) retryTask(c *gin.Context) {
 			return
 		}
 	}
-	if item.TaskType == "certificate_issue" && !s.authorizeDNSCredentialUse(c, projectID) {
-		return
+	if item.TaskType == "certificate_issue" {
+		if !s.requireProjectResourceReader(c) {
+			return
+		}
+		resource, err := s.projectResources.GetVisibleDomain(c.Request.Context(), actorID, item.DomainID)
+		if err != nil {
+			s.writeProjectResourceError(c, err)
+			return
+		}
+		if !s.authorizeIssueChallenge(c, resource) {
+			return
+		}
 	}
 	startedAt := time.Now().UTC()
 	retryTask, attempt, err := reader.RetryVisibleTask(c.Request.Context(), actorID, taskID, &startedAt)

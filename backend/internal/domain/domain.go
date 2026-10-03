@@ -32,6 +32,7 @@ type Domain struct {
 	AutoRenew       bool            `json:"auto_renew"`
 	ACMEEnvironment string          `json:"acme_environment"`
 	DNSProvider     string          `json:"dns_provider,omitempty"`
+	ChallengeType   string          `json:"challenge_type"`
 	Status          string          `json:"status"`
 	ExpiresAt       *time.Time      `json:"expires_at,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
@@ -87,6 +88,7 @@ func NewDomainWithOptions(name string, certificateType CertificateType, sans []s
 		AutoRenew:       autoRenew,
 		ACMEEnvironment: acmeEnvironment,
 		DNSProvider:     dnsProvider,
+		ChallengeType:   ChallengeDNS01,
 		Status:          "pending",
 		CreatedAt:       now,
 		UpdatedAt:       now,

@@ -45,11 +45,15 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	item.ID = "managed-domain"
+	item.ChallengeType = domain.ChallengeHTTP01
 	item.ProjectID = "domain-project"
 	if err := writer.CreateProjectDomain(t.Context(), "domain-manager", item); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := NewSQLDomainRepository(db.DB, cfg.Driver).GetByID(t.Context(), item.ID)
+	if err == nil && stored.ChallengeType != domain.ChallengeHTTP01 {
+		t.Fatal("项目域名未保存 HTTP 验证方式")
+	}
 	if err != nil || stored.ProjectID != item.ProjectID {
 		t.Fatalf("项目域名未按真实归属保存：%+v，%v", stored, err)
 	}
@@ -57,11 +61,16 @@ func TestProjectDomainRepositorySQLite(t *testing.T) {
 		t.Fatalf("越权创建应拒绝：%v", err)
 	}
 	item.Name = "updated.example.test"
+	item.ChallengeType = domain.ChallengeDNS01
 	if err := writer.UpdateProjectDomain(t.Context(), "domain-manager", item); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewSQLDomainRepository(db.DB, cfg.Driver).GetByID(t.Context(), item.ID); err != nil {
 		t.Fatal(err)
+	}
+	visible, err := writer.GetVisibleDomain(t.Context(), "domain-manager", item.ID)
+	if err != nil || visible.ChallengeType != domain.ChallengeDNS01 {
+		t.Fatal("项目查询未返回更新后的验证方式：", err)
 	}
 	serverRepo := NewSQLServerRepository(db.DB, cfg.Driver)
 	server := deployment.Server{

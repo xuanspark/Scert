@@ -1,0 +1,1 @@
+ALTER TABLE domains ADD COLUMN challenge_type VARCHAR(16) NOT NULL DEFAULT 'dns-01';

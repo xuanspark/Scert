@@ -16,6 +16,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/httpapi"
+	"git.pcux.cn/xuans/Scert/backend/internal/httpchallenge"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
 	"git.pcux.cn/xuans/Scert/backend/internal/notification"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
@@ -143,6 +144,8 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	}
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
+	httpChallenges := httpchallenge.NewStore()
+	certificates.SetHTTPChallenges(httpChallenges)
 	aliyunAuthChecker := dnsprovider.NewAliyunAuthorizationChecker()
 	certificates.SetDNSAuthorizationChecker(aliyunAuthChecker)
 
@@ -178,7 +181,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	}, management)
 	server = httpapi.New(httpapi.Dependencies{
 		RecoveryInspection: deploymentService,
-		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, DeploymentFactory: deployment.SSHFactory{Secrets: secretStore},
+		Config:             cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, DeploymentFactory: deployment.SSHFactory{Secrets: secretStore},
 		ProjectMembers:   repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectDirectory: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectLifecycle: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
@@ -187,6 +190,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		ProjectDomains:   repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		SetupDNS:         dnsVerification, Secrets: secretStore, Firewall: firewall.NewManager(), AliyunChecker: aliyunAuthChecker,
 		IssueCertificate: workflow.IssueForHTTP,
+		HTTPChallenges:   httpChallenges,
 		IssueSetupCertificate: func(ctx context.Context, request certificate.SetupCertificateRequest) (certificate.SavedResource, error) {
 			return certificates.IssueForSetup(ctx, request)
 		},

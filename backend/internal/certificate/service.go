@@ -15,6 +15,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
+	"git.pcux.cn/xuans/Scert/backend/internal/httpchallenge"
 )
 
 type DomainStateRepository interface {
@@ -79,6 +80,13 @@ type Service struct {
 	newIssuer      IssuerFactory
 	preferredChain string
 	acmeRoots      *x509.CertPool
+	httpChallenges *httpchallenge.Store
+}
+
+func (s *Service) SetHTTPChallenges(store *httpchallenge.Store) {
+	if s != nil {
+		s.httpChallenges = store
+	}
 }
 
 func (s *Service) SetDNSAuthorizationChecker(checker DNSAuthorizationChecker) {
@@ -131,7 +139,7 @@ func NewService(cfg config.Config, repository DomainStateRepository, credentials
 }
 
 func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, error) {
-	if s == nil || s.repository == nil || s.credentials == nil || s.providers == nil || s.accounts == nil || s.newIssuer == nil {
+	if s == nil || s.repository == nil || s.accounts == nil || s.newIssuer == nil {
 		return IssueResult{}, errors.New("证书申请服务未初始化")
 	}
 	domainID = strings.TrimSpace(domainID)
@@ -146,22 +154,23 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return IssueResult{}, err
 	}
-	providerID := strings.ToLower(strings.TrimSpace(item.DNSProvider))
-	if providerID == "" {
-		providerID = strings.ToLower(strings.TrimSpace(s.config.DNS.Provider))
-	}
-	if providerID == "" || strings.TrimSpace(s.config.DNS.CredentialRef) == "" {
-		return IssueResult{}, errors.New("DNS Provider 或凭据引用未配置")
-	}
-	// 必须在读取凭据、构造 Provider 或访问 ACME 前拒绝受保护的任意 SAN。
-	if err := dnsprovider.ValidateAliyunTargetDomains(providerID, domains); err != nil {
+	challengeType, err := domain.NormalizeChallengeType(item.ChallengeType, domains)
+	if err != nil {
 		return IssueResult{}, err
 	}
-	if configured := strings.ToLower(strings.TrimSpace(s.config.DNS.Provider)); configured != "" && providerID != configured {
-		return IssueResult{}, fmt.Errorf("域名配置的 DNS Provider %s 尚未绑定独立凭据，当前初始化凭据属于 %s", providerID, configured)
-	}
-	if s.config.DNS.VerificationState != "verified" {
-		return IssueResult{}, errors.New("DNS API 尚未通过验证")
+	providerID := ""
+	var lease *httpchallenge.Lease
+	if challengeType == domain.ChallengeHTTP01 {
+		lease, err = s.httpChallenges.NewLease(ctx, domains)
+		if err != nil {
+			return IssueResult{}, err
+		}
+		defer lease.Close()
+	} else {
+		providerID, err = s.validateDNSIssueConfiguration(item, domains)
+		if err != nil {
+			return IssueResult{}, err
+		}
 	}
 	if err := s.repository.UpdateCertificateState(ctx, item.ID, "issuing", item.ExpiresAt); err != nil {
 		return IssueResult{}, fmt.Errorf("更新证书申请状态失败：%w", err)
@@ -173,22 +182,31 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 		return IssueResult{}, cause
 	}
 
-	credentials, err := s.credentials.Get(ctx, s.config.DNS.CredentialRef)
-	if err != nil {
-		return fail(fmt.Errorf("读取 DNS 凭据失败：%w", err))
-	}
-	if err := ReportProgress(ctx, "dns_validation", "正在验证 DNS 凭据权限"); err != nil {
-		return fail(err)
-	}
-	if err := s.verifyDNSAuthorization(ctx, providerID, domains, credentials); err != nil {
-		return fail(err)
-	}
-	if err := ReportProgress(ctx, "certificate_issue", "DNS 凭据验证通过，正在申请证书"); err != nil {
-		return fail(err)
-	}
-	provider, err := s.providers.Create(providerID, credentials)
-	if err != nil {
-		return fail(fmt.Errorf("创建 DNS Provider 失败：%w", err))
+	var credentials map[string]string
+	var provider challenge.Provider
+	if lease != nil {
+		provider = lease
+		if err := ReportProgress(ctx, "certificate_issue", "正在通过 HTTP-01 申请证书，请确保全部域名的 80 端口挑战路径已接入"); err != nil {
+			return fail(err)
+		}
+	} else {
+		credentials, err = s.credentials.Get(ctx, s.config.DNS.CredentialRef)
+		if err != nil {
+			return fail(fmt.Errorf("读取 DNS 凭据失败：%w", err))
+		}
+		if err := ReportProgress(ctx, "dns_validation", "正在验证 DNS 凭据权限"); err != nil {
+			return fail(err)
+		}
+		if err := s.verifyDNSAuthorization(ctx, providerID, domains, credentials); err != nil {
+			return fail(err)
+		}
+		if err := ReportProgress(ctx, "certificate_issue", "DNS 凭据验证通过，正在申请证书"); err != nil {
+			return fail(err)
+		}
+		provider, err = s.providers.Create(providerID, credentials)
+		if err != nil {
+			return fail(fmt.Errorf("创建 DNS Provider 失败：%w", err))
+		}
 	}
 	email := strings.TrimSpace(s.config.ACME.AccountEmail)
 	if email == "" && len(s.config.Notification.Recipients) > 0 {
@@ -200,9 +218,9 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	}
 	issuer := s.newIssuer(user, provider, item.ACMEEnvironment)
 	resource, issueErr := issuer.Obtain(ctx, ObtainRequest{
-		Domains: domains, AccountEmail: email, Environment: item.ACMEEnvironment, PreferredChain: s.preferredChain,
+		Domains: domains, AccountEmail: email, Environment: item.ACMEEnvironment, PreferredChain: s.preferredChain, ChallengeType: challengeType,
 	})
-	if issueErr != nil {
+	if issueErr != nil && challengeType == domain.ChallengeDNS01 {
 		s.invalidateDNSAuthorizationOnFailure(providerID, domains, credentials, issueErr)
 	}
 	if saveErr := s.accounts.Save(ctx, item.ACMEEnvironment, user); saveErr != nil {

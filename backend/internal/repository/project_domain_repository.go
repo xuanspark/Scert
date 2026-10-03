@@ -20,6 +20,10 @@ func (r *SQLProjectMemberRepository) CreateProjectDomain(ctx context.Context, ac
 		return err
 	}
 	item.ResourceScope = item.ResourceScope.Normalize()
+	challengeType, err := domain.NormalizeChallengeType(item.ChallengeType, append([]string{item.Name}, item.SANs...))
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(item.SANs)
 	if err != nil {
 		return fmt.Errorf("编码域名 SAN 失败：%w", err)
@@ -33,10 +37,10 @@ func (r *SQLProjectMemberRepository) CreateProjectDomain(ctx context.Context, ac
 		return err
 	}
 	_, err = tx.ExecContext(ctx, Rebind(r.driver, `INSERT INTO domains
-		(id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
+		(id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by, challenge_type)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
 		item.ACMEEnvironment, item.DNSProvider, item.Status, nullableTime(item.ExpiresAt), item.CreatedAt, item.UpdatedAt,
-		item.ProjectID, item.OwnerID, item.CreatedBy, item.UpdatedBy)
+		item.ProjectID, item.OwnerID, item.CreatedBy, item.UpdatedBy, challengeType)
 	if err != nil {
 		return fmt.Errorf("保存域名失败：%w", err)
 	}
@@ -76,10 +80,14 @@ func (r *SQLProjectMemberRepository) UpdateProjectDomain(ctx context.Context, ac
 	if err := r.validateDomainPathsInTransaction(ctx, tx, item); err != nil {
 		return err
 	}
+	challengeType, err := domain.NormalizeChallengeType(item.ChallengeType, append([]string{item.Name}, item.SANs...))
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, Rebind(r.driver, `UPDATE domains SET
-		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?, updated_by = ?
+		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?, updated_by = ?, challenge_type = ?
 		WHERE id = ? AND project_id = ?`), item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
-		item.DNSProvider, item.UpdatedAt, item.UpdatedBy, item.ID, stored.ProjectID)
+		item.DNSProvider, item.UpdatedAt, item.UpdatedBy, challengeType, item.ID, stored.ProjectID)
 	if err != nil {
 		return fmt.Errorf("更新域名失败：%w", err)
 	}

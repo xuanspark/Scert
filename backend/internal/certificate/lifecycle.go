@@ -24,6 +24,7 @@ type Issuer interface {
 }
 
 type ObtainRequest struct {
+	ChallengeType  string
 	Domains        []string
 	AccountEmail   string
 	Environment    string

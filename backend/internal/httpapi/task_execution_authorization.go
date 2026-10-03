@@ -24,7 +24,14 @@ func (s *Server) authorizeCertificateTaskExecution(ctx context.Context, task rep
 	permissions := []domain.ProjectPermission{domain.PermissionDeploymentExecute}
 	switch task.TaskType {
 	case "certificate_issue":
-		permissions = append(permissions, domain.PermissionCertificateManage, domain.PermissionDNSCredentialUse)
+		permissions = append(permissions, domain.PermissionCertificateManage)
+		kind, err := domain.NormalizeChallengeType(resource.ChallengeType, append([]string{resource.Name}, resource.SANs...))
+		if err != nil {
+			return err
+		}
+		if kind == domain.ChallengeDNS01 {
+			permissions = append(permissions, domain.PermissionDNSCredentialUse)
+		}
 	case "certificate_deploy":
 	case "certificate_restore":
 		permissions = append(permissions, domain.PermissionPrivateKeyRead)

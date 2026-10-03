@@ -25,6 +25,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
+	"git.pcux.cn/xuans/Scert/backend/internal/httpchallenge"
 	"git.pcux.cn/xuans/Scert/backend/internal/logging"
 	"git.pcux.cn/xuans/Scert/backend/internal/repository"
 )
@@ -39,6 +40,7 @@ type readinessSecretReader interface {
 }
 
 type Dependencies struct {
+	HTTPChallenges           *httpchallenge.Store
 	Config                   config.Config
 	ConfigPath               string
 	FrontendDir              string
@@ -83,6 +85,7 @@ type Dependencies struct {
 }
 
 type Server struct {
+	httpChallenges              *httpchallenge.Store
 	configMu                    sync.RWMutex
 	config                      config.Config
 	configPath                  string
@@ -161,8 +164,9 @@ func New(deps Dependencies) *Server {
 		frontendDir = filepath.Join(deps.Config.Paths.Install, "web")
 	}
 	server := &Server{
-		httpListening: make(chan struct{}),
-		config:        deps.Config, configPath: deps.ConfigPath, frontendDir: filepath.Clean(frontendDir), logger: deps.Logger,
+		httpChallenges: deps.HTTPChallenges,
+		httpListening:  make(chan struct{}),
+		config:         deps.Config, configPath: deps.ConfigPath, frontendDir: filepath.Clean(frontendDir), logger: deps.Logger,
 		repository: deps.Repository, setupDNS: deps.SetupDNS, secrets: deps.Secrets, firewall: deps.Firewall, router: router,
 		servers:                     deps.Servers,
 		users:                       deps.Users,
@@ -260,7 +264,14 @@ func (s *Server) registerRoutes() {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.router
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 在路由纠正、访问日志及登录检查前接管挑战，未知令牌不能落入前端页面。
+		if strings.HasPrefix(r.URL.Path, strings.TrimSuffix(httpchallenge.PathPrefix, "/")) {
+			s.httpChallenges.ServeHTTP(w, r)
+			return
+		}
+		s.router.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) ListenAndServe() error {
@@ -329,7 +340,7 @@ func (s *Server) prepareHTTPServer() (*http.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("加载 HTTPS 证书与私钥失败：%w", err)
 	}
-	server := newHTTPServer(address, s.router)
+	server := newHTTPServer(address, s.Handler())
 	server.TLSConfig.GetCertificate = s.getTLSCertificate
 	s.httpMu.Lock()
 	if s.httpStopped {
@@ -412,6 +423,7 @@ type domainRequest struct {
 	AutoRenew       *bool    `json:"auto_renew"`
 	ACMEEnvironment string   `json:"acme_environment"`
 	DNSProvider     string   `json:"dns_provider"`
+	ChallengeType   *string  `json:"challenge_type"`
 }
 
 type serverRequest struct {
@@ -634,11 +646,7 @@ func (s *Server) createDomain(c *gin.Context) {
 	if !s.authorizeDomainMutation(c, item.ProjectID) {
 		return
 	}
-	if s.currentDNSProvider() == dnsprovider.Aliyun && !s.authorizeDNSCredentialUse(c, item.ProjectID) {
-		return
-	}
-	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), append([]string{item.Name}, item.SANs...)...); err != nil {
-		s.writeError(c, http.StatusBadRequest, err.Error(), err)
+	if !s.authorizeDomainChallenge(c, item) {
 		return
 	}
 	if err := s.projectDomains.CreateProjectDomain(c.Request.Context(), c.GetString(authenticatedActorKey), item); err != nil {
@@ -673,16 +681,16 @@ func (s *Server) updateDomain(c *gin.Context) {
 	if !s.authorizeDomainMutation(c, existing.ProjectID) {
 		return
 	}
-	if s.currentDNSProvider() == dnsprovider.Aliyun && !s.authorizeDNSCredentialUse(c, existing.ProjectID) {
-		return
+	if request.ChallengeType == nil {
+		request.ChallengeType = &existing.ChallengeType
 	}
 	item, err := newDomainFromRequest(request)
 	if err != nil {
 		s.writeError(c, http.StatusBadRequest, "域名配置无效", err)
 		return
 	}
-	if err := s.validateDomainAliyunAuthorization(c.Request.Context(), append([]string{item.Name}, item.SANs...)...); err != nil {
-		s.writeError(c, http.StatusBadRequest, err.Error(), err)
+	item.ResourceScope = existing.ResourceScope
+	if !s.authorizeDomainChallenge(c, item) {
 		return
 	}
 	item.ID = existing.ID
@@ -722,7 +730,19 @@ func newDomainFromRequest(request domainRequest) (domain.Domain, error) {
 	if acmeEnvironment == "" {
 		acmeEnvironment = domain.ACMEEnvironmentStaging
 	}
-	return domain.NewDomainWithOptions(request.Name, domain.CertificateType(request.CertificateType), request.SANs, autoRenew, acmeEnvironment, request.DNSProvider)
+	item, err := domain.NewDomainWithOptions(request.Name, domain.CertificateType(request.CertificateType), request.SANs, autoRenew, acmeEnvironment, request.DNSProvider)
+	if err != nil {
+		return domain.Domain{}, err
+	}
+	value := ""
+	if request.ChallengeType != nil {
+		value = *request.ChallengeType
+	}
+	item.ChallengeType, err = domain.NormalizeChallengeType(value, append([]string{item.Name}, item.SANs...))
+	if item.ChallengeType == domain.ChallengeHTTP01 {
+		item.DNSProvider = ""
+	}
+	return item, err
 }
 
 func (s *Server) deleteDomain(c *gin.Context) {
@@ -758,7 +778,7 @@ func (s *Server) authorizeSynchronousCertificateIssue(c *gin.Context) bool {
 		s.writeProjectResourceError(c, err)
 		return false
 	}
-	return s.authorizeDNSCredentialUse(c, resource.ResourceScope.Normalize().ProjectID)
+	return s.authorizeIssueChallenge(c, resource)
 }
 
 func (s *Server) issueDomain(c *gin.Context) {

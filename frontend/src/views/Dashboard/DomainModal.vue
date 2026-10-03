@@ -96,7 +96,19 @@ const {
                 <option value="production">生产环境</option>
               </select></label
             >
-            <label class="field" for="dns-provider"
+            <label class="field" for="challenge-type">
+              <span>验证方式 <HelpTip>HTTP-01 要求全部域名的公网 80 端口挑战路径反代到 Scert，不支持泛域名；其余业务请求保持原站点配置。</HelpTip></span>
+              <select
+                id="challenge-type"
+                name="challenge_type"
+                v-model="form.challenge_type"
+                :disabled="saving || domainSaveUncertain"
+              >
+                <option value="dns-01">DNS-01（DNS 验证）</option>
+                <option value="http-01">HTTP-01（网站验证）</option>
+              </select>
+            </label>
+            <label v-if="form.challenge_type !== 'http-01'" class="field" for="dns-provider"
               ><span>DNS 验证服务商</span
               ><select
                 id="dns-provider"

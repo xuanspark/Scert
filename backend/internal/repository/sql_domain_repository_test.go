@@ -73,11 +73,15 @@ func TestRepositoryCRUD(t *testing.T) {
 	item.AutoRenew = false
 	item.ACMEEnvironment = domain.ACMEEnvironmentProduction
 	item.DNSProvider = "cloudflare"
+	item.ChallengeType = domain.ChallengeHTTP01
 	item.UpdatedAt = item.UpdatedAt.Add(time.Minute)
 	if err := repo.Update(context.Background(), item); err != nil {
 		t.Fatalf("更新域名失败：%v", err)
 	}
 	loaded, err = repo.GetByID(context.Background(), item.ID)
+	if err == nil && loaded.ChallengeType != domain.ChallengeHTTP01 {
+		t.Fatal("域名验证方式更新后未保持")
+	}
 	if err != nil || loaded.Name != item.Name || loaded.AutoRenew || loaded.ACMEEnvironment != domain.ACMEEnvironmentProduction || loaded.DNSProvider != "cloudflare" {
 		t.Fatalf("更新后的域名内容不正确：%v，%+v", err, loaded)
 	}
