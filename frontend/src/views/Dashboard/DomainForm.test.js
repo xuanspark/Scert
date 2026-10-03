@@ -22,12 +22,18 @@ async function mountForm(t, fetcher) {
     notice: ref(""),
     loadData: t.mock.fn(async () => {}),
   };
-  const mounted = await mountComposable(t, () => useDomainForm(deps), fetcher);
+  const mounted = await mountComposable(t, () => useDomainForm(deps), (path, options) => {
+    if (path === "/api/v1/dns/accounts") return Promise.resolve(Response.json({ items: [] }));
+    if (path.endsWith("/dns-account")) return Promise.resolve(Response.json({
+      id: "", dns_account_id: "", domain_id: path.split("/")[4], project_id: "default",
+    }));
+    return fetcher(path, options);
+  });
   return { ...mounted, deps };
 }
 
-function startCreate(state) {
-  state.openCreate();
+async function startCreate(state) {
+  await state.openCreate();
   state.form.value.name = firstDomain.name;
   state.form.value.server_ids = [firstServer.id, secondServer.id];
 }
@@ -39,7 +45,7 @@ test("HTTP 验证保存方式且不携带 DNS 服务商", async (t) => {
     if (path.endsWith("/servers")) return Response.json({ items: [] });
     return Response.json({ ...firstDomain, ...JSON.parse(options.body) });
   });
-  startCreate(state);
+  await startCreate(state);
   state.form.value.challenge_type = "http-01";
   state.form.value.dns_provider = "aliyun";
   await state.saveDomain();
@@ -51,7 +57,7 @@ test("HTTP 验证拒绝主泛域名和附加泛域名，不提交请求", async 
   let calls = 0;
   const { state } = await mountForm(t, async () => { calls += 1; return Response.json({}); });
   for (const type of ["wildcard", "san"]) {
-    startCreate(state);
+    await startCreate(state);
     state.form.value.challenge_type = "http-01";
     state.form.value.certificate_type = type;
     state.form.value.sans = "*.example.com";
@@ -80,7 +86,7 @@ test("创建成功但关联冲突后只重试关联，不重复创建且不改�
       ? Response.json({ error: "共享路径冲突" }, { status: 409 })
       : Response.json({ items: [firstServer, secondServer] });
   });
-  startCreate(state);
+  await startCreate(state);
   await state.saveDomain();
   assert.equal(state.editingId.value, firstDomain.id);
   assert.equal(state.showForm.value, true);
@@ -106,7 +112,7 @@ test("部分成功后修改资料使用已有标识更新，取消也保留已�
     if (path.endsWith("/servers")) return Response.json({ error: "关联未保存" }, { status: 403 });
     return Response.json({ ...firstDomain, ...JSON.parse(options.body) });
   });
-  startCreate(state);
+  await startCreate(state);
   await state.saveDomain();
   state.form.value.auto_renew = false;
   await state.saveDomain();
@@ -142,7 +148,7 @@ test("编辑先读取真实关联，明确清空只提交当前域名", async (t
 test("服务器按域名项目过滤，不限制其他域名共享，缺归属不默认为默认项目", async (t) => {
   const { state, deps } = await mountForm(t, async () => Response.json({ items: [] }));
   deps.servers.value.push({ id: "unknown" });
-  startCreate(state);
+  await startCreate(state);
   assert.deepEqual(state.domainServerOptions.value.map((server) => server.id), [firstServer.id, secondServer.id]);
   await state.openEdit({ ...firstDomain, project_id: "other" });
   assert.deepEqual(state.domainServerOptions.value, [otherServer]);
@@ -201,7 +207,7 @@ test("保存期间重复点击、关闭和切换表单不创建额外请求", as
     calls += 1;
     return path.endsWith("/servers") ? Response.json({ items: [firstServer, secondServer] }) : pending.promise;
   });
-  startCreate(state);
+  await startCreate(state);
   const saving = state.saveDomain();
   await state.saveDomain();
   state.openCreate();
@@ -224,7 +230,7 @@ for (const failure of ["network", "server", "malformed", "missing-project"]) {
       if (failure === "server") return Response.json({}, { status: 500 });
       return Response.json(failure === "missing-project" ? { id: firstDomain.id } : {});
     });
-    startCreate(state);
+    await startCreate(state);
     await state.saveDomain();
     assert.equal(state.domainSaveUncertain.value, true);
     assert.match(state.formError.value, /刷新列表确认/);
@@ -240,7 +246,7 @@ test("卸载后不继续保存关联，不改写列表", async (t) => {
     calls += 1;
     return pending.promise;
   });
-  startCreate(state);
+  await startCreate(state);
   const saving = state.saveDomain();
   unmount();
   pending.resolve(Response.json(firstDomain));
@@ -258,7 +264,7 @@ test("关联网络失败可重试，但刷新失败不能被误报为保存失�
     return Response.json({ items: [firstServer, secondServer] });
   });
   deps.loadData.mock.mockImplementation(async () => { throw new Error("offline"); });
-  startCreate(state);
+  await startCreate(state);
   await state.saveDomain();
   assert.match(state.formError.value, /关联保存结果未确认/);
   assert.equal(state.domainSaveUncertain.value, false);

@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, ref } from "vue";
+import { useDomainDNSAccount } from "./DomainDNSAccount.js";
 
 function emptyForm() {
   return {
@@ -30,6 +31,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
   const form = ref(emptyForm());
   const editingId = ref("");
   const saving = ref(false);
+  const dnsAccount = useDomainDNSAccount({ fetchAdmin, form, saving });
   const showForm = ref(false);
   const formError = ref("");
   const domainBindingsLoading = ref(false);
@@ -43,6 +45,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
   let version = 0;
   let savedPayload = "";
   let createdInForm = false;
+  let targetID = "";
 
   onBeforeUnmount(() => { version += 1; });
 
@@ -50,6 +53,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     if (saving.value) return;
     version += 1;
     editingId.value = "";
+    targetID = "";
     form.value = emptyForm();
     formError.value = "";
     savedPayload = "";
@@ -58,12 +62,14 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     domainBindingsReady.value = true;
     domainSaveUncertain.value = false;
     showForm.value = true;
+    return dnsAccount.open();
   }
 
   async function openEdit(item) {
     if (saving.value) return;
     version += 1;
     editingId.value = item.id;
+    targetID = item.id;
     form.value = {
       ...emptyForm(),
       project_id: item.project_id || "",
@@ -82,12 +88,13 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     domainBindingsReady.value = false;
     domainSaveUncertain.value = false;
     showForm.value = true;
-    await reloadDomainBindings();
+    await Promise.all([reloadDomainBindings(), dnsAccount.open(item)]);
   }
 
   function closeForm() {
     if (saving.value) return;
     version += 1;
+    dnsAccount.cancel();
     domainBindingsLoading.value = false;
     showForm.value = false;
   }
@@ -95,7 +102,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
   async function reloadDomainBindings() {
     if (saving.value || domainBindingsLoading.value || !editingId.value) return;
     const currentVersion = version;
-    const id = editingId.value;
+    const id = targetID;
     domainBindingsLoading.value = true;
     domainBindingsReady.value = false;
     formError.value = "";
@@ -152,13 +159,21 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
       formError.value = "请选择当前项目内可用的服务器，每个域名最多关联一百台";
       return;
     }
-    const serialized = JSON.stringify(payload);
+    let dnsSnapshot;
+    try {
+      dnsSnapshot = dnsAccount.prepare(payload);
+    } catch (err) {
+      formError.value = err.message;
+      return;
+    }
+    let serialized = JSON.stringify(payload);
     const currentVersion = version;
+    let saveStage = "资料";
     saving.value = true;
     try {
       // 资料与关联不是同一事务；已确认保存的资料不因关联失败而重复创建。
       if (savedPayload !== serialized) {
-        const existingId = editingId.value;
+        const existingId = targetID;
         let response;
         try {
           response = await fetchAdmin(existingId ? `/api/v1/domains/${existingId}` : "/api/v1/domains", {
@@ -181,11 +196,12 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
             : result?.error || "保存域名失败");
         }
         if (!result || !/^[A-Za-z0-9_-]{1,128}$/.test(result.id || "") ||
-            !result.project_id || (existingId && result.id !== existingId)) {
+            result.project_id !== dnsSnapshot.projectID || (existingId && result.id !== existingId)) {
           domainSaveUncertain.value = true;
           throw new Error("域名保存响应不完整，请关闭表单并刷新列表确认，暂不重复提交");
         }
         editingId.value = result.id;
+        targetID = result.id;
         form.value.project_id = result.project_id;
         createdInForm ||= !existingId;
         savedPayload = serialized;
@@ -194,11 +210,21 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
         else domains.value = domains.value.map((item) => item.id === result.id ? result : item);
       }
       if (currentVersion !== version) return;
+      saveStage = "DNS 账户绑定";
+      const dnsResult = await dnsAccount.persist(dnsSnapshot, targetID);
+      if (currentVersion !== version) return;
+      if (dnsResult) {
+        domains.value = domains.value.map((item) => item.id === targetID ? { ...item, ...dnsResult } : item);
+        payload.dns_provider = dnsResult.dns_provider;
+        serialized = JSON.stringify(payload);
+        savedPayload = serialized;
+      }
+      saveStage = "服务器关联";
       const currentIds = new Set(domainServerOptions.value.map((server) => server.id));
       if (serverIds.some((id) => !currentIds.has(id))) {
         throw new Error("服务器所属项目或可见范围已变化，请重新选择服务器");
       }
-      const id = editingId.value;
+      const id = targetID;
       let response;
       try {
         response = await fetchAdmin(`/api/v1/domains/${id}/servers`, {
@@ -215,6 +241,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
         throw new Error(result?.error || "保存服务器关联结果未确认，可保留选择后重试");
       }
       domainServers.value = { ...domainServers.value, [id]: result.items };
+      dnsAccount.cancel();
       showForm.value = false;
       notice.value = createdInForm ? "域名已添加，等待申请证书" : "域名配置已更新";
       try {
@@ -225,7 +252,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     } catch (err) {
       if (currentVersion === version) {
         const prefix = !savedPayload ? "" : savedPayload === serialized
-          ? "域名资料已保存；服务器关联尚未确认。"
+          ? `域名资料已保存；${saveStage}尚未确认。`
           : "此前域名资料已保存；本次修改尚未完成。";
         formError.value = prefix + (err.message || "保存域名失败");
       }
@@ -235,6 +262,14 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
   }
 
   return {
+    dnsAccountID: dnsAccount.dnsAccountID,
+    dnsBindingLoading: dnsAccount.dnsBindingLoading,
+    dnsBindingReady: dnsAccount.dnsBindingReady,
+    dnsBindingError: dnsAccount.dnsBindingError,
+    dnsBound: dnsAccount.dnsBound,
+    domainDNSAccountOptions: dnsAccount.domainDNSAccountOptions,
+    dnsUnavailableSelection: dnsAccount.dnsUnavailableSelection,
+    reloadDomainDNS: dnsAccount.reloadDomainDNS,
     form, editingId, saving, showForm, formError, isEditing, formTitle,
     domainServerOptions, domainBindingsLoading, domainBindingsReady, domainSaveUncertain,
     openCreate, openEdit, closeForm, saveDomain, reloadDomainBindings,

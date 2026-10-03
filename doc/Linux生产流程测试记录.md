@@ -1,5 +1,15 @@
 # Linux 生产流程测试记录
 
+## 2026年10月4日06:51 DNS 页面权限干净源码复审
+
+- 第一台 `8.137.23.95`，源码 `/var/tmp/scert-dns-ui-20261004-0630/source`，真实 Git 干净签出 `412c51f5f0cf466f9d1ff01a09e23dd02e116385`；运行后工作区仍干净。
+- 最后增量 bundle 本机及第一台 SHA-256 一致：`fc7441a3792813358c12b690ba5eb0a1b0d4cfcfee9ab2c3ed0bb3cb970cd47c`。原等待密码的 SCP 连接关闭，重新密码认证上传成功，未据观察超时重启测试。
+- `scert-dns-ui-20261004-0630.service` 从 06:39:22 至 06:45:57，终态 inactive/dead、Result=success、ExecMainStatus=0。使用 nobody、内存 1200M、CPU 150%、本机离线工具链，不创建辅助脚本。
+- `go test -p 1 -count=1 -timeout=10m ./...` 及 `go vet -p 1 ./...` 通过。该全量未启用外部数据库，不能据此声称所有三库用例执行。
+- 随后开启隔离 MySQL/PostgreSQL，以 `-race -p 1 -count=1 -timeout=10m -v` 执行仓储和 HTTP 的 `Test(ProjectDirectory|ManagedDNSAccount|AuthSessionsSupportOptionalEmail|AdminAPIRejectsAuthenticatedRegularUser)` 专项；仓储 17.076 秒、HTTP 23.331 秒。SQLite 目录 1.26 秒、MySQL 12.88 秒、PostgreSQL 1.90 秒均 PASS，不是跳过或三轮结果。
+- 完整日志 `/var/tmp/scert-dns-ui-20261004-0630/review.log`；本轮不清理业务数据库、不升级正式服务、不操作第二台及发信配置。
+- 后续域名选择前端增量：本地相关 46 项、全量 336 项及 Vite 构建 103 模块通过；尚无最新页面的正式部署与浏览器证据，不能将本节后端结果套用为新增页面的实机验收。
+
 ## 2026年10月4日06:28 磁盘故障终态、绑定复跑和页面开发
 
 ### 第一台绑定修复实库结果

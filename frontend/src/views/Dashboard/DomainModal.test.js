@@ -35,6 +35,14 @@ async function renderModal(overrides = {}) {
         server_ids: ["server-one", "server-two"],
       },
       dnsProviders: [],
+      dnsAccountID: "",
+      dnsBindingLoading: false,
+      dnsBindingReady: true,
+      dnsBindingError: "",
+      dnsBound: false,
+      domainDNSAccountOptions: [],
+      dnsUnavailableSelection: false,
+      reloadDomainDNS() {},
       domainServerOptions: [
         { id: "server-one", name: "共享服务器一", address: "192.0.2.1", web_server: "nginx" },
         { id: "server-two", name: "共享服务器二", address: "192.0.2.2", web_server: "nginx" },
@@ -71,6 +79,31 @@ test("域名表单使用复选框同时显示两台已关联服务器并提供�
   assert.match(html, /同一服务器可关联多个域名/);
   assert.match(html, /不影响其他域名/);
   assert.match(html, /当前域名所属项目/);
+});
+
+test("域名账户显示归属与服务商，原绑定不可用不被静默清空", async () => {
+  const html = await renderModal({
+    dnsAccountID: "old-account", dnsBound: true, dnsUnavailableSelection: true,
+    domainDNSAccountOptions: [{ id: "new-account", name: "生产账户", provider_name: "阿里云 DNS", owner_username: "甲用户" }],
+  });
+  assert.match(html, /当前绑定账户不可用/);
+  assert.match(html, /生产账户 · 阿里云 DNS · 甲用户/);
+  assert.match(html, /解除独立绑定/);
+  assert.doesNotMatch(html, /id="dns-provider"/);
+  const challenge = html.match(/<select\b[^>]*id="challenge-type"[^>]*>/)?.[0];
+  assert.match(challenge, /disabled/);
+});
+
+test("DNS 绑定读取中或失败时禁止提交并提供重新读取", async () => {
+  for (const overrides of [
+    { dnsBindingLoading: true, dnsBindingReady: false },
+    { dnsBindingReady: false, dnsBindingError: "绑定读取失败" },
+  ]) {
+    const html = await renderModal(overrides);
+    const submit = html.match(/<button\b[^>]*type="submit"[^>]*>/)?.[0];
+    assert.match(submit, /disabled/);
+    assert.match(html, /重新读取 DNS 绑定/);
+  }
 });
 
 test("关联读取失败或结果未确认时禁用提交，读取失败提供重试入口", async () => {

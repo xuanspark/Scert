@@ -9,6 +9,14 @@ const {
   saveDomain,
   form,
   dnsProviders,
+  dnsAccountID,
+  dnsBindingLoading,
+  dnsBindingReady,
+  dnsBindingError,
+  dnsBound,
+  domainDNSAccountOptions,
+  dnsUnavailableSelection,
+  reloadDomainDNS,
   domainServerOptions,
   domainBindingsLoading,
   domainBindingsReady,
@@ -102,14 +110,29 @@ const {
                 id="challenge-type"
                 name="challenge_type"
                 v-model="form.challenge_type"
-                :disabled="saving || domainSaveUncertain"
+                :disabled="saving || domainSaveUncertain || dnsBound || Boolean(dnsAccountID) || !dnsBindingReady"
               >
                 <option value="dns-01">DNS-01（DNS 验证）</option>
                 <option value="http-01">HTTP-01（网站验证）</option>
               </select>
             </label>
-            <label v-if="form.challenge_type !== 'http-01'" class="field" for="dns-provider"
-              ><span>DNS 验证服务商</span
+            <label v-if="form.challenge_type !== 'http-01'" class="field" for="domain-dns-account">
+              <span>DNS 账户 <HelpTip>只可选择本项目内已启用且验证通过的账户。更换账户会校验当前绑定和账户版本；解除后保存，再切换验证方式。历史系统配置尚未导入独立账户。</HelpTip></span>
+              <select
+                id="domain-dns-account"
+                name="dns_account_id"
+                v-model="dnsAccountID"
+                :disabled="saving || domainSaveUncertain || dnsBindingLoading || !dnsBindingReady"
+              >
+                <option value="">{{ dnsBound ? "解除独立绑定（恢复历史配置）" : "历史系统配置 / 暂不绑定" }}</option>
+                <option v-if="dnsUnavailableSelection" :value="dnsAccountID" disabled>当前绑定账户不可用（可保留或更换）</option>
+                <option v-for="account in domainDNSAccountOptions" :key="account.id" :value="account.id">
+                  {{ account.name }} · {{ account.provider_name || account.provider }} · {{ account.owner_username }}
+                </option>
+              </select>
+            </label>
+            <label v-if="form.challenge_type !== 'http-01' && !dnsAccountID && !dnsBound" class="field" for="dns-provider"
+              ><span>历史 DNS 服务商 <HelpTip>仅兼容尚未迁移的系统配置；独立账户选择后由账户决定服务商。</HelpTip></span
               ><select
                 id="dns-provider"
                 name="dns_provider"
@@ -127,6 +150,8 @@ const {
               </select></label
             >
           </div>
+          <p v-if="dnsBindingLoading" class="domain-dns-status" role="status">正在读取 DNS 账户和现有绑定……</p>
+          <p v-else-if="dnsBindingError" class="form-error" role="alert">{{ dnsBindingError }}</p>
           <label class="switch-field" for="auto-renew"
             ><input
               id="auto-renew"
@@ -174,6 +199,15 @@ const {
           <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
           <div class="modal-actions">
             <button
+              v-if="!dnsBindingReady"
+              class="secondary-button"
+              type="button"
+              :disabled="saving || dnsBindingLoading || domainSaveUncertain"
+              @click="reloadDomainDNS"
+            >
+              重新读取 DNS 绑定
+            </button>
+            <button
               v-if="!domainBindingsReady"
               class="secondary-button"
               type="button"
@@ -192,7 +226,7 @@ const {
             ><button
               class="primary-button"
               type="submit"
-              :disabled="saving || domainBindingsLoading || !domainBindingsReady || domainSaveUncertain"
+              :disabled="saving || domainBindingsLoading || !domainBindingsReady || domainSaveUncertain || dnsBindingLoading || !dnsBindingReady"
             >
               {{ saving ? "保存中……" : "保存配置" }}
             </button>

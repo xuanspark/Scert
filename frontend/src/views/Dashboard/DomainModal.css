@@ -24,6 +24,7 @@
 .domain-modal .form-grid,
 .domain-modal .switch-field,
 .domain-modal .server-picker,
+.domain-modal .domain-dns-status,
 .domain-modal .form-error,
 .domain-modal .modal-actions {
   grid-column: 1 / -1;
@@ -40,6 +41,20 @@
 .domain-modal .field textarea {
   min-height: 36px;
   padding: 8px 11px;
+}
+
+.domain-modal .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.domain-modal .field select {
+  width: 100%;
+  text-overflow: ellipsis;
+}
+
+.domain-modal .domain-dns-status {
+  margin: 0 0 8px;
+  color: #52657d;
 }
 
 .domain-modal .field textarea {

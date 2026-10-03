@@ -6,6 +6,7 @@ import "./DashboardLogout.test.js";
 import "./SettingsAccess.test.js";
 import "./DomainModal.test.js";
 import "./DomainForm.test.js";
+import "./DomainDNSAccount.test.js";
 import "../DNSAccounts/DNSAccounts.test.js";
 import test from "node:test";
 import { nextTick, ref } from "vue";
@@ -26,7 +27,7 @@ test("管理页面使用拆分后的域名表单与同项目服务器候选", as
     if (path === "/api/v1/servers") return Response.json({ items: [server, { id: "other", project_id: "other" }] });
     return Response.json({ items: [] });
   });
-  state.openCreate();
+  await state.openCreate();
   assert.deepEqual(state.domainServerOptions.value, [server]);
   state.form.value.name = item.name;
   state.form.value.server_ids = [server.id];
