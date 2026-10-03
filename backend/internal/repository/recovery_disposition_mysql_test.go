@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-sql-driver/mysql"
+
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/testsupport/mysqltest"
@@ -56,7 +58,12 @@ func TestRecoveryDispositionMySQLReal(t *testing.T) {
 					t.Fatal(err)
 				}
 				if auditFailure {
-					if _, err := raw.ExecContext(t.Context(), `CREATE TRIGGER reject_finish BEFORE INSERT ON recovery_events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected'`); err != nil {
+					parsed, err := mysql.ParseDSN(cfg.DSN)
+					if err != nil || !strings.HasPrefix(parsed.DBName, "scert_test_") {
+						t.Fatal("invalid isolated database configuration")
+					}
+					schema := "`" + strings.ReplaceAll(parsed.DBName, "`", "``") + "`"
+					if _, err := server.Admin().ExecContext(t.Context(), `CREATE TRIGGER `+schema+`.reject_finish BEFORE INSERT ON `+schema+`.recovery_events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected'`); err != nil {
 						t.Fatal(err)
 					}
 				}
