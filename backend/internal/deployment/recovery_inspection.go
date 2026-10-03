@@ -44,6 +44,10 @@ type RecoveryLockObservation struct {
 // InspectPending 只读取待恢复记录与远端文件，绝不运行命令、建立锁或修改事务。
 // 缺失的历史证据保持缺失，当前观测摘要不能补写为当时的恢复证据。
 func (s *Service) InspectPending(ctx context.Context, id string, resolve func(context.Context, string) (Server, error)) (RecoveryInspection, error) {
+	return s.inspectPending(ctx, id, resolve, nil)
+}
+
+func (s *Service) inspectPending(ctx context.Context, id string, resolve func(context.Context, string) (Server, error), bind func(TransactionRecord, Server) error) (RecoveryInspection, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -84,6 +88,11 @@ func (s *Service) InspectPending(ctx context.Context, id string, resolve func(co
 	}
 	if record.Evidence != nil && validateRecoveryEvidence(*record, server) != nil {
 		return RecoveryInspection{}, ErrRecoveryInspectionIdentity
+	}
+	if bind != nil {
+		if err := bind(*record, server); err != nil {
+			return RecoveryInspection{}, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return RecoveryInspection{}, err
