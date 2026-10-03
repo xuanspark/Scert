@@ -721,6 +721,10 @@ func (s *Server) updateDomain(c *gin.Context) {
 	item.Status = "pending"
 	item.ExpiresAt = nil
 	if err := s.projectDomains.UpdateProjectDomain(c.Request.Context(), c.GetString(authenticatedActorKey), item); err != nil {
+		if errors.Is(err, repository.ErrDNSAccountBusy) {
+			s.writeError(c, http.StatusConflict, repository.ErrDNSAccountBusy.Error(), nil)
+			return
+		}
 		if errors.Is(err, repository.ErrProjectAccessDenied) {
 			s.writeError(c, http.StatusForbidden, "无权管理此项目的域名", nil)
 			return
@@ -773,6 +777,10 @@ func (s *Server) deleteDomain(c *gin.Context) {
 	}
 	domainID := strings.TrimSpace(c.Param("id"))
 	if err := s.projectDomains.DeleteProjectDomain(c.Request.Context(), c.GetString(authenticatedActorKey), domainID); err != nil {
+		if errors.Is(err, repository.ErrDNSAccountBusy) {
+			s.writeError(c, http.StatusConflict, repository.ErrDNSAccountBusy.Error(), nil)
+			return
+		}
 		if errors.Is(err, repository.ErrProjectAccessDenied) {
 			s.writeError(c, http.StatusForbidden, "无权管理此项目的域名", nil)
 			return

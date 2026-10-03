@@ -72,6 +72,9 @@ func (r *SQLDomainRepository) Update(ctx context.Context, item domain.Domain) er
 	if err := validateBoundDomainDNS(ctx, tx, r.driver, item, challengeType); err != nil {
 		return err
 	}
+	if err := NewSQLProjectMemberRepository(r.db, r.driver).rejectActiveDNSLease(ctx, tx, "domain_id", item.ID); err != nil {
+		return err
+	}
 	_, err = tx.ExecContext(ctx, r.query(`UPDATE domains SET
 		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?, updated_by = ?, challenge_type = ?
 		WHERE id = ? AND project_id = ?`), item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
@@ -124,6 +127,13 @@ func (r *SQLDomainRepository) Delete(ctx context.Context, id string) error {
 	rollback := func(cause error) error {
 		_ = tx.Rollback()
 		return cause
+	}
+	var storedID string
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT id FROM domains WHERE id = ?`+taskResourceWriteLock(r.driver)), id).Scan(&storedID); err != nil {
+		return rollback(err)
+	}
+	if err := NewSQLProjectMemberRepository(r.db, r.driver).rejectActiveDNSLease(ctx, tx, "domain_id", id); err != nil {
+		return rollback(err)
 	}
 	if _, err := tx.ExecContext(ctx, r.query("DELETE FROM domain_servers WHERE domain_id = ?"), id); err != nil {
 		return rollback(fmt.Errorf("删除域名服务器关联失败：%w", err))

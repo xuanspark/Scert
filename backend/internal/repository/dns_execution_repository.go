@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
@@ -37,11 +39,21 @@ func (r *SQLProjectMemberRepository) AcquireDNSExecutionLease(ctx context.Contex
 		return domain.DNSExecutionLease{}, err
 	}
 	// 域名行锁与资料更新共用，拒绝授权前后被换掉的签发快照。
-	var updated time.Time
-	if err := tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT updated_at FROM domains WHERE id = ?`), item.ID).Scan(&updated); err != nil {
+	var stored domain.Domain
+	var sansJSON string
+	if err := tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT name, certificate_type, sans_json, auto_renew,
+		acme_environment, dns_provider, challenge_type, updated_at FROM domains WHERE id = ?`), item.ID).
+		Scan(&stored.Name, &stored.CertificateType, &sansJSON, &stored.AutoRenew, &stored.ACMEEnvironment,
+			&stored.DNSProvider, &stored.ChallengeType, &stored.UpdatedAt); err != nil {
 		return domain.DNSExecutionLease{}, err
 	}
-	if !updated.Equal(item.UpdatedAt) {
+	// 时间戳可能只有秒精度，必须核对实际配置；SAN 按解码后的数组比较。
+	if json.Unmarshal([]byte(sansJSON), &stored.SANs) != nil ||
+		!stored.UpdatedAt.Equal(item.UpdatedAt) || stored.Name != item.Name ||
+		stored.CertificateType != item.CertificateType || !slices.Equal(stored.SANs, item.SANs) ||
+		stored.AutoRenew != item.AutoRenew || stored.ACMEEnvironment != item.ACMEEnvironment ||
+		stored.DNSProvider != item.DNSProvider || stored.ChallengeType != item.ChallengeType ||
+		stored.DNSProvider != account.Provider {
 		return domain.DNSExecutionLease{}, ErrDNSExecutionInvalid
 	}
 	lease.Revision, lease.Provider, lease.CredentialRef = account.Revision, account.Provider, account.CredentialRef

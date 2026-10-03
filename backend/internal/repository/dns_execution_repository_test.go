@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -128,12 +129,20 @@ func TestDNSExecutionLeaseRepository(t *testing.T) {
 						return err
 					},
 					func() error { return f.repo.UpdateProjectDomain(t.Context(), "lease-root", f.item) },
+					func() error { return NewSQLDomainRepository(db.DB, driver).Update(t.Context(), f.item) },
+					func() error { return NewSQLDomainRepository(db.DB, driver).Delete(t.Context(), f.item.ID) },
 				} {
 					if err := mutate(); !errors.Is(err, ErrDNSAccountBusy) {
 						t.Fatal("活动租约未阻止变更", err)
 					}
 				}
 				f.exec(t, `UPDATE tasks SET status = 'failed' WHERE id = ?`, f.identity.TaskID)
+				if err := NewSQLDomainRepository(db.DB, driver).UpdateCertificateState(t.Context(), f.item.ID, "failed", nil); err != nil {
+					t.Fatal("活动租约不能阻止证书状态更新", err)
+				}
+				if err := NewSQLDomainRepository(db.DB, driver).Delete(t.Context(), f.item.ID); !errors.Is(err, ErrDNSAccountBusy) {
+					t.Fatal("底层删除不能绕过终态任务的遗留租约", err)
+				}
 				if err := f.repo.DeleteProjectDomain(t.Context(), "lease-root", f.item.ID); !errors.Is(err, ErrDNSAccountBusy) {
 					t.Fatal("终态任务仍有租约，不能删除域名", err)
 				}
@@ -156,6 +165,51 @@ func TestDNSExecutionLeaseRepository(t *testing.T) {
 				}
 				if _, err := f.repo.SetDNSAccountEnabled(t.Context(), "lease-root", f.account.ID, f.account.Revision, false); err != nil {
 					t.Fatal("正常释放后应允许禁用", err)
+				}
+				if err := NewSQLDomainRepository(db.DB, driver).Update(t.Context(), f.item); err != nil {
+					t.Fatal("正常释放后应允许资料更新", err)
+				}
+				if err := NewSQLDomainRepository(db.DB, driver).Delete(t.Context(), f.item.ID); err != nil {
+					t.Fatal("正常释放后应允许底层删除", err)
+				}
+			})
+			for _, scenario := range []struct {
+				name, column string
+				value        any
+			}{
+				{"name", "name", "changed.example.test"},
+				{"type", "certificate_type", "san"},
+				{"sans", "sans_json", `["other.example.test"]`},
+				{"renewal", "auto_renew", false},
+				{"environment", "acme_environment", "production"},
+				{"provider", "dns_provider", "aliyun"},
+				{"challenge", "challenge_type", "http-01"},
+			} {
+				t.Run("same-timestamp-"+scenario.name, func(t *testing.T) {
+					f := newDNSLeaseFixture(t, db.DB, driver)
+					f.exec(t, `UPDATE domains SET `+scenario.column+` = ? WHERE id = ?`, scenario.value, f.item.ID)
+					if _, err := f.repo.AcquireDNSExecutionLease(t.Context(), f.item, f.identity); !errors.Is(err, ErrDNSExecutionInvalid) {
+						t.Fatal("同时间戳的旧配置快照未拒绝", err)
+					}
+					var count int
+					if err := db.DB.QueryRowContext(t.Context(), Rebind(driver, `SELECT COUNT(*) FROM dns_execution_leases WHERE domain_id = ?`), f.item.ID).Scan(&count); err != nil || count != 0 {
+						t.Fatal("无效快照遗留执行租约", count, err)
+					}
+				})
+			}
+			t.Run("equivalent-sans-encoding", func(t *testing.T) {
+				f := newDNSLeaseFixture(t, db.DB, driver)
+				encoded, err := json.MarshalIndent(f.item.SANs, "", "  ")
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.exec(t, `UPDATE domains SET sans_json = ? WHERE id = ?`, string(encoded), f.item.ID)
+				lease, err := f.repo.AcquireDNSExecutionLease(t.Context(), f.item, f.identity)
+				if err != nil {
+					t.Fatal("相同 SAN 不应因 JSON 格式而被拒绝", err)
+				}
+				if err := f.repo.ReleaseDNSExecutionLease(t.Context(), lease.ID); err != nil {
+					t.Fatal(err)
 				}
 			})
 			t.Run("atomic-initial-binding", func(t *testing.T) {
