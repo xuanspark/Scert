@@ -1,5 +1,14 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日20:20 后端全量最终结果
+
+- [✓] 第一台 `scert-operation-full-20261003-2012.service` 已终止，`MainPID=0`、`Result=success`、`ActiveState=inactive`；整组约四分五十八秒，`OPERATION_FULL_RUN_EXIT=0`。
+- [✓] `operation-full.log` 显示补充竞态退出码零、`go test -p 1 -count=1 -timeout 10m ./...` 退出码零；HTTP 包约 44.344 秒、仓储约 14.511 秒。所有后端包完成，未跳过 HTTP 或修改断言以通过。
+- [x] 上述默认全量未启用外部数据库实库；MySQL 六场景实库证据单独见此前修复专项，PostgreSQL 新持久化能力实库尚待验证。
+- [x] 代码检查点 `b3f27e8` 已推送；第一台根分区可用约 9.7 GB，Scert 与 Nginx active；第二台本轮此前复核可用 26 GB。
+- [ ] 本批不构成正式安装包、三库首次 Web、系统邮件、公共 HTTPS 或最终生产验收。本节覆盖下方全量运行中描述。
+
+
 ## 2026年10月3日20:17 完整操作互斥回归
 
 - [x] `scert-operation-20261003-2011.service` 成功结束；`operation-race-vet.log` 中部署包竞态约 3.189 秒，`OPERATION_RACE_EXIT=0`、`OPERATION_VET_EXIT=0`，整组约 43.506 秒。
