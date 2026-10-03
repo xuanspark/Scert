@@ -150,6 +150,10 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return IssueResult{}, fmt.Errorf("读取域名配置失败：%w", err)
 	}
+	// 独立账户执行租约接入前禁止退回系统账户，避免配置与实际用证账户不一致。
+	if item.DNSAccountID != "" || item.DNSBindingID != "" {
+		return IssueResult{}, errors.New("独立 DNS 账户执行租约尚未就绪，拒绝使用系统凭据替代")
+	}
 	domains, err := requestedDomains(item)
 	if err != nil {
 		return IssueResult{}, err

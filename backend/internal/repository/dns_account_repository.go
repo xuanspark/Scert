@@ -222,6 +222,9 @@ func (r *SQLProjectMemberRepository) changeDNSAccount(ctx context.Context, actor
 	result, err := tx.ExecContext(ctx, Rebind(r.driver, `UPDATE dns_accounts SET name = ?, credential_ref = ?, status = ?, verification_state = ?, revision = ?, updated_at = ? WHERE id = ? AND revision = ?`),
 		item.Name, item.CredentialRef, item.Status, item.VerificationState, item.Revision, item.UpdatedAt, item.ID, revision)
 	if err != nil {
+		if r.driver == "sqlite" && isSQLiteWriteConflict(err) {
+			return domain.DNSAccount{}, ErrDNSAccountConflict
+		}
 		return domain.DNSAccount{}, errors.New("更新 DNS 账户失败，请检查凭据引用是否重复")
 	}
 	if count, err := result.RowsAffected(); err != nil || count != 1 {
@@ -234,6 +237,16 @@ func (r *SQLProjectMemberRepository) changeDNSAccount(ctx context.Context, actor
 		return domain.DNSAccount{}, err
 	}
 	return publicDNSAccount(item), nil
+}
+
+// 使用驱动错误码识别忙与锁冲突，不依赖可能包含秘密或本地化文本的错误消息。
+func isSQLiteWriteConflict(err error) bool {
+	var coded interface{ Code() int }
+	if !errors.As(err, &coded) {
+		return false
+	}
+	code := coded.Code() & 0xff
+	return code == 5 || code == 6
 }
 
 func writeDNSAccountAudit(ctx context.Context, tx *sql.Tx, driver, actorID string, item domain.DNSAccount, action string) error {

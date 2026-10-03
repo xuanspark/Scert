@@ -32,6 +32,8 @@ type Domain struct {
 	AutoRenew       bool            `json:"auto_renew"`
 	ACMEEnvironment string          `json:"acme_environment"`
 	DNSProvider     string          `json:"dns_provider,omitempty"`
+	DNSAccountID    string          `json:"dns_account_id,omitempty"`
+	DNSBindingID    string          `json:"dns_binding_id,omitempty"`
 	ChallengeType   string          `json:"challenge_type"`
 	Status          string          `json:"status"`
 	ExpiresAt       *time.Time      `json:"expires_at,omitempty"`

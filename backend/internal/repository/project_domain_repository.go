@@ -84,6 +84,9 @@ func (r *SQLProjectMemberRepository) UpdateProjectDomain(ctx context.Context, ac
 	if err != nil {
 		return err
 	}
+	if err := validateBoundDomainDNS(ctx, tx, r.driver, item, challengeType); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, Rebind(r.driver, `UPDATE domains SET
 		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?, updated_by = ?, challenge_type = ?
 		WHERE id = ? AND project_id = ?`), item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
@@ -132,6 +135,9 @@ func (r *SQLProjectMemberRepository) DeleteProjectDomain(ctx context.Context, ac
 	}
 	if _, err := tx.ExecContext(ctx, Rebind(r.driver, `DELETE FROM domain_servers WHERE domain_id = ?`), domainID); err != nil {
 		return fmt.Errorf("删除域名服务器关联失败：%w", err)
+	}
+	if _, err := tx.ExecContext(ctx, Rebind(r.driver, `DELETE FROM domain_dns_accounts WHERE domain_id = ?`), domainID); err != nil {
+		return err
 	}
 	result, err := tx.ExecContext(ctx, Rebind(r.driver, `DELETE FROM domains WHERE id = ? AND project_id = ?`), domainID, projectID)
 	if err != nil {

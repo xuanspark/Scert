@@ -60,35 +60,33 @@ func (r *SQLDomainRepository) Update(ctx context.Context, item domain.Domain) er
 	if err != nil {
 		return err
 	}
-	result, err := r.db.ExecContext(ctx, r.query(`UPDATE domains SET
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var storedID string
+	if err := tx.QueryRowContext(ctx, r.query(`SELECT id FROM domains WHERE id = ? AND project_id = ?`+taskResourceWriteLock(r.driver)), item.ID, item.ResourceScope.Normalize().ProjectID).Scan(&storedID); err != nil {
+		return err
+	}
+	if err := validateBoundDomainDNS(ctx, tx, r.driver, item, challengeType); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, r.query(`UPDATE domains SET
 		name = ?, certificate_type = ?, sans_json = ?, auto_renew = ?, acme_environment = ?, dns_provider = ?, updated_at = ?, updated_by = ?, challenge_type = ?
 		WHERE id = ? AND project_id = ?`), item.Name, item.CertificateType, string(payload), item.AutoRenew, item.ACMEEnvironment,
 		item.DNSProvider, item.UpdatedAt, item.UpdatedBy, challengeType, item.ID, item.ResourceScope.Normalize().ProjectID)
 	if err != nil {
 		return fmt.Errorf("更新域名失败：%w", err)
 	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("读取更新结果失败：%w", err)
-	}
-	if count == 0 {
-		stored, err := r.GetByID(ctx, item.ID)
-		if err != nil {
-			return err
-		}
-		if stored.ProjectID != item.ResourceScope.Normalize().ProjectID {
-			return sql.ErrNoRows
-		}
-	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *SQLDomainRepository) GetByID(ctx context.Context, id string) (domain.Domain, error) {
 	if r == nil || r.db == nil {
 		return domain.Domain{}, errors.New("数据库连接不能为空")
 	}
-	row := r.db.QueryRowContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by, challenge_type
-		FROM domains WHERE id = ?`), id)
+	row := r.db.QueryRowContext(ctx, r.query(visibleDomainSelect+` WHERE domains.id = ?`), id)
 	return scanDomain(row)
 }
 
@@ -96,8 +94,7 @@ func (r *SQLDomainRepository) List(ctx context.Context) ([]domain.Domain, error)
 	if r == nil || r.db == nil {
 		return nil, errors.New("数据库连接不能为空")
 	}
-	rows, err := r.db.QueryContext(ctx, r.query(`SELECT id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by, challenge_type
-		FROM domains ORDER BY name`))
+	rows, err := r.db.QueryContext(ctx, r.query(visibleDomainSelect+` ORDER BY domains.name`))
 	if err != nil {
 		return nil, fmt.Errorf("查询域名失败：%w", err)
 	}
@@ -130,6 +127,9 @@ func (r *SQLDomainRepository) Delete(ctx context.Context, id string) error {
 	}
 	if _, err := tx.ExecContext(ctx, r.query("DELETE FROM domain_servers WHERE domain_id = ?"), id); err != nil {
 		return rollback(fmt.Errorf("删除域名服务器关联失败：%w", err))
+	}
+	if _, err := tx.ExecContext(ctx, r.query("DELETE FROM domain_dns_accounts WHERE domain_id = ?"), id); err != nil {
+		return rollback(err)
 	}
 	result, err := tx.ExecContext(ctx, r.query("DELETE FROM domains WHERE id = ?"), id)
 	if err != nil {
@@ -183,7 +183,7 @@ func scanDomain(row scanner) (domain.Domain, error) {
 	var acmeEnvironment string
 	var dnsProvider string
 	var expiresAt sql.NullTime
-	if err := row.Scan(&item.ID, &item.Name, &certificateType, &sansJSON, &autoRenew, &acmeEnvironment, &dnsProvider, &item.Status, &expiresAt, &item.CreatedAt, &item.UpdatedAt, &item.ProjectID, &item.OwnerID, &item.CreatedBy, &item.UpdatedBy, &item.ChallengeType); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &certificateType, &sansJSON, &autoRenew, &acmeEnvironment, &dnsProvider, &item.Status, &expiresAt, &item.CreatedAt, &item.UpdatedAt, &item.ProjectID, &item.OwnerID, &item.CreatedBy, &item.UpdatedBy, &item.ChallengeType, &item.DNSAccountID, &item.DNSBindingID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Domain{}, sql.ErrNoRows
 		}

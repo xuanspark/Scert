@@ -26,7 +26,9 @@ var _ ProjectResourceReader = (*SQLProjectMemberRepository)(nil)
 const visibleDomainSelect = `SELECT domains.id, domains.name, domains.certificate_type,
 	domains.sans_json, domains.auto_renew, domains.acme_environment, domains.dns_provider,
 	domains.status, domains.expires_at, domains.created_at, domains.updated_at,
-	domains.project_id, domains.owner_id, domains.created_by, domains.updated_by, domains.challenge_type FROM domains`
+	domains.project_id, domains.owner_id, domains.created_by, domains.updated_by, domains.challenge_type,
+	COALESCE((SELECT dns_account_id FROM domain_dns_accounts WHERE domain_id = domains.id AND project_id = domains.project_id), ''),
+	COALESCE((SELECT id FROM domain_dns_accounts WHERE domain_id = domains.id AND project_id = domains.project_id), '') FROM domains`
 
 // 列名只接受内部固定值，角色能力复用领域模型；所有身份和角色值均使用绑定参数。
 // EXISTS 避免多角色账户重复返回资源，不按用户分组或全局普通管理员身份放行。
