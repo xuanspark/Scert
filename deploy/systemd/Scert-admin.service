@@ -1,5 +1,5 @@
 [Unit]
-Description=Scert-admin 临时密码重置入口激活器
+Description=Scert-admin 本机管理员交互终端
 Documentation=file:///scert/docs/Scert-admin-service-management.md
 After=Scert.service
 Requisite=Scert.service
@@ -45,10 +45,10 @@ ReadWritePaths=/run/scert-admin
 DeviceAllow=char-pts rw
 RestrictAddressFamilies=AF_UNIX
 
-# Scert-admin 不监听任何 TCP/UDP 端口，只维护主服务 /reset 路径的短时激活租约。
+# Scert-admin 只通过受保护的 Unix Socket 管理主服务，不提供 HTTP/TCP 恢复入口。
 # 刻意不提供 [Install] 段，禁止通过 systemctl enable 纳入开机启动。
 # 不配置 ExecReload，reload 不属于受支持的控制操作。
 
-# 当前实现通过本机 Socket 交互，不再维护旧注释中描述的 Web 重置入口。
+# 仅支持 root 在前台交互终端显式执行 systemctl start Scert-admin。
 # 管理程序使用 root 读取显式启动者的终端；只保留终端访问及本机 Socket 所需能力。
 # 新密码和验证码只在调用终端输入，不写入文件、命令参数或服务日志。

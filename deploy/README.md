@@ -73,24 +73,38 @@ sudo systemctl start Scert
 
 ## 安装后流程
 
-安装完成后先启动主服务，再通过服务器 IP 访问独立 HTTPS 初始化页面，无需 Linux 图形界面：
+本轮 Linux 部署仅允许 Nginx 对外提供 `80/443`。从初始化开始就必须把 Scert 绑定到回环地址，不得临时开放 `8080` 或其他业务端口。安装器不负责配置共享 Nginx；初始化访问需要该站点的受信任 HTTPS 入口和严格验证的上游连接，无需 Linux 图形界面。
+
+首次启动前，在 `systemctl edit Scert` 中设置以下环境变量；示例内部端口须确认空闲，并与正式向导选项、Nginx 上游一致：
+
+```ini
+[Service]
+Environment="SCERT_SERVER_HOST=127.0.0.1"
+Environment="SCERT_SERVER_PORT=9004"
+Environment="SCERT_BOOTSTRAP_FIREWALL_MODE=external"
+```
+
+完成本机配置后执行：
 
 ```bash
+sudo systemctl daemon-reload
 sudo systemctl enable Scert
 sudo systemctl start Scert
 sudo systemctl status Scert --no-pager -l
 sudo cat /run/scert/bootstrap-url
 ```
 
-默认临时监听端口是 `8080`，须由管理员预先在主机防火墙和云安全组中对受信任的管理来源放行。云 NAT 环境应在启动前通过 systemd 的 `SCERT_BOOTSTRAP_PUBLIC_IP` 设置可访问的公网 IP；它只影响临时地址和证书，不会创建网络规则。
+未覆盖配置时的临时端口默认是 `8080`，这不是本轮允许对外开放的端口。`SCERT_BOOTSTRAP_PUBLIC_IP` 只影响临时地址与证书，不配置代理、监听规则或云安全组。受保护文件中的内部地址不能直接作为公网入口。
 
-先打开裸 IP 地址查看浏览器证书详情，通过可信 SSH 或控制台读取最新 `journalctl -u Scert -b -n 30` 中的临时证书 SHA-256 指纹。与浏览器完全一致后，再打开受保护文件内的完整 HTTPS 链接。链接片段是短期一次性令牌，不要存入普通文档、日志或截图。指纹不一致必须停止，不得输入 RAM 凭据。临时证书为自签名，不能作为公共 CA 信任或生产 TLS 通过的证据；服务重启会生成新的临时证书，必须重新核对。
+初始化上游使用当前进程生成的临时自签名证书。必须通过已核验的 SSH 或控制台读取当前启动日志中的 SHA-256 指纹，核对上游证书后才建立限定用途的信任，并保持 Nginx 的证书及名称验证；不能使用关闭验证的方式接通代理。浏览器到 Nginx 的证书仍须通过正常域名和信任链验证。服务重启后临时证书会更换，必须重新核对。完整初始化链接含短期一次性令牌，不得存入文档、日志或截图。
+
+仅回环的首次初始化反代、临时证书信任及切换正式证书属于生产验收门禁；当前自动测试不能证明该链路已经通过。未建立可信连接前不得输入管理员密码或 RAM 凭据，也不得以开放内部端口替代验收。
 
 向导提供 SQLite、MySQL、PostgreSQL 三种存储选项，外部数据库强制 TLS 证书及主机名校验。数据库和阿里云 DNS 验证通过后可提交管理员、通知及正式域名/IP 配置；完成后临时服务关闭，自动加载正式配置并跳转正式 HTTPS 地址。IP 管理证书目前仍为自签名。
 
-固定及动态生成的 Linux systemd unit 显式设置 `SCERT_BOOTSTRAP_FIREWALL_MODE=external`，初始化不查询或修改主机防火墙及云安全组，而在日志、页面提示和完成响应中说明管理员责任。这不是端口已放行或网络已验证的证明：首次及正式管理端口都必须预先按最小来源范围配置；反向代理场景不能将内部端口开放到公网。
+固定及动态生成的 Linux systemd unit 显式设置 `SCERT_BOOTSTRAP_FIREWALL_MODE=external`，初始化不查询或修改主机防火墙及云安全组，而在日志、页面提示和完成响应中说明管理员责任。这不是网络已验证的证明；本轮仅使用 Nginx 的 `80/443`，Scert 和数据库始终保持回环监听。
 
-命令行直接运行仍默认 `auto`，其防火墙检查或写入失败会中止初始化，不会悄悄降级。管理员已管理网络规则时可指定 `scert serve --bootstrap-firewall-mode external`；该参数及环境变量仅影响首次 Web 初始化，不能由远程请求切换策略。不能为通过初始化而把服务改成 root。非特权 Linux 实机验收尚未完成；反向代理的回环监听配置应在 IP 初始化结束后再应用，具体顺序见 `doc/生产部署与运维说明.md` 第 4.1 节。
+命令行直接运行仍默认 `auto`，其防火墙检查或写入失败会中止初始化，不会悄悄降级。管理员已管理网络规则时可指定 `scert serve --bootstrap-firewall-mode external`；该参数及环境变量仅影响首次 Web 初始化，不能由远程请求切换策略。不能为通过初始化而把服务改成 root，也不能先公网监听再改回环。
 
 `Scert-admin` 默认保持停止状态。确有密码重置需求时，仅使用：
 
@@ -99,7 +113,7 @@ systemctl start Scert-admin
 systemctl stop Scert-admin
 ```
 
-`Scert-admin` 不监听任何 TCP/UDP 端口。启动后，它只维护 Scert 主服务 `/reset` 路径的短时激活租约，并将一次性校验码写入 `/run/scert-admin/reset-code` 受保护临时文件，不写入标准输出或 systemd 日志；停止后入口立即失效，异常退出后入口会在租约过期时失效。管理员可使用 `sudo cat /run/scert-admin/reset-code` 读取校验码，校验码在成功消费、服务停止或租约失效后自动销毁。云安全组只需由管理员根据初始化提示放行主服务端口。
+在 root 前台交互终端执行 `start` 后，`Scert-admin` 通过受保护的 Unix Socket 提供密码重置、部署事务核查、人工处置和结果查询；不激活 `/reset` 网页、不创建验证码文件、不监听 TCP/UDP。重置须验证绑定邮箱收到的八位验证码，再在终端两次输入新密码。不要后台启动、传入参数、使用管道或执行 `restart`；平时保持停止。详见包内 [Scert-admin 服务管理说明](systemd/Scert-admin服务管理说明.md)。
 
 ### 存活检查与生产就绪检查
 
@@ -304,7 +318,7 @@ server {
 
 示例域名与配置不能作为生产环境证书、DNS、ACME 或最终 HTTPS 验收依据。
 
-开发环境使用自签名证书时，应优先将测试 CA 加入独立信任文件。只有在隔离的临时开发环境中，才允许短时使用 `proxy_ssl_verify off`；该设置禁止复制到生产配置。
+自签名证书测试也必须使用经过可信渠道核验的独立信任文件并校验证书名称，不允许通过关闭 TLS 验证绕过失败；开发配置同样不得成为放宽生产边界的理由。
 
 ## 备份与恢复
 

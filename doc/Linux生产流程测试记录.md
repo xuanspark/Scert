@@ -1,5 +1,13 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日22:03 外部数据库整组终态
+
+- [✓] 21:57 通过原 SSH 监控会话实查 `scert-external-disposition-20261003-2143.service`：MainPID=0、ActiveState=inactive、Result=success。
+- [✓] 原日志 `/var/tmp/scert-local-recovery-20261003-1828/external-disposition.log` 中 `EXTERNAL_POSTGRES_EXIT`、`EXTERNAL_MYSQL_EXIT`、`EXTERNAL_SQLITE_REGRESSION_EXIT`、`EXTERNAL_VET_EXIT`、`EXTERNAL_FULL_EXIT` 均为 0。
+- [✓] SQLite 执行器竞态约 5.519 秒，后端普通全量中的 HTTP 包约 44.928 秒；本组未清理生产数据库、未重启业务服务。
+- [~] 正在修正实际发行运维说明，随后从干净提交构建 Linux 候选包；首次回环反代、系统邮件、真实 SSH/TLS 和完整生产验收尚未完成。
+
+
 ## 2026年10月3日21:48 外部数据库专项
 
 - [✓] 21:41 实查 `scert-local-actions-fixed-20261003-2125.service` 已 inactive、MainPID=0、Result=success，`LOCAL_ACTIONS_FIXED_HTTP_FULL_RACE_EXIT=0`；HTTP 全包竞态约 393.752 秒，五项检查完整通过。
