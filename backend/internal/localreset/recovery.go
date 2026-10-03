@@ -81,7 +81,7 @@ func (c *Client) recoveryExchange(request Request) (Response, error) {
 		return fail()
 	}
 	if request.Action == "recovery_list" {
-		if response.RecoveryPage == nil || response.Inspection != nil || len(response.RecoveryPage.Items) > deployment.RecoveryPageSize {
+		if response.RecoveryPage == nil || response.Inspection != nil || response.InspectionPart != nil || len(response.RecoveryPage.Items) > deployment.RecoveryPageSize {
 			return fail()
 		}
 		previous := request.Cursor
@@ -95,9 +95,17 @@ func (c *Client) recoveryExchange(request Request) (Response, error) {
 			(len(response.RecoveryPage.Items) != deployment.RecoveryPageSize || cursor != previous) {
 			return fail()
 		}
-	} else if response.Inspection == nil || response.RecoveryPage != nil || response.Inspection.TransactionID != request.TransactionID ||
-		len(response.Inspection.Files) != 9 || len(response.Inspection.Locks) != 3 || response.Inspection.ObservedAt.IsZero() {
-		return fail()
+	} else {
+		if response.InspectionPart != nil {
+			inspection, err := readInspectionParts(c.reader, response)
+			if err != nil {
+				return fail()
+			}
+			response.Inspection, response.InspectionPart = inspection, nil
+		}
+		if !validInspectionPayload(response.Inspection) || response.RecoveryPage != nil || response.Inspection.TransactionID != request.TransactionID {
+			return fail()
+		}
 	}
 	c.nonce, c.stage = response.Nonce, 3
 	return response, nil

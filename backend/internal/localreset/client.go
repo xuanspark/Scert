@@ -37,7 +37,7 @@ func Begin(ctx context.Context, conn net.Conn) (*Client, error) {
 	client.stop = context.AfterFunc(ctx, func() { _ = conn.Close() })
 	var response Response
 	if err := readFrame(client.reader, &response); err != nil || !validChallenge(response) ||
-		len(response.Methods) == 0 || len(response.Methods) > 8 || response.RecoveryPage != nil || response.Inspection != nil {
+		len(response.Methods) == 0 || len(response.Methods) > 8 || response.RecoveryPage != nil || response.Inspection != nil || response.InspectionPart != nil {
 		_ = client.Close()
 		return nil, ErrProtocol
 	}
@@ -77,7 +77,7 @@ func (c *Client) exchange(request Request, stage int) error {
 		_ = c.Close()
 		return ErrProtocol
 	}
-	if response.RecoveryAvailable || response.RecoveryPage != nil || response.Inspection != nil {
+	if response.RecoveryAvailable || response.RecoveryPage != nil || response.Inspection != nil || response.InspectionPart != nil {
 		c.stage = -1
 		_ = c.Close()
 		return ErrProtocol

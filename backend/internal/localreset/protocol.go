@@ -59,6 +59,7 @@ type Response struct {
 	RecoveryAvailable bool                            `json:"recovery_available,omitempty"`
 	RecoveryPage      *deployment.PendingRecoveryPage `json:"recovery_page,omitempty"`
 	Inspection        *deployment.RecoveryInspection  `json:"inspection,omitempty"`
+	InspectionPart    *inspectionPart                 `json:"inspection_part,omitempty"`
 }
 
 // Session 由主服务创建，身份验证及密码持久化仍由主服务负责。

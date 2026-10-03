@@ -33,7 +33,7 @@ func (s *Server) handleRecovery(ctx context.Context, conn net.Conn, reader *bufi
 			_ = writeFrame(conn, Response{Version: Version, Code: "REJECTED"})
 			return
 		}
-		if writeFrame(conn, response) != nil {
+		if writeRecoveryResponse(ctx, conn, response) != nil {
 			return
 		}
 		request = Request{}

@@ -15,10 +15,11 @@ import (
 
 type recoveryTestSession struct {
 	testSession
-	lists     atomic.Int32
-	inspects  atomic.Int32
-	fail      bool
-	oversized bool
+	lists      atomic.Int32
+	inspects   atomic.Int32
+	fail       bool
+	oversized  bool
+	inspection *deployment.RecoveryInspection
 }
 
 func (*recoveryTestSession) RecoveryAvailable() bool { return true }
@@ -28,6 +29,9 @@ func (s *recoveryTestSession) ListRecoveries(context.Context, string) (deploymen
 }
 func (s *recoveryTestSession) InspectRecovery(_ context.Context, id string) (deployment.RecoveryInspection, error) {
 	s.inspects.Add(1)
+	if s.inspection != nil {
+		return *s.inspection, nil
+	}
 	result := deployment.RecoveryInspection{TransactionID: id, ServerID: "s1", ObservedAt: time.Now(),
 		Files: make([]deployment.RecoveryFileObservation, 9), Locks: make([]deployment.RecoveryLockObservation, 3)}
 	if s.fail {
