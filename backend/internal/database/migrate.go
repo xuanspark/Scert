@@ -22,6 +22,9 @@ import (
 //go:embed migrations/sqlite/0018_recovery_evidence.sql migrations/mysql/0018_recovery_evidence.sql migrations/postgres/0018_recovery_evidence.sql migrations/sqlite/0019_password_auth_only.sql migrations/mysql/0019_password_auth_only.sql migrations/postgres/0019_password_auth_only.sql
 //go:embed migrations/sqlite/0020_task_deployment_reports.sql migrations/mysql/0020_task_deployment_reports.sql migrations/postgres/0020_task_deployment_reports.sql
 //go:embed migrations/sqlite/0021_task_validation_results.sql migrations/mysql/0021_task_validation_results.sql migrations/postgres/0021_task_validation_results.sql
+//go:embed migrations/sqlite/0022_recovery_dispositions.sql migrations/mysql/0022_recovery_dispositions.sql migrations/postgres/0022_recovery_dispositions.sql
+//go:embed migrations/sqlite/0023_recovery_claims.sql migrations/mysql/0023_recovery_claims.sql migrations/postgres/0023_recovery_claims.sql
+//go:embed migrations/sqlite/0024_recovery_events.sql migrations/mysql/0024_recovery_events.sql migrations/postgres/0024_recovery_events.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -46,7 +49,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 21
+const latestMigrationVersion = 24
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -86,7 +89,7 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		return applySQLiteTaskMigration(ctx, db, statements, version)
 	}
 	if driver == "mysql" {
-		if (version >= 15 && version <= 17) || version == 20 || version == 21 {
+		if (version >= 15 && version <= 17) || (version >= 20 && version <= 24) {
 			return applyMySQLDeploymentMigration(ctx, db, version, statements)
 		}
 		if version == 14 {
@@ -243,6 +246,12 @@ func migrationName(version int) string {
 		return "task_deployment_reports"
 	case 21:
 		return "task_validation_results"
+	case 22:
+		return "recovery_dispositions"
+	case 23:
+		return "recovery_claims"
+	case 24:
+		return "recovery_events"
 	default:
 		return "unknown"
 	}
