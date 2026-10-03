@@ -44,6 +44,8 @@ type RecoveryLockObservation struct {
 // InspectPending 只读取待恢复记录与远端文件，绝不运行命令、建立锁或修改事务。
 // 缺失的历史证据保持缺失，当前观测摘要不能补写为当时的恢复证据。
 func (s *Service) InspectPending(ctx context.Context, id string, resolve func(context.Context, string) (Server, error)) (RecoveryInspection, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return RecoveryInspection{}, err
 	}
@@ -55,7 +57,7 @@ func (s *Service) InspectPending(ctx context.Context, id string, resolve func(co
 	}
 	records, err := s.journal.ListPendingDeploymentTransactions(ctx)
 	if err != nil {
-		return RecoveryInspection{}, ErrRecoveryInspectionUnavailable
+		return RecoveryInspection{}, inspectionError(ctx, ErrRecoveryInspectionUnavailable)
 	}
 	var record *TransactionRecord
 	for i := range records {
@@ -74,7 +76,7 @@ func (s *Service) InspectPending(ctx context.Context, id string, resolve func(co
 	}
 	server, err := resolve(ctx, record.ServerID)
 	if err != nil {
-		return RecoveryInspection{}, ErrRecoveryInspectionUnavailable
+		return RecoveryInspection{}, inspectionError(ctx, ErrRecoveryInspectionUnavailable)
 	}
 	server = server.Normalize()
 	if server.ID != record.ServerID || server.Validate() != nil {
@@ -88,7 +90,7 @@ func (s *Service) InspectPending(ctx context.Context, id string, resolve func(co
 	}
 	client, err := s.factory.Connect(ctx, server)
 	if err != nil {
-		return RecoveryInspection{}, ErrRecoveryInspectionUnavailable
+		return RecoveryInspection{}, inspectionError(ctx, ErrRecoveryInspectionUnavailable)
 	}
 	defer client.Close()
 	reader, ok := client.(EvidenceClient)
@@ -121,13 +123,13 @@ func (s *Service) InspectPending(ctx context.Context, id string, resolve func(co
 			}
 			exists, err := client.Exists(ctx, item.path)
 			if err != nil {
-				return RecoveryInspection{}, ErrRecoveryInspectionRead
+				return RecoveryInspection{}, inspectionError(ctx, ErrRecoveryInspectionRead)
 			}
 			observation := RecoveryFileObservation{Path: item.path, Kind: item.kind, Exists: exists, Comparison: "missing"}
 			if exists {
 				digest, err := reader.FileDigest(ctx, item.path)
 				if err != nil || !validDigest(digest) {
-					return RecoveryInspection{}, ErrRecoveryInspectionRead
+					return RecoveryInspection{}, inspectionError(ctx, ErrRecoveryInspectionRead)
 				}
 				observation.Digest, observation.Comparison = digest, "unrecorded"
 				if validDigest(item.expected) {
@@ -142,12 +144,12 @@ func (s *Service) InspectPending(ctx context.Context, id string, resolve func(co
 		lock := RecoveryLockObservation{Path: target + ".scert-lock", Ownership: "missing"}
 		lock.Exists, err = client.Exists(ctx, lock.Path)
 		if err != nil {
-			return RecoveryInspection{}, ErrRecoveryInspectionRead
+			return RecoveryInspection{}, inspectionError(ctx, ErrRecoveryInspectionRead)
 		}
 		if lock.Exists {
 			owner, err := reader.ReadLockOwner(ctx, lock.Path)
 			if err != nil {
-				return RecoveryInspection{}, ErrRecoveryInspectionRead
+				return RecoveryInspection{}, inspectionError(ctx, ErrRecoveryInspectionRead)
 			}
 			lock.Ownership = "unproven"
 			if record.Evidence != nil && validDigest(owner) {
@@ -164,6 +166,13 @@ func (s *Service) InspectPending(ctx context.Context, id string, resolve func(co
 	}
 	result.ObservedAt = time.Now().UTC()
 	return result, nil
+}
+
+func inspectionError(ctx context.Context, fallback error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fallback
 }
 
 func validInspectionID(id string) bool {

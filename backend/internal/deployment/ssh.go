@@ -300,6 +300,26 @@ func (c *sshClientAdapter) CreateOwnedLock(ctx context.Context, path, token stri
 
 func (c *sshClientAdapter) ReadLockOwner(ctx context.Context, path string) (string, error) {
 	return sshOperation(ctx, c, func() (string, error) {
+		info, err := c.sftp.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return "", ErrRecoveryInspectionRead
+		}
+		info, err = c.sftp.Lstat(path + "/owner")
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if !info.Mode().IsRegular() || info.Size() > 128 {
+			return "", ErrRecoveryInspectionRead
+		}
 		file, err := c.sftp.Open(path + "/owner")
 		if errors.Is(err, os.ErrNotExist) {
 			return "", nil
@@ -308,7 +328,10 @@ func (c *sshClientAdapter) ReadLockOwner(ctx context.Context, path string) (stri
 			return "", err
 		}
 		defer file.Close()
-		data, err := io.ReadAll(file)
+		data, err := io.ReadAll(io.LimitReader(file, 129))
+		if len(data) > 128 {
+			return "", ErrRecoveryInspectionRead
+		}
 		return strings.TrimSpace(string(data)), err
 	})
 }

@@ -1,5 +1,7 @@
 # Linux 生产流程测试记录
 
+> 本轮最新证据见文末「2026年10月3日17:22 只读恢复核查原生 Linux 回归」，不代表正式部署验收通过。
+
 ## 2026年10月2日21:30 手动全局续期后台化回归（未部署）
 
 - [x] 修改前基线 4ab3f93 已提交推送。本批继续只用密码 SSH/SCP 和严格主机密钥校验；第一台隔离目录 /var/tmp/scert-report-race-20261002-1801/renewal-source，以 nobody 运行原生测试，不创建辅助验收脚本。
@@ -2169,3 +2171,24 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [~] 补齐程序独立启动防护：Linux 默认及空值回退改为回环地址，CLI 配置入口、初始化入口、正式应用入口在建立资源前拒绝非回环监听；新增 Linux 回归用例待执行。
 - [!] 12:26 正式构建因 GOFLAGS 覆盖被拒绝；12:30 重试移除覆盖后，12:31 被 install-linux.sh 的发布路径扫描拦截。两次均判失败，不以进程启动时的 Result=success 冒充构建成功，不绕过路径检查。
 - [ ] 最新代码正式候选包、双机升级及严格 HTTPS 复测待完成。
+## 2026年10月3日17:22 只读恢复核查原生 Linux 回归（未部署）
+
+- [x] 修改前检查点 `80b6c0c` 已推送。第一台密码 SSH 使用既有固定主机密钥严格校验，未启用密钥登录，未绕过 TLS。
+- [x] 基线源码归档 `scert-inspection-80b6c0c.tar` 两端 SHA256 一致：`0032a7f3bbfc4d6de0258dddff50679490fd7cc11b5603c956f851407a476cf0`。归档仅包含已跟踪后端源码，不包含运行时数据库或秘密。
+- [x] 测试目录为 `/var/tmp/scert-inspection-20261003-1714/backend`；Go 为既有 1.26.6 linux/amd64；以 nobody 身份运行隔离文件测试，生产数据库未清理或参与测试。
+- [x] 基线 `TestRecoveryInspection` 通过。后续上传四份源文件修复和新增测试后，专项命令 `go test -count=1 -timeout=180s -v ./internal/deployment -run 'TestRecoveryInspection|TestRecoveryPreflightOverPasswordSFTP'` 退出码 0。
+- [x] 真实密码 SSH/SFTP 的 9 个核查场景全部通过，包括可信、无历史证据、目标符号链接、目录、不可读、超大文件、超大归属文件、归属文件符号链接和锁目录符号链接。
+- [x] `go test -race -count=1 -timeout=240s ./internal/deployment` 退出码 0，`go vet ./internal/deployment` 退出码 0。
+- [~] `go test -p 2 -count=1 -timeout=8m ./...` 已启动，另行记录终态；不得将上述专项扩称为后端全量通过。
+
+日志在测试目录上一级：`inspection.log`、`deployment-race.log`、`deployment-vet.log`、`backend-full.log`。本轮没有创建辅助验收脚本，没有远端备份，没有修改业务事务终态，也未部署新增功能。只读采样不构成原子快照、Nginx/HTTPS 或历史提交/回滚证据。
+
+### 17:35 全量测试环境修复与后续执行
+
+- [x] 外部依赖代理连通性探测失败，curl 退出码 28；原联网下载进程已中止，并确认相关 PID 消失，未将该次测试记为通过。
+- [x] 复用第一台既有离线代理，保留项目 go.sum 校验；首次离线全量编译期间 SSH 响应变慢且新连接握手超时，已中止该次全量执行并确认测试 PID 消失，不能据此认定是代码错误或 OOM。
+- [x] 17:33 再次核实 Scert 与 nginx 均为 active；本机严格 TLS 校验的管理域名 `/readyz` 返回 200。此为服务器回环路径检查，不代表公共入口验收。核查时约 889 MiB 可用内存，1 GiB swap 未使用，指定时段内未检出内核 OOM 记录。
+- [x] 四份增量 Go 文件的服务器 SHA256 与本地逐一一致。
+- [~] 改为受限单元 `scert-inspection-full-20261003-1735.service` 执行同一份源码的后端全量测试：nobody、单编译并发、CPU 50%、MemoryHigh 500 MiB、MemoryMax 650 MiB、20 分钟运行上限，且 Go 内存软限制 350 MiB。日志为 `backend-full-bounded.log`，终态尚待获取。
+
+这只是隔离测试进程的资源限制，没有调整生产服务配置、重启生产服务或清理业务数据。
