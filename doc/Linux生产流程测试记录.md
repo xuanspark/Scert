@@ -1,5 +1,32 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日22:32 正式包升级与双机真实推送
+
+范围：第一台 `8.137.23.95` 运行新包并发起部署，第二台 `45.136.13.241` 接收证书。保留既有数据库的升级验证，不是清库首次流程；第二台未升级本批管理程序。没有创建辅助验收脚本、额外远端备份或关闭 TLS。
+
+### 候选包与第一台安装
+
+- 源码提交 `a5dfd42b4e27f5e1d10e7111229e883363f50bf1`，`source_dirty=false`；目标仅 `linux-amd64`，trimpath 与本地路径检查通过。
+- 归档 `Scert-20261003-V0.1.0-linux-amd64.tar.gz` 的 SHA-256：`ed700422d915184468b43635b9aeca665288114187952c48b9b96fe79bf77526`。
+- 第一台正式包目录 `/var/tmp/scert-release-a5dfd42-20261003-2210`；按包内安装器停服升级成功，运行 `/scert/scert` 摘要为 `5b18180831b5601f882eedd43fceef85665a6bd79dfa7bc4e7e2a34d0309b4f3`，SQLite 迁移版本 24。
+- Scert、Scert-storage.socket、Nginx active；管理上游回环严格 TLS 就绪成功，不算第一台公共域名入口验收。
+
+### 单域名双目标成功与幂等
+
+- 正式 API 部署 `acceptance-0928.odacm.cn`，任务 `ecfd31f0-ba6d-4cbb-a3e7-485568eabfaf`，22:27:16 开始，22:27:32 完成，success=2、failed=0、verification_status=success。
+- 两条事务 `20261003-142717.443369420-acc7ff48a6f2`、`20261003-142723.040819317-2acd624440a8` 均 committed。
+- 两台 `/ssl/acceptance-0928.odacm.cn/single/cert.pem` 的 SHA-256 相同：`53d965ff2668f476775f2b29b3da4acd1a6c82c73a395a73ff03db70d82fbeef`。证书 SAN 为该域名，到期时间为 2026年12月29日18:44:39 UTC。
+- 第二台普通 DNS 解析目标为 `45.136.13.241`；未使用强制解析或跳过校验的 HTTPS 请求返回 HTTP 200、peer=45.136.13.241、ssl_verify_result=0。Nginx 配置测试通过，五项既有服务 active。
+- 使用相同幂等键再次 POST 返回 HTTP 200、`replayed=true` 及原任务编号，没有重复部署。
+
+### 第二域名失败与正式人工记录
+
+- `scert-multi-20260930.odacm.cn` 任务 `8efd495b-5511-4070-a7ab-2e02afac82bc` 在 22:29:18—22:29:36 执行并失败；日志明确第一台 HTTPS 收到 `*.salg.cn, salg.cn` 证书，不匹配目标域名。
+- 两条事务 `20261003-142919.192475924-417b9bcc5b09`、`20261003-142924.300953335-fac63bc92b1f` 报告 `recovery_unconfirmed`，保留部署锁；没有直接重试。
+- 正式 root 本机终端菜单二对第一条事务采样：目标、临时和备份文件均不存在，三个锁存在且归属匹配；该采样本身不证明站点或服务恢复。
+- 菜单三选择仅记录并完整确认，处置 `dd256d2258a1a3a5e28d53593638a8997ed71b3d09420e20b5542a4037dd146d` 返回已记录；重开终端后菜单四查询得到同一结论，原部署事务仍待恢复。
+- 待核对实际站点配置；人工提交、回滚、强制断连、历史无证据恢复、首次 Web、系统邮件与完整生产验收尚未完成。
+
 ## 2026年10月3日22:03 外部数据库整组终态
 
 - [✓] 21:57 通过原 SSH 监控会话实查 `scert-external-disposition-20261003-2143.service`：MainPID=0、ActiveState=inactive、Result=success。
