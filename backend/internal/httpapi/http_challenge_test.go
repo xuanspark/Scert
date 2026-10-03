@@ -103,7 +103,7 @@ func TestHTTPTaskAuthorizationRetainsProjectPermissions(t *testing.T) {
 			if (calls == 1) != want {
 				t.Fatalf("HTTP 签发项目授权错误：%d %s", w.Code, w.Body.String())
 			}
-			err := server.authorizeCertificateTaskExecution(t.Context(), repository.Task{DomainID: "domain-1", ProjectID: "project-a", ScopeType: repository.ScopeProject, OperatorID: "actor", TaskType: "certificate_issue"}, repository.TaskAttempt{})
+			err := server.authorizeCertificateTaskExecution(t.Context(), repository.Task{DomainID: "domain-1", HistoryScope: repository.HistoryScope{ProjectID: "project-a", ScopeType: repository.ScopeProject}, OperatorID: "actor", TaskType: "certificate_issue"}, repository.TaskAttempt{})
 			if (err == nil) != want {
 				t.Fatal("执行前授权与验证方式不匹配：", err)
 			}

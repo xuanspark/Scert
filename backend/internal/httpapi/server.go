@@ -778,7 +778,11 @@ func (s *Server) authorizeSynchronousCertificateIssue(c *gin.Context) bool {
 		s.writeProjectResourceError(c, err)
 		return false
 	}
-	return s.authorizeIssueChallenge(c, resource)
+	if !s.authorizeIssueChallenge(c, resource) {
+		return false
+	}
+	c.Request = c.Request.WithContext(s.withCertificateIssueAuthorization(c.Request.Context(), c.GetString(authenticatedActorKey), resource.ID, resource.ResourceScope.Normalize().ProjectID, false))
+	return true
 }
 
 func (s *Server) issueDomain(c *gin.Context) {

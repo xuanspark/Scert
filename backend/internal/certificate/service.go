@@ -158,6 +158,9 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return IssueResult{}, err
 	}
+	if err := authorizeIssueSnapshot(ctx, item); err != nil {
+		return IssueResult{}, fmt.Errorf("签发配置权限校验失败：%w", err)
+	}
 	providerID := ""
 	var lease *httpchallenge.Lease
 	if challengeType == domain.ChallengeHTTP01 {

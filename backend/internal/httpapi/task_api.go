@@ -273,6 +273,9 @@ func (s *Server) runCertificateOperation(ctx context.Context, task repository.Ta
 	if s.finishCancelledTask(task, attempt, executionCtx) {
 		return
 	}
+	if task.TaskType == "certificate_issue" {
+		executionCtx = s.withCertificateIssueAuthorization(executionCtx, task.OperatorID, task.DomainID, task.ProjectID, attempt.AttemptNumber > 1)
+	}
 	result, issueErr := operation(executionCtx, task.DomainID)
 	certificateResult := result.Certificate
 	var deploymentReport deployment.Report
