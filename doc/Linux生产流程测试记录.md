@@ -1,5 +1,31 @@
 # Linux 生产流程测试记录
 
+## 2026年10月4日00:40 人工回滚成功及人工提交中断连查询
+
+本批继续使用 `e00a757` 正式运行包，没有修改产品源码。时间为 UTC+8。只对已授权的双机测试域名执行，保留原数据库和全部失败历史。
+
+### 人工恢复基线成功
+
+- 正式部署 API 接收任务 `ed4cbe61-2337-4a19-b5c9-6a1ad12ecafa`。第二目标事务 `20261003-163018.496164107-ea4c5b7a0187` 进入 reload_attempted/pending 后，真实 SIGKILL 中断第一台 Scert 进程。
+- 临时防火墙规则只限制第一台 Scert 用户 UID 997 到第二台 TCP 22，事先设置九十秒自动撤销；第一目标自动 rolled_back，第二目标 recovery_required，任务 failed/service_restart。恢复服务后立即撤销规则及定时器，root SSH 和站点流量未被规则匹配。
+- 正式 `systemctl start Scert-admin` 菜单三先核查所有目标、备份与锁，选择恢复基线并完整确认，生成处置 `c341a3afffa758cc2773ff26ae436e4ef4df3e4d6da08b9ec0cd03e3b53042e3`。
+- [✓] 终端返回恢复成功；菜单四独立查询一致。只读 SQL 确认处置 succeeded/rolled_back、原事务 phase/status 均 rolled_back、started/finished 审计完整、recovery_claims 为零。
+
+### 人工提交执行中真实 SSH 断连
+
+- 新任务 `8b055549-dce5-4a11-a4e7-561979688f4d` 同样在第二目标 reload_attempted 阶段中断，生成事务 `20261003-163523.357071304-e4ccd8d9831c` 的 recovery_required；第一目标自动回滚。临时限制仍只匹配 Scert 到第二台 SSH，预设自动撤销并在服务恢复后主动撤销。
+- 新建密码 SSH 交互连接，通过正式菜单三选择完成提交，生成处置 `a7b2b4d03b6e6768b793d930acc0b6ff577d77a51a139324edba46711e24ce2a`。
+- 00:37:20 独立只读查询确认处置 running、管理终端 activating；随后用 SSH 客户端断开操作连接，工具确认该连接关闭并退出一。不是在动作结束后退出终端。
+- 重新建立密码 SSH 连接，仅执行正式菜单四按原处置编号查询，没有重放提交。
+- [✓] 查询返回提交成功；只读数据库确认处置 succeeded/committed，原事务 committed，started 为 00:37:10、finished 为 00:38:02，开始/结束审计各一条，占用为零。
+
+### 现场收尾及结论边界
+
+- [✓] 两个临时撤销 timer 均 inactive，OUTPUT 中没有本批 owner/目标地址规则；Scert、目录 socket、Nginx active。
+- [✓] 第二台测试域名目录未发现临时文件、备份或锁残留，cert/fullchain 摘要仍为 `7e8b56227b345ed9b66659e428f9bd4421604f11253ab88d65b3ed61737f35cf`；正常 DNS 严格 HTTPS 200，TLS 校验零，连接目标为第二台；Scert、Nginx、MySQL、PMail active。
+- [✓] 本批关闭同证书人工提交、人工回滚和执行中 SSH 断连后查询三个实机场景；没有直接修改事务终态或删除占用，没有创建辅助验收脚本。
+- [ ] 本批 previous_fingerprint 与 expected_fingerprint 相同，不计为不同版本证书回滚。三数据库首次 Web、系统邮件、DNS/ACME 完整矩阵、第一台公网和无可信基线历史事务仍未全部通过。
+
 ## 2026年10月4日00:24 正式升级与独立重新核查成功
 
 本批为保留生产数据的升级和恢复验证，不是清库首次 Web 验收。所有时间为 UTC+8，口令及授权信息不进入记录。
