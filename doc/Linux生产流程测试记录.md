@@ -1,5 +1,14 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日20:17 完整操作互斥回归
+
+- [x] `scert-operation-20261003-2011.service` 成功结束；`operation-race-vet.log` 中部署包竞态约 3.189 秒，`OPERATION_RACE_EXIT=0`、`OPERATION_VET_EXIT=0`，整组约 43.506 秒。
+- [x] 补充竞态：部署约 1.086 秒、仓储约 2.016 秒，`OPERATION_EXTRA_RACE_EXIT=0`；实际覆盖 SQLite 关库重开后服务启动识别占用及原事务不变。
+- [~] `scert-operation-full-20261003-2012.service` 正执行最新后端全量；日志为第一台隔离目录中的 `operation-full.log`。未修改正在运行任务的源码。
+- [x] `service.go`、`operation.go`、`operation_test.go`、`recovery_disposition_repository_test.go` 的本地与远端 SHA-256 一致；测试目录 Git 索引仅用于源码边界测试，不是正式部署。
+- [ ] 本轮未替换线上正式包，不代表公共入口、首次 Web 流程或生产验收通过。
+
+
 ## 2026年10月3日20:04 MySQL 修复复测与磁盘复核
 
 - [x] 原任务 `scert-disposition-extra-20261003-1945.service` 已失败终止：补充竞态通过，MySQL 迁移十二场景通过；仓储三个审计注入因错误 1419 失败。原日志保留，不记整组通过。

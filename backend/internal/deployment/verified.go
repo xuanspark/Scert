@@ -31,6 +31,11 @@ func (s *Service) DeployVerified(ctx context.Context, targets []Target, artifact
 	if verification.Verify == nil {
 		return Report{Status: "failed"}, errors.New("缺少部署后站点校验，未执行推送")
 	}
+	release, err := s.acquireOperation(ctx)
+	if err != nil {
+		return operationFailure(targets, err), err
+	}
+	defer release()
 	pending := make([]*pendingDeployment, 0, len(targets))
 	// 异常退出时关闭连接但保留现场；不得以释放锁掩盖未确认的事务。
 	defer func() {

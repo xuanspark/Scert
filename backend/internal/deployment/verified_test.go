@@ -12,6 +12,7 @@ import (
 
 type lateCancellationContext struct {
 	context.Context
+	armed    atomic.Bool
 	errCalls atomic.Int32
 }
 
@@ -20,7 +21,7 @@ func (c *lateCancellationContext) Done() <-chan struct{} {
 }
 
 func (c *lateCancellationContext) Err() error {
-	if c.errCalls.Add(1) > 2 {
+	if c.armed.Load() && c.errCalls.Add(1) > 1 {
 		return context.Canceled
 	}
 	return nil
@@ -49,7 +50,7 @@ func TestVerifiedDeploymentCommitUsesIndependentContextAfterCancellationRace(t *
 	artifact := testArtifact(t)
 	service := NewServiceWithJournal(fixedClientFactory{client}, journal)
 	report, err := service.DeployVerified(ctx, []Target{{Server: server}}, artifact, Verification{
-		Verify: func(context.Context) error { return nil },
+		Verify: func(context.Context) error { parent.armed.Store(true); return nil },
 	})
 	if err != nil || report.Status != "success" || !journal.commitContextOK {
 		t.Fatalf("unexpected deployment result: %+v, %v", report, err)

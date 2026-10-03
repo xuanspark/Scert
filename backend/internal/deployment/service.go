@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -57,6 +58,8 @@ type Report struct {
 }
 
 type Service struct {
+	operationOnce        sync.Once
+	operationGate        chan struct{}
 	factory              ClientFactory
 	journal              TransactionJournal
 	now                  func() time.Time
@@ -72,6 +75,11 @@ func NewServiceWithJournal(factory ClientFactory, journal TransactionJournal) *S
 }
 
 func (s *Service) Deploy(ctx context.Context, targets []Target, artifact Artifact) Report {
+	release, err := s.acquireOperation(ctx)
+	if err != nil {
+		return operationFailure(targets, err)
+	}
+	defer release()
 	return s.deploy(ctx, targets, artifact, nil)
 }
 
@@ -147,6 +155,11 @@ func (s *Service) deployOne(ctx context.Context, server Server, domainName strin
 	server = server.Normalize()
 	result = Result{ServerID: server.ID, Server: server.Name, Status: "failed", FailureCode: FailureConfiguration}
 	if err := server.Validate(); err != nil {
+		result.Message = err.Error()
+		return result
+	}
+	if err := s.checkDeploymentClaims(ctx, server); err != nil {
+		result.FailureCode = FailureUnavailable
 		result.Message = err.Error()
 		return result
 	}
@@ -752,6 +765,11 @@ func (s *Service) RecoverPending(ctx context.Context, resolve func(context.Conte
 	if s == nil || s.journal == nil {
 		return nil
 	}
+	release, err := s.acquireOperation(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if resolve == nil {
 		return errors.New("部署事务恢复缺少服务器解析器")
 	}
@@ -761,6 +779,10 @@ func (s *Service) RecoverPending(ctx context.Context, resolve func(context.Conte
 	}
 	var recoveryErrors []error
 	for _, record := range records {
+		if err := s.checkRecoveryClaim(ctx, record.ID); err != nil {
+			recoveryErrors = append(recoveryErrors, fmt.Errorf("事务 %s 未执行自动恢复：%w", record.ID, err))
+			continue
+		}
 		if err := s.recoverTransaction(ctx, &record, resolve); err != nil {
 			recoveryErrors = append(recoveryErrors, fmt.Errorf("事务 %s 恢复失败：%w", record.ID, err))
 			record.Status = TransactionStatusRecoveryRequired

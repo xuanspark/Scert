@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -244,6 +245,22 @@ func TestRecoveryDispositionClaimSurvivesDatabaseReopen(t *testing.T) {
 	}
 	defer reopened.Close()
 	repo = NewSQLDeploymentTransactionRepository(reopened)
+	before, err := repo.ListPendingDeploymentTransactions(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := deployment.NewServiceWithJournal(nil, repo)
+	err = service.RecoverPending(t.Context(), func(context.Context, string) (deployment.Server, error) {
+		t.Error("restart attempted automatic recovery of claimed transaction")
+		return deployment.Server{}, errors.New("unexpected server lookup")
+	})
+	if !errors.Is(err, deployment.ErrRecoveryDispositionBusy) {
+		t.Fatalf("restart did not honor durable claim: %v", err)
+	}
+	after, err := repo.ListPendingDeploymentTransactions(t.Context())
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("restart modified claimed original transaction", err)
+	}
 	if claimed, err := repo.HasRecoveryClaim(t.Context(), intent.TransactionID); err != nil || !claimed {
 		t.Fatal("incomplete operation lost its persistent claim", err)
 	}
