@@ -638,10 +638,10 @@ func checkManagementDomainConflict(ctx context.Context, client Client, domainNam
 func checkNginxManagementDomainConflict(ctx context.Context, client Client, domainName string) error {
 	result, err := client.Run(ctx, []string{"nginx", "-T"})
 	if err != nil {
-		return fmt.Errorf("?? Nginx ???????%w", err)
+		return fmt.Errorf("核查 Nginx 管理入口失败：%w", err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("?? Nginx ???????????? %d", result.ExitCode)
+		return fmt.Errorf("核查 Nginx 管理入口失败：命令退出码 %d", result.ExitCode)
 	}
 	if nginxContainsManagedServer(string(result.Output), domainName) {
 		return ErrManagementDomainConflict
