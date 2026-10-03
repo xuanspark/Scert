@@ -2,6 +2,15 @@
 
 ## 2026年10月4日05:54 绑定接口及 MySQL 实库失败修复
 
+### 06:00（UTC+8）修复版原任务仍在运行
+
+- `c80530f` 已提交推送；增量 Git bundle 在本地与第一台 SHA-256 一致，为 `bbd73beada9574297b3a19c5a236a10501c96fcf9984e521dfb5b8d071acb9a4`。
+- 初次以 root 从 nobody 所属源码仓库克隆被 Git 所有权保护拒绝；未关闭全局保护，改为该源码所属 nobody 用户克隆和检出成功，工作区为空。
+- 单元 `scert-domain-dns-20261004-0555.service`，目录 `/var/tmp/scert-domain-dns-20261004-0555/source`，先执行全量和 vet，随后单列隔离 SQLite、MySQL、PostgreSQL 三轮专项竞态，包含新增绑定 API。日志分别为同级 `full.log` 与 `race.log`。
+- 最新实查仍 active/running，终态未知；全量日志正在推进，不能使用运行中的 `Result=success` 作为通过结论。下一轮继续查询本单元，不重启或覆盖源码。
+
+### 原任务与本地修复证据
+
 - 第一台 `scert-domain-dns-20261004-0538.service` 使用真实 Git 干净提交 `7a6da6b`；实查 `ActiveState=failed`、`Result=exit-code`、`ExecMainStatus=1`。原目录 `/var/tmp/scert-domain-dns-20261004-0538` 的 `full.log` 记录全量及 vet 通过，`race.log` 记录三库专项失败，不重写日志。
 - 三轮数据库、仓储 MySQL 用例均报 3780：新 `domain_id` 与历史 `domains.id` 字符排序规则不兼容；数据库 214.109 秒和仓储 96.024 秒失败，证书 1.036 秒、HTTP 32.665 秒通过。整体不能标为成功。
 - 修复读取历史主键字符集和排序规则，应用于新表外键列；严格重入校验支持该列专用规则，不修改父表，不取消约束。新增默认值变更及错误列排序规则两种实库用例，等待复跑。
