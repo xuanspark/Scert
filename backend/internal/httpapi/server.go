@@ -57,6 +57,7 @@ type Dependencies struct {
 	DeploymentFactory        deployment.ClientFactory
 	RecoveryInspection       localRecoveryReader
 	SetupDNS                 setupDNSVerifier
+	DNSAccountVerifier       dnsAccountVerifier
 	Secrets                  setupSecretWriter
 	Firewall                 firewall.Manager
 	IssueCertificate         func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
@@ -103,6 +104,7 @@ type Server struct {
 	deploymentFactory           deployment.ClientFactory
 	recoveryInspection          localRecoveryReader
 	setupDNS                    setupDNSVerifier
+	dnsAccountVerifier          dnsAccountVerifier
 	secrets                     setupSecretWriter
 	firewall                    firewall.Manager
 	issueCertificate            func(context.Context, string) (certificate.IssueResult, deployment.Report, error)
@@ -171,6 +173,7 @@ func New(deps Dependencies) *Server {
 		servers:                     deps.Servers,
 		users:                       deps.Users,
 		projectMembers:              deps.ProjectMembers,
+		dnsAccountVerifier:          deps.DNSAccountVerifier,
 		projectDirectory:            deps.ProjectDirectory,
 		projectLifecycle:            deps.ProjectLifecycle,
 		projectResources:            deps.ProjectResources,

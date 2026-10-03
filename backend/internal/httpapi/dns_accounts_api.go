@@ -25,14 +25,32 @@ type dnsAccountView struct {
 	OwnerState        string `json:"owner_state"`
 	VerificationState string `json:"verification_state"`
 	CredentialState   string `json:"credential_state"`
+	Status            string `json:"status"`
+	Revision          int64  `json:"revision"`
+	Managed           bool   `json:"managed"`
 }
 
-// listDNSAccounts 仅列出当前绑定的配置，不枚举凭据仓库中的临时或历史密钥。
+// listDNSAccounts 合并独立账户和旧系统配置；不枚举秘密仓库中的临时或历史密钥。
 func (s *Server) listDNSAccounts(c *gin.Context) {
 	s.configMu.RLock()
 	cfg := s.config
 	s.configMu.RUnlock()
 	items := make([]dnsAccountView, 0, 1)
+	if repo, ok := s.projectMembers.(repository.DNSAccountRepository); ok {
+		accounts, err := repo.ListVisibleDNSAccounts(c.Request.Context(), c.GetString(authenticatedActorKey))
+		if err != nil {
+			s.writeDNSAccountError(c, err)
+			return
+		}
+		for _, account := range accounts {
+			item, err := s.managedDNSAccountView(c, account)
+			if err != nil {
+				s.writeError(c, http.StatusServiceUnavailable, "读取 DNS 账户归属失败", nil)
+				return
+			}
+			items = append(items, item)
+		}
+	}
 	if strings.TrimSpace(cfg.DNS.CredentialRef) == "" {
 		c.JSON(http.StatusOK, gin.H{"items": items})
 		return
@@ -66,6 +84,7 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 		ProviderName: "未知服务商", AccountIdentifier: "未提供账号标识",
 		OwnerUserID: cfg.DNS.OwnerUserID, OwnerState: "unassigned", OwnerUsername: "未分配",
 		VerificationState: cfg.DNS.VerificationState, CredentialState: "available",
+		Status: domain.DNSAccountActive,
 	}
 	var owner repository.User
 	ownerID := strings.TrimSpace(cfg.DNS.OwnerUserID)
@@ -108,6 +127,30 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 	}
 	items = append(items, item)
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (s *Server) managedDNSAccountView(c *gin.Context, account domain.DNSAccount) (dnsAccountView, error) {
+	item := dnsAccountView{
+		ID: account.ID, Name: account.Name, Provider: account.Provider, ProviderName: "未知服务商",
+		ProjectID: account.ProjectID, OwnerUserID: account.OwnerUserID,
+		OwnerUsername: "原用户已不存在", OwnerState: "missing",
+		VerificationState: account.VerificationState, CredentialState: "stored",
+		AccountIdentifier: "凭据已隐藏", Status: account.Status, Revision: account.Revision, Managed: true,
+	}
+	if descriptor, err := dnsprovider.GetDescriptor(account.Provider); err == nil {
+		item.ProviderName = descriptor.Name
+	}
+	if s.users == nil {
+		return dnsAccountView{}, errors.New("用户归属查询暂不可用")
+	}
+	owner, err := s.users.GetUserByID(c.Request.Context(), account.OwnerUserID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return dnsAccountView{}, err
+	}
+	if err == nil {
+		item.OwnerUsername, item.OwnerState = owner.Username, "assigned"
+	}
+	return item, nil
 }
 
 // dnsAccountIdentifier 只允许输出公开标识的脱敏结果，绝不输出令牌或私钥片段。

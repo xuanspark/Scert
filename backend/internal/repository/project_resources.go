@@ -33,7 +33,7 @@ const visibleDomainSelect = `SELECT domains.id, domains.name, domains.certificat
 func resourceReadPredicate(projectColumn, actorID string, permission domain.ProjectPermission) (string, []any) {
 	valid := projectColumn == "domains.project_id" && permission == domain.PermissionCertificateRead ||
 		projectColumn == "servers.project_id" && permission == domain.PermissionServerRead ||
-		projectColumn == "dns_accounts.project_id" && (permission == domain.PermissionDNSRead || permission == domain.PermissionDNSCredentialUse)
+		projectColumn == "dns_accounts.project_id" && (permission == domain.PermissionDNSRead || permission == domain.PermissionDNSCredentialUse || permission == domain.PermissionDNSManage)
 	if !valid {
 		return "1 = 0", nil
 	}

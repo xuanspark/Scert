@@ -19,8 +19,11 @@ func TestDNSAccountRepository(t *testing.T) {
 		t.Run(driver, func(t *testing.T) {
 			cfg := config.Default(t.TempDir()).Database
 			cfg.DSN = filepath.Join(t.TempDir(), "dns-accounts.db")
+			var admin *sql.DB
 			if driver == "mysql" {
-				cfg = mysqltest.New(t).Database(t)
+				server := mysqltest.New(t)
+				cfg = server.Database(t)
+				admin = server.Admin()
 			}
 			if driver == "postgres" {
 				cfg = postgrestest.New(t).Database(t)
@@ -33,12 +36,12 @@ func TestDNSAccountRepository(t *testing.T) {
 			if err := database.Migrate(t.Context(), db.DB, driver); err != nil {
 				t.Fatal(err)
 			}
-			checkDNSAccountRepository(t, db.DB, driver)
+			checkDNSAccountRepository(t, db.DB, admin, driver)
 		})
 	}
 }
 
-func checkDNSAccountRepository(t *testing.T, db *sql.DB, driver string) {
+func checkDNSAccountRepository(t *testing.T, db, admin *sql.DB, driver string) {
 	t.Helper()
 	repo := NewSQLProjectMemberRepository(db, driver)
 	for _, actor := range []struct{ id, role string }{
@@ -101,6 +104,17 @@ func checkDNSAccountRepository(t *testing.T, db *sql.DB, driver string) {
 	if _, err := repo.GetDNSAccountForUse(t.Context(), "dns", a.ID, "dns-a"); !errors.Is(err, ErrProjectAccessDenied) {
 		t.Fatal("未验证账户可被使用", err)
 	}
+	for _, actor := range []string{"root", "manager", "dns"} {
+		item, err := repo.GetDNSAccountForVerification(t.Context(), actor, a.ID)
+		if err != nil || item.CredentialRef == "" || item.Revision != a.Revision {
+			t.Fatal("管理角色无法开始首次验证", actor, err)
+		}
+	}
+	for _, actor := range []string{"reader", "cert", "audit", "outsider", "missing"} {
+		if _, err := repo.GetDNSAccountForVerification(t.Context(), actor, a.ID); !errors.Is(err, ErrProjectAccessDenied) {
+			t.Fatal("无管理权限取得待验证凭据", actor, err)
+		}
+	}
 	a, err = repo.RecordDNSAccountVerification(t.Context(), "dns", a.ID, a.Revision, true)
 	if err != nil || a.Revision != 2 {
 		t.Fatal(err)
@@ -145,6 +159,9 @@ func checkDNSAccountRepository(t *testing.T, db *sql.DB, driver string) {
 	}
 	if _, err := repo.GetDNSAccountForUse(t.Context(), "root", a.ID, "dns-a"); !errors.Is(err, ErrProjectAccessDenied) {
 		t.Fatal("禁用账户允许使用", err)
+	}
+	if _, err := repo.GetDNSAccountForVerification(t.Context(), "root", a.ID); !errors.Is(err, ErrProjectAccessDenied) {
+		t.Fatal("禁用账户可开始验证", err)
 	}
 	a, err = repo.SetDNSAccountEnabled(t.Context(), "manager", a.ID, a.Revision, true)
 	if err != nil {
@@ -224,17 +241,25 @@ func checkDNSAccountRepository(t *testing.T, db *sql.DB, driver string) {
 		t.Fatal("并发失败留下多余审计", err)
 	}
 	var rejection []string
+	executor := db
 	switch driver {
 	case "sqlite":
 		rejection = []string{`CREATE TRIGGER reject_dns_audit BEFORE INSERT ON audit_logs WHEN NEW.resource_type='dns_account' BEGIN SELECT RAISE(ABORT, 'blocked'); END`}
 	case "mysql":
-		rejection = []string{`CREATE TRIGGER reject_dns_audit BEFORE INSERT ON audit_logs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='blocked'`}
+		// 仅隔离库故障注入使用管理连接，业务仓储仍使用受限账户，不放宽全局权限。
+		var schema string
+		if err := db.QueryRowContext(t.Context(), "SELECT DATABASE()").Scan(&schema); err != nil {
+			t.Fatal(err)
+		}
+		schema = "`" + strings.ReplaceAll(schema, "`", "``") + "`"
+		rejection = []string{`CREATE TRIGGER ` + schema + `.reject_dns_audit BEFORE INSERT ON ` + schema + `.audit_logs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='blocked'`}
+		executor = admin
 	case "postgres":
 		rejection = []string{`CREATE FUNCTION reject_dns_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'blocked'; END $$`,
 			`CREATE TRIGGER reject_dns_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION reject_dns_audit()`}
 	}
 	for _, statement := range rejection {
-		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+		if _, err := executor.ExecContext(t.Context(), statement); err != nil {
 			t.Fatal(err)
 		}
 	}

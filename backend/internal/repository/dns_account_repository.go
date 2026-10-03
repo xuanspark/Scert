@@ -19,6 +19,7 @@ type DNSAccountRepository interface {
 	ListVisibleDNSAccounts(context.Context, string) ([]domain.DNSAccount, error)
 	GetVisibleDNSAccount(context.Context, string, string) (domain.DNSAccount, error)
 	GetDNSAccountForUse(context.Context, string, string, string) (domain.DNSAccount, error)
+	GetDNSAccountForVerification(context.Context, string, string) (domain.DNSAccount, error)
 	RenameDNSAccount(context.Context, string, string, int64, string) (domain.DNSAccount, error)
 	SetDNSAccountEnabled(context.Context, string, string, int64, bool) (domain.DNSAccount, error)
 	RotateDNSAccountCredential(context.Context, string, string, int64, string) (domain.DNSAccount, error)
@@ -136,6 +137,22 @@ func (r *SQLProjectMemberRepository) RenameDNSAccount(ctx context.Context, actor
 		item.Name = name
 		return nil
 	})
+}
+
+// 首次验证允许读取尚未验证的账户，但必须实时拥有管理权限，且账户未被禁用。
+// 结果落库仍须核对读取时版本，不能将此快照作为长时间授权或执行租约。
+func (r *SQLProjectMemberRepository) GetDNSAccountForVerification(ctx context.Context, actorID, id string) (domain.DNSAccount, error) {
+	if err := r.resourceReaderReady(actorID); err != nil {
+		return domain.DNSAccount{}, err
+	}
+	predicate, args := resourceReadPredicate("dns_accounts.project_id", actorID, domain.PermissionDNSManage)
+	args = append(args, id, domain.DNSAccountActive)
+	item, err := scanDNSAccount(r.db.QueryRowContext(ctx, Rebind(r.driver, `SELECT `+dnsAccountColumns+` FROM dns_accounts WHERE `+predicate+`
+		AND dns_accounts.id = ? AND dns_accounts.status = ?`), args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.DNSAccount{}, ErrProjectAccessDenied
+	}
+	return item, err
 }
 
 func (r *SQLProjectMemberRepository) SetDNSAccountEnabled(ctx context.Context, actorID, id string, revision int64, enabled bool) (domain.DNSAccount, error) {
