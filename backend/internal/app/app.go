@@ -177,6 +177,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 		RetryInterval:       time.Duration(cfg.ACME.RenewalRetryIntervalMins) * time.Minute,
 	}, management)
 	server = httpapi.New(httpapi.Dependencies{
+		RecoveryInspection: deploymentService,
 		Config: cfg, ConfigPath: configPath, Logger: logger, Repository: repo, Servers: serverRepo, Users: userRepo, DeploymentFactory: deployment.SSHFactory{Secrets: secretStore},
 		ProjectMembers:   repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),
 		ProjectDirectory: repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver),

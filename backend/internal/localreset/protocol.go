@@ -13,6 +13,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 )
 
 const (
@@ -38,20 +40,25 @@ type Method struct {
 }
 
 type Request struct {
-	Version  int    `json:"version"`
-	Nonce    string `json:"nonce"`
-	Action   string `json:"action"`
-	Method   string `json:"method,omitempty"`
-	Code     string `json:"code,omitempty"`
-	Password string `json:"password,omitempty"`
+	Version       int    `json:"version"`
+	Nonce         string `json:"nonce"`
+	Action        string `json:"action"`
+	Method        string `json:"method,omitempty"`
+	Code          string `json:"code,omitempty"`
+	Password      string `json:"password,omitempty"`
+	Cursor        string `json:"cursor,omitempty"`
+	TransactionID string `json:"transaction_id,omitempty"`
 }
 
 type Response struct {
-	Version int      `json:"version"`
-	OK      bool     `json:"ok"`
-	Code    string   `json:"code"`
-	Nonce   string   `json:"nonce,omitempty"`
-	Methods []Method `json:"methods,omitempty"`
+	Version           int                             `json:"version"`
+	OK                bool                            `json:"ok"`
+	Code              string                          `json:"code"`
+	Nonce             string                          `json:"nonce,omitempty"`
+	Methods           []Method                        `json:"methods,omitempty"`
+	RecoveryAvailable bool                            `json:"recovery_available,omitempty"`
+	RecoveryPage      *deployment.PendingRecoveryPage `json:"recovery_page,omitempty"`
+	Inspection        *deployment.RecoveryInspection  `json:"inspection,omitempty"`
 }
 
 // Session 由主服务创建，身份验证及密码持久化仍由主服务负责。
@@ -214,6 +221,8 @@ func (s *Server) handle(parent context.Context, conn net.Conn, factory Factory) 
 		return
 	}
 	reader := bufio.NewReaderSize(conn, MaxFrameSize+1)
+	recovery, hasRecovery := session.(RecoverySession)
+	hasRecovery = hasRecovery && recovery.RecoveryAvailable()
 	for index, action := range []string{"select", "verify", "reset"} {
 		nonce, err := newNonce()
 		if err != nil {
@@ -222,12 +231,17 @@ func (s *Server) handle(parent context.Context, conn net.Conn, factory Factory) 
 		response := Response{Version: Version, OK: true, Code: "CHALLENGE", Nonce: nonce}
 		if index == 0 {
 			response.Methods = methods
+			response.RecoveryAvailable = hasRecovery
 		}
 		if writeFrame(conn, response) != nil {
 			return
 		}
 		var request Request
 		err = readFrame(reader, &request)
+		if err == nil && index == 0 && hasRecovery && validRecoveryRequest(request, nonce) {
+			s.handleRecovery(ctx, conn, reader, peer, recovery, request)
+			return
+		}
 		if err != nil || ctx.Err() != nil || !validRequest(request, nonce, action) {
 			s.failed(peer.Identity)
 			_ = writeFrame(conn, Response{Version: Version, Code: "INVALID_REQUEST"})
@@ -261,6 +275,9 @@ func (s *Server) handle(parent context.Context, conn net.Conn, factory Factory) 
 }
 
 func validRequest(request Request, nonce, action string) bool {
+	if request.Cursor != "" || request.TransactionID != "" {
+		return false
+	}
 	if request.Version != Version || request.Action != action ||
 		subtle.ConstantTimeCompare([]byte(request.Nonce), []byte(nonce)) != 1 {
 		return false

@@ -2192,3 +2192,15 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [~] 改为受限单元 `scert-inspection-full-20261003-1735.service` 执行同一份源码的后端全量测试：nobody、单编译并发、CPU 50%、MemoryHigh 500 MiB、MemoryMax 650 MiB、20 分钟运行上限，且 Go 内存软限制 350 MiB。日志为 `backend-full-bounded.log`，终态尚待获取。
 
 这只是隔离测试进程的资源限制，没有调整生产服务配置、重启生产服务或清理业务数据。
+## 2026年10月3日18:06 本机核查入口专项
+
+本节优先于后续历史状态。以下是隔离的项目 Go 测试，不是生产业务验收，也不是辅助验收脚本。
+
+- 上一轮 `scert-inspection-full-20261003-1735.service` 已因运行上限终止：运行二十分钟，退出码一，`Result=timeout`，`MainPID=0`。没有全量通过结论。
+- 第一台新隔离源码目录：`/var/tmp/scert-local-recovery-20261003-1757/backend`。
+- 首批增量归档 SHA-256：`0a14755c3057978a3f84bd8a3bf92be47d4bd570a31e5c37e9a826364daddd76`，上传后核对一致。
+- `go test -p 1 -count=1 -timeout=180s ./internal/deployment ./internal/localreset ./internal/adminconsole` 原生 Linux 通过，退出码零；以 nobody 运行，使用既有离线依赖和独立测试数据。
+- HTTP 本机会话专项仍在运行。新增 Unix socket 菜单集成与异常响应等测试尚未上传复跑，不能算入首批通过范围。
+- 17:57 第一台 Scert/nginx 均为 active；18:02 再查均为 active。编译资源有内存、CPU 和运行时间限制；未因测试重启业务服务。
+- 未清理生产数据库、未修改证书及事务锁、未新增公网端口；双机正式候选包和公共 HTTPS 验收仍未完成。
+

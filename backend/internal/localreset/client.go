@@ -9,14 +9,15 @@ import (
 )
 
 type Client struct {
-	conn    net.Conn
-	reader  *bufio.Reader
-	nonce   string
-	methods []Method
-	stage   int
-	stop    func() bool
-	mu      sync.Mutex
-	once    sync.Once
+	conn              net.Conn
+	reader            *bufio.Reader
+	nonce             string
+	methods           []Method
+	recoveryAvailable bool
+	stage             int
+	stop              func() bool
+	mu                sync.Mutex
+	once              sync.Once
 }
 
 // Begin 只接受已通过 Dial 校验身份的连接；调用过程不会通过参数或文件传递密码。
@@ -36,12 +37,13 @@ func Begin(ctx context.Context, conn net.Conn) (*Client, error) {
 	client.stop = context.AfterFunc(ctx, func() { _ = conn.Close() })
 	var response Response
 	if err := readFrame(client.reader, &response); err != nil || !validChallenge(response) ||
-		len(response.Methods) == 0 || len(response.Methods) > 8 {
+		len(response.Methods) == 0 || len(response.Methods) > 8 || response.RecoveryPage != nil || response.Inspection != nil {
 		_ = client.Close()
 		return nil, ErrProtocol
 	}
 	client.nonce = response.Nonce
 	client.methods = response.Methods
+	client.recoveryAvailable = response.RecoveryAvailable
 	return client, nil
 }
 
@@ -71,6 +73,11 @@ func (c *Client) exchange(request Request, stage int) error {
 	}
 	var response Response
 	if err := readFrame(c.reader, &response); err != nil {
+		c.stage = -1
+		_ = c.Close()
+		return ErrProtocol
+	}
+	if response.RecoveryAvailable || response.RecoveryPage != nil || response.Inspection != nil {
 		c.stage = -1
 		_ = c.Close()
 		return ErrProtocol

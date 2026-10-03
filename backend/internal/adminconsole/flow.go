@@ -57,6 +57,23 @@ func runConnected(ctx context.Context, conn net.Conn, screen terminal) error {
 		return localreset.ErrUnavailable
 	}
 	defer client.Close()
+	if client.RecoveryAvailable() {
+		choice, err := screen.Read(ctx, "本机管理：1 重置超级管理员密码；2 只读核查部署事务；其他输入退出", false)
+		if err != nil {
+			return err
+		}
+		switch strings.TrimSpace(choice) {
+		case "1":
+		case "2":
+			if err := recoveryFlow(ctx, client, screen); err != nil {
+				_ = screen.Show("部署核查未完成：会话过期、输入无效或现场不可读取。未修改事务或远端文件。请重新启动本机管理。")
+				return err
+			}
+			return nil
+		default:
+			return nil
+		}
+	}
 	if err := resetFlow(ctx, client, screen); err != nil {
 		_ = screen.Show("密码重置未完成：操作已取消、验证失败、会话过期或保存失败。请检查服务日志后重新启动。")
 		return localreset.ErrProtocol

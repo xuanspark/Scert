@@ -53,6 +53,7 @@ type Dependencies struct {
 	ProjectBindings          repository.ProjectBindingRepository
 	ProjectDomains           repository.ProjectDomainRepository
 	DeploymentFactory        deployment.ClientFactory
+	RecoveryInspection       localRecoveryReader
 	SetupDNS                 setupDNSVerifier
 	Secrets                  setupSecretWriter
 	Firewall                 firewall.Manager
@@ -97,6 +98,7 @@ type Server struct {
 	projectBindings             repository.ProjectBindingRepository
 	projectDomains              repository.ProjectDomainRepository
 	deploymentFactory           deployment.ClientFactory
+	recoveryInspection          localRecoveryReader
 	setupDNS                    setupDNSVerifier
 	secrets                     setupSecretWriter
 	firewall                    firewall.Manager
@@ -171,6 +173,7 @@ func New(deps Dependencies) *Server {
 		projectBindings:             deps.ProjectBindings,
 		projectDomains:              deps.ProjectDomains,
 		deploymentFactory:           deps.DeploymentFactory,
+		recoveryInspection:          deps.RecoveryInspection,
 		issueCertificate:            deps.IssueCertificate,
 		issueSetupCertificate:       deps.IssueSetupCertificate,
 		rollbackSetupCertificate:    deps.RollbackSetupCertificate,
