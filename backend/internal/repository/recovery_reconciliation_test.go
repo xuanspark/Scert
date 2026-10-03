@@ -77,6 +77,12 @@ func seedUncertainReconciliation(t *testing.T, repo *SQLDeploymentTransactionRep
 	if !errors.Is(err, deployment.ErrRecoveryActionUncertain) || source.Status != deployment.RecoveryResultUncertain {
 		t.Fatalf("未形成真实执行器不确定结果：%+v %v", source, err)
 	}
+	// 比较实际持久化的前后快照，不能把内存纳秒与数据库时间精度差异误判为历史改写。
+	persisted, err := repo.GetRecoveryDisposition(t.Context(), source.Intent.ID)
+	if err != nil || !persisted.Intent.SameRequest(source.Intent) || persisted.Status != source.Status || persisted.ResultCode != source.ResultCode {
+		t.Fatal("原不确定处置未可靠持久化", err)
+	}
+	source = persisted
 	client.failClosed, client.readOnly = false, true
 	client.writes = 0
 	return service, client, server, record, source
