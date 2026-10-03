@@ -141,6 +141,25 @@ export function useDomainDNSAccount({ fetchAdmin, form, saving }) {
     });
   }
 
+  function acceptCreated(snapshot, result) {
+    if (snapshot.generation !== generation || snapshot.domainID || !snapshot.accountID ||
+        !validID(result?.id) || !validID(result?.dns_binding_id) ||
+        result.project_id !== snapshot.projectID || result.dns_account_id !== snapshot.accountID ||
+        result.dns_provider !== snapshot.provider) {
+      throw new Error("域名初始 DNS 绑定响应不完整，请关闭表单并刷新列表核对");
+    }
+    binding = {
+      id: result.dns_binding_id, domain_id: result.id,
+      project_id: result.project_id, dns_account_id: result.dns_account_id,
+    };
+    target.domainID = result.id;
+    dnsAccountID.value = result.dns_account_id;
+    dnsBound.value = true;
+    boundProvider = snapshot.provider;
+    form.value.dns_provider = boundProvider;
+    return Object.freeze({ ...snapshot, domainID: result.id, expectedID: result.dns_binding_id, changed: false });
+  }
+
   async function persist(snapshot, domainID) {
     if (snapshot.generation !== generation) return null;
     if (!validID(domainID) || (snapshot.domainID && domainID !== snapshot.domainID)) {
@@ -182,6 +201,6 @@ export function useDomainDNSAccount({ fetchAdmin, form, saving }) {
   return {
     dnsAccountID, dnsBindingLoading, dnsBindingReady, dnsBindingError, dnsBound,
     domainDNSAccountOptions, dnsUnavailableSelection, reloadDomainDNS,
-    open, cancel, prepare, persist,
+    open, cancel, prepare, acceptCreated, persist,
   };
 }

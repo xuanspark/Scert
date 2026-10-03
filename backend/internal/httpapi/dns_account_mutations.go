@@ -33,6 +33,8 @@ func (s *Server) writeDNSAccountError(c *gin.Context, err error) {
 		s.writeError(c, http.StatusForbidden, "无权操作此 DNS 账户", nil)
 	case errors.Is(err, repository.ErrDNSAccountConflict):
 		s.writeError(c, http.StatusConflict, "DNS 账户已变更，请刷新后重试", nil)
+	case errors.Is(err, repository.ErrDNSAccountBusy):
+		s.writeError(c, http.StatusConflict, "DNS 账户仍有执行租约，请等待任务及挑战清理完成", nil)
 	default:
 		// 驱动、秘密仓库和服务商的错误均可能携带凭据，不能回显或写入日志。
 		s.writeError(c, http.StatusServiceUnavailable, "DNS 账户操作失败，请稍后重试", nil)

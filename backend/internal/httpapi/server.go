@@ -419,13 +419,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 type domainRequest struct {
-	Name            string   `json:"name" binding:"required"`
-	CertificateType string   `json:"certificate_type" binding:"required"`
-	SANs            []string `json:"sans"`
-	AutoRenew       *bool    `json:"auto_renew"`
-	ACMEEnvironment string   `json:"acme_environment"`
-	DNSProvider     string   `json:"dns_provider"`
-	ChallengeType   *string  `json:"challenge_type"`
+	Name               string   `json:"name" binding:"required"`
+	CertificateType    string   `json:"certificate_type" binding:"required"`
+	SANs               []string `json:"sans"`
+	AutoRenew          *bool    `json:"auto_renew"`
+	ACMEEnvironment    string   `json:"acme_environment"`
+	DNSProvider        string   `json:"dns_provider"`
+	DNSAccountID       string   `json:"dns_account_id"`
+	DNSAccountRevision int64    `json:"dns_account_revision"`
+	ChallengeType      *string  `json:"challenge_type"`
 }
 
 type serverRequest struct {
@@ -645,6 +647,16 @@ func (s *Server) createDomain(c *gin.Context) {
 		return
 	}
 	item.ResourceScope = s.newResourceScope(c)
+	if request.DNSAccountID != "" {
+		if !domain.ValidProjectID(request.DNSAccountID) || request.DNSAccountRevision < 1 || item.ChallengeType != domain.ChallengeDNS01 {
+			s.writeError(c, http.StatusBadRequest, "初始 DNS 账户参数无效", nil)
+			return
+		}
+		item.DNSAccountID, item.DNSBindingID, item.InitialDNSRevision = request.DNSAccountID, domain.NewID(), request.DNSAccountRevision
+	} else if request.DNSAccountRevision != 0 {
+		s.writeError(c, http.StatusBadRequest, "初始 DNS 账户参数不完整", nil)
+		return
+	}
 	if !s.authorizeDomainMutation(c, item.ProjectID) {
 		return
 	}
@@ -652,6 +664,10 @@ func (s *Server) createDomain(c *gin.Context) {
 		return
 	}
 	if err := s.projectDomains.CreateProjectDomain(c.Request.Context(), c.GetString(authenticatedActorKey), item); err != nil {
+		if errors.Is(err, repository.ErrDNSAccountConflict) || errors.Is(err, repository.ErrDNSBindingInvalid) {
+			s.writeDomainDNSAccountError(c, err)
+			return
+		}
 		if errors.Is(err, repository.ErrProjectAccessDenied) {
 			s.writeError(c, http.StatusForbidden, "无权管理此项目的域名", nil)
 			return
@@ -673,6 +689,10 @@ func (s *Server) updateDomain(c *gin.Context) {
 	var request domainRequest
 	if err := bindJSON(c, &request, jsonRequestBodyLimit); err != nil {
 		s.writeError(c, http.StatusBadRequest, "请求参数无效", err)
+		return
+	}
+	if request.DNSAccountID != "" || request.DNSAccountRevision != 0 {
+		s.writeError(c, http.StatusBadRequest, "编辑 DNS 账户须使用独立绑定接口", nil)
 		return
 	}
 	existing, err := s.projectResources.GetVisibleDomain(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"))

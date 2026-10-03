@@ -79,6 +79,9 @@ func (r *SQLProjectMemberRepository) SetDomainDNSAccountBinding(ctx context.Cont
 	if currentID != expectedID {
 		return domain.DNSAccountBinding{}, ErrDNSBindingConflict
 	}
+	if err := r.rejectActiveDNSLease(ctx, tx, "domain_id", domainID); err != nil {
+		return domain.DNSAccountBinding{}, err
+	}
 	// 与任务创建持有同一域名行锁，避免检查后插入新任务并使用旧绑定。
 	var activeID string
 	err = tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT id FROM tasks WHERE domain_id = ?

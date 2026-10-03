@@ -39,7 +39,12 @@ async function mountForm(t, { accounts = [account], binding = emptyBinding, inte
       return Response.json(currentBinding);
     }
     if (path.endsWith("/servers")) return Response.json({ items: [] });
-    return Response.json({ ...item, ...JSON.parse(options.body) });
+    const body = JSON.parse(options.body);
+    if (options.method === "POST" && body.dns_account_id) {
+      currentBinding = { ...emptyBinding, id: "binding-new", dns_account_id: body.dns_account_id };
+      return Response.json({ ...item, ...body, dns_binding_id: currentBinding.id });
+    }
+    return Response.json({ ...item, ...body });
   });
   return { ...mounted, deps, requests, writes: () => requests.filter((request) => request.method) };
 }
@@ -50,17 +55,16 @@ async function create(state) {
   state.dnsAccountID.value = account.id;
 }
 
-test("新域名先保存资料再显式绑定账户，提交真实版本和空绑定令牌", async (t) => {
+test("新域名与初始 DNS 账户原子保存，提交真实账户版本且不重复绑定", async (t) => {
   const { state, deps, writes } = await mountForm(t);
   await create(state);
   await state.saveDomain();
   assert.deepEqual(writes().map((request) => request.path), [
-    "/api/v1/domains", `/api/v1/domains/${item.id}/dns-account`, `/api/v1/domains/${item.id}/servers`,
+    "/api/v1/domains", `/api/v1/domains/${item.id}/servers`,
   ]);
   assert.equal(JSON.parse(writes()[0].body).dns_provider, "aliyun");
-  assert.deepEqual(JSON.parse(writes()[1].body), {
-    dns_account_id: account.id, expected_binding_id: "", account_revision: 3,
-  });
+  assert.equal(JSON.parse(writes()[0].body).dns_account_id, account.id);
+  assert.equal(JSON.parse(writes()[0].body).dns_account_revision, 3);
   assert.equal(deps.domains.value[0].dns_binding_id, "binding-new");
   assert.equal(state.showForm.value, false);
 });
@@ -161,7 +165,8 @@ for (const failure of ["network", "conflict", "forbidden", "server", "invalid-js
         ...(failure === "wrong-domain" ? { domain_id: "other-domain" } : { dns_account_id: "other-account" }),
       });
     } });
-    await create(state);
+    await state.openEdit(item);
+    state.dnsAccountID.value = account.id;
     await state.saveDomain();
     assert.equal(writes().length, 2);
     assert.equal(state.dnsBindingReady.value, false);
@@ -181,33 +186,35 @@ test("绑定已成功而服务器关联失败时只重试服务器，不重新�
   } });
   await create(state);
   await state.saveDomain();
-  assert.equal(writes().length, 3);
+  assert.equal(writes().length, 2);
   assert.equal(state.showForm.value, true);
   await state.saveDomain();
-  assert.equal(writes().length, 4);
-  assert.ok(writes()[3].path.endsWith("/servers"));
+  assert.equal(writes().length, 3);
+  assert.ok(writes()[2].path.endsWith("/servers"));
   assert.equal(state.showForm.value, false);
 });
 
 test("冲突后重新读取实际绑定，确认状态而不是自动重放旧选择", async (t) => {
   let conflict = true;
+  let reads = 0;
   const { state, writes } = await mountForm(t, { intercept: (path, options) => {
     if (!path.endsWith("/dns-account")) return null;
     if (options.method && conflict) {
       conflict = false;
       return Response.json({}, { status: 409 });
     }
-    if (!options.method) return Response.json(originalBinding);
+    if (!options.method) return Response.json(++reads === 1 ? emptyBinding : originalBinding);
     return null;
   } });
-  await create(state);
+  await state.openEdit(item);
+  state.dnsAccountID.value = account.id;
   await state.saveDomain();
   await state.reloadDomainDNS();
   assert.equal(state.dnsBindingReady.value, true);
   assert.equal(state.dnsAccountID.value, account.id);
   await state.saveDomain();
   assert.equal(writes().filter((request) => request.path.endsWith("/dns-account")).length, 1);
-  assert.equal(writes().filter((request) => request.method === "POST").length, 1);
+  assert.equal(writes().filter((request) => request.method === "POST").length, 0);
 });
 
 test("切换或卸载后迟到的账户响应不能恢复旧表单状态", async (t) => {
@@ -243,10 +250,11 @@ test("保存中固定目标账户和版本，拒绝双击、关闭、重读和�
   await state.reloadDomainDNS();
   await state.saveDomain();
   assert.equal(writes().length, 1);
-  pending.resolve(Response.json(item));
+  pending.resolve(Response.json({ ...item, dns_account_id: account.id, dns_binding_id: "binding-new" }));
   await saving;
-  assert.equal(writes()[1].path, `/api/v1/domains/${item.id}/dns-account`);
-  assert.equal(JSON.parse(writes()[1].body).dns_account_id, account.id);
+  assert.equal(writes()[1].path, `/api/v1/domains/${item.id}/servers`);
+  assert.equal(JSON.parse(writes()[0].body).dns_account_id, account.id);
+  assert.equal(JSON.parse(writes()[0].body).dns_account_revision, 3);
 });
 
 test("卸载后返回的资料响应不继续写 DNS 绑定或服务器", async (t) => {
@@ -259,3 +267,21 @@ test("卸载后返回的资料响应不继续写 DNS 绑定或服务器", async 
   await saving;
   assert.equal(writes().length, 1);
 });
+
+for (const mismatch of ["missing-binding", "wrong-account", "wrong-provider"]) {
+  test(`初始绑定响应异常时禁止继续执行或重复创建：${mismatch}`, async (t) => {
+    const result = { ...item, dns_account_id: account.id, dns_binding_id: "binding-new" };
+    if (mismatch === "missing-binding") delete result.dns_binding_id;
+    if (mismatch === "wrong-account") result.dns_account_id = "other";
+    if (mismatch === "wrong-provider") result.dns_provider = "cloudflare";
+    const { state, writes } = await mountForm(t, {
+      intercept: (path) => path === "/api/v1/domains" ? Response.json(result) : null,
+    });
+    await create(state);
+    await state.saveDomain();
+    assert.equal(state.domainSaveUncertain.value, true);
+    assert.match(state.formError.value, /初始 DNS 绑定/);
+    await state.saveDomain();
+    assert.equal(writes().length, 1);
+  });
+}

@@ -179,7 +179,9 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
           response = await fetchAdmin(existingId ? `/api/v1/domains/${existingId}` : "/api/v1/domains", {
             method: existingId ? "PUT" : "POST",
             headers: { "Content-Type": "application/json" },
-            body: serialized,
+            body: !existingId && dnsSnapshot.accountID ? JSON.stringify({
+              ...payload, dns_account_id: dnsSnapshot.accountID, dns_account_revision: dnsSnapshot.revision,
+            }) : serialized,
           });
         } catch {
           if (currentVersion !== version) return;
@@ -199,6 +201,14 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
             result.project_id !== dnsSnapshot.projectID || (existingId && result.id !== existingId)) {
           domainSaveUncertain.value = true;
           throw new Error("域名保存响应不完整，请关闭表单并刷新列表确认，暂不重复提交");
+        }
+        if (!existingId && dnsSnapshot.accountID) {
+          try {
+            dnsSnapshot = dnsAccount.acceptCreated(dnsSnapshot, result);
+          } catch (err) {
+            domainSaveUncertain.value = true;
+            throw err;
+          }
         }
         editingId.value = result.id;
         targetID = result.id;

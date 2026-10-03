@@ -25,20 +25,21 @@ const (
 
 type Domain struct {
 	ResourceScope
-	ID              string          `json:"id"`
-	Name            string          `json:"name"`
-	CertificateType CertificateType `json:"certificate_type"`
-	SANs            []string        `json:"sans"`
-	AutoRenew       bool            `json:"auto_renew"`
-	ACMEEnvironment string          `json:"acme_environment"`
-	DNSProvider     string          `json:"dns_provider,omitempty"`
-	DNSAccountID    string          `json:"dns_account_id,omitempty"`
-	DNSBindingID    string          `json:"dns_binding_id,omitempty"`
-	ChallengeType   string          `json:"challenge_type"`
-	Status          string          `json:"status"`
-	ExpiresAt       *time.Time      `json:"expires_at,omitempty"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	CertificateType    CertificateType `json:"certificate_type"`
+	SANs               []string        `json:"sans"`
+	AutoRenew          bool            `json:"auto_renew"`
+	ACMEEnvironment    string          `json:"acme_environment"`
+	DNSProvider        string          `json:"dns_provider,omitempty"`
+	DNSAccountID       string          `json:"dns_account_id,omitempty"`
+	DNSBindingID       string          `json:"dns_binding_id,omitempty"`
+	InitialDNSRevision int64           `json:"-"`
+	ChallengeType      string          `json:"challenge_type"`
+	Status             string          `json:"status"`
+	ExpiresAt          *time.Time      `json:"expires_at,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 func NewDomain(name string, certificateType CertificateType, sans []string) (Domain, error) {

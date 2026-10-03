@@ -29,7 +29,7 @@ func (s *Server) writeDomainDNSAccountError(c *gin.Context, err error) {
 		s.writeError(c, http.StatusForbidden, "无权操作此域名的 DNS 账户绑定", nil)
 	case errors.Is(err, repository.ErrDNSBindingConflict), errors.Is(err, repository.ErrDNSAccountConflict):
 		s.writeError(c, http.StatusConflict, "域名绑定或 DNS 账户已变更，请刷新后重试", nil)
-	case errors.Is(err, repository.ErrDNSBindingBusy):
+	case errors.Is(err, repository.ErrDNSBindingBusy), errors.Is(err, repository.ErrDNSAccountBusy):
 		s.writeError(c, http.StatusConflict, "域名存在未结束的任务，暂不能变更 DNS 账户", nil)
 	case errors.Is(err, repository.ErrDNSBindingInvalid):
 		s.writeError(c, http.StatusUnprocessableEntity, "域名验证方式或 DNS 账户状态不允许绑定", nil)

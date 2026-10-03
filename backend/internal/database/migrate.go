@@ -29,6 +29,7 @@ import (
 //go:embed migrations/sqlite/0026_domain_challenge.sql migrations/mysql/0026_domain_challenge.sql migrations/postgres/0026_domain_challenge.sql
 //go:embed migrations/sqlite/0027_dns_accounts.sql migrations/mysql/0027_dns_accounts.sql migrations/postgres/0027_dns_accounts.sql
 //go:embed migrations/sqlite/0028_domain_dns_accounts.sql migrations/mysql/0028_domain_dns_accounts.sql migrations/postgres/0028_domain_dns_accounts.sql
+//go:embed migrations/sqlite/0029_dns_execution_leases.sql migrations/mysql/0029_dns_execution_leases.sql migrations/postgres/0029_dns_execution_leases.sql
 var migrationFiles embed.FS
 
 func Migrate(ctx context.Context, db *sql.DB, driver string) error {
@@ -53,7 +54,7 @@ func Migrate(ctx context.Context, db *sql.DB, driver string) error {
 	return nil
 }
 
-const latestMigrationVersion = 28
+const latestMigrationVersion = 29
 
 // currentMigrationVersion 在执行业务迁移前拒绝新版数据库及不连续的迁移历史。
 func currentMigrationVersion(ctx context.Context, db *sql.DB) (int, error) {
@@ -99,7 +100,7 @@ func applyMigration(ctx context.Context, db *sql.DB, driver string, version int)
 		if version == 27 {
 			return applyMySQLDNSAccountMigration(ctx, db, version, statements)
 		}
-		if (version >= 15 && version <= 17) || (version >= 20 && version <= 24) {
+		if (version >= 15 && version <= 17) || (version >= 20 && version <= 24) || version == 29 {
 			return applyMySQLDeploymentMigration(ctx, db, version, statements)
 		}
 		if version == 14 {
@@ -298,6 +299,8 @@ func migrationName(version int) string {
 		return "dns_accounts"
 	case 28:
 		return "domain_dns_accounts"
+	case 29:
+		return "dns_execution_leases"
 	default:
 		return "unknown"
 	}

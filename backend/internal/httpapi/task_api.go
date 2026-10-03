@@ -274,6 +274,9 @@ func (s *Server) runCertificateOperation(ctx context.Context, task repository.Ta
 		return
 	}
 	if task.TaskType == "certificate_issue" {
+		executionCtx = certificate.WithDNSExecutionIdentity(executionCtx, domain.DNSExecutionIdentity{
+			TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
+		})
 		executionCtx = s.withCertificateIssueAuthorization(executionCtx, task.OperatorID, task.DomainID, task.ProjectID, attempt.AttemptNumber > 1)
 	}
 	result, issueErr := operation(executionCtx, task.DomainID)

@@ -211,6 +211,9 @@ func (r *SQLProjectMemberRepository) changeDNSAccount(ctx context.Context, actor
 	if item.Revision != revision {
 		return domain.DNSAccount{}, ErrDNSAccountConflict
 	}
+	if err := r.rejectActiveDNSLease(ctx, tx, "account_id", id); err != nil {
+		return domain.DNSAccount{}, err
+	}
 	if err := change(&item); err != nil {
 		return domain.DNSAccount{}, err
 	}

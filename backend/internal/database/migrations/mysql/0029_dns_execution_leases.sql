@@ -1,0 +1,21 @@
+CREATE TABLE dns_execution_leases (
+    id VARCHAR(64) NOT NULL,
+    domain_id VARCHAR(64) NOT NULL,
+    binding_id VARCHAR(64) NOT NULL,
+    project_id VARCHAR(64) NOT NULL,
+    account_id VARCHAR(64) NOT NULL,
+    account_revision INT NOT NULL,
+    provider VARCHAR(64) NOT NULL,
+    credential_ref VARCHAR(255) NOT NULL,
+    task_id VARCHAR(64) NOT NULL,
+    attempt_id VARCHAR(64) NOT NULL,
+    attempt_number INT NOT NULL,
+    scheduled INT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_dns_leases_attempt (task_id, attempt_id),
+    INDEX idx_dns_leases_account (account_id, status),
+    INDEX idx_dns_leases_domain (domain_id, status)
+);

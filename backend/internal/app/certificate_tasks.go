@@ -157,6 +157,10 @@ func (w *certificateTaskWorkflow) run(ctx context.Context, id, taskType, stage s
 		issueCtx = deployment.WithTransactionContext(issueCtx, deployment.TransactionContext{
 			TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
 		})
+		issueCtx = certificate.WithDNSExecutionIdentity(issueCtx, domain.DNSExecutionIdentity{
+			TaskID: task.ID, AttemptID: attempt.ID, AttemptNumber: attempt.AttemptNumber,
+			Scheduled: taskType == "renewal_run" && task.OperatorID == "",
+		})
 		result, resultErr = execute(issueCtx, id)
 		cancel()
 		if resultErr == nil || number == attempts || result.Certificate.Saved.CertificatePath != "" || result.Deployment.Status == "partial" || result.Deployment.RecoveryStatus == "unconfirmed" || result.Deployment.RecoveryStatus == "failed" || errors.Is(resultErr, context.Canceled) || errors.Is(resultErr, context.DeadlineExceeded) {

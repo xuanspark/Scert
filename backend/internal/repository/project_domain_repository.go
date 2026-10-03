@@ -36,6 +36,9 @@ func (r *SQLProjectMemberRepository) CreateProjectDomain(ctx context.Context, ac
 	if err := r.authorizeProjectTransaction(ctx, tx, actorID, item.ProjectID, domain.PermissionCertificateManage); err != nil {
 		return err
 	}
+	if err := r.validateInitialDNSBinding(ctx, tx, actorID, item, challengeType); err != nil {
+		return err
+	}
 	_, err = tx.ExecContext(ctx, Rebind(r.driver, `INSERT INTO domains
 		(id, name, certificate_type, sans_json, auto_renew, acme_environment, dns_provider, status, expires_at, created_at, updated_at, project_id, owner_id, created_by, updated_by, challenge_type)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Name, item.CertificateType, string(payload), item.AutoRenew,
@@ -46,6 +49,15 @@ func (r *SQLProjectMemberRepository) CreateProjectDomain(ctx context.Context, ac
 	}
 	if err := writeDomainAudit(ctx, tx, r.driver, "domain.create", item.ID, item.ProjectID, actorID, "创建域名"); err != nil {
 		return err
+	}
+	if item.DNSAccountID != "" {
+		if _, err := tx.ExecContext(ctx, Rebind(r.driver, `INSERT INTO domain_dns_accounts (domain_id, id, project_id, dns_account_id, updated_at) VALUES (?, ?, ?, ?, ?)`),
+			item.ID, item.DNSBindingID, item.ProjectID, item.DNSAccountID, item.UpdatedAt); err != nil {
+			return err
+		}
+		if err := writeDomainAudit(ctx, tx, r.driver, "domain.dns_account", item.ID, item.ProjectID, actorID, "创建域名时绑定 DNS 账户"); err != nil {
+			return err
+		}
 	}
 	return commitProjectDomain(tx, "提交域名创建事务失败")
 }
@@ -77,6 +89,9 @@ func (r *SQLProjectMemberRepository) UpdateProjectDomain(ctx context.Context, ac
 		return err
 	}
 	item.ProjectID = stored.ProjectID
+	if err := r.rejectActiveDNSLease(ctx, tx, "domain_id", item.ID); err != nil {
+		return err
+	}
 	if err := r.validateDomainPathsInTransaction(ctx, tx, item); err != nil {
 		return err
 	}
@@ -132,6 +147,9 @@ func (r *SQLProjectMemberRepository) DeleteProjectDomain(ctx context.Context, ac
 	rows.Close()
 	if busy {
 		return ErrProjectDomainBusy
+	}
+	if err := r.rejectActiveDNSLease(ctx, tx, "domain_id", domainID); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, Rebind(r.driver, `DELETE FROM domain_servers WHERE domain_id = ?`), domainID); err != nil {
 		return fmt.Errorf("删除域名服务器关联失败：%w", err)

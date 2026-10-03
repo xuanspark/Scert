@@ -81,6 +81,7 @@ type Service struct {
 	preferredChain string
 	acmeRoots      *x509.CertPool
 	httpChallenges *httpchallenge.Store
+	dnsLeases      DNSExecutionLeaseStore
 }
 
 func (s *Service) SetHTTPChallenges(store *httpchallenge.Store) {
@@ -138,7 +139,7 @@ func NewService(cfg config.Config, repository DomainStateRepository, credentials
 	}
 }
 
-func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, error) {
+func (s *Service) Issue(ctx context.Context, domainID string) (result IssueResult, returnErr error) {
 	if s == nil || s.repository == nil || s.accounts == nil || s.newIssuer == nil {
 		return IssueResult{}, errors.New("证书申请服务未初始化")
 	}
@@ -150,8 +151,8 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 	if err != nil {
 		return IssueResult{}, fmt.Errorf("读取域名配置失败：%w", err)
 	}
-	// 独立账户执行租约接入前禁止退回系统账户，避免配置与实际用证账户不一致。
-	if item.DNSAccountID != "" || item.DNSBindingID != "" {
+	independent := item.DNSAccountID != "" || item.DNSBindingID != ""
+	if independent && s.dnsLeases == nil {
 		return IssueResult{}, errors.New("独立 DNS 账户执行租约尚未就绪，拒绝使用系统凭据替代")
 	}
 	domains, err := requestedDomains(item)
@@ -166,8 +167,38 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 		return IssueResult{}, fmt.Errorf("签发配置权限校验失败：%w", err)
 	}
 	providerID := ""
+	credentialRef := s.config.DNS.CredentialRef
+	var dnsLease domain.DNSExecutionLease
+	var guardedProvider *leasedDNSProvider
 	var lease *httpchallenge.Lease
-	if challengeType == domain.ChallengeHTTP01 {
+	if independent {
+		if challengeType != domain.ChallengeDNS01 || s.credentials == nil || s.providers == nil {
+			return IssueResult{}, errors.New("独立 DNS 账户配置无效")
+		}
+		identity, ok := ctx.Value(dnsExecutionContextKey{}).(domain.DNSExecutionIdentity)
+		if !ok {
+			return IssueResult{}, errors.New("独立 DNS 账户缺少真实任务执行身份")
+		}
+		dnsLease, err = s.dnsLeases.AcquireDNSExecutionLease(ctx, item, identity)
+		if err != nil {
+			return IssueResult{}, errors.New("获取独立 DNS 账户执行租约失败，未使用系统凭据")
+		}
+		defer func() {
+			if guardedProvider != nil && !guardedProvider.clean() {
+				returnErr = errors.Join(returnErr, errors.New("DNS 挑战清理尚未确认，执行租约及原凭据引用已保留"))
+				return
+			}
+			finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			if err := s.dnsLeases.ReleaseDNSExecutionLease(finishCtx, dnsLease.ID); err != nil {
+				returnErr = errors.Join(returnErr, errors.New("DNS 执行租约释放失败，原凭据引用已保留"))
+			}
+		}()
+		providerID, credentialRef = dnsLease.Provider, dnsLease.CredentialRef
+		if err := dnsprovider.ValidateAliyunTargetDomains(providerID, domains); err != nil {
+			return IssueResult{}, err
+		}
+	} else if challengeType == domain.ChallengeHTTP01 {
 		lease, err = s.httpChallenges.NewLease(ctx, domains)
 		if err != nil {
 			return IssueResult{}, err
@@ -197,7 +228,12 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 			return fail(err)
 		}
 	} else {
-		credentials, err = s.credentials.Get(ctx, s.config.DNS.CredentialRef)
+		if independent {
+			if err := s.dnsLeases.ValidateDNSExecutionLease(ctx, dnsLease); err != nil {
+				return fail(errors.New("DNS 执行授权已失效，未读取凭据"))
+			}
+		}
+		credentials, err = s.credentials.Get(ctx, credentialRef)
 		if err != nil {
 			return fail(fmt.Errorf("读取 DNS 凭据失败：%w", err))
 		}
@@ -213,6 +249,10 @@ func (s *Service) Issue(ctx context.Context, domainID string) (IssueResult, erro
 		provider, err = s.providers.Create(providerID, credentials)
 		if err != nil {
 			return fail(fmt.Errorf("创建 DNS Provider 失败：%w", err))
+		}
+		if independent {
+			guardedProvider = &leasedDNSProvider{Provider: provider, store: s.dnsLeases, lease: dnsLease, pending: make(map[[3]string]bool)}
+			provider = guardedProvider
 		}
 	}
 	email := strings.TrimSpace(s.config.ACME.AccountEmail)

@@ -144,6 +144,7 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	}
 	accounts := certificate.NewAccountRepository(secretStore)
 	certificates := certificate.NewService(cfg, repo, secretStore, dnsprovider.NewLegoFactory(), accounts)
+	certificates.SetDNSExecutionLeaseStore(repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver))
 	httpChallenges := httpchallenge.NewStore()
 	certificates.SetHTTPChallenges(httpChallenges)
 	aliyunAuthChecker := dnsprovider.NewAliyunAuthorizationChecker()
