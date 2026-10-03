@@ -40,26 +40,32 @@ type Method struct {
 }
 
 type Request struct {
-	Version       int    `json:"version"`
-	Nonce         string `json:"nonce"`
-	Action        string `json:"action"`
-	Method        string `json:"method,omitempty"`
-	Code          string `json:"code,omitempty"`
-	Password      string `json:"password,omitempty"`
-	Cursor        string `json:"cursor,omitempty"`
-	TransactionID string `json:"transaction_id,omitempty"`
+	Version           int                       `json:"version"`
+	Nonce             string                    `json:"nonce"`
+	Action            string                    `json:"action"`
+	Method            string                    `json:"method,omitempty"`
+	Code              string                    `json:"code,omitempty"`
+	Password          string                    `json:"password,omitempty"`
+	Cursor            string                    `json:"cursor,omitempty"`
+	TransactionID     string                    `json:"transaction_id,omitempty"`
+	RecoveryAction    deployment.RecoveryAction `json:"recovery_action,omitempty"`
+	DispositionID     string                    `json:"disposition_id,omitempty"`
+	ConfirmationToken string                    `json:"confirmation_token,omitempty"`
 }
 
 type Response struct {
-	Version           int                             `json:"version"`
-	OK                bool                            `json:"ok"`
-	Code              string                          `json:"code"`
-	Nonce             string                          `json:"nonce,omitempty"`
-	Methods           []Method                        `json:"methods,omitempty"`
-	RecoveryAvailable bool                            `json:"recovery_available,omitempty"`
-	RecoveryPage      *deployment.PendingRecoveryPage `json:"recovery_page,omitempty"`
-	Inspection        *deployment.RecoveryInspection  `json:"inspection,omitempty"`
-	InspectionPart    *inspectionPart                 `json:"inspection_part,omitempty"`
+	Version              int                                    `json:"version"`
+	OK                   bool                                   `json:"ok"`
+	Code                 string                                 `json:"code"`
+	Nonce                string                                 `json:"nonce,omitempty"`
+	Methods              []Method                               `json:"methods,omitempty"`
+	RecoveryAvailable    bool                                   `json:"recovery_available,omitempty"`
+	RecoveryPage         *deployment.PendingRecoveryPage        `json:"recovery_page,omitempty"`
+	Inspection           *deployment.RecoveryInspection         `json:"inspection,omitempty"`
+	InspectionPart       *inspectionPart                        `json:"inspection_part,omitempty"`
+	DispositionAvailable bool                                   `json:"disposition_available,omitempty"`
+	Preparation          *RecoveryPreparation                   `json:"preparation,omitempty"`
+	Disposition          *deployment.RecoveryDispositionSummary `json:"disposition,omitempty"`
 }
 
 // Session 由主服务创建，身份验证及密码持久化仍由主服务负责。
@@ -233,6 +239,9 @@ func (s *Server) handle(parent context.Context, conn net.Conn, factory Factory) 
 		if index == 0 {
 			response.Methods = methods
 			response.RecoveryAvailable = hasRecovery
+			if actions, ok := session.(RecoveryDispositionSession); ok && hasRecovery {
+				response.DispositionAvailable = actions.DispositionAvailable()
+			}
 		}
 		if writeFrame(conn, response) != nil {
 			return
@@ -276,7 +285,7 @@ func (s *Server) handle(parent context.Context, conn net.Conn, factory Factory) 
 }
 
 func validRequest(request Request, nonce, action string) bool {
-	if request.Cursor != "" || request.TransactionID != "" {
+	if request.Cursor != "" || request.TransactionID != "" || request.RecoveryAction != "" || request.DispositionID != "" || request.ConfirmationToken != "" {
 		return false
 	}
 	if request.Version != Version || request.Action != action ||

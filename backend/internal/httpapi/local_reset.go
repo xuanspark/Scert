@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/localreset"
 	"git.pcux.cn/xuans/Scert/backend/internal/notification"
 	"git.pcux.cn/xuans/Scert/backend/internal/passwordpolicy"
@@ -23,15 +24,16 @@ import (
 type resetCodeSender func(context.Context, string, string) error
 
 type localResetSession struct {
-	server   *Server
-	send     resetCodeSender
-	reserve  func() bool
-	admin    config.AdminConfig
-	expires  time.Time
-	peer     localreset.Peer
-	mu       sync.Mutex
-	stage    int
-	codeHash [32]byte
+	server               *Server
+	send                 resetCodeSender
+	reserve              func() bool
+	admin                config.AdminConfig
+	expires              time.Time
+	peer                 localreset.Peer
+	mu                   sync.Mutex
+	stage                int
+	codeHash             [32]byte
+	recoveryConfirmation deployment.RecoveryConfirmation
 }
 
 // LocalResetFactory 只交给受保护的本机通道，不注册到普通 HTTP 路由。
@@ -187,6 +189,7 @@ func (r *localResetSession) Close() {
 	defer r.mu.Unlock()
 	r.stage = -1
 	r.codeHash = [32]byte{}
+	r.recoveryConfirmation = deployment.RecoveryConfirmation{}
 }
 
 func (r *localResetSession) audit(status, message string) {

@@ -43,7 +43,7 @@ func (s *recoveryTestSession) InspectRecovery(_ context.Context, id string) (dep
 	return result, nil
 }
 
-func recoveryConnection(t *testing.T, session *recoveryTestSession) (*Server, net.Conn, <-chan struct{}) {
+func recoveryConnection(t *testing.T, session Session) (*Server, net.Conn, <-chan struct{}) {
 	t.Helper()
 	serverConn, clientConn := net.Pipe()
 	server := newServer(nil, func(net.Conn) (Peer, error) { return Peer{Identity: "test"}, nil }, nil)

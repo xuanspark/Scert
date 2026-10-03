@@ -9,15 +9,16 @@ import (
 )
 
 type Client struct {
-	conn              net.Conn
-	reader            *bufio.Reader
-	nonce             string
-	methods           []Method
-	recoveryAvailable bool
-	stage             int
-	stop              func() bool
-	mu                sync.Mutex
-	once              sync.Once
+	conn                 net.Conn
+	reader               *bufio.Reader
+	nonce                string
+	methods              []Method
+	recoveryAvailable    bool
+	dispositionAvailable bool
+	stage                int
+	stop                 func() bool
+	mu                   sync.Mutex
+	once                 sync.Once
 }
 
 // Begin 只接受已通过 Dial 校验身份的连接；调用过程不会通过参数或文件传递密码。
@@ -37,13 +38,14 @@ func Begin(ctx context.Context, conn net.Conn) (*Client, error) {
 	client.stop = context.AfterFunc(ctx, func() { _ = conn.Close() })
 	var response Response
 	if err := readFrame(client.reader, &response); err != nil || !validChallenge(response) ||
-		len(response.Methods) == 0 || len(response.Methods) > 8 || response.RecoveryPage != nil || response.Inspection != nil || response.InspectionPart != nil {
+		len(response.Methods) == 0 || len(response.Methods) > 8 || response.RecoveryPage != nil || response.Inspection != nil || response.InspectionPart != nil || response.Preparation != nil || response.Disposition != nil || (response.DispositionAvailable && !response.RecoveryAvailable) {
 		_ = client.Close()
 		return nil, ErrProtocol
 	}
 	client.nonce = response.Nonce
 	client.methods = response.Methods
 	client.recoveryAvailable = response.RecoveryAvailable
+	client.dispositionAvailable = response.DispositionAvailable
 	return client, nil
 }
 
@@ -77,7 +79,7 @@ func (c *Client) exchange(request Request, stage int) error {
 		_ = c.Close()
 		return ErrProtocol
 	}
-	if response.RecoveryAvailable || response.RecoveryPage != nil || response.Inspection != nil || response.InspectionPart != nil {
+	if response.RecoveryAvailable || response.RecoveryPage != nil || response.Inspection != nil || response.InspectionPart != nil || hasDispositionPayload(response) {
 		c.stage = -1
 		_ = c.Close()
 		return ErrProtocol

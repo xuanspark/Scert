@@ -50,7 +50,7 @@ func writeRecoveryResponse(ctx context.Context, writer io.Writer, response Respo
 	if response.Inspection == nil {
 		return writeFrame(writer, response)
 	}
-	if !validInspectionPayload(response.Inspection) || response.InspectionPart != nil || response.RecoveryPage != nil {
+	if !validInspectionPayload(response.Inspection) || response.InspectionPart != nil || response.RecoveryPage != nil || hasDispositionPayload(response) {
 		return ErrProtocol
 	}
 	encoded, err := json.Marshal(response)
@@ -95,7 +95,7 @@ func readInspectionParts(reader *bufio.Reader, first Response) (*deployment.Reco
 			}
 		}
 		part := response.InspectionPart
-		if !validChallenge(response) || response.Nonce != first.Nonce || len(response.Methods) != 0 || response.RecoveryAvailable ||
+		if !validChallenge(response) || response.Nonce != first.Nonce || len(response.Methods) != 0 || response.RecoveryAvailable || hasDispositionPayload(response) ||
 			response.Inspection != nil || response.RecoveryPage != nil || part == nil || part.Index != index || part.Total != total ||
 			len(part.Data) == 0 || len(part.Data) > inspectionPartSize || (index < total-1 && len(part.Data) != inspectionPartSize) {
 			return nil, ErrProtocol

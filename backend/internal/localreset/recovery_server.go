@@ -25,6 +25,8 @@ func (s *Server) handleRecovery(ctx context.Context, conn net.Conn, reader *bufi
 		case "recovery_inspect":
 			inspection, readErr := session.InspectRecovery(ctx, request.TransactionID)
 			err, response.Inspection = readErr, &inspection
+		case "recovery_prepare", "recovery_execute", "recovery_result":
+			err = dispatchRecoveryDisposition(ctx, session, request, &response)
 		default:
 			err = ErrProtocol
 		}

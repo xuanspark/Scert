@@ -23,9 +23,15 @@ func validRecoveryRequest(request Request, nonce string) bool {
 	}
 	switch request.Action {
 	case "recovery_list":
-		return request.TransactionID == "" && (request.Cursor == "" || validRecoveryID(request.Cursor))
+		return request.TransactionID == "" && (request.Cursor == "" || validRecoveryID(request.Cursor)) && noDispositionRequest(request)
 	case "recovery_inspect":
-		return request.Cursor == "" && validRecoveryID(request.TransactionID)
+		return request.Cursor == "" && validRecoveryID(request.TransactionID) && noDispositionRequest(request)
+	case "recovery_prepare":
+		return request.Cursor == "" && validRecoveryID(request.TransactionID) && validRecoveryAction(request.RecoveryAction) && request.DispositionID == "" && request.ConfirmationToken == ""
+	case "recovery_execute":
+		return request.Cursor == "" && request.TransactionID == "" && request.RecoveryAction == "" && validRecoverySecret(request.DispositionID) && validRecoverySecret(request.ConfirmationToken)
+	case "recovery_result":
+		return request.Cursor == "" && request.TransactionID == "" && request.RecoveryAction == "" && validRecoverySecret(request.DispositionID) && request.ConfirmationToken == ""
 	}
 	return false
 }
@@ -71,17 +77,20 @@ func (c *Client) recoveryExchange(request Request) (Response, error) {
 	if !c.recoveryAvailable || (c.stage != 0 && c.stage != 3) {
 		return fail()
 	}
+	if request.Action != "recovery_list" && request.Action != "recovery_inspect" && !c.dispositionAvailable {
+		return fail()
+	}
 	request.Version, request.Nonce = Version, c.nonce
 	if !validRecoveryRequest(request, c.nonce) || writeFrame(c.conn, request) != nil {
 		return fail()
 	}
 	var response Response
 	if readFrame(c.reader, &response) != nil || !validChallenge(response) || response.Nonce == c.nonce ||
-		len(response.Methods) != 0 || response.RecoveryAvailable {
+		len(response.Methods) != 0 || response.RecoveryAvailable || response.DispositionAvailable {
 		return fail()
 	}
 	if request.Action == "recovery_list" {
-		if response.RecoveryPage == nil || response.Inspection != nil || response.InspectionPart != nil || len(response.RecoveryPage.Items) > deployment.RecoveryPageSize {
+		if response.RecoveryPage == nil || response.Inspection != nil || response.InspectionPart != nil || hasDispositionPayload(response) || len(response.RecoveryPage.Items) > deployment.RecoveryPageSize {
 			return fail()
 		}
 		previous := request.Cursor
@@ -95,7 +104,10 @@ func (c *Client) recoveryExchange(request Request) (Response, error) {
 			(len(response.RecoveryPage.Items) != deployment.RecoveryPageSize || cursor != previous) {
 			return fail()
 		}
-	} else {
+	} else if request.Action == "recovery_inspect" {
+		if hasDispositionPayload(response) {
+			return fail()
+		}
 		if response.InspectionPart != nil {
 			inspection, err := readInspectionParts(c.reader, response)
 			if err != nil {
@@ -106,6 +118,8 @@ func (c *Client) recoveryExchange(request Request) (Response, error) {
 		if !validInspectionPayload(response.Inspection) || response.RecoveryPage != nil || response.Inspection.TransactionID != request.TransactionID {
 			return fail()
 		}
+	} else if !c.dispositionAvailable || !validDispositionResponse(request, response) {
+		return fail()
 	}
 	c.nonce, c.stage = response.Nonce, 3
 	return response, nil

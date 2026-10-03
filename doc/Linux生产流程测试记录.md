@@ -1,5 +1,24 @@
 # Linux 生产流程测试记录
 
+## 2026年10月3日21:32 本机接入修复版回归
+
+- [x] 首轮任务 `scert-local-actions-20261003-2116.service` 已失败终止，`LOCAL_ACTIONS_RACE_EXIT=1`。分片测试夹具使用默认四 KiB 读取器导致过早失败；已改用协议最大帧大小的读取器，没有放宽生产协议。HTTP 全包竞态五分钟超时，堆栈位于既有 SQLite 迁移，不能记为通过。
+- [x] 修复版源码归档 SHA-256 为 `c767ae48b4518f5edeb8ce416d9180a9e12d18a284c6c03977b75be5a06580e7`，已核对本地与第一台一致。
+- [✓] `scert-local-actions-fixed-20261003-2125.service` 日志 `local-actions-fixed.log`：`LOCAL_ACTIONS_FIXED_RACE_EXIT=0`、`LOCAL_ACTIONS_FIXED_HTTP_EXIT=0`、`LOCAL_ACTIONS_FIXED_VET_EXIT=0`、`LOCAL_ACTIONS_FIXED_FULL_EXIT=0`。三包竞态通过，HTTP 本机专项约 61.428 秒，普通全量 HTTP 约 46.288 秒。
+- [~] 21:31 实查该单元仍为 active、MainPID 为 126858，最后一项 HTTP 全包竞态正在执行，不能以此时的 Result=success 宣布整组通过。
+- [x] Unix socket 用例使用实际会话与执行服务，但持久仓储及远端文件为测试实现；终端 socket 菜单为测试服务端，不扩大为实库、SSH 或生产证据。
+- [x] 21:28 第二台指纹匹配，根分区可用 26 GB、使用率 11%、inode 3%，五项服务 active，Nginx 配置通过；本轮无删除。21:31 第一台 Scert/Nginx active、可用约 9.4 GB，未重启业务或清理业务数据库。
+- [ ] 必要外部实库、正式 Linux 候选包及完整双机生产验收未完成。
+
+
+## 2026年10月3日21:00 最新执行器终态确认
+
+- [✓] 实查 `scert-executor-final-20261003-2052.service` 为 `inactive`、`MainPID=0`、`Result=success`。
+- [✓] 日志 `executor-final.log` 的部署竞态、SQLite 五场景、完整静态检查及后端全量四项退出码均为零；SQLite 竞态耗时 5.802 秒。
+- [x] 本批执行器代码已提交并推送 `bf4caeb`。
+- [~] 下一批本机协议和终端接入；本次是隔离自动回归，不是正式包、外部实库或第二台真实推送验收。
+
+
 ## 2026年10月3日20:52 一次性确认与执行器回归
 
 范围为第一台隔离源码目录 `/var/tmp/scert-local-recovery-20261003-1828`，不替代正式安装包；远端文件和 HTTPS 回调在本批 Go 测试中使用测试实现，SQLite 为真实临时数据库。线上业务数据库未清理、正式服务未升级。

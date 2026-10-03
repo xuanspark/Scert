@@ -36,6 +36,17 @@ type RecoveryReviewSummary struct {
 	ExpiresAt          time.Time      `json:"expires_at"`
 }
 
+// Validate 与服务端历史记录使用同一摘要边界，允许旧记录没有阶段，但不允许控制字符或超长字段。
+func (r RecoveryReviewSummary) Validate() error {
+	if !validInspectionID(r.TransactionID) || !validRecoverySummary(r.ServerID) ||
+		(r.Phase != "" && !validRecoverySummary(r.Phase)) || !validRecoveryAction(r.Action) ||
+		r.ObservedAt.IsZero() || !r.ExpiresAt.After(r.ObservedAt) || r.ExpiresAt.Sub(r.ObservedAt) > RecoveryReviewLifetime ||
+		(r.Action != RecoveryActionRecord && !r.HistoricalEvidence) {
+		return ErrRecoveryReviewInvalid
+	}
+	return nil
+}
+
 // RecoveryReview 只保存只读准备摘要和不可公开的绑定值，不保存凭据或原始恢复证据。
 // 它不是执行授权；调用者仍须取得持久化占用、验证动作条件并原子写入审计。
 type RecoveryReview struct {

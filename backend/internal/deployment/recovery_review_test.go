@@ -11,6 +11,38 @@ import (
 	"time"
 )
 
+func TestRecoveryReviewSummaryBoundary(t *testing.T) {
+	now := time.Now().UTC()
+	valid := RecoveryReviewSummary{TransactionID: "tx-1", ServerID: "历史服务器", Action: RecoveryActionRecord, ObservedAt: now, ExpiresAt: now.Add(time.Minute)}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid legacy summary rejected: %v", err)
+	}
+	for _, mode := range []string{"id", "server", "phase", "action", "evidence", "observed", "expired", "lifetime"} {
+		value := valid
+		switch mode {
+		case "id":
+			value.TransactionID = "../bad"
+		case "server":
+			value.ServerID = strings.Repeat("s", 161)
+		case "phase":
+			value.Phase = "phase\n"
+		case "action":
+			value.Action = "unknown"
+		case "evidence":
+			value.Action = RecoveryActionCommit
+		case "observed":
+			value.ObservedAt = time.Time{}
+		case "expired":
+			value.ExpiresAt = now
+		case "lifetime":
+			value.ExpiresAt = now.Add(time.Hour)
+		}
+		if value.Validate() == nil {
+			t.Fatalf("invalid summary accepted: %s", mode)
+		}
+	}
+}
+
 func TestRecoveryReviewReadOnlyBindings(t *testing.T) {
 	for _, action := range []RecoveryAction{RecoveryActionRecord, RecoveryActionCommit, RecoveryActionRollback} {
 		t.Run(string(action), func(t *testing.T) {
