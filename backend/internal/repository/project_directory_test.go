@@ -10,6 +10,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/testsupport/mysqltest"
+	"git.pcux.cn/xuans/Scert/backend/internal/testsupport/postgrestest"
 )
 
 func TestProjectDirectorySQLite(t *testing.T) {
@@ -20,6 +21,11 @@ func TestProjectDirectorySQLite(t *testing.T) {
 
 func TestProjectDirectoryMySQLReal(t *testing.T) {
 	server := mysqltest.New(t)
+	checkProjectDirectory(t, server.Database(t))
+}
+
+func TestProjectDirectoryPostgresReal(t *testing.T) {
+	server := postgrestest.New(t)
 	checkProjectDirectory(t, server.Database(t))
 }
 
@@ -34,7 +40,7 @@ func checkProjectDirectory(t *testing.T, cfg config.DatabaseConfig) {
 		t.Fatal(err)
 	}
 	for _, user := range []struct{ id, role string }{
-		{"root", "super_admin"}, {"manager", "user"}, {"global-admin", "admin"}, {"viewer", "user"},
+		{"root", "super_admin"}, {"manager", "user"}, {"global-admin", "admin"}, {"viewer", "user"}, {"dns-admin", "user"},
 	} {
 		if _, err := db.DB.ExecContext(t.Context(), Rebind(cfg.Driver, `INSERT INTO users (id, username, password_hash, role, status)
 			VALUES (?, ?, 'test-only-no-login', ?, 'active')`), user.id, user.id, user.role); err != nil {
@@ -57,13 +63,16 @@ func checkProjectDirectory(t *testing.T, cfg config.DatabaseConfig) {
 	if err := repo.GrantProjectRole(t.Context(), "root", "visible-00", "viewer", domain.ProjectRoleReadOnly); err != nil {
 		t.Fatal(err)
 	}
+	if err := repo.GrantProjectRole(t.Context(), "root", "visible-00", "dns-admin", domain.ProjectRoleDNSAdmin); err != nil {
+		t.Fatal(err)
+	}
 	t.Run("visible_roles_and_empty_directory", func(t *testing.T) {
 		for _, tc := range []struct {
 			actor  string
 			count  int
 			manage bool
 		}{
-			{"root", 13, true}, {"manager", 12, true}, {"viewer", 1, false}, {"global-admin", 0, false},
+			{"root", 13, true}, {"manager", 12, true}, {"viewer", 1, false}, {"global-admin", 0, false}, {"dns-admin", 1, false},
 		} {
 			page, err := repo.ListVisibleProjects(t.Context(), tc.actor, "", 30)
 			if err != nil || page.Items == nil || len(page.Items) != tc.count || page.HasMore || page.NextCursor != "" {
@@ -73,6 +82,9 @@ func checkProjectDirectory(t *testing.T, cfg config.DatabaseConfig) {
 				t.Fatalf("空目录也必须返回正确创建能力：%s，%+v", tc.actor, page)
 			}
 			for _, item := range page.Items {
+				if item.CanManageDNS != (tc.manage || tc.actor == "dns-admin") {
+					t.Fatalf("DNS 管理能力错误：%s，%+v", tc.actor, item)
+				}
 				if item.CanManageProject != tc.manage || item.CanDeleteProject != (tc.manage && item.ID != domain.DefaultProjectID) {
 					t.Fatalf("生命周期能力错误：%s，%+v，%+v", tc.actor, page, item)
 				}
@@ -122,7 +134,7 @@ func checkProjectDirectory(t *testing.T, cfg config.DatabaseConfig) {
 			t.Fatal(err)
 		}
 		page, err := repo.ListVisibleProjects(t.Context(), "manager", "", 5)
-		if err != nil || len(page.Items) == 0 || page.Items[0].CanManageMembers || page.Items[0].CanManageProject || page.Items[0].CanDeleteProject || page.CanCreateProject {
+		if err != nil || len(page.Items) == 0 || page.Items[0].CanManageMembers || page.Items[0].CanManageProject || page.Items[0].CanManageDNS || page.Items[0].CanDeleteProject || page.CanCreateProject {
 			t.Fatalf("撤销管理角色未生效：%+v，%v", page, err)
 		}
 		if err := repo.RevokeProjectRole(t.Context(), "root", "visible-00", "manager", domain.ProjectRoleReadOnly); err != nil {
