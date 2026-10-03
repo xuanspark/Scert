@@ -1059,7 +1059,9 @@ export function useDashboard() {
         fetchAdmin("/api/v1/tasks?limit=20"),
         fetchAdmin("/api/v1/audit-logs?limit=20"),
         session.role === "super_admin" ? fetchAdmin("/api/v1/settings") : Promise.resolve(null),
-        fetchAdmin("/api/v1/dns/providers"),
+        ["super_admin", "admin"].includes(session.role)
+          ? fetchAdmin("/api/v1/dns/providers")
+          : Promise.resolve(null),
       ]);
       if (version !== loadDataVersion) return;
       const failedResponse = [
@@ -1083,7 +1085,7 @@ export function useDashboard() {
         taskResponse.json(),
         auditResponse.json(),
         settingsResponse ? settingsResponse.json() : Promise.resolve(null),
-        dnsProviderResponse.json(),
+        dnsProviderResponse ? dnsProviderResponse.json() : Promise.resolve({ items: [] }),
       ]);
       if (version !== loadDataVersion) return;
       status.value = nextStatus;

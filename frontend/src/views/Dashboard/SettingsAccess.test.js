@@ -9,6 +9,9 @@ for (const role of ["admin", "user", "super_admin"]) {
     const { state } = await mountComposable(t, useDashboard, async (path) => {
       requests.push(path);
       if (path.endsWith("/auth/session")) return Response.json({ role });
+      if (path.endsWith("/dns/providers") && role === "user") {
+        return Response.json({ error: "没有管理权限" }, { status: 403 });
+      }
       if (path.endsWith("/settings")) {
         if (role !== "super_admin") return Response.json({ error: "无系统权限" }, { status: 403 });
         return Response.json({ notification: { smtp_username: "system-account" } });
@@ -17,6 +20,7 @@ for (const role of ["admin", "user", "super_admin"]) {
     });
     assert.equal(state.error.value, "");
     assert.equal(requests.includes("/api/v1/settings"), role === "super_admin");
+    assert.equal(requests.includes("/api/v1/dns/providers"), role !== "user");
     assert.equal(state.settings.value?.notification?.smtp_username || "", role === "super_admin" ? "system-account" : "");
   });
 }
