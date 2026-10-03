@@ -1,5 +1,24 @@
 # Linux 生产流程测试记录
 
+## 2026年10月4日02:03 DNS 隔离正式升级与全量环境修正
+
+本节时间为 UTC+8。沿用已确认任务，仅第一台执行主程序回归与升级，第二台不重复测试。发布源码为干净提交 `2513f935bc8c52622d79a3409a15051bc7d14c5c`；未对正式测试断言作任何修改。
+
+- [✓] 正式 Linux 构建完成，发布路径检查通过，清单 source_dirty=false、targets 仅 linux-amd64；本地逐项复核 manifest 摘要通过。
+- [✓] 密码 SSH 严格指纹校验上传，归档两端 SHA256 均为 `6a2d71493847ce4669c9a5a07a97e63c85d22b13a093cc35a91bb4d8bb7b5012`；第一台解压后 SHA256SUMS 全部通过。没有提前停服安装。
+- [!] 首批全量单元 `scert-dns-scope-full-20261004-0137.service` 已明确结束，Result=exit-code、ExecMainStatus=1。releasearchive 的源码忽略规则与换行测试依赖真实 Git 索引，普通源码归档不含该索引，两个用例失败；后续 vet 与竞态因串联条件未执行。不得将这批记为全量通过。
+- [✓] 使用同一提交的真实 Git bundle 修正测试输入，不伪造索引、不跳过测试。两端 bundle 摘要为 `09473e0c66c18b9f945b17adf1223520763fd2c89287c32210e2e9f6e2631b1d`；第一台由 nobody 克隆并明确 detached checkout 至该提交，工作树无修改。
+- [✓] 正式重跑单元 `scert-dns-scope-checkout-20261004-0149.service` 已结束，ActiveState=inactive、Result=success、ExecMainStatus=0。目录 `/var/tmp/scert-checkout-2513f93-20261004/backend`；依次执行全量、vet、DNS 项目权限专项竞态全部通过。releasearchive 为 1.272 秒，全量 HTTP API 为 48.209 秒，专项竞态为 15.057 秒；复核测试后工作树仍无修改。
+- [✓] 升级前只读核实业务活动任务、运行中恢复处置、恢复占用均为零；用户一条、域名三条、schema25。未清空业务数据库，也不将本次保留数据升级算作首次初始化验收。
+- [✓] 全量通过后再次确认活动任务、恢复处置与占用为零，停止 Scert、管理程序和目录服务，通过包内官方安装器升级第一台，再启动主服务和目录 socket；Nginx 未停服，第二台未操作。仅保留安装器自身事务目录 `/scert/.install-xEc9mZqU`，未额外备份或清理文件。
+- [✓] 实际运行 PID 为 163546，`/proc/163546/exe` 指向 `/scert/scert`，运行文件及落盘主程序 SHA256 均为 `c5c5ffaeba079a7e784d472f4654df88434ff988d2869bf28bcc4fbd6a78ce42`；管理程序摘要为 `f5140cec45082b69af3b335b64006ea3d6adfaaf5fbadbd01f83cd93019ce866`，与发布清单一致。Scert active/running、NRestarts=0，管理重置服务 inactive。
+- [✓] 回环严格 TLS 的 `/readyz` 返回 ready、HTTP 200、TLS 校验零；第一台 Nginx 回环 HTTPS 前端返回 200，首页引用本次新资源，实际获取的 JS 摘要为 `0e4a136a684cc434ddf7e01407d70bd6edfed9532f1068998149803e8a6f11a1`，与发布文件一致。Scert 仅监听 127.0.0.1:8443，MySQL 仅回环，公网项目入口仍仅 Nginx 80/443。
+- [✓] 已部署正式 DNS 列表匿名返回 401，包含 private, no-store 和 Vary: Cookie；通过正式密码登录获得 super_admin/complete，列表返回一条 default 项目、已分配归属、可用凭据，伪造 actor_id/project_id 不改变真实范围，未返回凭据引用或密钥字段。正式退出返回 200，会话与密码变量已清除，未写入文件。
+- [✓] 升级后只读复核用户一条、域名三条、schema25，活动任务及恢复占用均零。项目角色、跨项目拒绝、实时撤权及数据库失败来自正式 Linux 隔离测试，不冒充生产实例上的全角色操作矩阵；当前实机仅复核匿名及超级管理员正式路由。其他设置元数据通道尚未由本批全面审完。
+- [!] `odacm.cn` 已在浏览器正常域名打开登录页，但第一台解析仍指第二台；不在该页配置第一台发信。HTTP-01、多 DNS 账户完整生命周期、委派管理、系统通知授权与三数据库首次 Web 仍未完成。
+
+以上时间按第一台输出的 UTC+8 记录，02:00 对应 HTTP 日期头的 2026-10-03 18:00 GMT。回环固定名称仅为内部升级诊断，不算第一台公共域名或浏览器生产验收；本批保留数据升级也不算清库首次流程。
+
 ## 2026年10月4日01:35 DNS 账户项目隔离红绿测试
 
 修改前中文检查点 `e060205` 已推送。旧源码基线的 DNS 账户实现摘要为 `9bcb1dbe1ca60dc0dfcbd8dfecbb1ceead1dfe92d54bc501f5c2432e0bcdf585`，本机与第一台既有隔离源码一致。新测试使用正式 Go 用例，不创建辅助验收脚本、不修改生产配置或数据库，不使用第二台。
