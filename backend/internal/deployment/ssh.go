@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -213,6 +214,8 @@ type sshClientAdapter struct {
 	ssh          *ssh.Client
 	sftp         *sftp.Client
 	disconnected atomic.Bool
+	closeOnce    sync.Once
+	closeErr     error
 }
 
 // sshOperation 取消时关闭传输并等待操作退出，避免回滚与仍在写入的操作并行。
@@ -450,18 +453,24 @@ func (c *sshClientAdapter) runCommand(command []string) (CommandResult, error) {
 }
 
 func (c *sshClientAdapter) Close() error {
-	var first error
-	// 先关闭传输，避免无响应的 SFTP 服务阻塞关闭过程。
-	if c.ssh != nil {
-		c.disconnected.Store(true)
-		first = c.ssh.Close()
-	}
-	if c.sftp != nil {
-		if err := c.sftp.Close(); err != nil && first == nil {
-			first = err
+	c.closeOnce.Do(func() {
+		wasDisconnected := c.disconnected.Swap(true)
+		// 先关闭传输，避免无响应的 SFTP 服务阻塞关闭过程。
+		if c.ssh != nil {
+			c.closeErr = c.ssh.Close()
 		}
-	}
-	return first
+		if c.sftp != nil {
+			if err := c.sftp.Close(); err != nil && c.closeErr == nil {
+				// 正常主动关闭传输后，SFTP 收尾可能返回 EOF 或连接已关闭。
+				// 仅消除本次主动关闭的预期错误，保留既有断连及其他关闭失败。
+				if c.ssh != nil && !wasDisconnected && (errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed)) {
+					return
+				}
+				c.closeErr = err
+			}
+		}
+	})
+	return c.closeErr
 }
 
 func validateCommand(command []string) error {
