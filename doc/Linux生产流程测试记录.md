@@ -1,5 +1,14 @@
 # Linux 生产流程测试记录
 
+## 2026年10月4日 真实 lego 客户端隔离协议回归
+
+- [✓] 新增 `lego_http_protocol_test.go`、`lego_protocol_fixture_test.go` 正式 Go 用例，调用产品真实 LegoIssuer 和真实 HTTP 挑战服务。仅通过已有 HTTPClient 注入把 ACME 目录限制在回环 TLS CA；信任测试 CA，不跳过 TLS，禁止访问外部 ACME 地址。
+- [✓] 隔离 CA 校验一次性 nonce、受保护 URL、ES256 请求签名、账户标识、申请域名、每个挑战的公钥指纹绑定、CSR 签名和 SAN；按实际 CSR 动态签发临时证书，再由产品验证私钥匹配和测试根信任链。
+- [✓] 单域名、SAN、CA 拒绝和挑战期间取消四场景通过；失败不提交 CSR 或下载证书。每个场景都在测试主动关闭租约之前核对挑战已返回 404。
+- [✓] 第一台 `scert-http01-protocol-20261004-0325.service` 已 inactive、Result=success、ExecMainStatus=0；普通专项 0.686 秒，五轮专项竞态 4.614 秒。日志 `/var/tmp/scert-http01-nginx-20261004/lego-protocol.log`。
+- [✓] `scert-http01-protocol-package-20261004-0324.service` 已 inactive、success、退出码 0；证书包全量 6.328 秒，随后 vet 通过。日志同目录 `lego-protocol-package.log`。测试使用 `9c26db0` 工作树加上述两个用例，生产实现未改。
+- [!] 这不是公共 CA 签发、所有 ACME 协议异常一致性、真实公网 Nginx 与 CA 联合验收或三库首次 Web。没有操作第二台、线上数据库、DNS 或正式证书。
+
 ## 2026年10月4日03:14 HTTP 验证回归与第一台正式升级
 
 时间按运行环境 UTC+8。本轮接续重新读取第一台执行单元终态、下列日志与运行摘要，没有重复执行已成功的测试。第二台未操作；没有新增辅助验收脚本、备份或清空业务数据。

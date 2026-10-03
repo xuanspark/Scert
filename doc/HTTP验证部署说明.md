@@ -31,4 +31,4 @@
 
 第一台实际文件为 `/etc/nginx/conf.d/scert-odacm.conf` 和 `/etc/nginx/snippets/scert-http-challenge.conf`；仅接入管理域名对应 server，不表示其他托管域名已配置。Nginx reload 后最初请求曾由旧 worker 返回 301，随后重复检查已按新配置返回 404，原观察不隐藏。
 
-正常公共 DNS 仍指第二台，尚未切换。内部定向请求、独立 Nginx 及迁移专项都不能替代真实 ACME 协议、公网签发和三库首次 Web 验收；这些仍待完成，不关闭 P1-03 或整体验收。
+正常公共 DNS 仍指第二台，尚未切换。真实 lego 客户端已在隔离 CA 完成单域名、SAN、拒绝及取消的协议回归和五轮竞态，验证注册签名、账户绑定挑战、CSR 与证书链，不替换签发器。隔离 CA 不是公共 CA，测试目录的传输重定向不属于公共 DNS 证据；公网签发和三库首次 Web 仍待完成，不关闭 P1-03 或整体验收。
