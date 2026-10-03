@@ -1,5 +1,39 @@
 # Linux 生产流程测试记录
 
+## 2026年10月4日00:24 正式升级与独立重新核查成功
+
+本批为保留生产数据的升级和恢复验证，不是清库首次 Web 验收。所有时间为 UTC+8，口令及授权信息不进入记录。
+
+### 源码测试最终结果
+
+- [✓] `RECONCILIATION_LATEST_EXIT=0`、`RECONCILIATION_RACE_EXIT=0`：五包专项及竞态通过。
+- [✓] `RECONCILIATION_FULL_EXIT=0`、`RECONCILIATION_VET_EXIT=0`：后端全量及静态检查通过，日志位于 `/var/tmp/scert-local-recovery-20261003-1828/`。随后仅修正测试快照比较和补充包内说明，没有再改产品实现。
+- [✓] 首批实库迁移专项通过，但整批退出码为一：测试直接比较内存时间与数据库落盘时间，受 MySQL/PostgreSQL 时间精度影响而误报历史改变。改为先读取持久化快照，再对比前后快照；保留完整历史不变断言。
+- [✓] 独立最终目录 `/var/tmp/scert-reconciliation-final-20261004/` 下 `external-rerun.log` 复跑通过，`RECONCILIATION_FINAL_EXTERNAL_RERUN_EXIT=0`；包含两个实库执行器、两方向核查、审计失败、连接池重开和 SQLite 危险场景拒绝。该目录首次执行因 nobody 无法遍历目录失败，调整隔离目录归属后才复跑成功；没有放宽生产权限。
+- [✓] `FINAL_REPOSITORY_RACE_EXIT=0`、`FINAL_REPOSITORY_VET_EXIT=0`；前端测试 275 项通过、零失败、零跳过。
+
+### 正式包与升级
+
+- [✓] 发布源 `e00a757d2257569920ec1c56d5da55ba4968023d`，manifest 的 `source_dirty=false`；Linux 构建及发布路径检查退出码零。
+- 包：`Scert-20261004-V0.1.0-linux-amd64.tar.gz`；SHA256：`0273e2b8e7b9fabcc026e9fba3fe618afc22152f651595feaf92ef78e1edcfd8`。
+- 程序 SHA256：`530f4610ae0f48cbfd1d408f459f4f9b2d747595bbec0352f0da8adaa00765d1`；管理终端 SHA256：`4f1fe048adbb0162dc71eebd6d31fccbb28e55aa18f50108b178c35b98360b3a`。
+- [✓] 密码 SCP 上传第一台 `/var/tmp/scert-release-e00a757-20261004/`，包摘要及全部 SHA256SUMS 校验通过；仅停止 Scert 相关服务和目录 socket，使用官方安装器升级，未停止共享 Nginx。
+- [✓] 00:21 核实正式程序摘要匹配，schema25，Scert 与目录 socket active，回环严格 TLS `/readyz` 返回 ready；Scert 仍为 `127.0.0.1:8443`，管理公网仍由 Nginx 80/443 接入。此回环验证不算公共 DNS/入口验收。
+- 安装器自动保留升级前发布文件以支持失败回退；没有另行制作远端数据备份。
+
+### 正式本机入口及持久化结果
+
+- 原处置：`bc4099fd53c10ce0ae643ae2a89c2597fa48ed7ea6d6661fe4126f7f310b7007`；升级后仍为 uncertain 且占用保留，未被启动过程自动收尾。
+- 在密码 SSH 前台执行 `systemctl start Scert-admin`，选择菜单五并完整确认，产生新核查 `798e7235b4491c6ca6fc4e49b2e03f98a68ece86fd40a836df451a0931477d1f`。
+- [✓] 正式终端返回成功；重新启动终端使用菜单四按新编号查询仍成功。新动作为 verify_commit，状态 succeeded，结果 committed，关联原处置。
+- [✓] 00:23 只读 SQL 核实原事务 `20261003-150034.784155038-30bcd090470c` 的 phase/status 均 committed，recovery_claims 为零；原处置仍 uncertain，原 started/finished 审计保留，新 started/finished 审计完整。
+- [✓] 第二台 `https://scert-multi-20260930.apmmk.cn/` 正常 DNS 严格 HTTPS 返回 200；本次核查不重放远端文件操作或服务重载。
+- [!] 事务 `20261003-142919.192475924-417b9bcc5b09`、`20261003-142924.300953335-fac63bc92b1f` 仍为 recovery_required，没有可信旧基线，不删除锁、不补造证据。
+
+### 未完成门禁
+
+人工回滚成功、执行中断连查询、不同版本证书回滚、三数据库首次 Web、系统邮件与重置、DNS/ACME 完整矩阵及第一台公网入口仍未全部通过。本批未重新验证公网备案拦截及系统通知授权，二者按既有阻塞保留，不宣称本批已复核。
+
 ## 2026年10月3日23:58 重新核查源码验证
 
 第一台隔离源码目录：`/var/tmp/scert-local-recovery-20261003-1828/backend`；使用 nobody 和原生 Go 1.26.6，不替换运行中的正式服务。
