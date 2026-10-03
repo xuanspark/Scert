@@ -50,10 +50,11 @@ type mysqlDeploymentColumn struct {
 }
 
 type mysqlDeploymentShape struct {
-	Table     string
-	Collation string
-	Columns   []mysqlDeploymentColumn
-	Indexes   []string
+	Table            string
+	Collation        string
+	Columns          []mysqlDeploymentColumn
+	Indexes          []string
+	ColumnCollations map[string]string
 }
 
 var (
@@ -151,7 +152,11 @@ func validateMySQLDeploymentShape(ctx context.Context, db *sql.DB, expected mysq
 		}
 		column.Default = strings.TrimSuffix(strings.ToLower(defaultValue.String), "()")
 		column.HasDefault = defaultValue.Valid
-		if columnCollation.Valid && columnCollation.String != tableCollation {
+		expectedColumnCollation := tableCollation
+		if override := expected.ColumnCollations[column.Name]; override != "" {
+			expectedColumnCollation = override
+		}
+		if columnCollation.Valid && columnCollation.String != expectedColumnCollation {
 			rows.Close()
 			return fmt.Errorf("部署迁移表字段排序规则不匹配：%s.%s", expected.Table, column.Name)
 		}

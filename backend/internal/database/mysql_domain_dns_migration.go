@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -16,7 +17,12 @@ func applyMySQLDomainDNSMigration(ctx context.Context, db *sql.DB, version int, 
 	if err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, strings.Replace(statements[0], "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)); err != nil {
+	create, collation, err := mysqlDomainDNSCreateStatement(ctx, db, statements[0])
+	if err != nil {
+		return err
+	}
+	shape.ColumnCollations = map[string]string{"domain_id": collation}
+	if _, err := db.ExecContext(ctx, strings.Replace(create, "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)); err != nil {
 		return err
 	}
 	if err := validateMySQLDeploymentShape(ctx, db, shape); err != nil {
@@ -63,6 +69,27 @@ func applyMySQLDomainDNSMigration(ctx context.Context, db *sql.DB, version int, 
 	}
 	_, err = db.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version)
 	return err
+}
+
+var mysqlCollationIdentifier = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+// 历史域名主键继承建库时的排序规则，不能假定它与后来的项目标识相同。
+// 仅让新外键列匹配父列；不修改父表、数据库默认值或已有冲突表。
+func mysqlDomainDNSCreateStatement(ctx context.Context, db *sql.DB, statement string) (string, string, error) {
+	var columnType, charset, collation string
+	if err := db.QueryRowContext(ctx, `SELECT column_type, character_set_name, collation_name
+		FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'domains' AND column_name = 'id'`).Scan(&columnType, &charset, &collation); err != nil {
+		return "", "", err
+	}
+	if !strings.EqualFold(columnType, "varchar(36)") || !mysqlCollationIdentifier.MatchString(charset) || !mysqlCollationIdentifier.MatchString(collation) {
+		return "", "", fmt.Errorf("历史域名主键字符定义不受支持，拒绝修改现有结构")
+	}
+	const original = "domain_id VARCHAR(36) NOT NULL"
+	if strings.Count(statement, original) != 1 {
+		return "", "", fmt.Errorf("域名 DNS 绑定迁移主键定义不完整")
+	}
+	definition := "domain_id VARCHAR(36) CHARACTER SET " + charset + " COLLATE " + collation + " NOT NULL"
+	return strings.Replace(statement, original, definition, 1), collation, nil
 }
 
 func validateMySQLDomainDNSForeignKeys(ctx context.Context, db *sql.DB) (map[string]bool, error) {

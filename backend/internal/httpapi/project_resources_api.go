@@ -13,6 +13,8 @@ import (
 func (s *Server) registerProjectResourceRoutes() {
 	api := s.router.Group("/api/v1", privateProjectResponse, s.requireAuthenticated)
 	api.GET("/domains", s.listDomains)
+	api.GET("/domains/:id/dns-account", s.getDomainDNSAccount)
+	api.PUT("/domains/:id/dns-account", s.requireSameOrigin, s.setDomainDNSAccount)
 	api.GET("/dns/accounts", s.listDNSAccounts)
 	api.GET("/dns/accounts/:id", s.getManagedDNSAccount)
 	api.POST("/dns/accounts", s.requireSameOrigin, s.createManagedDNSAccount)

@@ -145,13 +145,24 @@ func checkDomainDNSConstraints(t *testing.T, db *sql.DB, driver string) {
 
 func TestMySQLDomainDNSAccountInterruptedMigration(t *testing.T) {
 	f := startRealMySQL(t)
-	for _, boundary := range []string{"before_create", "after_create", "after_index", "after_domain_fk", "after_account_fk", "with_binding", "bad_column", "bad_index", "bad_foreign_key", "extra_foreign_key"} {
+	for _, boundary := range []string{"before_create", "after_create", "after_index", "after_domain_fk", "after_account_fk", "with_binding", "changed_schema_default", "bad_column", "bad_column_collation", "bad_index", "bad_foreign_key", "extra_foreign_key"} {
 		t.Run(boundary, func(t *testing.T) {
 			db := f.database(t)
 			mysqlPrepareVersion(t, db.DB, 27)
 			statements := mysqlDeploymentStatements(t, 28)
+			if boundary == "changed_schema_default" {
+				var name string
+				if err := db.DB.QueryRowContext(t.Context(), `SELECT DATABASE()`).Scan(&name); err != nil || !mysqlCollationIdentifier.MatchString(name) {
+					t.Fatal("测试数据库标识无效", err)
+				}
+				mysqlDeploymentExec(t, db.DB, "ALTER DATABASE `"+name+"` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin")
+			}
+			create, _, err := mysqlDomainDNSCreateStatement(t.Context(), db.DB, statements[0])
+			if err != nil {
+				t.Fatal(err)
+			}
 			if boundary != "before_create" {
-				mysqlDeploymentExec(t, db.DB, statements[0])
+				mysqlDeploymentExec(t, db.DB, create)
 			}
 			if boundary == "after_index" || boundary == "after_domain_fk" || boundary == "after_account_fk" || boundary == "with_binding" {
 				mysqlDeploymentExec(t, db.DB, statements[1])
@@ -164,6 +175,8 @@ func TestMySQLDomainDNSAccountInterruptedMigration(t *testing.T) {
 			}
 			conflict := true
 			switch boundary {
+			case "bad_column_collation":
+				mysqlDeploymentExec(t, db.DB, `ALTER TABLE domain_dns_accounts MODIFY COLUMN domain_id VARCHAR(36) CHARACTER SET latin1 COLLATE latin1_bin NOT NULL`)
 			case "bad_column":
 				mysqlDeploymentExec(t, db.DB, `ALTER TABLE domain_dns_accounts MODIFY COLUMN id VARCHAR(36) NULL`)
 			case "bad_index":
