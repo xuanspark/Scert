@@ -2873,3 +2873,22 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [✓] 浏览器不强制 IP、不关闭证书校验，访问 `https://odacm.cn/readyz` 返回 `service=scert,status=ready`；Nginx SNI 证书为 `odacm.cn`，Let's Encrypt，有效期至 2026年12月31日。
 - [!] `/scert/conf/scert.json` 显示第一台 `smtp_enabled=false`，`smtp_host` 和 `smtp_username` 为空；不将此前第二台的邮件配置当作第一台证据。
 - [ ] 邮件、验证码、本机重置、新密码登录和正式证书推送仍未通过正式 Web 会话完成。
+
+## 2026年10月4日 22:55 接手加速复核实机记录
+
+### 当前证据
+
+- [✓] 第一台 `8.137.23.95` 通过已登记 SSH 主机身份完成只读核对：主机为 `ikun1`，`Scert.service`、`Scert-storage.socket`、Nginx、MySQL 均为 active。
+- [✓] 第一台配置非敏感状态核对为 `smtp_enabled=false`、`smtp_host` 为空、`smtp_username` 为空；未读取 SMTP 密码、秘密仓库或数据库凭据。
+- [✓] 第一台公共登录页仍可访问；使用现有候选账号进行的错误密码尝试返回“账号或密码错误”，未修改密码、会话、数据库或服务配置。
+- [✓] 前端 `npm.cmd test -- --run` 共 338 项通过，`npm.cmd run build` 生产构建通过；后端 `go test -count=1 ./...` 和 `go vet ./...` 通过。
+- [✓] 遗留第一台只读 SSH 会话已关闭，未留下后台交互会话。
+
+### 任务状态
+
+- [!] 第一台真实系统通知、验证码、本机密码重置和新密码登录受有效超级管理员 Web 会话及 SMTP 凭据阻塞；不能用第二台配置、健康检查或数据库直改替代。
+- [~] 第二台清理已完成，下一步仍需通过正式 Web/API 流程重新建立最小 SSL 推送目标。
+- [ ] 正式证书推送、Nginx `-t`/reload、受控失败回滚、恢复指纹、幂等重试。
+- [ ] 三数据库清库后首次 Web、DNS/ACME 正负向、公网 HTTPS/SNI 和最终生产复审。
+
+本节不宣称总体生产上线通过；Windows 环境不在本轮范围。
