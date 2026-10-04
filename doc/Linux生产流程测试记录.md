@@ -2936,3 +2936,31 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [ ] 真实系统发信、验证码、本机重置、新密码登录、正式 SSL 推送及最终生产复审。
 
 本节不记录任何通知凭据内容，不宣称第一台邮件或总体生产上线已通过。
+
+## 2026年10月4日 Linux 加速整改实测记录
+
+### 本地回归
+
+- [✓] `backend` 执行 `go test -count=1 ./...`，全量通过。
+- [✓] `backend` 执行 `go vet ./...`，通过。
+- [✓] `frontend` 执行 `npm.cmd test`，338 项通过、0 失败、0 跳过。
+- [✓] `frontend` 执行 `npm.cmd run build`，Vite 生产构建通过。
+
+### 第二台 `45.136.13.241`
+
+- [✓] 通过已核对主机身份的 root SSH 会话复核：`/scert`、`/etc/scert-nginx`、`/usr/local/libexec/scert-nginx`、`/var/lib/scert-nginx` 和 `/ssl/scert` 均不存在；空的 `/ssl/scert` 已按本轮清理授权移除。
+- [✓] `/root`、`/tmp`、`/var/tmp`、`/opt`、`/srv`、`/etc`、`/usr/local` 限定范围未发现本项目部署包、解包目录或归档；Scert 进程、systemd 单元和 `8443/8080/9000` 监听均不存在。
+- [✓] 删除两个项目专用 SSH 测试配置后 `sshd -t` 通过；没有重载 SSH。
+- [✓] `nginx -t` 通过；PMail、共享 MySQL、现有 Nginx 和业务证书未修改。
+- [✓] `/ssl/acceptance-0928.odacm.cn/single/` 下 3 个受保护 `.scert-lock` 目录及其 `owner` 文件仍存在，本轮未删除、改名或改写。
+
+### 第一台 `8.137.23.95`
+
+- [✓] `Scert.service`、`Scert-storage.socket`、Nginx、MySQL active；Scert 仅监听 `127.0.0.1:8443`，MySQL 仅监听回环地址。
+- [!] 通过 `systemctl start Scert-admin` 进入正式本机管理菜单并选择密码重置后，服务报告“本机重置请求无效或已失效”；只读配置核对为 `smtp_enabled=false`、SMTP 主机和用户名为空。
+- [!] 浏览器登录仍返回“账号或密码错误”；没有修改登录凭据，密码框已清空。
+- [ ] 第一台正式 SMTP 配置、真实系统通知、验证码、本机重置和新密码登录。
+
+### 本节结论
+
+本轮 Linux 源码、前端和生产构建检查通过，第二台已清理项目部署痕迹且保留受保护恢复锁；第一台通知配置和正式管理会话仍未完成，不能宣称总体生产上线通过。Windows 环境不在本轮范围。
