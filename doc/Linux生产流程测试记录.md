@@ -2821,3 +2821,21 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [✓] 第一台 `/scert/scert` 主程序 SHA-256 与本地 `production-candidate-20261004-f5c425f` 包内文件一致。
 - [✓] `Scert-admin` 前台菜单执行只读事务核查，未提交人工处置；两条历史事务仍保留需要恢复状态及锁现场。
 - [!] 未执行自动接管、删锁、数据库终态改写或绕过 SMTP 的密码重置。
+
+## 2026年10月4日 第二台项目现场清理实机记录
+
+### 清理范围
+
+- 目标主机：第二台 `45.136.13.241`，通过已登记主机身份完成 root SSH 操作。
+- 移除内容：`/scert` 项目安装目录、Scert/`scert-nginx` systemd 单元、项目辅助程序、项目专用 Nginx 测试配置、项目证书版本和事务现场。
+- 保留内容：PMail、共享 MySQL、Nginx、`/ssl/vcer.cn` 业务证书；重建空的 `/ssl/scert` 目录作为后续 SSL 推送目标。
+- 未执行：数据库服务清库、PMail 数据修改、共享 MySQL 删除、非项目 Nginx 配置删除、第二台重新安装 Scert。
+
+### 清理后证据
+
+- `/scert`、`/etc/scert-nginx`、`/usr/local/libexec/scert-nginx`、`/var/lib/scert-nginx` 均不存在；Scert 相关 systemd 单元和进程均不存在。
+- `/tmp`、`/var/tmp`、`/root`、`/home`、`/opt`、`/ssl` 范围未发现 `Scert-*.tar.gz`、`production-candidate*`、`.install-*`、`.restore-from-*` 或发布解包目录。
+- `nginx -t` 通过并已 reload；Nginx、PMail、MySQL 均为 active。
+- 无 `8443` 监听；MySQL `3306`、`33060` 仍只监听 `127.0.0.1`；`/ssl/vcer.cn` 文件保持存在，`/ssl/scert` 为空。
+
+本节证明的是第二台项目现场清理完成，不证明正式 SSL 推送、失败回滚、恢复指纹、幂等重试或总体生产上线已通过。

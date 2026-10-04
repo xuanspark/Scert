@@ -3379,3 +3379,13 @@ P0-11 生产验收门禁
 - [✓] 第一台 `/scert/scert` 实际运行文件 SHA-256 与本地 `production-candidate-20261004-f5c425f` 包内主程序一致；确认当前运行的是已记录的 Linux 候选包。
 - [✓] 第一台前台 `Scert-admin` 菜单完成只读事务核查；两条历史事务仍为需要恢复，锁与现场保持不变，未删除锁、未改写终态。
 - [!] 真实 SMTP、验证码送达、本机重置和正式证书推送仍需有效管理会话；不使用 SSH 密码、历史页面状态或数据库直改替代正式流程。
+
+## 2026年10月4日 第二台项目现场清理
+
+- [✓] 已通过登记主机指纹登录第二台 `45.136.13.241`，确认主机地址和目标路径后执行定向清理。
+- [✓] 已移除第二台 Scert 安装目录、Scert systemd 单元、Nginx 激活辅助程序及项目证书测试数据；未保留本项目部署包、解包目录或安装事务文件。
+- [✓] 已清理项目专用 Nginx 测试配置和测试证书目录；保留 PMail、共享 MySQL、Nginx、`/ssl/vcer.cn` 及空的 `/ssl/scert` SSL 推送目标。
+- [✓] 清理后 `nginx -t` 和 Nginx reload 通过，Nginx、PMail、MySQL 均为 active；无 Scert 进程，无 `8443` 监听，MySQL 仍仅监听回环地址。
+- [✓] 在 `/tmp`、`/var/tmp`、`/root`、`/home`、`/opt`、`/ssl` 范围复核，未发现 `Scert-*.tar.gz`、`production-candidate*`、`.install-*` 或 `.restore-from-*` 残留。
+
+本节只记录第二台现场清理，不代表正式 SSL 推送、失败回滚、恢复指纹或总体生产验收已经通过；后续正式推送测试必须以干净的第二台 Nginx/SSL 目标重新执行。
