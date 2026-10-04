@@ -221,9 +221,8 @@ foreach ($directory in @($data, $configDirectory, $databaseDirectory, $logDirect
 Set-DirectoryAcl -Path $docsDirectory -Mode read
 
 $configurationPath = Join-Path $configDirectory "scert.json"
-$resetCodePath = Join-Path $runtimeDirectory "reset-code"
 $mainBinaryPath = '"{0}" --config "{1}" serve' -f $installedScert, $configurationPath
-$adminBinaryPath = '"{0}" --config "{1}" --code-output "{2}"' -f $installedAdmin, $configurationPath, $resetCodePath
+$adminBinaryPath = '"{0}"' -f $installedAdmin
 
 Install-OrUpdateService `
     -Name $ServiceName `
@@ -235,7 +234,7 @@ Install-OrUpdateService `
 Install-OrUpdateService `
     -Name $AdminServiceName `
     -DisplayName "Scert-admin 临时密码重置服务" `
-    -Description "仅在管理员手动启动时临时激活 Scert 密码重置入口" `
+    -Description "仅在管理员手动启动时打开本机受保护管理终端" `
     -BinaryPath $adminBinaryPath `
     -StartMode demand
 
@@ -254,7 +253,7 @@ $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $metadataPath -En
 
 Write-Host "Scert Windows 文件安装和服务注册完成。"
 Write-Host "核心程序：$installedScert"
-Write-Host "密码重置程序：$installedAdmin"
+Write-Host "本机管理程序：$installedAdmin"
 Write-Host "配置目录：$configDirectory"
 Write-Host "数据目录：$databaseDirectory"
 Write-Host "日志目录：$logDirectory"
@@ -262,5 +261,5 @@ Write-Host "备份目录：$backupDirectory"
 Write-Host "证书目录：$certificate"
 Write-Host "安装记录：$metadataPath"
 Write-Host "Scert 主服务已注册为自动启动，但本安装器没有启动或重启服务。"
-Write-Host "Scert-admin 已注册为手动启动，本安装器不会启动它，也不会创建公网防火墙规则。"
+Write-Host "Scert-admin 已注册为手动启动，仅通过提升权限的本机终端运行；本安装器不会启动它，也不会创建公网防火墙规则。"
 Write-Host "首次初始化时请使用配置文件路径：$configurationPath"
