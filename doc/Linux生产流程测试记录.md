@@ -2777,3 +2777,11 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - 第一台 `/scert/conf/scert.json` 的非敏感通知状态为 `smtp_enabled=false`，`smtp_host` 和 `smtp_username` 均为空。
 - 第一台执行 `openssl s_client -starttls smtp -connect smtp.cdis.cn:587 -servername smtp.cdis.cn`，TLS 1.3 握手成功，服务端证书校验为 OK；未执行 AUTH，不能据此宣称真实邮件通过。
 - 结论：之前浏览器页面显示的配置命中第二台 `nginx/1.18.0`，第一台 `nginx/1.30.5` 尚未保存 SMTP 配置。整体邮件门禁仍未关闭。
+
+## 2026年10月4日 第二台部署包清理实机记录
+
+- 通过已登记主机指纹和密码 SSH 登录第二台 `45.136.13.241`，先确认无安装器、解包或发布进程运行。
+- 删除本轮残留事务目录 `/scert/.install-VSIoJ4Cj`，随后在 `/scert`、`/var/tmp`、`/tmp` 限定范围内复核，未发现 `Scert-20261004` 候选归档、`production-candidate` 解包目录、`.install-*` 或 `.restore-from-*` 残留。
+- `/scert/data/scert.db`、`/scert/backups`、`/ssl/scert`、`/etc/nginx` 均仍存在；本次清理没有删除业务数据库、证书、备份或 Nginx 配置。
+- 清理前后 Nginx 配置语法检查通过；Nginx 和 `Scert-storage.socket` 保持 active。旧版 `Scert.service` 仍因数据库版本 22 高于程序支持的版本 21 而失败。
+- 结论：本次仅完成部署包和事务残留清理，未完成 SSL 推送验收，也未改变第二台仅作为推送目标的边界。
