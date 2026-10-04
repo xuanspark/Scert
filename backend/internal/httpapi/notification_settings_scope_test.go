@@ -35,6 +35,7 @@ const notificationScopeBody = `{"notification":{"smtp_enabled":true,"smtp_host":
 func TestNotificationSettingsOnlySuperAdminCanConfigure(t *testing.T) {
 	f := newProjectMemberAPIFixture(t)
 	f.server.config.Web.Hostname = "scert.example.test"
+	f.server.config.DNS.VerificationState = "verified"
 	f.server.configPath = filepath.Join(t.TempDir(), "scert.json")
 	if err := f.server.config.Save(f.server.configPath); err != nil {
 		t.Fatal(err)
@@ -48,10 +49,14 @@ func TestNotificationSettingsOnlySuperAdminCanConfigure(t *testing.T) {
 	f.server.secrets = secrets
 	for _, actor := range []string{"", "global-admin", "manager", "viewer", "target"} {
 		t.Run(actor, func(t *testing.T) {
+			read := serveUserRequest(f.server, f.cookies[actor], http.MethodGet, "/api/v1/settings", "")
 			response := serveUserRequest(f.server, f.cookies[actor], http.MethodPut, "/api/v1/settings", notificationScopeBody)
 			want := http.StatusForbidden
 			if actor == "" {
 				want = http.StatusUnauthorized
+			}
+			if read.Code != want || read.Header().Get("Cache-Control") != "private, no-store" || read.Header().Get("Vary") != "Cookie" {
+				t.Fatalf("通知配置读权限或缓存隔离错误：%s，状态 %d", actor, read.Code)
 			}
 			if response.Code != want || response.Header().Get("Cache-Control") != "private, no-store" || response.Header().Get("Vary") != "Cookie" {
 				t.Fatalf("通知配置写权限或缓存隔离错误：%s，状态 %d", actor, response.Code)
@@ -79,7 +84,7 @@ func TestNotificationSettingsOnlySuperAdminCanConfigure(t *testing.T) {
 	if secrets.puts != 1 || saved.Notification.SMTPCredentialRef == "" {
 		t.Fatal("通知密码没有独立保存到秘密仓库")
 	}
-	for _, method := range []string{http.MethodGet, http.MethodPut} {
+	for _, method := range []string{http.MethodPut, http.MethodGet} {
 		if method == http.MethodGet {
 			response = serveUserRequest(f.server, f.cookies["primary-super-admin"], method, "/api/v1/settings", "")
 		}
