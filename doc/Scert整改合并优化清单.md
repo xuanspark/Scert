@@ -3538,3 +3538,29 @@ Smail 已从历史 502 状态恢复，系统通知授权页面可用；当前唯
 - [ ] 完成第一台本机受保护重置、验证码、新密码登录和旧会话失效验证。
 - [ ] 完成第二台正式 SSL 推送、Nginx reload、失败回滚、恢复指纹和幂等重试。
 - [!] 总体 Linux 生产上线门禁继续未关闭。
+## 2026年10月4日 最新候选升级与 SMTP 网络复核
+
+本节依据当前提交、第一台 `8.137.23.95` 实机和 SMTP TLS 探测追加，之前的历史记录继续保留；范围仍限定为 Linux/Web，第二台 `45.136.13.241` 不安装本项目。
+
+### 任务状态
+
+- [✓] 当前代码提交 `9cd8ce3` 已完成 `gofmt`、`go test ./...`、`go vet ./...`、`git diff --check`，并已提交推送。
+- [✓] 已生成 Linux-only 候选包 `release/production-candidate-20261004-9cd8ce3/Scert-20261004-V0.1.0`；manifest 标记 `source_dirty=false`、`trimpath=true`、`local_path_check=passed`，归档 SHA-256 为 `e7ad6fd9308c832aeb92763885ef5130cef5b5977c25f628a3d821b094fd7b5e`。
+- [✓] 候选包已上传并按正式安装器部署到第一台；安装器先因运行服务 active 按门禁拒绝，停止 `Scert.service` 和 `Scert-storage.socket` 后按正式流程重试成功，未绕过安装器。
+- [✓] 第一台 `/scert/scert` 与候选包主程序摘要一致；`config validate`、`nginx -t`、`Scert.service`、`Scert-storage.socket` 及严格 HTTPS `/readyz` 复核通过。
+- [✓] SMTP 网络层已恢复：`smtp.cdis.cn` 解析为 `47.108.78.12`，587 STARTTLS 和 465 TLS 握手成功且证书校验通过；25 端口仍关闭。
+- [!] 第一台配置中的 `notification.smtp_credential_ref` 仍为空且 `smtp_enabled=false`；尚未进行认证发信、收件箱到达、验证码或密码重置，不得把 TLS 握手当作邮件送达。
+- [ ] 需要通过 Smail 正式授权流程取得正确 SMTP 凭据后，交互式录入第一台并完成真实通知投递。
+- [ ] 取得有效 Scert 管理会话后，继续第二台正式 SSL 推送、`nginx -t`、reload、受控失败回滚、恢复指纹和幂等重试。
+- [✓] 第二台清理结果保持通过；本轮未向第二台上传或安装本项目包。
+- [!] 总体生产上线门禁仍未关闭。
+
+### 当前执行顺序
+
+1. `[~]` 取得并交互式录入正确 SMTP 敏感凭据；敏感值不写入参数、环境变量、日志、文档或仓库。
+2. `[ ]` 只读核对 `config validate` 和凭据引用，发送真实系统通知并确认收件箱到达。
+3. `[ ]` 完成本机 `Scert-admin` 验证码、重置、新密码登录及旧会话失效。
+4. `[ ]` 在有效管理会话下执行第二台 SSL 推送及成功、失败、恢复、幂等矩阵。
+5. `[ ]` 完成三数据库清库后的首次 Web、重启登录持久化、DNS/ACME 和最终公共 HTTPS/SNI 复审。
+
+当前结论：第一台最新代码已完成 Linux 实机升级，SMTP 网络层已恢复，但认证凭据和有效管理会话仍是直接业务门禁；第二台继续保持不安装本项目。
