@@ -2892,3 +2892,31 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [ ] 三数据库清库后首次 Web、DNS/ACME 正负向、公网 HTTPS/SNI 和最终生产复审。
 
 本节不宣称总体生产上线通过；Windows 环境不在本轮范围。
+
+## 2026年10月4日 23:36 第一台候选升级及第二台清理复核实机记录
+
+### 第一台 `8.137.23.95`
+
+- 本地候选归档 `Scert-20261004-V0.1.0-linux-amd64.tar.gz` SHA-256 为 `40e3fcf4f7ca1140f5c93ac9efb2c89a8ac414142a0ed8d74925b59bfac8e882`；上传第一台后远端归档哈希一致，包内校验清单全部通过。
+- 第一次执行官方安装器因 `Scert-storage.socket` 仍为 active/listening 被安装器拒绝；随后仅停止 `Scert-storage.socket` 和其服务单元，第二次执行 `install-linux.sh --source-dir .` 成功。
+- 升级后服务状态：`Scert.service`、`Scert-storage.socket`、`nginx`、`mysql` 均为 active。
+- 升级后二进制摘要：`/scert/scert` 为 `366cefe24b785256871d1b0e3fe5f64c065dd2c3cddc1c40d4a25fa30c3dae93`；`/scert/scert-admin` 为 `242a497053d70581a9de2aff779d83f36b2e369425534b0a409ede057f4751d2`；`/scert/scert-storage` 为 `0aaef6f34110a986212c26ea421ea1464fc315076130e350dd2be145d52ced28`，均与候选包清单一致。
+- 严格域名 HTTPS `https://odacm.cn/readyz` 返回 `{"service":"scert","status":"ready"}`；Scert 仅监听 `127.0.0.1:8443`，MySQL 仅监听 `127.0.0.1:3306/33060`，公网监听仍为 Nginx `80/443`。
+- 本轮上传的 `/var/tmp/Scert-20261004-8c40a01-linux-amd64.tar.gz` 和 `/var/tmp/scert-linux-amd64-8c40a01` 已在核对后删除；`/scert` 下安装器历史 `.install-*` 回滚目录保留，未擅自删除。
+- 当前 `/scert/conf/scert.json` 的非敏感通知状态仍为 `notification.smtp_enabled=false`、SMTP 主机和用户名为空；未读取 SMTP 密码，真实发信与重置闭环仍未通过。
+
+### 第二台 `45.136.13.241`
+
+- 只读 SSH 复核主机为 `yc`；`/scert`、`/etc/scert-nginx`、`/usr/local/libexec/scert-nginx`、`/var/lib/scert-nginx` 均不存在。
+- `/ssl/scert` 为空；限定范围扫描 `/root`、`/tmp`、`/var/tmp`、`/opt`、`/srv`、`/etc`、`/usr/local` 未发现本项目归档、解包目录、安装临时目录或 `production-candidate*`。
+- Scert 服务、辅助 Socket、Scert 进程和 `8443`/`8080`/`9000` 均不存在；`nginx -t` 成功，Nginx、MySQL、PMail 保持运行，邮件端口和 MySQL 回环端口未改变。
+- `/ssl/acceptance-0928.odacm.cn/single/` 下 3 个 `.scert-lock` 恢复锁仍保留，按安全边界不删除、不改名、不伪造终态；它们不是部署包。
+
+### 当前门禁
+
+- [✓] 第一台当前候选升级、哈希、服务、监听和严格 HTTPS 就绪检查。
+- [✓] 第二台项目部署包清理和共享业务保护复核。
+- [!] 第一台 SMTP、真实系统发信、验证码、本机重置和新密码登录。
+- [ ] 正式 SSL 推送、Nginx 重载、受控失败回滚、恢复指纹、幂等重试、三数据库首次 Web、DNS/ACME 和最终生产复审。
+
+本节仅证明当前候选升级和清理复核证据，不宣称总体生产上线通过；Windows 环境不在本轮范围。
