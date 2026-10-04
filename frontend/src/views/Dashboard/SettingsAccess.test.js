@@ -3,6 +3,26 @@ import test from "node:test";
 import { useDashboard } from "./Dashboard.js";
 import { deferred, mountComposable } from "../../test-support/mount.js";
 
+for (const role of ["admin", "user"]) {
+  test(`邮件配置仅超管可用，禁止绕过入口提交：${role}`, async (t) => {
+    const writes = [];
+    const { state } = await mountComposable(t, useDashboard, async (path, init = {}) => {
+      if (init.method) writes.push({ path, ...init });
+      if (path.endsWith("/auth/session")) return Response.json({ role });
+      return Response.json({ items: [] });
+    });
+    state.settingsForm.value.notification.smtp_password = "stale-unsaved-secret";
+    state.showSettings.value = true;
+    state.openSettings();
+    assert.equal(state.showSettings.value, false);
+    assert.equal(state.settingsForm.value.notification.smtp_password, "");
+    assert.match(state.settingsError.value, /只有超级管理员/);
+    await state.saveSettings();
+    assert.deepEqual(writes, []);
+    assert.match(state.settingsError.value, /只有超级管理员/);
+  });
+}
+
 for (const role of ["admin", "user", "super_admin"]) {
   test(`工作台按实时会话加载系统设置：${role}`, async (t) => {
     const requests = [];

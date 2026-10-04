@@ -793,6 +793,12 @@ export function useDashboard() {
   function openSettings() {
     settingsError.value = "";
     dnsTestError.value = "";
+    if (!canManageSystemSettings.value) {
+      settingsForm.value = normalizeSettings(null);
+      showSettings.value = false;
+      settingsError.value = "只有超级管理员可以配置邮件通知和系统设置";
+      return;
+    }
     settingsForm.value = normalizeSettings(settings.value);
     showSettings.value = true;
   }
