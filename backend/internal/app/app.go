@@ -14,6 +14,7 @@ import (
 	"git.pcux.cn/xuans/Scert/backend/internal/database"
 	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 	"git.pcux.cn/xuans/Scert/backend/internal/dnsprovider"
+	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 	"git.pcux.cn/xuans/Scert/backend/internal/firewall"
 	"git.pcux.cn/xuans/Scert/backend/internal/httpapi"
 	"git.pcux.cn/xuans/Scert/backend/internal/httpchallenge"
@@ -103,6 +104,25 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 			_ = db.Close()
 			_ = logger.Close()
 			return nil, fmt.Errorf("初始化超级管理员用户失败：%w", err)
+		}
+	}
+	if cfg.DNS.CredentialRef != "" && cfg.DNS.Provider != "" {
+		legacyProjectID := cfg.DNS.ProjectID
+		if legacyProjectID == "" {
+			legacyProjectID = domain.DefaultProjectID
+		}
+		legacyOwnerID := cfg.DNS.OwnerUserID
+		if legacyOwnerID == "" {
+			legacyOwnerID = "primary-super-admin"
+		}
+		legacyImporter := repository.NewSQLProjectMemberRepository(db.DB, runtimeDatabaseConfig.Driver)
+		if err := legacyImporter.ImportLegacyDNSAccount(ctx, domain.DNSAccount{
+			ID: "legacy-system-dns", Name: "旧系统 DNS 账户", ProjectID: legacyProjectID,
+			OwnerUserID: legacyOwnerID, Provider: cfg.DNS.Provider, CredentialRef: cfg.DNS.CredentialRef,
+		}); err != nil {
+			_ = db.Close()
+			_ = logger.Close()
+			return nil, fmt.Errorf("导入旧 DNS 账户失败：%w", err)
 		}
 	}
 	taskRepo := repository.NewSQLTaskRepository(db.DB, runtimeDatabaseConfig.Driver)

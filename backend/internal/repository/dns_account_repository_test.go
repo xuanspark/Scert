@@ -41,6 +41,54 @@ func TestDNSAccountRepository(t *testing.T) {
 	}
 }
 
+func TestImportLegacyDNSAccountIsIdempotentAndPreservesExistingChanges(t *testing.T) {
+	cfg := config.Default(t.TempDir()).Database
+	cfg.DSN = filepath.Join(t.TempDir(), "legacy-dns.db")
+	db, err := database.Open(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(t.Context(), db.DB, "sqlite"); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewSQLProjectMemberRepository(db.DB, "sqlite")
+	item := domain.DNSAccount{
+		ID: "legacy-system-dns", Name: "旧系统 DNS 账户", ProjectID: domain.DefaultProjectID,
+		OwnerUserID: "primary-super-admin", Provider: "aliyun", CredentialRef: "secret://dns/legacy",
+	}
+	if err := repo.ImportLegacyDNSAccount(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	var name, status, verification, reference string
+	var revision int
+	if err := db.DB.QueryRowContext(t.Context(), `SELECT name,status,verification_state,credential_ref,revision FROM dns_accounts WHERE id = ?`, item.ID).
+		Scan(&name, &status, &verification, &reference, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if name != item.Name || status != domain.DNSAccountActive || verification != domain.DNSAccountUnverified || reference != item.CredentialRef || revision != 1 {
+		t.Fatalf("旧账户初次导入状态错误：%s %s %s %s %d", name, status, verification, reference, revision)
+	}
+	if _, err := db.DB.ExecContext(t.Context(), `UPDATE dns_accounts SET name = ?, status = ?, verification_state = ?, revision = ? WHERE id = ?`, "用户修改后的账户", domain.DNSAccountDisabled, domain.DNSAccountVerified, 8, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ImportLegacyDNSAccount(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DB.QueryRowContext(t.Context(), `SELECT name,status,verification_state,revision FROM dns_accounts WHERE id = ?`, item.ID).
+		Scan(&name, &status, &verification, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if name != "用户修改后的账户" || status != domain.DNSAccountDisabled || verification != domain.DNSAccountVerified || revision != 8 {
+		t.Fatal("重复导入覆盖了现有账户修改")
+	}
+	conflict := item
+	conflict.CredentialRef = "secret://dns/other"
+	if err := repo.ImportLegacyDNSAccount(t.Context(), conflict); !errors.Is(err, ErrLegacyDNSAccountConflict) {
+		t.Fatalf("固定旧账户标识冲突未拒绝：%v", err)
+	}
+}
+
 func checkDNSAccountRepository(t *testing.T, db, admin *sql.DB, driver string) {
 	t.Helper()
 	repo := NewSQLProjectMemberRepository(db, driver)

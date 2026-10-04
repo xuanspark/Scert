@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/domain"
 )
 
 var ErrDNSAccountConflict = errors.New("DNS 账户已变更，请刷新后重试")
+
+var ErrLegacyDNSAccountConflict = errors.New("旧系统 DNS 账户标识已被其他账户占用")
 
 // DNSAccountRepository 的公开读取不返回凭据引用；秘密读取只能使用独立的使用权限入口。
 // 删除及运行租约将在域名绑定接入后提供，当前不提供无引用保护的删除方法。
@@ -26,12 +29,74 @@ type DNSAccountRepository interface {
 	RecordDNSAccountVerification(context.Context, string, string, int64, bool) (domain.DNSAccount, error)
 }
 
+// DNSLegacyAccountImporter 只负责把旧配置登记为可追踪的账户元数据。
+// 它不读取或复制秘密，也不把旧验证状态冒充为新账户已在线验证。
+type DNSLegacyAccountImporter interface {
+	ImportLegacyDNSAccount(context.Context, domain.DNSAccount) error
+}
+
 var _ DNSAccountRepository = (*SQLProjectMemberRepository)(nil)
+var _ DNSLegacyAccountImporter = (*SQLProjectMemberRepository)(nil)
 
 const dnsAccountColumns = `dns_accounts.id, dns_accounts.name, dns_accounts.project_id,
 	dns_accounts.owner_user_id, dns_accounts.provider, dns_accounts.credential_ref,
 	dns_accounts.status, dns_accounts.verification_state, dns_accounts.revision,
 	dns_accounts.created_at, dns_accounts.updated_at`
+
+// ImportLegacyDNSAccount 将旧的单账户配置幂等登记到独立账户表。
+// 已存在同凭据引用时保持现有记录不变；同一固定 ID 被其他账户占用时拒绝启动迁移，避免覆盖用户修改。
+func (r *SQLProjectMemberRepository) ImportLegacyDNSAccount(ctx context.Context, item domain.DNSAccount) error {
+	if err := r.ensureDB(); err != nil {
+		return err
+	}
+	item.Name = strings.TrimSpace(item.Name)
+	item.Status = domain.DNSAccountActive
+	item.VerificationState = domain.DNSAccountUnverified
+	item.Revision = 1
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var existingID string
+	err = tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT id FROM dns_accounts WHERE credential_ref = ?`+r.resourceWriteLock()), item.CredentialRef).Scan(&existingID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	var existingRef string
+	err = tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT credential_ref FROM dns_accounts WHERE id = ?`+r.resourceWriteLock()), item.ID).Scan(&existingRef)
+	if err == nil {
+		if existingRef == item.CredentialRef {
+			return nil
+		}
+		return ErrLegacyDNSAccountConflict
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	var projectID string
+	if err := tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT id FROM projects WHERE id = ?`), item.ProjectID).Scan(&projectID); err != nil {
+		return fmt.Errorf("旧 DNS 账户所属项目不存在：%w", err)
+	}
+	now := time.Now().UTC()
+	item.CreatedAt, item.UpdatedAt = now, now
+	if _, err := tx.ExecContext(ctx, Rebind(r.driver, `INSERT INTO dns_accounts
+		(id, name, project_id, owner_user_id, provider, credential_ref, status, verification_state, revision, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), item.ID, item.Name, item.ProjectID, item.OwnerUserID,
+		item.Provider, item.CredentialRef, item.Status, item.VerificationState, item.Revision, item.CreatedAt, item.UpdatedAt); err != nil {
+		return errors.New("登记旧 DNS 账户失败")
+	}
+	if err := writeDNSAccountAudit(ctx, tx, r.driver, item.OwnerUserID, item, "dns_account.import_legacy"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 func scanDNSAccount(row scanner) (domain.DNSAccount, error) {
 	var item domain.DNSAccount
