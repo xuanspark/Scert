@@ -233,7 +233,7 @@ func newInitCommandWithDependencies(firewallManager firewall.Manager, issue init
 			fmt.Fprintln(cmd.OutOrStdout(), "当前使用 ACME 测试环境，证书不受浏览器信任，不能作为正式生产证书。")
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "本机防火墙：%s\n", firewallResult.Message)
-		fmt.Fprintf(cmd.OutOrStdout(), "请确认云安全组已放行主服务端口 %d。Scert-admin 默认关闭；需要重置密码时启动后访问：%s\n", cfg.Server.Port, cfg.ResetURL())
+		fmt.Fprintf(cmd.OutOrStdout(), "请确认云安全组已放行主服务端口 %d。超级管理员密码重置不开放公网入口，请由运维人员在部署主机本机受保护终端处理。\n", cfg.Server.Port)
 		return nil
 	}}
 	command.Flags().StringVar(&adminUsername, "admin-username", "", "超级管理员用户名")
@@ -672,7 +672,7 @@ func newStatusCommand() *cobra.Command {
 }
 
 func commandStatus(cfg config.Config) map[string]any {
-	return map[string]any{"service": "scert", "version": buildinfo.Version, "config_version": cfg.Version, "setup_ready": cfg.SetupReady, "https_mode": cfg.Server.HTTPSMode, "database_driver": cfg.Database.Driver, "server_port": cfg.Server.Port, "reset_url": cfg.ResetURL(), "web_enabled": cfg.Web.Enabled, "web_hostname": cfg.Web.Hostname, "web_public_ip": cfg.Web.PublicIP, "dns_verification_state": cfg.DNS.VerificationState}
+	return map[string]any{"service": "scert", "version": buildinfo.Version, "config_version": cfg.Version, "setup_ready": cfg.SetupReady, "https_mode": cfg.Server.HTTPSMode, "database_driver": cfg.Database.Driver, "server_port": cfg.Server.Port, "web_enabled": cfg.Web.Enabled, "web_hostname": cfg.Web.Hostname, "web_public_ip": cfg.Web.PublicIP, "dns_verification_state": cfg.DNS.VerificationState}
 }
 
 func newServeCommand() *cobra.Command {

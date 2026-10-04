@@ -121,7 +121,6 @@ func (s *Server) setupStatus(c *gin.Context) {
 		"phase":                             phase,
 		"blockers":                          blockers,
 		"server_port":                       cfg.Server.Port,
-		"reset_url":                         cfg.ResetURL(),
 		"https_mode":                        cfg.Server.HTTPSMode,
 		"proxy_https_port":                  cfg.Server.ProxyHTTPSPort,
 		"web_enabled":                       cfg.Web.Enabled,
@@ -521,12 +520,11 @@ func (s *Server) applySetup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"initialized": true,
 		"message": fmt.Sprintf(
-			"初始化配置已保存，DNS API 已完成在线验证且凭据已加密保存。%s。请确认云安全组已放行主服务端口 %d；Scert-admin 默认关闭，启动后通过 %s 使用临时重置入口。管理后台证书申请成功。",
-			firewallResult.Message, updated.Server.Port, updated.ResetURL(),
+			"初始化配置已保存，DNS API 已完成在线验证且凭据已加密保存。%s。请确认云安全组已放行主服务端口 %d；超级管理员密码重置不开放公网入口，请由运维人员在部署主机本机受保护终端处理。管理后台证书申请成功。",
+			firewallResult.Message, updated.Server.Port,
 		),
 		"status": gin.H{
 			"server_port": updated.Server.Port,
-			"reset_url":   updated.ResetURL(),
 			"web_enabled": updated.Web.Enabled,
 			"https_mode":  updated.Server.HTTPSMode,
 			"firewall":    firewallResult,

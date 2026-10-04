@@ -202,7 +202,7 @@ func TestSetupStatusHidesConfigurationAfterInitialization(t *testing.T) {
 	if payload["initialized"] != true {
 		t.Fatalf("初始化状态不正确：%s", response.Body.String())
 	}
-	for _, key := range []string{"server_port", "reset_url", "https_mode", "web_hostname", "web_public_ip", "certificate_root", "dns_provider", "dns_verification_state"} {
+	for _, key := range []string{"server_port", "https_mode", "web_hostname", "web_public_ip", "certificate_root", "dns_provider", "dns_verification_state"} {
 		if _, exists := payload[key]; exists {
 			t.Fatalf("初始化完成后不应公开内部字段 %s：%s", key, response.Body.String())
 		}
@@ -357,9 +357,6 @@ func TestSetupApplyPersistsConfigurationWithoutPlainPassword(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), `"firewall"`) || !strings.Contains(response.Body.String(), `"created":true`) {
 		t.Fatalf("初始化响应应返回本机防火墙结果：%s", response.Body.String())
-	}
-	if !strings.Contains(response.Body.String(), `"reset_url":"https://scert.example.test:8443/reset"`) {
-		t.Fatalf("初始化响应应返回根据 Web 地址生成的密码重置路径：%s", response.Body.String())
 	}
 
 	data, err := os.ReadFile(configPath)

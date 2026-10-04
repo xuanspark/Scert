@@ -99,7 +99,7 @@ func TestPublicStatusDoesNotExposeInternalConfiguration(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("解析公开状态响应失败：%v", err)
 	}
-	for _, key := range []string{"database_driver", "https_mode", "reset_url"} {
+	for _, key := range []string{"database_driver", "https_mode"} {
 		if _, exists := payload[key]; exists {
 			t.Fatalf("公开状态接口不应返回内部字段 %s：%s", key, response.Body.String())
 		}
