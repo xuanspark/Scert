@@ -14,6 +14,7 @@ type testTerminalInput struct {
 	values   []string
 	hidden   []bool
 	prompts  []string
+	shown    []string
 	failAt   int
 	readHook func(int)
 }
@@ -36,7 +37,10 @@ func (s *testTerminalInput) Read(ctx context.Context, prompt string, hidden bool
 	}
 	return s.values[index-1], nil
 }
-func (*testTerminalInput) Show(string) error { return nil }
+func (s *testTerminalInput) Show(message string) error {
+	s.shown = append(s.shown, message)
+	return nil
+}
 
 type testResetClient struct {
 	methods  []localreset.Method
@@ -130,6 +134,14 @@ func TestAdminConsoleFailureNeverSubmitsPassword(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAdminConsoleShowsUnavailableResetCause(t *testing.T) {
+	screen := &testTerminalInput{}
+	showResetFailure(screen, localreset.ErrUnavailable)
+	if len(screen.shown) != 1 || !strings.Contains(screen.shown[0], `验证码发送服务或本机重置通道不可用`) {
+		t.Fatalf(`未显示SMTP或本机通道不可用提示：%v`, screen.shown)
 	}
 }
 

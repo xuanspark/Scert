@@ -90,6 +90,10 @@ func runConnected(ctx context.Context, conn net.Conn, screen terminal) error {
 		}
 	}
 	if err := resetFlow(ctx, client, screen); err != nil {
+		if errors.Is(err, localreset.ErrUnavailable) {
+			showResetFailure(screen, err)
+			return localreset.ErrProtocol
+		}
 		_ = screen.Show("密码重置未完成：操作已取消、验证失败、会话过期或保存失败。请检查服务日志后重新启动。")
 		return localreset.ErrProtocol
 	}
@@ -97,6 +101,14 @@ func runConnected(ctx context.Context, conn net.Conn, screen terminal) error {
 		return errors.New("密码已重置，但无法向调用终端显示结果，请使用新密码登录")
 	}
 	return nil
+}
+
+func showResetFailure(screen terminal, err error) {
+	message := `密码重置未完成：操作已取消、验证失败、会话过期或保存失败。请检查服务日志后重新启动。`
+	if errors.Is(err, localreset.ErrUnavailable) {
+		message = `密码重置未完成：验证码发送服务或本机重置通道不可用。请先恢复系统通知服务后重新启动。`
+	}
+	_ = screen.Show(message)
 }
 
 func resetFlow(ctx context.Context, client resetClient, screen terminal) error {
