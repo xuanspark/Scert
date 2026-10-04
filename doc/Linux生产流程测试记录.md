@@ -2750,3 +2750,10 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - 后端 `go test ./...` 全部通过；后端 `go vet ./...` 退出零。
 - 前端 `npm.cmd test -- --run` 共 338 项，全部通过，0 失败、0 跳过；`npm.cmd run build` 生产构建通过，生成 `index-CFcXnkqC.js` 与 `index-CfVlMv6G.css`。
 - 本轮没有修改源码、没有清理业务数据库、没有改变线上配置；这些结果仅作为源码回归证据，不替代第一台实机 SMTP、密码重置和最终生产矩阵。
+
+## 2026年10月4日15:52 两台 SMTP 配置落点与链路复核
+
+- 第二台 `/scert/conf/scert.json` 的非敏感通知状态为 `smtp_enabled=true`、`smtp.cdis.cn:587`、STARTTLS、`notify:xuans@cdis.cn`；凭据引用存在但内容未读取。
+- 第一台 `/scert/conf/scert.json` 的非敏感通知状态为 `smtp_enabled=false`，`smtp_host` 和 `smtp_username` 均为空。
+- 第一台执行 `openssl s_client -starttls smtp -connect smtp.cdis.cn:587 -servername smtp.cdis.cn`，TLS 1.3 握手成功，服务端证书校验为 OK；未执行 AUTH，不能据此宣称真实邮件通过。
+- 结论：之前浏览器页面显示的配置命中第二台 `nginx/1.18.0`，第一台 `nginx/1.30.5` 尚未保存 SMTP 配置。整体邮件门禁仍未关闭。
