@@ -36,7 +36,7 @@ func TestPublicPasswordResetGuidanceDoesNotEnumerateAccounts(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 				t.Fatal(err)
 			}
-			if len(payload) != 3 || payload["action"] != "contact_administrator" || payload["title"] != "密码重置" || payload["description"] != "请联系系统管理员协助处理密码重置。为保护账户安全，此页面不确认账户是否存在或所属角色。" {
+			if len(payload) != 3 || payload["action"] != "contact_administrator" || payload["title"] != "密码重置" || payload["description"] != "当前方式无法使用，请联系运维人员辅助解决。" {
 				t.Fatalf("公开响应必须仅包含通用处理提示：%v", payload)
 			}
 			if response.Header().Get("Cache-Control") != "no-store" {

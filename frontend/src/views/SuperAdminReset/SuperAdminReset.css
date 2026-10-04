@@ -3,6 +3,26 @@
   max-width: 520px;
 }
 
+.reset-blocked-message {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 16px;
+  padding: 16px;
+  border: 1px solid #f0d4a8;
+  border-radius: 14px;
+  background: #fff8eb;
+  color: #78531b;
+  line-height: 1.65;
+}
+
+.reset-blocked-message strong {
+  color: #684511;
+}
+
+.reset-blocked-message p {
+  margin: 0;
+}
+
 .reset-success-overlay {
   position: fixed;
   inset: 0;

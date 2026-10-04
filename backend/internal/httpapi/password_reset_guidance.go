@@ -38,7 +38,7 @@ func (s *Server) showPasswordResetGuidance(c *gin.Context) {
 
 	c.JSON(http.StatusOK, publicPasswordResetGuidance{
 		Title:       "密码重置",
-		Description: "请联系系统管理员协助处理密码重置。为保护账户安全，此页面不确认账户是否存在或所属角色。",
+		Description: "当前方式无法使用，请联系运维人员辅助解决。",
 		Action:      "contact_administrator",
 	})
 }
