@@ -1,5 +1,25 @@
 # Linux 生产流程测试记录
 
+## 2026年10月4日 Linux 上线整改接手记录
+
+### 任务状态
+
+- [✓] 已确认本轮范围为 Linux Web 与服务端，不处理 Windows。
+- [✓] 已确认检查点 `f5c425f`、候选包路径和归档哈希，并完成第一台部署后的服务恢复核验。
+- [✓] 第一台 `8.137.23.95`：`Scert.service` 和 `Scert-storage.socket` active；Scert 仅监听 `127.0.0.1:8443`，MySQL 仅监听回环地址，Nginx 对外提供 `80/443`。
+- [!] 第一台 SMTP 配置仍关闭；尚未完成系统邮件、验证码送达、受保护终端密码重置和新密码登录的真实闭环。
+- [ ] 第二台 `45.136.13.241`：正式证书推送、Nginx 配置检查、重载、失败回滚和恢复测试尚未执行。
+- [ ] 三数据库首次 Web 初始化、重新登录持久化、DNS/ACME 正负向测试、公共 HTTPS 与证书恢复验收尚未完成。
+- [!] 第一台历史 `recovery_required` 事务继续按人工处置边界保留，禁止自动接管、删除锁或伪造恢复成功。
+- [!] 本记录当前不能作为生产验收通过证明；构建、单元测试或 Smail 页面 HTTP 200 仅属于对应证据层级。
+
+### 候选包证据
+
+- 路径：`release\production-candidate-20261004-f5c425f\Scert-20261004-V0.1.0`。
+- 归档 SHA-256：`38fb6986548e3c95295d5ff37b0141e54b2e142798384566a4464018e582f4ef`。
+- Manifest：`source_commit=f5c425f4b60fc3c1308ab86d859511868e08e4ff`，`source_dirty=false`，`trimpath=true`，`local_path_check=passed`，目标 `linux-amd64`。
+- `web.cdis.cn` 当前返回 Smail 页面，仅证明管理入口可访问，不证明 Scert SMTP 认证、发信或收件箱送达。
+
 ## 2026年10月4日11:07 第一台终态复核与本地权限回归
 
 - 第一台 `scert-dns-lease-review-20261004-0757.service` 实查 inactive/dead、Result=success、ExecMainStatus=0，日志结束于 08:04:50。使用源码属主 nobody 读取 Git，提交 `37765ff`、工作区干净；没有关闭 Git 所有权保护。
