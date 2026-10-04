@@ -2839,3 +2839,20 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - 无 `8443` 监听；MySQL `3306`、`33060` 仍只监听 `127.0.0.1`；`/ssl/vcer.cn` 文件保持存在，`/ssl/scert` 为空。
 
 本节证明的是第二台项目现场清理完成，不证明正式 SSL 推送、失败回滚、恢复指纹、幂等重试或总体生产上线已通过。
+## 2026年10月4日 第二台项目数据及部署包清理实时记录
+
+### 清理范围
+
+- 目标主机：第二台 `45.136.13.241`。
+- 清理对象：Scert 项目证书数据、安装日志、项目专用 Nginx 测试配置、测试证书目录和项目部署残留。
+- 保留对象：PMail、共享 MySQL、现有 Nginx、`/ssl/vcer.cn` 和 SSH 登录安全配置。
+
+### 复核结果
+
+- [✓] `/var/lib/scert`、`/var/tmp/scert-install-mysql-reentry-20261001.log`、`/etc/nginx/conf.d/scert-ssl-push-test.conf` 和 `/ssl/scert-multi-20260930.apmmk.cn` 已移除。
+- [✓] 在 `/root`、`/tmp`、`/var/tmp`、`/opt`、`/srv`、`/etc` 和 `/usr/local` 的限定范围扫描中，未发现项目命名文件；部署包扫描为空。
+- [✓] 无 Scert 进程、systemd 单元、`8443`/`8080`/`9000` 监听；`nginx -t` 成功并已 reload。
+- [✓] PMail 25/465/587/993/995、MySQL 3306/33060 和 Nginx 80/443 仍在运行，未清理业务数据库。
+- [ ] 正式 SSL 推送和失败回滚矩阵尚未执行，不能把本次清理记录写成生产上线验收。
+
+本次为第二台现场清理证据，后续推送测试必须通过正式 Web/API 流程重新建立最小目标。
