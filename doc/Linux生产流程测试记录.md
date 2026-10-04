@@ -3013,3 +3013,27 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [ ] 三数据库首次 Web、DNS/ACME、公共 HTTPS/SNI 和最终生产复审。
 
 本节仅更新当前实测进度，不宣称 Linux 项目已经上线通过；Windows 环境继续不纳入本轮。
+## 2026年10月4日第一台实时复核补充
+
+### 第一台 `8.137.23.95`
+
+- `/scert/scert config validate`：通过。
+- `https://odacm.cn/readyz`：严格 HTTPS 返回 `{"service":"scert","status":"ready"}`。
+- 监听：Scert 为 `127.0.0.1:8443`，Nginx 为公网 `80/443`；未发现 `8080` 或 `9000` 专用监听。
+- `nginx -t`：通过，仅有 `listen ... http2` 弃用警告，不影响语法通过。
+- SMTP 非敏感配置：`smtp.cdis.cn:587`、STARTTLS、`notify:xuans@cdis.cn`，明文认证关闭。
+- SMTP 网络复核：`smtp.cdis.cn` 解析到 `47.108.78.12`；从第一台连接 `25/465/587` 均被拒绝，STARTTLS 未建立。
+- SMTP 结论：网络层服务不可达，尚未录入敏感凭据，未执行真实投递；本记录不包含任何密码、授权码或令牌。
+
+### Smail 与管理会话
+
+- Smail `https://web.cdis.cn/` 当前可用，`xuans` 系统通知授权显示“已开启”；授权码未查看、未复制。
+- `https://odacm.cn/` 当前仍为登录页，未形成有效管理会话；未猜测密码、未直改数据库、未开放公网重置。
+
+### 当前验收状态
+
+- [✓] 第一台服务、HTTPS、Nginx 和 SMTP 网络层复核完成。
+- [!] SMTP 提交服务可达性待恢复，真实通知和重置闭环不能开始。
+- [✓] 第二台项目部署包清理完成。
+- [ ] 第二台正式 SSL 推送、失败回滚和恢复指纹验证。
+- [!] Linux 总体生产验收未通过。
