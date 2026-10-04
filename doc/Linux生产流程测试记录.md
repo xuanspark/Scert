@@ -3069,3 +3069,24 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [✓] `npm.cmd test`：338 项通过，0 失败、0 跳过、0 todo。
 - [✓] 本次候选包 Web 静态资源由同一提交构建并纳入 Linux amd64 归档。
 - [!] 本地前端测试不等同于公网页面、SMTP 投递或证书推送生产验收。
+## 2026年10月4日 当前现场实测补充：双机清理与第一台门禁
+
+### 第二台 `45.136.13.241`
+
+- [✓] 严格 SSH 主机校验后复核：无 Scert 进程、systemd 单元、专用监听、项目目录、安装临时物、部署包或归档。
+- [✓] 根文件系统限定范围未发现 Scert、Certimate、Certd 项目文件；`nginx -t` 通过。
+- [✓] `/ssl/vcer.cn` 既有业务证书和 `/ssl/acceptance-0928.odacm.cn/single/` 下受保护 `.scert-lock` 恢复目录保留；未修改 PMail、共享 MySQL 或现有 Nginx 业务配置。
+
+### 第一台 `8.137.23.95`
+
+- [✓] `Scert.service`、`Scert-storage.socket`、Nginx active；Scert 监听 `127.0.0.1:8443`，HTTPS `/readyz` 返回 `{"service":"scert","status":"ready"}`。
+- [✓] `/scert/scert config validate` 通过；非敏感通知参数为 `smtp.cdis.cn:587`、STARTTLS，系统通知用户名已配置。
+- [!] 脱敏状态为 `smtp_enabled=false`，SMTP 凭据引用为空；本次未读取、记录或猜测 SMTP 密码。
+- [!] `Scert-admin` 最近一次受保护操作因请求无效或已失效退出，未产生密码、数据库或配置变更。
+
+### Smail 浏览器证据
+
+- [!] 当前打开 `https://web.cdis.cn/` 显示登录页，当前浏览器没有有效 Smail 管理会话；历史“页面可用”记录不作为当前授权凭据证据。
+- [ ] 真实 SMTP 投递、收件箱到达、验证码、本机重置、新密码登录、第二台正式 SSL 推送与回滚仍待完成。
+
+本节仅记录当前实测证据，不宣称整体 Linux 项目已经上线通过；Windows 环境不在本轮范围。
