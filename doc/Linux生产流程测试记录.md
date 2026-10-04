@@ -2865,3 +2865,11 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [!] 两份带有 Scert 标识的 SSH 配置仍在使用范围内，本轮未修改，以避免改变第二台的登录安全边界。
 
 更正结论：第二台“部署包清理”已完成；受保护恢复锁和 SSH 安全配置不作为部署包处理，也不能据此宣称所有项目命名数据均已删除。
+
+## 2026年10月4日 22:24 第一台实时服务复核
+
+- [✓] 通过已登记 SSH 主机身份核对第一台 `8.137.23.95`，主机为 `ikun1`；`Scert.service`、`Scert-storage.socket`、Nginx、MySQL active。
+- [✓] 端口边界符合预期：Scert `127.0.0.1:8443`，MySQL `127.0.0.1:3306/33060`，公网仅 Nginx `80/443`。
+- [✓] 浏览器不强制 IP、不关闭证书校验，访问 `https://odacm.cn/readyz` 返回 `service=scert,status=ready`；Nginx SNI 证书为 `odacm.cn`，Let's Encrypt，有效期至 2026年12月31日。
+- [!] `/scert/conf/scert.json` 显示第一台 `smtp_enabled=false`，`smtp_host` 和 `smtp_username` 为空；不将此前第二台的邮件配置当作第一台证据。
+- [ ] 邮件、验证码、本机重置、新密码登录和正式证书推送仍未通过正式 Web 会话完成。

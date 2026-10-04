@@ -2790,3 +2790,11 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 - [!] `/etc/ssh/sshd_config.d/99-scert-password-only.conf` 和 `99-scert-pubkey.conf` 仍保留，用于当前 SSH 登录认证边界；本轮未修改 SSH 安全配置。
 
 上述保护性残留不属于部署包。此前“全盘无项目命名文件”的表述仅适用于当时的限定扫描，现以本节更正结果为准。
+
+## 2026年10月4日 22:24 第一台实时复核
+
+- [✓] 第一台 `8.137.23.95` 主机 `ikun1` 的 `Scert.service`、`Scert-storage.socket`、Nginx 和 MySQL active；Scert 仅监听 `127.0.0.1:8443`，MySQL 仅监听回环地址，公网入口仍为 Nginx `80/443`。
+- [✓] 通过严格域名/SNI 的浏览器公共入口访问 `https://odacm.cn/readyz` 返回 `{"service":"scert","status":"ready"}`；当前仅证明健康检查和 HTTPS 入口，不代表登录、邮件、证书部署或生产上线门禁全部通过。
+- [✓] 第一台证书返回 `CN=odacm.cn`，签发方为 Let's Encrypt，当前有效期为 2026年10月2日至2026年12月31日；未使用强制 IP 或不安全 TLS 选项。
+- [!] 第一台配置中的 `smtp_enabled=false`，SMTP 主机和用户名为空；真实通知、验证码和密码重置闭环仍待用户在第一台管理入口输入凭据后复核。
+- [ ] 正式 SSL 推送及第二台受控失败/回滚矩阵仍未执行。
