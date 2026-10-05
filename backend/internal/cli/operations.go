@@ -231,12 +231,12 @@ func newConfigSetSecretCommand() *cobra.Command {
 			if key != "notification.smtp_password" {
 				return fmt.Errorf("不支持更新的敏感配置项：%s", key)
 			}
-			if value == "" {
-				var err error
-				value, err = ask(bufio.NewReader(cmd.InOrStdin()), cmd.OutOrStdout(), "请输入新的 SMTP 密码或授权码", "")
-				if err != nil {
-					return err
-				}
+			if value != "" {
+				return errors.New("SMTP 密码不得通过命令行参数传入，请删除 --value 后在交互式终端输入")
+			}
+			value, err := readSecretInput(cmd.InOrStdin(), cmd.OutOrStdout(), "请输入新的 SMTP 密码或授权码")
+			if err != nil {
+				return err
 			}
 			if value == "" {
 				return errors.New("SMTP 密码不能为空")
@@ -272,7 +272,7 @@ func newConfigSetSecretCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&key, "key", "", "敏感配置项名称")
-	command.Flags().StringVar(&value, "value", "", "SMTP 密码；留空时交互输入")
+	command.Flags().StringVar(&value, "value", "", "兼容参数；敏感值不得通过命令行传入")
 	_ = command.MarkFlagRequired("key")
 	return command
 }

@@ -82,3 +82,15 @@ func TestRootIncludesOperationalCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestSetSecretRejectsCommandLineValue(t *testing.T) {
+	command := newConfigSetSecretCommand()
+	command.SilenceUsage, command.SilenceErrors = true, true
+	command.SetArgs([]string{
+		"--key", "notification.smtp_password",
+		"--value", "not-a-real-secret",
+	})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "命令行参数") {
+		t.Fatalf("命令行敏感值未被拒绝：%v", err)
+	}
+}
