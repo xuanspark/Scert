@@ -461,6 +461,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
       <DashboardNavigation
         :active-section="activeSection"
         :sections="sections"
+        :current-user="currentUser"
         @select="selectSection"
         @settings="openSettings"
       />

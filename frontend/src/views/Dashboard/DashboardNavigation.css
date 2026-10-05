@@ -110,6 +110,30 @@
   padding-top: 22px;
 }
 
+.navigation-account {
+  display: grid;
+  gap: 5px;
+  margin: 0 8px 10px;
+  padding: 11px 12px;
+  border: 1px solid #e2e8f2;
+  border-radius: 12px;
+  background: #f8faff;
+  color: #263752;
+  overflow-wrap: anywhere;
+}
+
+.navigation-account-label,
+.navigation-account-role {
+  color: #7a879d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.navigation-account strong {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .navigation-error {
   margin: 0 8px 8px;
   color: #b42318;

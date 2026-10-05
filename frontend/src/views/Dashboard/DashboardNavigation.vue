@@ -3,9 +3,16 @@ import { useAccessDenied } from "../AccessDenied/AccessDenied.js";
 
 const { loggingOut, error, logout } = useAccessDenied();
 
+const roleLabels = {
+  super_admin: "超级管理员",
+  admin: "管理员",
+  user: "普通用户",
+};
+
 defineProps({
   activeSection: { type: String, required: true },
   sections: { type: Array, required: true },
+  currentUser: { type: Object, default: null },
 });
 
 defineEmits(["select", "settings"]);
@@ -73,6 +80,13 @@ defineEmits(["select", "settings"]);
       <span>系统设置</span>
     </button>
     <div class="navigation-session">
+      <div v-if="currentUser" class="navigation-account" aria-label="当前登录账号">
+        <span class="navigation-account-label">当前登录账号</span>
+        <strong>{{ currentUser.account || "未命名账号" }}</strong>
+        <span class="navigation-account-role">
+          权限：{{ roleLabels[currentUser.role] || "未知权限" }}
+        </span>
+      </div>
       <p v-if="error" class="navigation-error" role="alert">{{ error }}</p>
       <button
         class="navigation-item navigation-logout"
