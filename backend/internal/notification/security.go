@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"html"
 	"net/mail"
 )
 
@@ -40,7 +39,7 @@ func (s *Service) SendSecurityCode(ctx context.Context, recipient, code string) 
 		From:    address{Name: fromName, Email: from},
 		To:      []address{{Email: recipient}},
 		Subject: "[Scert] 超级管理员密码重置验证",
-		Text:    text, HTML: "<pre>" + html.EscapeString(text) + "</pre>",
+		Text:    text, HTML: buildSecurityHTML(code),
 		CC: []address{}, BCC: []address{}, Attrs: []any{},
 	}
 	if s.config.UsesSmailSystemAccount() {

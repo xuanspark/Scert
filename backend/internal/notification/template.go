@@ -21,6 +21,7 @@ type mailContent struct {
 	certificateSerial string
 	managementURL     string
 	problem           string
+	recoveryWarning   string
 	deployment        deployment.Report
 	includeDeployment bool
 	hasDeployment     bool
@@ -39,6 +40,7 @@ func buildMailContent(event Event, title, status, domainName string, cfg config.
 		status:            status,
 		statusColor:       mailStatusColor(status),
 		statusSummary:     mailStatusSummary(event, title, status),
+		recoveryWarning:   recoveryWarning(event),
 		domain:            domainName,
 		domains:           append([]string(nil), event.Domains...),
 		deployment:        event.Deployment,
@@ -86,6 +88,9 @@ func buildTextMail(content mailContent) string {
 	if content.problem != "" {
 		lines = append(lines, "", "问题概述：", content.problem)
 	}
+	if content.recoveryWarning != "" {
+		lines = append(lines, "", content.recoveryWarning)
+	}
 	if content.includeDeployment && len(content.deployment.Results) > 0 {
 		lines = append(lines, "", "处理结果：")
 		for _, result := range content.deployment.Results {
@@ -103,7 +108,7 @@ func buildTextMail(content mailContent) string {
 
 func buildHTMLMail(content mailContent) string {
 	var builder strings.Builder
-	builder.WriteString(`<!doctype html><html lang="zh-CN"><body style="margin:0;padding:0;background:#f4f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;line-height:1.6;">`)
+	builder.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;padding:0;background:#f4f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',Arial,sans-serif;line-height:1.6;">`)
 	builder.WriteString(`<div style="padding:32px 16px;"><div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e4e9f2;border-radius:16px;overflow:hidden;">`)
 	builder.WriteString(`<div style="padding:24px 28px;background:#14213d;color:#ffffff;"><div style="font-size:13px;letter-spacing:.08em;opacity:.8;">SCERT 证书管理服务</div><div style="margin-top:6px;font-size:24px;font-weight:700;">证书管理通知</div></div>`)
 	builder.WriteString(`<div style="padding:28px;">`)
@@ -130,6 +135,9 @@ func buildHTMLMail(content mailContent) string {
 	}
 	if content.hasDeployment {
 		builder.WriteString(`<div style="margin-top:24px;"><div style="font-size:16px;font-weight:700;color:#172033;">部署概况</div><div style="margin-top:8px;padding:12px 14px;background:#f7f9fc;border-radius:8px;color:#344054;font-size:14px;">` + escapeHTML(deploymentSummary(content.deployment)) + `</div></div>`)
+	}
+	if content.recoveryWarning != "" {
+		builder.WriteString(`<div style="margin-top:20px;padding:16px;border:1px solid #fdb022;border-radius:8px;background:#fffaeb;color:#93370d;font-weight:700;">` + escapeHTML(content.recoveryWarning) + `</div>`)
 	}
 	if content.includeDeployment && len(content.deployment.Results) > 0 {
 		builder.WriteString(`<div style="margin-top:24px;"><div style="font-size:16px;font-weight:700;color:#172033;">处理结果</div>`)
@@ -165,7 +173,7 @@ func mailStatusSummary(event Event, title, status string) string {
 	if event.Deployment.Total > 0 && event.Deployment.Failed > 0 {
 		return fmt.Sprintf("%s未完成，共 %d 台服务器失败", title, event.Deployment.Failed)
 	}
-	if event.Deployment.Total > 0 && event.Deployment.Success == event.Deployment.Total {
+	if status == eventStatus("success") && event.Deployment.Total > 0 && event.Deployment.Success == event.Deployment.Total {
 		return fmt.Sprintf("%s已完成，共 %d 台服务器成功", title, event.Deployment.Success)
 	}
 	if status == "成功" {

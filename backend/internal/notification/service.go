@@ -402,7 +402,11 @@ func (s *Service) buildPayload(event Event) (mailPayload, error) {
 	status := eventStatus(event.Status)
 	domainName := strings.TrimSpace(event.Domain)
 	if domainName == "" {
-		domainName = strings.TrimSpace(event.DomainID)
+		for _, domain := range event.Domains {
+			if domainName = strings.TrimSpace(domain); domainName != "" {
+				break
+			}
+		}
 	}
 	if domainName == "" {
 		domainName = "未指定域名"
