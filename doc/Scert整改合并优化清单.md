@@ -3790,3 +3790,13 @@ Smail 已从历史 502 状态恢复，系统通知授权页面可用；当前唯
 ### 当前结论
 
 第一台已运行当前代码的 Linux 候选包并通过升级后就绪复核；这只关闭第一台部署包和服务就绪检查，不关闭邮件、受保护重置、第二台 SSL 推送回滚及最终生产门禁。Windows 环境继续不在本轮范围。
+
+## 2026年10月5日 22:22 Linux 双机只读复核与 Smail 等待状态
+
+### 最新复核证据
+
+- [✓] 浏览器独立页面仍打开 `https://web.cdis.cn/#/login?redirect=/`，当前显示 Smail 登录页，没有有效管理会话；未代填账号、密码或 SMTP 凭据。
+- [✓] 第一台 `8.137.23.95` 通过已登记 SSH 主机指纹完成只读复核；`Scert.service` 和 `Scert-storage.socket` 为 active，`Scert-admin.service` 为 inactive，严格 HTTPS `/readyz` 返回 `{"service":"scert","status":"ready"}`。
+- [✓] 第二台 `45.136.13.241` 通过只读复核确认 Scert 服务、存储 socket、管理服务和运行进程均不存在；限定目录未发现本项目部署包残留，`/ssl/scert` 不存在；未修改 PMail、MySQL、Nginx、业务证书或 SSH 边界。
+- [~] 等待用户完成 Smail 系统通知邮件配置；完成后继续真实投递、收件箱到达和验证码闭环。
+- [!] 邮件、受保护重置、第二台 SSL 正式推送与回滚尚未完成，Linux 总体生产门禁继续保持未关闭。
