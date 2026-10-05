@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.pcux.cn/xuans/Scert/backend/internal/config"
+	"git.pcux.cn/xuans/Scert/backend/internal/deployment"
 )
 
 type credentialReaderStub struct {
@@ -346,5 +347,105 @@ func TestSessionLoginReturnsBusinessMessageWithoutCredentials(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "test-password") {
 		t.Fatalf("登录错误不得包含密码：%v", err)
+	}
+}
+
+func TestBuildMailContentSimplifiesDeploymentFailure(t *testing.T) {
+	cfg := newTestConfig("http://mail.example.test")
+	cfg.IncludeDeploymentDetails = true
+	cfg.IncludeCertificateSerial = true
+	cfg.IncludeManagementURL = true
+	service := New(cfg, nil)
+	payload, err := service.buildPayload(Event{
+		Type:   "certificate_renewal",
+		Status: "failed",
+		Domain: "scert-multi-20260930.apmmk.cn",
+		Domains: []string{
+			"scert-multi-20260930.apmmk.cn",
+		},
+		CertificateSerial: "serial-123",
+		ManagementURL:     "https://scert.example.test/tasks/1",
+		Deployment: deployment.Report{
+			Total:  2,
+			Failed: 2,
+			Status: "failed",
+			Results: []deployment.Result{
+				{Server: "第一台生产测试服务器", Status: "failed", Message: "本次部署未完成，已恢复旧文件，但服务或站点恢复状态未确认，已保留部署锁"},
+				{Server: "第二台 SSL 推送测试服务器", Status: "failed", Message: "remote HTTPS connection failed: tls: failed to verify certificate: x509: certificate is valid for *.vcer.cn, vcer.cn, not scert-multi-20260930.apmmk.cn"},
+			},
+		},
+		Error: "部署后 HTTPS 校验失败：服务器 第二台 SSL 推送测试服务器 的 HTTPS 校验失败：重试 6 次后仍未通过：remote HTTPS connection failed: tls: failed to verify certificate: x509: certificate is valid for *.vcer.cn, vcer.cn, not scert-multi-20260930.apmmk.cn",
+	})
+	if err != nil {
+		t.Fatalf("构造失败通知失败：%v", err)
+	}
+	if !strings.Contains(payload.Subject, "证书续期失败") {
+		t.Fatalf("邮件主题未突出失败状态：%q", payload.Subject)
+	}
+	for _, value := range []string{
+		"摘要：证书续期未完成，共 2 台服务器失败",
+		"问题概述：",
+		"第二台 SSL 推送测试服务器：HTTPS 证书域名不匹配",
+		"处理结果：",
+		"第一台生产测试服务器：失败，旧文件已恢复，但服务或站点状态尚未确认",
+		"第二台 SSL 推送测试服务器：失败，HTTPS 证书域名不匹配",
+	} {
+		if !strings.Contains(payload.Text, value) {
+			t.Fatalf("纯文本通知缺少关键信息 %q：%s", value, payload.Text)
+		}
+	}
+	if strings.Contains(payload.Text, "certificate is valid for") || strings.Contains(payload.HTML, "certificate is valid for") {
+		t.Fatal("通知不应暴露冗长的底层 TLS 错误")
+	}
+	if !strings.Contains(payload.HTML, "border-radius") || !strings.Contains(payload.HTML, "问题概述") || !strings.Contains(payload.HTML, "部署概况") {
+		t.Fatalf("HTML 通知未生成统一样式或重点区域：%s", payload.HTML)
+	}
+}
+
+func TestBuildMailContentHonorsOptionalFields(t *testing.T) {
+	cfg := newTestConfig("http://mail.example.test")
+	cfg.IncludeDeploymentDetails = false
+	cfg.IncludeCertificateSerial = false
+	cfg.IncludeManagementURL = false
+	service := New(cfg, nil)
+	payload, err := service.buildPayload(Event{
+		Type:              "certificate_issue",
+		Status:            "success",
+		Domain:            "example.com",
+		CertificateSerial: "serial-hidden",
+		ManagementURL:     "https://scert.example.test/hidden",
+		Deployment: deployment.Report{
+			Total:   1,
+			Success: 1,
+			Status:  "success",
+			Results: []deployment.Result{{Server: "测试服务器", Status: "success", Message: "部署完成"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("构造成功通知失败：%v", err)
+	}
+	if !strings.Contains(payload.Text, "部署概况：") || strings.Contains(payload.Text, "测试服务器") {
+		t.Fatalf("部署概况与明细开关处理错误：%s", payload.Text)
+	}
+	for _, hidden := range []string{"serial-hidden", "https://scert.example.test/hidden", "测试服务器"} {
+		if strings.Contains(payload.Text, hidden) || strings.Contains(payload.HTML, hidden) {
+			t.Fatalf("关闭可选字段后仍包含 %q", hidden)
+		}
+	}
+}
+
+func TestBuildHTMLMailEscapesDynamicValues(t *testing.T) {
+	cfg := newTestConfig("http://mail.example.test")
+	service := New(cfg, nil)
+	payload, err := service.buildPayload(Event{
+		Status: "failed",
+		Domain: "<script>alert(1)</script>",
+		Error:  "错误 <script>alert(2)</script>",
+	})
+	if err != nil {
+		t.Fatalf("构造转义通知失败：%v", err)
+	}
+	if strings.Contains(payload.HTML, "<script>") || !strings.Contains(payload.HTML, "&lt;script&gt;") {
+		t.Fatalf("HTML 动态内容未正确转义：%s", payload.HTML)
 	}
 }

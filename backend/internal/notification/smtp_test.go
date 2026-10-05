@@ -432,3 +432,24 @@ func TestSMTPAddressFormatting(t *testing.T) {
 		t.Fatalf("SMTP address encoding is incorrect: %s", value)
 	}
 }
+
+func TestBuildSMTPMessageIncludesStyledHTMLAlternative(t *testing.T) {
+	message := string(buildSMTPMessage(mailPayload{
+		From:    address{Name: "Scert", Email: "admin@example.com"},
+		To:      []address{{Email: "receiver@example.com"}},
+		Subject: "证书任务失败",
+		Text:    "纯文本通知",
+		HTML:    "<p style=\"color:red\">HTML 通知</p>",
+	}))
+	for _, value := range []string{
+		"Content-Type: multipart/alternative;",
+		"Content-Type: text/plain; charset=UTF-8",
+		"Content-Type: text/html; charset=UTF-8",
+		"纯文本通知",
+		"<p style=\"color:red\">HTML 通知</p>",
+	} {
+		if !strings.Contains(message, value) {
+			t.Fatalf("SMTP multipart 邮件缺少 %q：%s", value, message)
+		}
+	}
+}

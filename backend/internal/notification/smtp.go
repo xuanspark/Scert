@@ -205,23 +205,30 @@ func buildSMTPMessage(payload mailPayload) []byte {
 		to = append(to, formatSMTPAddress(item))
 	}
 	subject := mime.QEncoding.Encode("UTF-8", payload.Subject)
-	content := payload.Text
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.ReplaceAll(content, "\r", "\n")
-	content = strings.ReplaceAll(content, "\n", "\r\n")
-	if !strings.HasSuffix(content, "\r\n") {
-		content += "\r\n"
-	}
+	boundary := "=_ScertNotificationBoundary_2026"
+	text := normalizeMailBody(payload.Text)
+	htmlBody := normalizeMailBody(payload.HTML)
 	message := "From: " + from + "\r\n" +
 		"To: " + strings.Join(to, ", ") + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n" +
+		"--" + boundary + "\r\n" +
 		"Content-Type: text/plain; charset=UTF-8\r\n" +
-		"Content-Transfer-Encoding: 8bit\r\n\r\n" + content
+		"Content-Transfer-Encoding: 8bit\r\n\r\n" + text + "\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n" +
+		"Content-Transfer-Encoding: 8bit\r\n\r\n" + htmlBody + "\r\n" +
+		"--" + boundary + "--\r\n"
 	return []byte(message)
 }
 
+func normalizeMailBody(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strings.ReplaceAll(value, "\n", "\r\n")
+}
 func formatSMTPAddress(value address) string {
 	parsed, err := mail.ParseAddress(value.Email)
 	if err != nil || parsed.Address == "" {

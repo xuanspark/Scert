@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"net/mail"
@@ -414,48 +413,17 @@ func (s *Service) buildPayload(event Event) (mailPayload, error) {
 	} else if event.Type != "" {
 		title = eventTypeName(event.Type)
 	}
-	text := buildText(event, title, status, domainName)
+	text, htmlBody := buildMailContent(event, title, status, domainName, s.config)
 	return mailPayload{
 		From:    address{Name: fromName, Email: fromEmail},
 		To:      recipients,
-		Subject: fmt.Sprintf("[Scert] %s：%s（%s）", title, domainName, status),
+		Subject: buildMailSubject(title, status, domainName),
 		Text:    text,
-		HTML:    "<pre>" + html.EscapeString(text) + "</pre>",
+		HTML:    htmlBody,
 		CC:      []address{},
 		BCC:     []address{},
 		Attrs:   []any{},
 	}, nil
-}
-
-func buildText(event Event, title, status, domainName string) string {
-	lines := []string{
-		"Scert 证书管理服务通知",
-		"任务类型：" + title,
-		"任务状态：" + status,
-		"域名：" + domainName,
-	}
-	if len(event.Domains) > 0 {
-		lines = append(lines, "证书域名："+strings.Join(event.Domains, "、"))
-	}
-	if event.ExpiresAt != nil && !event.ExpiresAt.IsZero() {
-		lines = append(lines, "证书到期时间："+event.ExpiresAt.Local().Format("2006-01-02 15:04:05"))
-	}
-	if event.CertificateSerial != "" {
-		lines = append(lines, "证书序列号："+event.CertificateSerial)
-	}
-	if event.ManagementURL != "" {
-		lines = append(lines, "管理后台："+event.ManagementURL)
-	}
-	if event.Deployment.Total > 0 {
-		lines = append(lines, fmt.Sprintf("部署结果：总计 %d 台，成功 %d 台，失败 %d 台，状态 %s", event.Deployment.Total, event.Deployment.Success, event.Deployment.Failed, event.Deployment.Status))
-		for _, result := range event.Deployment.Results {
-			lines = append(lines, fmt.Sprintf("- %s：%s（%s）", result.Server, result.Status, result.Message))
-		}
-	}
-	if event.Error != "" {
-		lines = append(lines, "错误信息："+event.Error)
-	}
-	return strings.Join(lines, "\n")
 }
 
 func eventStatus(value string) string {
