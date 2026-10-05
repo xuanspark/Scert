@@ -3256,3 +3256,23 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 - [!] Linux 总体生产上线门禁继续未关闭。
 
 本节不记录密码、授权码、Cookie、令牌或私钥；Windows 环境不在本轮范围。
+
+## 2026年10月5日 22:02 当前代码候选包与第一台升级实测
+
+### 本轮实测证据
+
+- [✓] 后端 `go test -p 1 -count=1 -timeout=12m ./...`、`go vet ./...` 和前端 `npm.cmd test -- --run` 完成；前端 338 项通过，零失败、零跳过。
+- [✓] 发布脚本仅生成 `linux-amd64`；manifest 的源码提交为 `9cf01ad1ab45a5c42464cad4502fd66cd99a95ca`，`source_dirty=false`，归档 SHA-256 为 `ff8773849ca404bb1b73e272aaa5a7de4ee9a395955c2cd20e29b40df68559b9`。
+- [✓] 本地候选包清单 22 项全部通过 SHA-256 校验；包边界扫描通过，没有 Windows/桌面端、动态库、证书私钥或其他敏感文件类型。
+- [✓] 第一台远端归档摘要与本地一致；远端解包后的 `SHA256SUMS` 逐项通过。
+- [✓] 停服后使用官方备份流程创建 `/scert/backups/scert-20261005-140005.579855102`，再运行 `install-linux.sh --source-dir`；安装器报告升级文件已保留，没有删除配置、数据库、证书或历史备份。
+- [✓] 远端 `/scert/scert` SHA-256 为 `9a5114c19096097fc062f480c786543e42f3a8160f4ec6e45a34c4caf8017860`，与候选包一致；`/scert/scert-admin` 和 `/scert/scert-storage` 摘要也一致。
+- [✓] `Scert.service=active`、`Scert-storage.socket=active`、`Scert-admin.service=inactive`；Scert 仅监听 `127.0.0.1:8443`，公网 `80/443` 仍由 Nginx 接收。
+- [✓] `/scert/scert config validate` 通过，`nginx -t` 通过；远端严格 TLS 访问 `https://odacm.cn/readyz` 返回 `{"service":"scert","status":"ready"}`。
+
+### 未完成门禁
+
+- [ ] SMTP 敏感凭据交互录入、真实通知、收件箱到达和验证码闭环。
+- [!] 历史中断事务继续等待 `Scert-admin` 本机人工核查，不自动接管或删除锁。
+- [ ] 第二台 `45.136.13.241` 正式 SSL 推送、Nginx reload、受控失败回滚、恢复指纹和幂等重试。
+- [!] 本轮只证明最新 Linux 候选包在第一台升级后就绪，不代表 Linux 总体生产上线通过。

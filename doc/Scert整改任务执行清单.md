@@ -3132,3 +3132,23 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 - [!] Linux 总体生产上线门禁继续未关闭。
 
 本节不记录密码、授权码、Cookie、令牌或私钥；Windows 环境不在本轮范围。
+
+## 2026年10月5日 22:02 当前代码候选升级任务进度
+
+### 任务进度
+
+- [✓] `LINUX-REGRESSION`：后端全量测试、`go vet`、前端 338 项测试通过。
+- [✓] `LINUX-RELEASE`：仅生成 Linux amd64 候选包，源码提交为 `9cf01ad1ab45a5c42464cad4502fd66cd99a95ca`，归档摘要为 `ff8773849ca404bb1b73e272aaa5a7de4ee9a395955c2cd20e29b40df68559b9`。
+- [✓] `SERVER-1-UPGRADE`：第一台远端归档与包内清单校验通过，按官方备份和安装器流程完成升级；新备份为 `/scert/backups/scert-20261005-140005.579855102`。
+- [✓] `SERVER-1-READY`：`Scert.service`、`Scert-storage.socket` active，`Scert-admin.service` inactive；Scert 仅监听 `127.0.0.1:8443`，严格 `/readyz` 返回 ready。
+- [✓] `SERVER-2-CLEAN`：第二台仍未上传、未安装、未留下本项目部署包；其现有业务边界未纳入本轮升级。
+- [~] `SMTP-CREDENTIAL`：等待用户在 `web.cdis.cn` 完成正式系统通知凭据配置；不代填、不读取、不写入文档或参数。
+- [ ] `SMTP-DELIVERY`：配置保存后执行真实通知、收件箱到达和验证码闭环。
+- [ ] `LOCAL-RESET`：完成本机受保护验证码、密码重置、新密码登录及旧会话失效验证。
+- [ ] `SSL-PUSH`：通过有效管理会话向第二台执行正式 SSL 推送并复核目标权限、摘要、`nginx -t` 和 reload。
+- [ ] `SSL-ROLLBACK`：执行可控失败、旧证书回滚、恢复指纹和同幂等键重试。
+- [!] `LINUX-RELEASE-GATE`：邮件、受保护重置、第二台推送回滚及最终公网验收未齐，不得宣布总体上线。
+
+### 本轮边界
+
+候选包和第一台升级已完成，但构建、测试或 `/readyz` 不能替代真实邮件和第二台 SSL 生产验收。历史恢复事务保留现场，禁止手工删除锁或直接改数据库状态。
