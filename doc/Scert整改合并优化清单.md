@@ -1,5 +1,18 @@
 # Scert 整改、合并与优化清单
 
+## 2026年10月6日10时47分 最新状态：普通用户身份显示及第一台 Web 更新通过
+
+- [✓] 普通用户独立用户中心已显示当前登录账号和中文权限，跨“账户与密码／项目与成员”切换保持显示；管理员页面继续显示账号和权限。
+- [✓] 非超级管理员不再显示系统设置入口；管理员线上直接读取系统设置仍返回403，后端权限边界未被前端改动绕过。
+- [✓] 新增会话白名单、旧身份清理、晚到响应保护、HTML 转义及角色入口专项回归；前端专项31项、全量347项和生产构建通过。
+- [✓] 仅选择 linux-amd64 生成候选：`build/release-20261006-user-account/Scert-20261006-V0.1.0-linux-amd64.tar.gz`，归档 SHA-256 为 `3a82fff4ab7aeef62ad5d6d217b56a270e81b5678631ed43af9334df31cec029`。清单 source_commit=`39cbd833121f81687a744c15ce0dcb7864fc85e9`、source_dirty=false、desktop_requested=false。
+- [✓] 第一台仅切换 Web：新 `/scert/web` 四个文件摘要与候选一致；旧目录保留在 `/scert/backups/web-before-20261006-account-39cbd83`，未删除；Scert、存储套接字、Nginx 未重启且保持 active。
+- [✓] 正常 HTTPS 的 `/readyz` 返回 ready，浏览器清缓存刷新后加载 `index-D-Ya24Ph.js`；普通用户、管理员账号权限显示和管理员系统设置隐藏均通过。
+- [✓] 第二台未接收项目包；复核无 `/scert`、`/opt/scert` 及本次发布标识，Nginx、MySQL、PMail active。
+- [ ] 第二台历史 SSL 事务仍因缺少可信旧基线未处置；真实邮件收件、受保护重置、三库首次流程、DNS/ACME 及整体生产门禁继续未完成。
+
+归档 SHA-256 原始值为 `3a82fff4ab7aeef62ad5d6d217b56a270e81b5678631ed43af9334df31cec029`。本轮只上传第一台 Web 文件，没有向第二台上传或安装 Scert。
+
 ## 2026年10月6日10时32分 最新状态：推送失败根因与恢复证据
 
 - [✓] 第二台目标域名未绑定独立 HTTPS 站点，现有 PMail 站点提供 vcer.cn 证书；在已认证服务器内以目标 SNI 严格核验得到域名不匹配，不能当作公网正常 DNS 验收。

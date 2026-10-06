@@ -1,5 +1,26 @@
 # Linux 生产流程测试记录
 
+## 2026年10月6日10时47分 第一台 Web 更新及角色页面验收
+
+### 构建与发布物
+
+- [✓] 在提交 `39cbd833121f81687a744c15ce0dcb7864fc85e9` 上使用正式发布入口仅构建 `linux-amd64`；`manifest.json` 标记 `source_dirty=false`、`desktop_requested=false`，归档为 `Scert-20261006-V0.1.0-linux-amd64.tar.gz`，SHA-256=`3a82fff4ab7aeef62ad5d6d217b56a270e81b5678631ed43af9334df31cec029`。
+- [✓] 本轮部署范围严格限定为第一台的 Web 四文件；上传前对候选文件计算 SHA-256，远端 staging 复核一致后原子切换。旧 `/scert/web` 移入 `/scert/backups/web-before-20261006-account-39cbd83`，用于回退，未删除任何旧文件。
+
+### 第一台现场证据
+
+- [✓] 新 `/scert/web` 文件摘要：`index.html=931824b6390884c595d2aff2969bd02eff7f5a74b7913086463ed5eb6ea3bbbb`；`assets/index-D-Ya24Ph.js=a1f98fa88f721024e84c3f82ecacc062e612bedd3391140ac1f8f7d1a7d14ab9`；`assets/index-DLxVpPUk.css=7bdcb69c409e13127aa923832d9ea1374aee64db8f31a533e7e89132ac20f167`；`Scert.png=81b7ec9d32125e784e425b60cd731356b20b26d0bcc8e67261cbfb2764783f55`。
+- [✓] Scert.service、Scert-storage.socket、Nginx 均 active；正常 HTTPS `/readyz` 返回 `{"service":"scert","status":"ready"}`，首页引用新 JS 和 CSS。服务未重启。
+- [✓] 浏览器使用独立本项目页面并清缓存刷新；普通用户登录后页面顶部显示“当前登录账号／普通用户／权限：普通用户”，切换“项目与成员”后仍可见。退出后管理员登录显示“管理／权限：管理员”。
+- [✓] 管理员导航没有“系统设置”按钮；浏览器同源请求 `/api/v1/settings` 返回403。该结果与后端权限校验一致，不以隐藏按钮代替接口保护。
+
+### 第二台隔离证据
+
+- [✓] 本轮没有连接第二台执行上传；只读复核确认 `/scert`、`/opt/scert` 及限定范围内本次发布标识不存在，Nginx、MySQL、PMail active。
+- [✓] 第二台仍保持仅 SSL 推送测试边界，既有 PMail 和历史部署锁未删除、未修改。
+
+本节证明 Web 角色显示整改和第一台 Web 资源切换通过，不证明第二台历史 SSL 恢复、真实邮件送达、受保护重置、DNS/ACME 或整体验收完成。
+
 ## 2026年10月4日 Linux 上线整改接手记录
 
 ### 任务状态
