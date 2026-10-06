@@ -4064,3 +4064,9 @@ Smail 已从历史 502 状态恢复，系统通知授权页面可用；当前唯
 - [✓] 第二台 `Scert`、`Scert-storage.socket`、`Scert-admin` 均 inactive；`/scert`、`/opt/scert`、`/var/lib/scert`、`/tmp/scert`、`/root/scert` 均不存在，限定临时目录未发现本项目归档或部署包。
 - [✓] 既有站点仍为 `xuans.vcer.cn`，证书路径仍为 `/ssl/vcer.cn/fullchain.crt`；本次未修改 Nginx、业务证书、数据库或业务文件。
 - [!] 第二台尚未执行正式 SSL 推送；正式推送前必须建立可核验的目标站点基线，并保留可控失败和恢复证据。
+
+### 13时47分邮件模板回归复核
+
+- [✓] 在当前工作区执行 `go test ./internal/notification -count=1`，通知模板、验证码邮件、失败摘要、HTML 转义和安全提示回归通过。
+- [✓] 当前代码仍同时生成纯文本正文和 HTML 正文；失败通知突出“证书续期未完成”、失败服务器、证书域名不匹配和人工核查提示，不把底层 TLS 长错误直接作为用户摘要。
+- [!] 本地回归不等于公网 SMTP 投递；真实邮件到达仍等待受保护终端触发验证码并在收件箱核验。
