@@ -3381,3 +3381,34 @@ SQLite 新测试程序 SHA-256：4c81656fae63a2eebad999d58e6a79e63e6f441810e02ce
 ### 结论与剩余验收
 
 认证恢复、当前新包核心文件一致性和超管右侧账号显示通过。现场已经升级，因此本轮未上传、安装或重启；不补写未观察到的安装和备份过程。此前“新包未部署”“线上仅旧前端”“SSH 阻塞”以本节当前证据为准。邮件真实收件、受保护重置、第二台正式 SSL 推送回滚及三库和 DNS/ACME 全流程仍未验收，整体生产门禁保持未完成。
+
+## 2026年10月6日10时35分 第二台目标 SNI 与恢复条件
+
+### 站点与锁现场
+
+- [✓] 第二台 /etc/nginx/conf.d/pmail.conf 的 TLS 站点为 xuans.vcer.cn，证书路径为 /ssl/vcer.cn/fullchain.crt，私钥路径为 /ssl/vcer.cn/vcer.cn.key；未配置 scert-multi-20260930.apmmk.cn 对应站点。
+- [✓] 通过已验证 SSH 会话，在服务器内运行 openssl s_client，连接127.0.0.1:443，设置目标 SNI、verify_hostname 和 verify_return_error；返回 hostname mismatch、verify code62。该结果为主机内路由诊断，不是公网正常 DNS 验收，未关闭 TLS 校验。
+- [✓] 第一台同目标域名已有独立站点及对应证书路径，前序同轮严格主机内 SNI 核验返回0；不能因此推导第二台恢复或双机部署成功。
+- [✓] 第二台 Nginx、MySQL、PMail 均 active。使用 find /ssl -maxdepth 4 -type d -name '*.scert-lock'，apmmk 测试域名及 acceptance-0928.odacm.cn 的 single 目录各返回 cert.pem、key.pem、fullchain.pem 对应锁目录。
+- [✓] 更正上一节有限扫描结论：精确名称 .scert-lock 不匹配带文件名前缀的真实锁名；锁仍在，不能把漏检当作无锁或恢复完成。这些 SSL 事务锁不等于第二台安装了 Scert 服务或部署包。
+
+### 正式只读管理流程与数据库证据
+
+- [✓] 管理台通过受保护本机入口进入菜单2；未发验证码、未重置、未进入处置菜单。最近一条事务采样时间为2026-10-06 02:26:55 UTC，目标证书、私钥、证书链及对应临时文件和备份均不存在，三个锁存在且归属匹配。
+- [✓] 本次管理台 Result=success、ActiveState=inactive、SubState=dead；Scert.service、Scert-storage.socket 和 Nginx 均 active，覆盖此前凌晨管理台 failed 的历史状态描述。
+- [✓] 配置白名单确认应用数据库为 SQLite，路径 /scert/data/scert.db；MySQL 服务存在不代表应用当前使用 MySQL。随后连接使用 mode=ro，并开启 PRAGMA query_only=ON；仅输出事务编号、服务器编号、阶段、状态、目标域名以及指纹是否存在，不输出原始证据、锁令牌、私钥或密码。
+
+| 待恢复事务 | 服务器 | 目标域名 | 旧指纹 | 新指纹 |
+| --- | --- | --- | --- | --- |
+| 20261003-142919.192475924-417b9bcc5b09 | 第一台 | scert-multi-20260930.odacm.cn | 缺失 | 存在 |
+| 20261003-142924.300953335-fac63bc92b1f | 第二台 | scert-multi-20260930.odacm.cn | 缺失 | 存在 |
+| 20261004-125332.132786506-840997911780 | 第二台 | acceptance-0928.odacm.cn | 缺失 | 存在 |
+| 20261005-155817.537790327-15debedd0e44 | 第二台 | scert-multi-20260930.apmmk.cn | 缺失 | 存在 |
+
+四条数据库记录均为 reload_attempted、recovery_required。源码 recovery_executor.go 要求回滚具备 PreviousFingerprint，app.go 的正式校验还要求目标域名、端点及实际可信 HTTPS 指纹匹配；不允许事后补造历史基线。最近一条记录对应目标文件不存在，也不满足提交条件。
+
+### 本轮结论
+
+- [✓] 已定位当前第二台 SNI 错误与历史恢复缺失条件，不再归因于 SSH 认证。
+- [!] 历史事务仍需安全处置方案，本轮未提交或回滚、未重试任务、未删除锁、未写证书、未改 Nginx、未改数据库状态。
+- [ ] 第二台正式推送、回滚与恢复验收仍未通过；独立邮件、重置、角色界面、三库与 DNS/ACME 验收继续保留。
