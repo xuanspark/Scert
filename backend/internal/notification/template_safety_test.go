@@ -126,9 +126,11 @@ func TestAllMailTemplatesHaveValidBodyStyles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertMailBodyStyle(t, payload.HTML)
+			assertReferenceMailStyle(t, payload.HTML)
 		}
 	}
 	assertMailBodyStyle(t, buildSecurityHTML("01234567"))
+	assertReferenceMailStyle(t, buildSecurityHTML("01234567"))
 	if strings.Contains(buildSecurityHTML(`<script>alert(1)</script>`), "<script>") {
 		t.Fatal("模板必须转义动态内容")
 	}
@@ -154,6 +156,22 @@ func assertMailBodyStyle(t *testing.T, body string) {
 				t.Fatal("正文样式属性被引号截断或缺失")
 			}
 			return
+		}
+	}
+}
+
+func assertReferenceMailStyle(t *testing.T, body string) {
+	t.Helper()
+	for _, value := range []string{
+		"background:#f4f4f5",
+		"max-width:640px",
+		"border-radius:12px",
+		"#4f46e5",
+		"padding:32px",
+		"background:#fafafa",
+	} {
+		if !strings.Contains(body, value) {
+			t.Fatalf("邮件模板缺少参考样式 %q", value)
 		}
 	}
 }

@@ -108,15 +108,12 @@ func buildTextMail(content mailContent) string {
 
 func buildHTMLMail(content mailContent) string {
 	var builder strings.Builder
-	builder.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;padding:0;background:#f4f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',Arial,sans-serif;line-height:1.6;">`)
-	builder.WriteString(`<div style="padding:32px 16px;"><div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e4e9f2;border-radius:16px;overflow:hidden;">`)
-	builder.WriteString(`<div style="padding:24px 28px;background:#14213d;color:#ffffff;"><div style="font-size:13px;letter-spacing:.08em;opacity:.8;">SCERT 证书管理服务</div><div style="margin-top:6px;font-size:24px;font-weight:700;">证书管理通知</div></div>`)
-	builder.WriteString(`<div style="padding:28px;">`)
+	beginHTMLMail(&builder, "证书管理通知")
 	builder.WriteString(`<div style="display:inline-block;padding:4px 12px;border-radius:999px;background:` + content.statusColor + `;color:#ffffff;font-size:13px;font-weight:700;">` + escapeHTML(content.status) + `</div>`)
-	builder.WriteString(`<h1 style="margin:14px 0 6px;font-size:24px;line-height:1.35;color:#172033;">` + escapeHTML(content.statusSummary) + `</h1>`)
-	builder.WriteString(`<p style="margin:0 0 24px;color:#667085;font-size:14px;">` + escapeHTML(content.domain) + `</p>`)
+	builder.WriteString(`<h2 style="margin:14px 0 6px;font-size:24px;line-height:1.35;color:#18181b;">` + escapeHTML(content.statusSummary) + `</h2>`)
+	builder.WriteString(`<p style="margin:0 0 24px;color:#71717a;font-size:14px;">` + escapeHTML(content.domain) + `</p>`)
 
-	builder.WriteString(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e4e9f2;border-radius:10px;overflow:hidden;font-size:14px;">`)
+	builder.WriteString(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e4e4e7;border-radius:8px;overflow:hidden;font-size:14px;">`)
 	writeHTMLField(&builder, "任务类型", content.title)
 	writeHTMLField(&builder, "域名", content.domain)
 	if len(content.domains) > 0 {
@@ -131,31 +128,42 @@ func buildHTMLMail(content mailContent) string {
 	builder.WriteString(`</table>`)
 
 	if content.problem != "" {
-		builder.WriteString(`<div style="margin-top:24px;padding:16px 18px;border-left:4px solid #d92d20;background:#fff3f1;border-radius:8px;"><div style="font-size:14px;font-weight:700;color:#b42318;">问题概述</div><div style="margin-top:6px;color:#7a271a;font-size:14px;">` + escapeHTML(content.problem) + `</div></div>`)
+		builder.WriteString(`<div style="margin-top:24px;padding:16px 18px;border-left:4px solid #dc2626;background:#fef2f2;border-radius:8px;"><div style="font-size:14px;font-weight:700;color:#b91c1c;">问题概述</div><div style="margin-top:6px;color:#991b1b;font-size:14px;">` + escapeHTML(content.problem) + `</div></div>`)
 	}
 	if content.hasDeployment {
-		builder.WriteString(`<div style="margin-top:24px;"><div style="font-size:16px;font-weight:700;color:#172033;">部署概况</div><div style="margin-top:8px;padding:12px 14px;background:#f7f9fc;border-radius:8px;color:#344054;font-size:14px;">` + escapeHTML(deploymentSummary(content.deployment)) + `</div></div>`)
+		builder.WriteString(`<div style="margin-top:24px;"><div style="font-size:16px;font-weight:700;color:#18181b;">部署概况</div><div style="margin-top:8px;padding:12px 14px;background:#fafafa;border-radius:8px;color:#3f3f46;font-size:14px;">` + escapeHTML(deploymentSummary(content.deployment)) + `</div></div>`)
 	}
 	if content.recoveryWarning != "" {
-		builder.WriteString(`<div style="margin-top:20px;padding:16px;border:1px solid #fdb022;border-radius:8px;background:#fffaeb;color:#93370d;font-weight:700;">` + escapeHTML(content.recoveryWarning) + `</div>`)
+		builder.WriteString(`<div style="margin-top:20px;padding:16px;border:1px solid #f59e0b;border-radius:8px;background:#fffbeb;color:#92400e;font-weight:700;">` + escapeHTML(content.recoveryWarning) + `</div>`)
 	}
 	if content.includeDeployment && len(content.deployment.Results) > 0 {
-		builder.WriteString(`<div style="margin-top:24px;"><div style="font-size:16px;font-weight:700;color:#172033;">处理结果</div>`)
+		builder.WriteString(`<div style="margin-top:24px;"><div style="font-size:16px;font-weight:700;color:#18181b;">处理结果</div>`)
 		for _, result := range content.deployment.Results {
 			color := resultColor(result.Status)
-			builder.WriteString(`<div style="margin-top:8px;padding:12px 14px;border:1px solid #e4e9f2;border-radius:8px;font-size:14px;"><span style="font-weight:700;color:` + color + `;">` + escapeHTML(result.Server) + ` · ` + escapeHTML(resultStatus(result.Status)) + `</span><div style="margin-top:4px;color:#667085;">` + escapeHTML(resultSummary(result.Message)) + `</div></div>`)
+			builder.WriteString(`<div style="margin-top:8px;padding:12px 14px;border:1px solid #e4e4e7;border-radius:8px;font-size:14px;"><span style="font-weight:700;color:` + color + `;">` + escapeHTML(result.Server) + ` · ` + escapeHTML(resultStatus(result.Status)) + `</span><div style="margin-top:4px;color:#71717a;">` + escapeHTML(resultSummary(result.Message)) + `</div></div>`)
 		}
 		builder.WriteString(`</div>`)
 	}
 	if content.managementURL != "" {
-		builder.WriteString(`<div style="margin-top:28px;"><a href="` + escapeHTML(content.managementURL) + `" style="display:inline-block;padding:10px 18px;border-radius:8px;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">打开管理后台</a></div>`)
+		builder.WriteString(`<div style="margin-top:28px;"><a href="` + escapeHTML(content.managementURL) + `" style="display:inline-block;padding:11px 18px;border-radius:8px;background:#4f46e5;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;">打开管理后台</a></div>`)
 	}
-	builder.WriteString(`</div><div style="padding:16px 28px;background:#f8fafc;color:#98a2b3;font-size:12px;">此邮件由 Scert 自动发送，请勿直接回复。</div></div></div></body></html>`)
+	endHTMLMail(&builder)
 	return builder.String()
 }
 
+func beginHTMLMail(builder *strings.Builder, title string) {
+	builder.WriteString(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body style="margin:0;padding:24px;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',Arial,sans-serif;color:#18181b;line-height:1.6;">`)
+	builder.WriteString(`<div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(15,23,42,0.10);">`)
+	builder.WriteString(`<div style="background:#4f46e5;color:#ffffff;padding:28px 32px;"><h1 style="margin:0;font-size:24px;line-height:1.25;">` + escapeHTML(title) + `</h1></div>`)
+	builder.WriteString(`<div style="padding:32px;font-size:15px;line-height:1.7;">`)
+}
+
+func endHTMLMail(builder *strings.Builder) {
+	builder.WriteString(`</div><div style="padding:18px 32px;background:#fafafa;color:#a1a1aa;font-size:12px;">此邮件由 Scert 自动发送，请勿直接回复。</div></div></body></html>`)
+}
+
 func writeHTMLField(builder *strings.Builder, label, value string) {
-	builder.WriteString(`<tr><td style="width:34%;padding:10px 12px;border-bottom:1px solid #e4e9f2;background:#f8fafc;color:#667085;">` + escapeHTML(label) + `</td><td style="padding:10px 12px;border-bottom:1px solid #e4e9f2;color:#172033;word-break:break-word;">` + escapeHTML(value) + `</td></tr>`)
+	builder.WriteString(`<tr><td style="width:34%;padding:10px 12px;border-bottom:1px solid #e4e4e7;background:#fafafa;color:#71717a;">` + escapeHTML(label) + `</td><td style="padding:10px 12px;border-bottom:1px solid #e4e4e7;color:#18181b;word-break:break-word;">` + escapeHTML(value) + `</td></tr>`)
 }
 
 func mailStatusColor(status string) string {
