@@ -28,7 +28,7 @@ test("管理侧栏始终提供退出入口，并展示忙碌和失败状态", as
     { loggingOut: false, error: "退出登录失败" },
   ]) {
     const html = await renderToString(Vue.createSSRApp({
-      setup: () => ({ activeSection: "overview", sections: [], logout() {}, ...state }),
+      setup: () => ({ activeSection: "overview", sections: [], currentUser: null, logout() {}, ...state }),
       render,
     }));
     assert.match(html, /class="navigation-session"/);

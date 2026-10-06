@@ -11,6 +11,7 @@ const {
   setupState,
   authenticated,
   isAdmin,
+  currentUser,
   bootstrapping,
   error,
   routePath,
@@ -48,6 +49,7 @@ const {
 
   <UserWorkspace
     v-else-if="setupState && authenticated === true && isAdmin === false"
+    :current-user="currentUser"
   />
 
   <Dashboard v-else-if="setupState && authenticated === true" />

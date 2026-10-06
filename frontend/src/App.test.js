@@ -9,6 +9,58 @@ function dispatchPageEvent(type, persisted = true) {
   window.dispatchEvent(event);
 }
 
+test("用户中心身份只取已认证会话白名单，重新验证期间立即清除", async (t) => {
+  let session = { authenticated: true, account: "普通用户", role: "user", extra: "not-for-view" };
+  const { state } = await mountComposable(t, useAppShell, async (path) => {
+    if (path.endsWith("/status")) return Response.json({ initialized: true });
+    return Response.json(session);
+  });
+  assert.deepEqual(state.currentUser.value, { account: "普通用户", role: "user" });
+  session = { authenticated: true, account: "新用户", role: "user" };
+  const reload = state.bootstrap();
+  assert.equal(state.currentUser.value, null);
+  await reload;
+  assert.deepEqual(state.currentUser.value, { account: "新用户", role: "user" });
+  dispatchPageEvent("pagehide");
+  assert.equal(state.currentUser.value, null);
+  session = { authenticated: false, account: "不得显示", role: "super_admin" };
+  dispatchPageEvent("pageshow");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(state.currentUser.value, null);
+});
+
+for (const failure of ["unauthorized", "network", "uninitialized"]) {
+  test(`身份核验失败或回到初始化不能保留旧账号：${failure}`, async (t) => {
+    let fail = false;
+    const { state } = await mountComposable(t, useAppShell, async (path) => {
+      if (fail && failure === "network") throw new Error("连接失败");
+      if (path.endsWith("/status")) {
+        return Response.json({ initialized: !(fail && failure === "uninitialized") });
+      }
+      if (fail) return new Response(null, { status: 401 });
+      return Response.json({ authenticated: true, account: "普通用户", role: "user" });
+    });
+    assert.equal(state.currentUser.value.account, "普通用户");
+    fail = true;
+    await state.bootstrap();
+    assert.equal(state.currentUser.value, null);
+  });
+}
+
+test("旧会话请求晚到不能覆盖新版用户身份", async (t) => {
+  const pending = deferred();
+  let count = 0;
+  const { state } = await mountComposable(t, useAppShell, async (path) => {
+    if (path.endsWith("/status")) return Response.json({ initialized: true });
+    count += 1;
+    return count === 1 ? pending.promise : Response.json({ authenticated: true, account: "新用户", role: "user" });
+  });
+  await state.bootstrap();
+  pending.resolve(Response.json({ authenticated: true, account: "旧用户", role: "super_admin" }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(state.currentUser.value, { account: "新用户", role: "user" });
+});
+
 test("历史缓存恢复先隐藏旧控制台，再按真实会话显示登录页", async (t) => {
   let active = true;
   const sessionOptions = [];

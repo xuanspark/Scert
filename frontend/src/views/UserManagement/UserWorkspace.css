@@ -16,6 +16,50 @@
   font-size: 26px;
 }
 
+.user-workspace-session {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+  max-width: 60%;
+}
+
+.user-workspace-account {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid #d5ddea;
+  border-radius: 12px;
+  background: #f8faff;
+  overflow-wrap: anywhere;
+}
+
+.user-workspace-account span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.user-workspace-account strong {
+  color: #25344d;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .user-workspace header {
+    flex-wrap: wrap;
+  }
+
+  .user-workspace-session {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
 .user-workspace button {
   padding: 10px 16px;
   border: 1px solid #d5ddea;

@@ -68,6 +68,7 @@ defineEmits(["select", "settings"]);
       </button>
     </template>
     <button
+      v-if="currentUser?.role === 'super_admin'"
       class="navigation-item"
       type="button"
       title="配置服务、证书签发和邮件通知"

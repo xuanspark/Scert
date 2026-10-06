@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./UserWorkspace.test.js";
 import test from "node:test";
 import { groupUsers, useUserManagement } from "./UserManagement.js";
 import { useUserGroupEditor } from "./UserGroupEditor.js";

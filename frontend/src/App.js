@@ -4,6 +4,7 @@ export function useAppShell() {
   const setupState = ref(null);
   const authenticated = ref(null);
   const isAdmin = ref(null);
+  const currentUser = ref(null);
   const bootstrapping = ref(true);
   const error = ref("");
   const routePath = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -15,6 +16,7 @@ export function useAppShell() {
     bootstrapping.value = true;
     authenticated.value = null;
     isAdmin.value = null;
+    currentUser.value = null;
     error.value = "";
     try {
       let response = await fetch("/api/v1/bootstrap/status", { cache: "no-store" });
@@ -49,11 +51,13 @@ export function useAppShell() {
       setupState.value = result;
       authenticated.value = session.authenticated;
       isAdmin.value = session.isAdmin;
+      currentUser.value = session.currentUser || null;
     } catch (err) {
       if (version !== bootstrapVersion) return;
       setupState.value = null;
       authenticated.value = null;
       isAdmin.value = null;
+      currentUser.value = null;
       error.value = err.message || "无法连接核心服务，请先启动 scert serve";
     } finally {
       if (version === bootstrapVersion) bootstrapping.value = false;
@@ -73,6 +77,9 @@ export function useAppShell() {
     return {
       authenticated: result.authenticated === true,
       isAdmin: result.is_admin === true || ["super_admin", "admin"].includes(result.role),
+      currentUser: result.authenticated === true
+        ? { account: result.account, role: result.role }
+        : null,
     };
   }
 
@@ -96,6 +103,7 @@ export function useAppShell() {
     setupState.value = { ...setupState.value, initialized: true };
     authenticated.value = false;
     isAdmin.value = false;
+    currentUser.value = null;
   }
 
   function handlePageHide() {
@@ -103,6 +111,7 @@ export function useAppShell() {
     bootstrapVersion += 1;
     authenticated.value = null;
     isAdmin.value = null;
+    currentUser.value = null;
     bootstrapping.value = true;
   }
 
@@ -130,6 +139,7 @@ export function useAppShell() {
     setupState,
     authenticated,
     isAdmin,
+    currentUser,
     bootstrapping,
     error,
     routePath,
