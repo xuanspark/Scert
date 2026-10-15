@@ -78,6 +78,14 @@ button[type="submit"] {
   overflow-wrap: anywhere;
 }
 
+.dns-dialog-hint {
+  grid-column: 1 / -1;
+  margin: -4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .dns-dialog-error {
   color: #a92e2e;
 }

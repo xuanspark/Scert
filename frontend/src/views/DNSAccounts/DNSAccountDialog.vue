@@ -28,7 +28,7 @@ onBeforeUnmount(() => previousFocus?.focus?.());
         <button type="button" :disabled="saving" aria-label="关闭账户编辑" @click="emit('close')">关闭</button>
       </header>
       <fieldset :disabled="saving">
-        <label v-if="['create', 'rename'].includes(editor.action)">
+        <label v-if="['create', 'edit', 'rename'].includes(editor.action)">
           账户名称
           <input v-model="editor.name" autofocus required maxlength="128" aria-label="账户名称" />
         </label>
@@ -46,19 +46,22 @@ onBeforeUnmount(() => previousFocus?.focus?.());
             </select>
           </label>
         </template>
-        <template v-if="['create', 'rotate'].includes(editor.action)">
+        <template v-if="['create', 'edit', 'rotate'].includes(editor.action)">
           <label v-for="field in provider?.credential_fields || []" :key="`${editor.provider}-${field.name}`" :title="field.placeholder">
             {{ field.label }}{{ field.required ? '（必填）' : '（可选）' }}
             <input
               v-model="editor.credentials[field.name]"
               :type="field.secret ? 'password' : 'text'"
-              :required="field.required"
+              :required="field.required && editor.action !== 'edit'"
               :aria-label="field.label"
               :placeholder="field.placeholder"
               autocomplete="off"
               spellcheck="false"
             />
           </label>
+          <p v-if="editor.action === 'edit'" class="dns-dialog-hint">
+            凭据字段留空表示保留当前配置；填写任意字段将替换全部凭据，并需要重新验证。
+          </p>
         </template>
         <label v-if="editor.action === 'verify'" title="仅填写你有权管理的域名。验证会创建、查询并清理临时 DNS 记录。">
           授权测试域名

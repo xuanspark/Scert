@@ -62,6 +62,7 @@ test("DNS 新建只发送白名单字段并清空凭据", async (t) => {
 });
 
 for (const [action, suffix, body, method] of [
+  ["edit", "", { revision: 7, name: "新名称", credentials: { api_token: "replacement-token" } }, "PUT"],
   ["rename", "", { revision: 7, name: "新名称" }, "PUT"],
   ["rotate", "/credentials", { revision: 7, credentials: { api_token: "replacement-token" } }, "PUT"],
   ["status", "/status", { revision: 7, enabled: false }, "PUT"],
@@ -82,9 +83,18 @@ for (const [action, suffix, body, method] of [
   });
 }
 
+test("编辑账户时凭据留空表示保留原配置", async (t) => {
+  const { state, calls } = await setup(t);
+  state.openEditor("edit", account);
+  state.editor.value.name = "仅修改名称";
+  await state.saveEditor();
+  const write = calls.find((item) => item.method);
+  assert.deepEqual(JSON.parse(write.body), { revision: 7, name: "仅修改名称" });
+});
+
 test("只读项目和历史配置不能发起账户写操作", async (t) => {
   const { state, calls } = await setup(t, undefined, { manage: false });
-  for (const action of ["create", "rename", "rotate", "status", "verify"]) {
+  for (const action of ["create", "edit", "rename", "rotate", "status", "verify"]) {
     state.openEditor(action, account);
     assert.equal(state.editor.value, null);
   }

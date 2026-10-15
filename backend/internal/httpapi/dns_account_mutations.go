@@ -122,8 +122,9 @@ func (s *Server) renameManagedDNSAccount(c *gin.Context) {
 		return
 	}
 	var request struct {
-		Name     string `json:"name"`
-		Revision int64  `json:"revision"`
+		Name        string            `json:"name"`
+		Revision    int64             `json:"revision"`
+		Credentials map[string]string `json:"credentials"`
 	}
 	if err := bindJSON(c, &request, setupRequestLimit); err != nil || request.Revision < 1 {
 		s.writeError(c, http.StatusBadRequest, "DNS 账户名称或版本无效", nil)
@@ -135,12 +136,20 @@ func (s *Server) renameManagedDNSAccount(c *gin.Context) {
 		s.writeDNSAccountError(c, err)
 		return
 	}
-	item.Name, item.CredentialRef = strings.TrimSpace(request.Name), "secret://dns/validation"
+	item.Name = strings.TrimSpace(request.Name)
+	item.CredentialRef = "secret://dns/validation"
 	if err := item.Validate(); err != nil {
 		s.writeError(c, http.StatusBadRequest, "DNS 账户名称无效", nil)
 		return
 	}
-	updated, err := repo.RenameDNSAccount(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"), request.Revision, item.Name)
+	reference := ""
+	if len(request.Credentials) > 0 {
+		reference = "secret://dns/" + domain.NewID()
+		if !s.storeManagedDNSCredential(c, item.Provider, reference, request.Credentials) {
+			return
+		}
+	}
+	updated, err := repo.UpdateDNSAccount(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"), request.Revision, item.Name, reference)
 	if err != nil {
 		s.writeDNSAccountError(c, err)
 		return

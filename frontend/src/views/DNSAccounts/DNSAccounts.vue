@@ -63,9 +63,8 @@ watch(() => props.refreshKey, loadAccounts);
               </td>
               <td>
                 <div v-if="canManage(account)" class="dns-row-actions">
-                  <button type="button" :disabled="saving" @click="openEditor('rename', account)">改名</button>
+                  <button type="button" :disabled="saving" @click="openEditor('edit', account)">编辑</button>
                   <button type="button" :disabled="saving || account.status !== 'active'" @click="openEditor('verify', account)">验证</button>
-                  <button type="button" :disabled="saving" title="保存新凭据并使旧验证状态失效" @click="openEditor('rotate', account)">轮换</button>
                   <button type="button" :disabled="saving" @click="openEditor('status', account)">{{ account.status === 'active' ? '停用' : '启用' }}</button>
                 </div>
                 <span v-else class="dns-muted" :title="account.managed ? '当前项目只读，操作权限由服务器实时复核' : '历史系统账户尚未迁移，此处仅展示，不支持独立账户操作'">{{ account.managed ? '只读' : '历史配置' }}</span>

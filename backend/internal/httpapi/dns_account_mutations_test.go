@@ -74,13 +74,13 @@ func TestManagedDNSAccountLifecycle(t *testing.T) {
 	oldReference := stored.CredentialRef
 	managedDNSRequest(t, f, "manager", http.MethodPut, path, `{"revision":2,"name":"更名后的账户"}`, http.StatusOK)
 	managedDNSRequest(t, f, "manager", http.MethodPut, path, `{"revision":2,"name":"旧版本"}`, http.StatusConflict)
-	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/status", `{"revision":3,"enabled":false}`, http.StatusOK)
-	managedDNSRequest(t, f, "manager", http.MethodPost, path+"/verify", `{"revision":4,"test_domain":"example.test"}`, http.StatusForbidden)
+	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/status", `{"revision":4,"enabled":false}`, http.StatusOK)
+	managedDNSRequest(t, f, "manager", http.MethodPost, path+"/verify", `{"revision":5,"test_domain":"example.test"}`, http.StatusForbidden)
 	if verifications != 1 {
 		t.Fatal("已禁用账户仍调用服务商")
 	}
-	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/credentials", `{"revision":4,"credentials":{"api_token":"rotated-sensitive-token"}}`, http.StatusOK)
-	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/status", `{"revision":5,"enabled":true}`, http.StatusOK)
+	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/credentials", `{"revision":5,"credentials":{"api_token":"rotated-sensitive-token"}}`, http.StatusOK)
+	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/status", `{"revision":6,"enabled":true}`, http.StatusOK)
 	stored, err = f.members.GetDNSAccountForVerification(t.Context(), "manager", item.ID)
 	if err != nil || stored.CredentialRef == oldReference || stored.VerificationState != domain.DNSAccountUnverified || len(secrets.data) != 2 {
 		t.Fatal("轮换没有生成新引用、保留旧引用或清除验证状态", err)
@@ -91,9 +91,9 @@ func TestManagedDNSAccountLifecycle(t *testing.T) {
 		}
 		return dnsverification.Report{}, errors.New("internal-sensitive-error")
 	})
-	managedDNSRequest(t, f, "manager", http.MethodPost, path+"/verify", `{"revision":6,"test_domain":"example.test"}`, http.StatusUnprocessableEntity)
+	managedDNSRequest(t, f, "manager", http.MethodPost, path+"/verify", `{"revision":7,"test_domain":"example.test"}`, http.StatusUnprocessableEntity)
 	stored, err = f.members.GetVisibleDNSAccount(t.Context(), "manager", item.ID)
-	if err != nil || stored.VerificationState != domain.DNSAccountVerificationFailed || stored.Revision != 7 {
+	if err != nil || stored.VerificationState != domain.DNSAccountVerificationFailed || stored.Revision != 8 {
 		t.Fatal("服务商失败没有记录到对应版本", err)
 	}
 	var count int

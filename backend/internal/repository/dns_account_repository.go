@@ -23,6 +23,7 @@ type DNSAccountRepository interface {
 	GetVisibleDNSAccount(context.Context, string, string) (domain.DNSAccount, error)
 	GetDNSAccountForUse(context.Context, string, string, string) (domain.DNSAccount, error)
 	GetDNSAccountForVerification(context.Context, string, string) (domain.DNSAccount, error)
+	UpdateDNSAccount(context.Context, string, string, int64, string, string) (domain.DNSAccount, error)
 	RenameDNSAccount(context.Context, string, string, int64, string) (domain.DNSAccount, error)
 	SetDNSAccountEnabled(context.Context, string, string, int64, bool) (domain.DNSAccount, error)
 	RotateDNSAccountCredential(context.Context, string, string, int64, string) (domain.DNSAccount, error)
@@ -200,6 +201,17 @@ func (r *SQLProjectMemberRepository) GetDNSAccountForUse(ctx context.Context, ac
 func (r *SQLProjectMemberRepository) RenameDNSAccount(ctx context.Context, actorID, id string, revision int64, name string) (domain.DNSAccount, error) {
 	return r.changeDNSAccount(ctx, actorID, id, revision, "dns_account.rename", func(item *domain.DNSAccount) error {
 		item.Name = name
+		return nil
+	})
+}
+
+func (r *SQLProjectMemberRepository) UpdateDNSAccount(ctx context.Context, actorID, id string, revision int64, name, reference string) (domain.DNSAccount, error) {
+	return r.changeDNSAccount(ctx, actorID, id, revision, "dns_account.update", func(item *domain.DNSAccount) error {
+		item.Name = name
+		if reference != "" {
+			item.CredentialRef = reference
+			item.VerificationState = domain.DNSAccountUnverified
+		}
 		return nil
 	})
 }
