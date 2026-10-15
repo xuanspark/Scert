@@ -103,6 +103,34 @@ func TestAdminDNSAccountsExposeProjectScope(t *testing.T) {
 	}
 }
 
+func TestDNSAccountsLazilyImportConfiguredAccountForEditing(t *testing.T) {
+	f := newProjectMemberAPIFixture(t)
+	f.server.config.DNS.ProjectID = "project-a"
+	f.server.config.DNS.Provider = "cloudflare"
+	f.server.config.DNS.CredentialRef = "secret://dns/cloudflare/project-a"
+	f.server.secrets = &fakeSecretReaderStore{data: map[string]map[string]string{
+		f.server.config.DNS.CredentialRef: {"api_token": "test-token"},
+	}}
+
+	response := serveUserRequest(f.server, f.cookies["manager"], http.MethodGet, "/api/v1/dns/accounts", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("读取已配置 DNS 账户失败：%d %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"id":"legacy-system-dns"`) ||
+		!strings.Contains(response.Body.String(), `"managed":true`) {
+		t.Fatalf("已配置 DNS 账户未迁移为可编辑账户：%s", response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), `"id":"system-dns"`) {
+		t.Fatalf("已迁移账户仍重复显示旧系统只读视图：%s", response.Body.String())
+	}
+
+	updated := serveUserRequest(f.server, f.cookies["manager"], http.MethodPut,
+		"/api/v1/dns/accounts/legacy-system-dns", `{"revision":1,"name":"修改后的账户"}`)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("已配置 DNS 账户不能修改：%d %s", updated.Code, updated.Body.String())
+	}
+}
+
 func TestDNSCredentialUseRejectsUnauthorizedProject(t *testing.T) {
 	server := New(Dependencies{
 		ProjectDomains: projectDomainRepositoryStub{authorizeErr: repository.ErrProjectAccessDenied},

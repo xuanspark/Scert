@@ -36,6 +36,12 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 	cfg := s.config
 	s.configMu.RUnlock()
 	items := make([]dnsAccountView, 0, 1)
+	hasLegacyAccount := false
+	var legacyAccount domain.DNSAccount
+	configuredLegacyProjectID := strings.TrimSpace(cfg.DNS.ProjectID)
+	if configuredLegacyProjectID == "" {
+		configuredLegacyProjectID = domain.DefaultProjectID
+	}
 	if repo, ok := s.projectMembers.(repository.DNSAccountRepository); ok {
 		accounts, err := repo.ListVisibleDNSAccounts(c.Request.Context(), c.GetString(authenticatedActorKey))
 		if err != nil {
@@ -43,6 +49,14 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 			return
 		}
 		for _, account := range accounts {
+			if account.ID == "legacy-system-dns" {
+				if account.ProjectID != configuredLegacyProjectID {
+					continue
+				}
+				hasLegacyAccount = true
+				legacyAccount = account
+				continue
+			}
 			item, err := s.managedDNSAccountView(c, account)
 			if err != nil {
 				s.writeError(c, http.StatusServiceUnavailable, "读取 DNS 账户归属失败", nil)
@@ -77,6 +91,54 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 		}
 		s.writeError(c, http.StatusServiceUnavailable, "读取项目 DNS 权限失败，请稍后重试", nil)
 		return
+	}
+	if hasLegacyAccount {
+		item, viewErr := s.configuredLegacyDNSAccountView(c, legacyAccount, cfg.DNS.Provider, cfg.DNS.CredentialRef, cfg.DNS.OwnerUserID, cfg.Admin.Username)
+		if viewErr != nil {
+			s.writeError(c, http.StatusServiceUnavailable, "读取 DNS 账户归属失败", nil)
+			return
+		}
+		items = append(items, item)
+		c.JSON(http.StatusOK, gin.H{"items": items})
+		return
+	}
+	if importer, ok := s.projectMembers.(repository.DNSLegacyAccountImporter); ok {
+		if managedRepo, repoOK := s.projectMembers.(repository.DNSAccountRepository); repoOK && strings.TrimSpace(cfg.DNS.Provider) != "" {
+			const legacyID = "legacy-system-dns"
+			legacyAccount, err := managedRepo.GetVisibleDNSAccount(c.Request.Context(), c.GetString(authenticatedActorKey), legacyID)
+			if errors.Is(err, repository.ErrProjectAccessDenied) {
+				legacyProjectID := strings.TrimSpace(cfg.DNS.ProjectID)
+				if legacyProjectID == "" {
+					legacyProjectID = domain.DefaultProjectID
+				}
+				legacyOwnerID := strings.TrimSpace(cfg.DNS.OwnerUserID)
+				if legacyOwnerID == "" {
+					legacyOwnerID = "primary-super-admin"
+				}
+				if err := importer.ImportLegacyDNSAccount(c.Request.Context(), domain.DNSAccount{
+					ID: legacyID, Name: "旧系统 DNS 账户", ProjectID: legacyProjectID,
+					OwnerUserID: legacyOwnerID, Provider: cfg.DNS.Provider, CredentialRef: cfg.DNS.CredentialRef,
+				}); err != nil {
+					s.writeError(c, http.StatusServiceUnavailable, "登记已配置的 DNS 账户失败，请稍后重试", nil)
+					return
+				}
+				legacyAccount, err = managedRepo.GetVisibleDNSAccount(c.Request.Context(), c.GetString(authenticatedActorKey), legacyID)
+			}
+			if err == nil {
+				item, viewErr := s.configuredLegacyDNSAccountView(c, legacyAccount, cfg.DNS.Provider, cfg.DNS.CredentialRef, cfg.DNS.OwnerUserID, cfg.Admin.Username)
+				if viewErr != nil {
+					s.writeError(c, http.StatusServiceUnavailable, "读取 DNS 账户归属失败", nil)
+					return
+				}
+				items = append(items, item)
+				c.JSON(http.StatusOK, gin.H{"items": items})
+				return
+			}
+			if !errors.Is(err, repository.ErrProjectAccessDenied) {
+				s.writeError(c, http.StatusServiceUnavailable, "读取已配置的 DNS 账户失败，请稍后重试", nil)
+				return
+			}
+		}
 	}
 	item := dnsAccountView{
 		ID: "system-dns", Name: "系统 DNS 账户", Provider: cfg.DNS.Provider,
@@ -127,6 +189,53 @@ func (s *Server) listDNSAccounts(c *gin.Context) {
 	}
 	items = append(items, item)
 	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (s *Server) configuredLegacyDNSAccountView(c *gin.Context, account domain.DNSAccount, provider, credentialRef, ownerUserID, adminUsername string) (dnsAccountView, error) {
+	ownerID := strings.TrimSpace(ownerUserID)
+	if ownerID == "" {
+		ownerID = account.OwnerUserID
+	}
+	if ownerID == "" {
+		ownerID = "primary-super-admin"
+	}
+	item := dnsAccountView{
+		ID: account.ID, Name: account.Name, Provider: account.Provider, ProjectID: account.ProjectID,
+		OwnerUserID: ownerID, OwnerState: "unassigned", OwnerUsername: "未分配",
+		VerificationState: account.VerificationState, CredentialState: "available",
+		Status: account.Status, Revision: account.Revision, Managed: true,
+	}
+	if descriptor, err := dnsprovider.GetDescriptor(provider); err == nil {
+		item.ProviderName = descriptor.Name
+	} else {
+		item.ProviderName = "未知服务商"
+	}
+	if ownerID == "primary-super-admin" {
+		item.OwnerState, item.OwnerUsername = "assigned", adminUsername
+	} else {
+		if s.users == nil {
+			return dnsAccountView{}, errors.New("用户归属查询暂不可用")
+		}
+		owner, err := s.users.GetUserByID(c.Request.Context(), ownerID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return dnsAccountView{}, err
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			item.OwnerState, item.OwnerUsername = "missing", "原用户已不存在"
+		} else {
+			item.OwnerState, item.OwnerUsername = "assigned", owner.Username
+		}
+	}
+	credentials, err := s.readDNSCredentials(c.Request.Context(), credentialRef)
+	if err != nil {
+		item.CredentialState, item.AccountIdentifier = "unavailable", "暂不可读取"
+	} else {
+		item.AccountIdentifier = dnsAccountIdentifier(provider, credentials)
+		if _, err := dnsprovider.ValidateCredentials(provider, credentials); err != nil {
+			item.CredentialState = "invalid"
+		}
+	}
+	return item, nil
 }
 
 func (s *Server) managedDNSAccountView(c *gin.Context, account domain.DNSAccount) (dnsAccountView, error) {
