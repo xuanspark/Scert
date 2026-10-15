@@ -116,6 +116,31 @@ const {
                   type="text"
                   placeholder="SHA256:..."
                 />
+                <details class="fingerprint-guide" open>
+                  <summary>指纹配置教程</summary>
+                  <div class="fingerprint-guide-body">
+                    <p>
+                      这里填写的是 <strong>SSH 主机密钥指纹</strong>，不是 HTTPS 证书指纹，也不是 SSH 登录密码。保存后，Scert 只会连接指纹匹配的服务器。
+                    </p>
+                    <ol>
+                      <li>
+                        优先在服务器控制台或已核验的 SSH 会话中执行：
+                        <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256</code>
+                      </li>
+                      <li>
+                        如果服务器没有 ED25519 主机密钥，再执行：
+                        <code>ssh-keygen -lf /etc/ssh/ssh_host_rsa_key.pub -E sha256</code>
+                      </li>
+                      <li>
+                        复制输出中以 <code>SHA256:</code> 开头的完整值，例如
+                        <code>SHA256:AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd</code>，不要复制算法名称、主机地址或括号。
+                      </li>
+                    </ol>
+                    <p class="fingerprint-guide-warning">
+                      不要只相信网络扫描结果：请通过云厂商控制台、服务器本地控制台或其他可信渠道核对。指纹不一致时停止配置，不要关闭主机指纹校验或直接重试连接。
+                    </p>
+                  </div>
+                </details>
               </label>
             </div>
           </section>

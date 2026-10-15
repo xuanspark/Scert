@@ -116,6 +116,65 @@
   min-height: 82px;
 }
 
+.server-modal .fingerprint-guide {
+  grid-column: 1 / -1;
+  margin: 2px 0 10px;
+  padding: 12px 14px;
+  border: 1px solid #d8e4f2;
+  border-radius: 12px;
+  color: #40526d;
+  background: #f7faff;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.server-modal .fingerprint-guide summary {
+  color: #234f89;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.server-modal .fingerprint-guide summary::marker {
+  color: #315faa;
+}
+
+.server-modal .fingerprint-guide-body {
+  padding-top: 8px;
+}
+
+.server-modal .fingerprint-guide-body p {
+  margin: 0 0 8px;
+}
+
+.server-modal .fingerprint-guide-body ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.server-modal .fingerprint-guide-body li {
+  margin: 4px 0;
+}
+
+.server-modal .fingerprint-guide code {
+  display: inline-block;
+  margin: 2px 3px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  color: #1f477e;
+  background: #eaf1fb;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.server-modal .fingerprint-guide-warning {
+  padding: 8px 10px;
+  border-left: 3px solid #d48b32;
+  color: #77551f;
+  background: #fff8eb;
+}
+
 @media (max-width: 900px) {
   .server-modal form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
