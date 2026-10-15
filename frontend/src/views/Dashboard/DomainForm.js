@@ -149,6 +149,14 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
       formError.value = "请输入主域名";
       return;
     }
+    if (payload.certificate_type === "wildcard" && !payload.name.trim().startsWith("*.")) {
+      formError.value = "泛域名主域名必须以 *. 开头，例如 *.example.com";
+      return;
+    }
+    if (payload.certificate_type !== "wildcard" && payload.name.trim().startsWith("*.")) {
+      formError.value = "只有泛域名证书类型允许使用 *. 域名";
+      return;
+    }
     if (payload.certificate_type === "san" && payload.sans.length === 0) {
       formError.value = "SAN 证书至少需要填写一个附加域名";
       return;

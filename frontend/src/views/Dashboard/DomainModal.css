@@ -68,6 +68,13 @@
   gap: 6px;
 }
 
+.domain-modal .field-hint {
+  margin-top: -1px;
+  color: #6d7f98;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .domain-modal .switch-field {
   align-items: center;
   margin: 4px 0 10px;

@@ -30,7 +30,7 @@ const {
 </script>
 
 <template>
-    <div v-if="showForm" class="modal-backdrop domain-backdrop" @click.self="closeForm">
+    <div v-if="showForm" class="modal-backdrop domain-backdrop">
       <section
         class="modal-card domain-modal"
         role="dialog"
@@ -61,9 +61,13 @@ const {
               v-model="form.name"
               :disabled="saving || domainSaveUncertain"
               type="text"
-              placeholder="例如 example.com"
+              :placeholder="form.certificate_type === 'wildcard' ? '*.example.com' : '例如 example.com'"
               autocomplete="off"
-          /></label>
+          /><small
+            v-if="form.certificate_type === 'wildcard'"
+            class="field-hint"
+            >泛域名必须以 *. 开头，例如 *.example.com；不会自动包含根域名。</small
+          ></label>
           <label class="field" for="certificate-type"
             ><span>证书类型</span
             ><select

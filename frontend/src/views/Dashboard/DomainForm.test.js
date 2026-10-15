@@ -67,6 +67,24 @@ test("HTTP 验证拒绝主泛域名和附加泛域名，不提交请求", async 
   assert.equal(calls, 0);
 });
 
+test("泛域名必须填写带通配符的主域名，不提交无效配置", async (t) => {
+  let calls = 0;
+  const { state } = await mountForm(t, async () => {
+    calls += 1;
+    return Response.json({});
+  });
+  await startCreate(state);
+  state.form.value.certificate_type = "wildcard";
+  state.form.value.name = "pcux.cn";
+  await state.saveDomain();
+  assert.equal(calls, 0);
+  assert.match(state.formError.value, /泛域名主域名必须以 \*\. 开头/);
+
+  state.form.value.name = "*.pcux.cn";
+  await state.saveDomain();
+  assert.equal(calls, 1);
+});
+
 test("编辑时保留已有 HTTP 验证方式", async (t) => {
   const { state } = await mountForm(t, async () => Response.json({ items: [] }));
   await state.openEdit({ ...firstDomain, challenge_type: "http-01" });

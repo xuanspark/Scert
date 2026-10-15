@@ -67,6 +67,10 @@ async function renderModal(overrides = {}) {
   return html;
 }
 
+async function readModalSource() {
+  return readFile(new URL("./DomainModal.vue", import.meta.url), "utf8");
+}
+
 test("域名表单使用复选框同时显示两台已关联服务器并提供复用提示", async () => {
   const html = await renderModal();
   const inputs = html.match(/<input\b[^>]*>/g) || [];
@@ -79,6 +83,22 @@ test("域名表单使用复选框同时显示两台已关联服务器并提供�
   assert.match(html, /同一服务器可关联多个域名/);
   assert.match(html, /不影响其他域名/);
   assert.match(html, /当前域名所属项目/);
+});
+
+test("域名表单不会通过背景点击误关闭，并提示泛域名格式", async () => {
+  const source = await readModalSource();
+  const html = await renderModal({ form: {
+    name: "pcux.cn",
+    certificate_type: "wildcard",
+    sans: "",
+    auto_renew: false,
+    acme_environment: "production",
+    dns_provider: "aliyun",
+    server_ids: [],
+  } });
+  assert.doesNotMatch(source, /class="modal-backdrop domain-backdrop"[^>]*@click/);
+  assert.match(html, /placeholder="\*\.example\.com"/);
+  assert.match(html, /泛域名必须以 \*\. 开头/);
 });
 
 test("域名账户显示归属与服务商，原绑定不可用不被静默清空", async () => {
