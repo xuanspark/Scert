@@ -90,6 +90,7 @@ test("编辑账户时凭据留空表示保留原配置", async (t) => {
   await state.saveEditor();
   const write = calls.find((item) => item.method);
   assert.deepEqual(JSON.parse(write.body), { revision: 7, name: "仅修改名称" });
+  assert.equal(state.notice.value, "账户操作已完成");
 });
 
 test("只读项目和历史配置不能发起账户写操作", async (t) => {

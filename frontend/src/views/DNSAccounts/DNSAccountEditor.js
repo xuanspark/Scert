@@ -105,7 +105,9 @@ export function useDNSAccountEditor(projects, providers, loading, refresh) {
         body: JSON.stringify(body),
       });
       if (!mounted) return;
-      notice.value = ["create", "edit", "rotate"].includes(form.action)
+      const credentialChanged = Boolean(body.credentials);
+      notice.value = ["create", "rotate"].includes(form.action)
+        || (form.action === "edit" && credentialChanged)
         ? "账户已保存，请使用有权管理的测试域名执行在线验证" : "账户操作已完成";
     } catch (reason) {
       if (!mounted) return;

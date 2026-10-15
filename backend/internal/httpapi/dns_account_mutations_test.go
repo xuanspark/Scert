@@ -74,6 +74,15 @@ func TestManagedDNSAccountLifecycle(t *testing.T) {
 	oldReference := stored.CredentialRef
 	managedDNSRequest(t, f, "manager", http.MethodPut, path, `{"revision":2,"name":"更名后的账户"}`, http.StatusOK)
 	managedDNSRequest(t, f, "manager", http.MethodPut, path, `{"revision":2,"name":"旧版本"}`, http.StatusConflict)
+	stored, err = f.members.GetDNSAccountForVerification(t.Context(), "manager", item.ID)
+	if err != nil || stored.Revision != 3 || stored.Name != "更名后的账户" || stored.CredentialRef != oldReference || stored.VerificationState != domain.DNSAccountVerified {
+		t.Fatal("仅修改名称没有保留账户凭据和验证状态", err)
+	}
+	managedDNSRequest(t, f, "manager", http.MethodPut, path, `{"revision":3,"name":"更名并更新凭据","credentials":{"api_token":"edited-sensitive-token"}}`, http.StatusOK)
+	stored, err = f.members.GetDNSAccountForVerification(t.Context(), "manager", item.ID)
+	if err != nil || stored.Revision != 4 || stored.Name != "更名并更新凭据" || stored.CredentialRef == oldReference || stored.VerificationState != domain.DNSAccountUnverified || len(secrets.data) != 2 {
+		t.Fatal("编辑凭据没有原子替换并清除验证状态", err)
+	}
 	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/status", `{"revision":4,"enabled":false}`, http.StatusOK)
 	managedDNSRequest(t, f, "manager", http.MethodPost, path+"/verify", `{"revision":5,"test_domain":"example.test"}`, http.StatusForbidden)
 	if verifications != 1 {
@@ -82,7 +91,7 @@ func TestManagedDNSAccountLifecycle(t *testing.T) {
 	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/credentials", `{"revision":5,"credentials":{"api_token":"rotated-sensitive-token"}}`, http.StatusOK)
 	managedDNSRequest(t, f, "manager", http.MethodPut, path+"/status", `{"revision":6,"enabled":true}`, http.StatusOK)
 	stored, err = f.members.GetDNSAccountForVerification(t.Context(), "manager", item.ID)
-	if err != nil || stored.CredentialRef == oldReference || stored.VerificationState != domain.DNSAccountUnverified || len(secrets.data) != 2 {
+	if err != nil || stored.CredentialRef == oldReference || stored.VerificationState != domain.DNSAccountUnverified || len(secrets.data) != 3 {
 		t.Fatal("轮换没有生成新引用、保留旧引用或清除验证状态", err)
 	}
 	f.server.dnsAccountVerifier = accountVerifierFunc(func(_ context.Context, _, _ string, credentials map[string]string) (dnsverification.Report, error) {
@@ -115,6 +124,7 @@ func TestManagedDNSAccountPermissionsAndListing(t *testing.T) {
 		managedDNSRequest(t, f, actor, http.MethodPut, "/"+item.ID+"/credentials", `{"revision":1,"credentials":{"api_token":"rotated-sensitive-token"}}`, status)
 		managedDNSRequest(t, f, actor, http.MethodPost, "/"+item.ID+"/verify", `{"revision":1,"test_domain":"example.test"}`, status)
 	}
+	managedDNSRequest(t, f, "viewer", http.MethodPut, "/"+item.ID, `{"revision":1,"name":"forbidden-edit","credentials":{"api_token":"forbidden-sensitive-token"}}`, http.StatusForbidden)
 	if len(secrets.data) != 1 || secrets.getCalls != 0 {
 		t.Fatal("越权请求访问了秘密存储")
 	}

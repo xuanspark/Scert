@@ -136,6 +136,13 @@ func (s *Server) renameManagedDNSAccount(c *gin.Context) {
 		s.writeDNSAccountError(c, err)
 		return
 	}
+	if !s.authorizeProjectPermissions(c, item.ProjectID, domain.PermissionDNSManage) {
+		return
+	}
+	if item.Revision != request.Revision {
+		s.writeDNSAccountError(c, repository.ErrDNSAccountConflict)
+		return
+	}
 	item.Name = strings.TrimSpace(request.Name)
 	item.CredentialRef = "secret://dns/validation"
 	if err := item.Validate(); err != nil {
