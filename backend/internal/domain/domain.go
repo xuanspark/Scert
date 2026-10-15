@@ -75,10 +75,10 @@ func NewDomainWithOptions(name string, certificateType CertificateType, sans []s
 	if certificateType != CertificateSAN {
 		cleanSANs = []string{name}
 	}
-	if certificateType == CertificateWildcard && !strings.HasPrefix(name, "*.") {
+	if certificateType == CertificateWildcard && !IsWildcardName(name) {
 		return Domain{}, fmt.Errorf("泛域名必须以 *. 开头")
 	}
-	if certificateType != CertificateWildcard && strings.HasPrefix(name, "*.") {
+	if certificateType != CertificateWildcard && IsWildcardName(name) {
 		return Domain{}, fmt.Errorf("只有泛域名证书类型允许使用 *. 域名")
 	}
 	now := time.Now().UTC()
@@ -104,10 +104,22 @@ func IsValidACMEEnvironment(value string) bool {
 
 func IsValidName(name string) bool {
 	name = strings.TrimSpace(strings.ToLower(name))
-	if strings.HasPrefix(name, "*.") {
+	if IsWildcardName(name) {
 		name = strings.TrimPrefix(name, "*.")
 	}
 	return domainPattern.MatchString(name)
+}
+
+func IsWildcardName(name string) bool {
+	return strings.HasPrefix(strings.TrimSpace(strings.ToLower(name)), "*.")
+}
+
+func WildcardName(name string) (string, error) {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if IsWildcardName(name) || !IsValidName(name) {
+		return "", fmt.Errorf("主域名格式无效，无法生成泛域名：%s", name)
+	}
+	return "*." + name, nil
 }
 
 func normalizeSANs(sans []string) []string {

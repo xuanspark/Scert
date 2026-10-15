@@ -81,3 +81,26 @@ func TestNewDomainOptionsValidation(t *testing.T) {
 		t.Fatal("非法 ACME 环境未被拒绝")
 	}
 }
+
+func TestWildcardNamePreservesMultiLevelDomain(t *testing.T) {
+	for _, item := range []struct {
+		input string
+		want  string
+	}{
+		{input: "x.x.com", want: "*.x.x.com"},
+		{input: " X.X.X.COM ", want: "*.x.x.x.com"},
+	} {
+		got, err := WildcardName(item.input)
+		if err != nil {
+			t.Fatalf("WildcardName(%q) failed: %v", item.input, err)
+		}
+		if got != item.want {
+			t.Fatalf("WildcardName(%q) = %q, want %q", item.input, got, item.want)
+		}
+	}
+	for _, input := range []string{"*.x.x.com", "bad_domain"} {
+		if _, err := WildcardName(input); err == nil {
+			t.Fatalf("WildcardName(%q) should reject invalid base domain", input)
+		}
+	}
+}

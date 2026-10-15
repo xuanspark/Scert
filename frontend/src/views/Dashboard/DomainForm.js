@@ -1,6 +1,19 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 import { useDomainDNSAccount } from "./DomainDNSAccount.js";
 
+function normalizeDomainName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isWildcardName(value) {
+  return normalizeDomainName(value).startsWith("*.");
+}
+
+function wildcardNameFor(value) {
+  const name = normalizeDomainName(value);
+  return name && !isWildcardName(name) ? `*.${name}` : "";
+}
+
 function emptyForm() {
   return {
     project_id: "default",
@@ -17,10 +30,10 @@ function emptyForm() {
 }
 
 function domainPayload(form) {
-  const name = form.name.trim();
+  const name = normalizeDomainName(form.name);
   const includeWildcard = form.certificate_type === "single"
     && Boolean(form.include_wildcard)
-    && !name.startsWith("*.");
+    && !isWildcardName(name);
   return {
     name: form.name,
     certificate_type: form.certificate_type,
@@ -44,7 +57,8 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
   const domainBindingsReady = ref(true);
   const domainSaveUncertain = ref(false);
   const isEditing = computed(() => Boolean(editingId.value));
-  const formTitle = computed(() => isEditing.value ? "编辑域名配置" : "添加托管域名");
+  const formTitle = computed(() => isEditing.value ? '编辑域名配置' : '添加托管域名');
+  const wildcardName = computed(() => wildcardNameFor(form.value.name));
   const domainServerOptions = computed(() => servers.value.filter(
     (server) => Boolean(form.value.project_id) && server.project_id === form.value.project_id,
   ));
@@ -76,11 +90,11 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     version += 1;
     editingId.value = item.id;
     targetID = item.id;
-    const itemSANs = (item.sans || []).filter((name) => name !== item.name);
-    const normalizedName = (item.name || "").trim().toLowerCase();
+    const normalizedName = normalizeDomainName(item.name);
+    const itemSANs = (item.sans || []).filter((name) => normalizeDomainName(name) !== normalizedName);
     const combinedWildcard = item.certificate_type === "san"
       && itemSANs.length === 1
-      && itemSANs[0].trim().toLowerCase() === `*.${normalizedName}`;
+      && normalizeDomainName(itemSANs[0]) === `*.${normalizedName}`;
     form.value = {
       ...emptyForm(),
       project_id: item.project_id || "",
@@ -168,7 +182,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     if (payload.challenge_type === "http-01" && (
       payload.certificate_type === "wildcard" ||
       payload.include_wildcard ||
-      [payload.name, ...payload.sans].some((name) => name.trim().startsWith("*."))
+      [payload.name, ...payload.sans].some((name) => isWildcardName(name))
     )) {
       formError.value = "HTTP-01 不支持泛域名，请选择 DNS-01";
       return;
@@ -177,11 +191,11 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
       formError.value = "请输入主域名";
       return;
     }
-    if (payload.certificate_type === "wildcard" && !payload.name.trim().startsWith("*.")) {
+    if (payload.certificate_type === "wildcard" && !isWildcardName(payload.name)) {
       formError.value = "泛域名主域名必须以 *. 开头，例如 *.example.com";
       return;
     }
-    if (payload.certificate_type !== "wildcard" && payload.name.trim().startsWith("*.")) {
+    if (payload.certificate_type !== "wildcard" && isWildcardName(payload.name)) {
       formError.value = "只有泛域名证书类型允许使用 *. 域名";
       return;
     }
@@ -317,7 +331,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     dnsUnavailableSelection: dnsAccount.dnsUnavailableSelection,
     reloadDomainDNS: dnsAccount.reloadDomainDNS,
     form, editingId, saving, showForm, formError, isEditing, formTitle,
-    domainServerOptions, domainBindingsLoading, domainBindingsReady, domainSaveUncertain,
+    domainServerOptions, domainBindingsLoading, domainBindingsReady, domainSaveUncertain, wildcardName,
     openCreate, openEdit, closeForm, saveDomain, reloadDomainBindings,
     onCertificateTypeChange, onIncludeWildcardChange,
   };

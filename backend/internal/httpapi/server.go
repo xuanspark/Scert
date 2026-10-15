@@ -761,13 +761,16 @@ func newDomainFromRequest(request domainRequest) (domain.Domain, error) {
 	sans := append([]string(nil), request.SANs...)
 	if request.IncludeWildcard {
 		name := strings.TrimSpace(request.Name)
-		if strings.HasPrefix(name, "*.") {
+		if domain.IsWildcardName(name) {
 			return domain.Domain{}, errors.New("同时申请泛域名时，主域名不能以 *. 开头")
 		}
 		if certificateType != domain.CertificateSingle {
 			return domain.Domain{}, errors.New("同时申请泛域名仅适用于单域名证书")
 		}
-		wildcardName := "*." + strings.ToLower(name)
+		wildcardName, err := domain.WildcardName(name)
+		if err != nil {
+			return domain.Domain{}, err
+		}
 		sans = append(sans, wildcardName)
 		certificateType = domain.CertificateSAN
 	}

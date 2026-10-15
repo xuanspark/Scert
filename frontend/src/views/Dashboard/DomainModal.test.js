@@ -51,6 +51,7 @@ async function renderModal(overrides = {}) {
       webServerLabels: {},
       formError: "",
       saving: false,
+      wildcardName: "",
       domainBindingsLoading: false,
       domainBindingsReady: true,
       domainSaveUncertain: false,

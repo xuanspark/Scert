@@ -316,3 +316,29 @@ test("关联网络失败可重试，但刷新失败不能被误报为保存失�
   assert.equal(state.formError.value, "");
   assert.match(deps.notice.value, /配置已保存.*列表刷新失败/);
 });
+
+test("多级域名泛域名预览统一使用规范化后的完整名称", async (t) => {
+  const { state } = await mountForm(t, async () => Response.json({ items: [] }));
+  await state.openCreate();
+  state.form.value.name = " X.X.X.COM ";
+  assert.equal(state.wildcardName.value, "*.x.x.x.com");
+  state.form.value.include_wildcard = true;
+  assert.equal(state.wildcardName.value, "*.x.x.x.com");
+});
+
+test("编辑联合申请时忽略大小写差异并正确识别多级泛域名", async (t) => {
+  const { state } = await mountForm(t, async () => Response.json({ items: [] }));
+  await state.openEdit({
+    id: "combined-domain",
+    project_id: "default",
+    name: "X.X.X.COM",
+    certificate_type: "san",
+    sans: ["x.x.x.com", "*.X.X.X.COM"],
+    auto_renew: true,
+    acme_environment: "staging",
+    challenge_type: "dns-01",
+  });
+  assert.equal(state.form.value.certificate_type, "single");
+  assert.equal(state.form.value.include_wildcard, true);
+  assert.equal(state.form.value.sans, "");
+});

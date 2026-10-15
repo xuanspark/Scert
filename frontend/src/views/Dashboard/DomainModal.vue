@@ -26,6 +26,7 @@ const {
   webServerLabels,
   formError,
   saving,
+  wildcardName = "",
   onCertificateTypeChange = () => {},
   onIncludeWildcardChange = () => {},
 } = props.state;
@@ -85,7 +86,7 @@ const {
             </select></label
           >
           <label
-            v-if="form.certificate_type === 'single' && !form.name.trim().startsWith('*.')"
+            v-if="form.certificate_type === 'single' && !form.name.trim().toLowerCase().startsWith('*.')"
             class="switch-field domain-wildcard-option"
             for="include-wildcard"
           >
@@ -99,11 +100,11 @@ const {
             />
             <span>
               <strong>同时申请泛域名</strong>
-              <small>将按当前完整主域名同时申请 {{ form.name || "example.com" }} 和 *.{{ form.name || "example.com" }}，多级子域名也只向前增加一级通配符。</small>
+              <small>将按当前完整主域名同时申请 {{ form.name.trim().toLowerCase() || "example.com" }} 和 *.{{ form.name.trim().toLowerCase() || "example.com" }}，多级子域名也只向前增加一级通配符。</small>
             </span>
           </label>
           <p v-if="form.include_wildcard" class="field-hint domain-wildcard-hint">
-            本次将申请：{{ form.name }}、*.{{ form.name }}；泛域名只能使用 DNS-01 验证。
+            本次将申请：{{ form.name.trim().toLowerCase() }}、{{ wildcardName || ("*." + form.name.trim().toLowerCase()) }}；泛域名只能使用 DNS-01 验证。
           </p>
           <label
             v-if="form.certificate_type === 'san'"
