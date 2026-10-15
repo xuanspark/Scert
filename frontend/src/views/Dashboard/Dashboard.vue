@@ -49,7 +49,7 @@ const {
   serverEditingId,
   serverSaving,
   serverFormError,
-  certificateTypeLabels,
+  certificateTypeLabel,
   domainStatusLabels,
   taskStatusLabels,
   taskTypeLabel,
@@ -261,7 +261,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
         <article v-for="item in paginatedDomains" :key="item.id" class="overview-domain-row">
           <div class="overview-domain-main">
             <strong>{{ item.name }}</strong>
-            <small>{{ displayLabel(certificateTypeLabels, item.certificate_type) }}</small>
+            <small>{{ certificateTypeLabel(item) }}</small>
           </div>
           <div class="overview-domain-field">
             <span>证书状态</span>
@@ -358,7 +358,7 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
             </div>
             <div class="domain-meta">
               <span>{{
-                displayLabel(certificateTypeLabels, item.certificate_type)
+                certificateTypeLabel(item)
               }}</span>
               <span>{{
                 displayLabel(environmentLabels, item.acme_environment)

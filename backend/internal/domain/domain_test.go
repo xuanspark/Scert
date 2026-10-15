@@ -59,6 +59,16 @@ func TestNewDomainSANValidation(t *testing.T) {
 	}
 }
 
+func TestNewDomainSANAllowsWildcardIdentifier(t *testing.T) {
+	result, err := NewDomain("x.x.x.com", CertificateSAN, []string{"*.x.x.x.com"})
+	if err != nil {
+		t.Fatalf("多级域名与对应泛域名的 SAN 配置不应失败：%v", err)
+	}
+	if len(result.SANs) != 2 || result.SANs[0] != "x.x.x.com" || result.SANs[1] != "*.x.x.x.com" {
+		t.Fatalf("SAN 域名顺序或内容不正确：%v", result.SANs)
+	}
+}
+
 func TestNewDomainOptionsValidation(t *testing.T) {
 	item, err := NewDomainWithOptions("example.com", CertificateSingle, nil, false, ACMEEnvironmentProduction, "cloudflare")
 	if err != nil {

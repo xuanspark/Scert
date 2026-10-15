@@ -422,6 +422,7 @@ type domainRequest struct {
 	Name               string   `json:"name" binding:"required"`
 	CertificateType    string   `json:"certificate_type" binding:"required"`
 	SANs               []string `json:"sans"`
+	IncludeWildcard    bool     `json:"include_wildcard"`
 	AutoRenew          *bool    `json:"auto_renew"`
 	ACMEEnvironment    string   `json:"acme_environment"`
 	DNSProvider        string   `json:"dns_provider"`
@@ -756,7 +757,21 @@ func newDomainFromRequest(request domainRequest) (domain.Domain, error) {
 	if acmeEnvironment == "" {
 		acmeEnvironment = domain.ACMEEnvironmentStaging
 	}
-	item, err := domain.NewDomainWithOptions(request.Name, domain.CertificateType(request.CertificateType), request.SANs, autoRenew, acmeEnvironment, request.DNSProvider)
+	certificateType := domain.CertificateType(request.CertificateType)
+	sans := append([]string(nil), request.SANs...)
+	if request.IncludeWildcard {
+		name := strings.TrimSpace(request.Name)
+		if strings.HasPrefix(name, "*.") {
+			return domain.Domain{}, errors.New("同时申请泛域名时，主域名不能以 *. 开头")
+		}
+		if certificateType != domain.CertificateSingle {
+			return domain.Domain{}, errors.New("同时申请泛域名仅适用于单域名证书")
+		}
+		wildcardName := "*." + strings.ToLower(name)
+		sans = append(sans, wildcardName)
+		certificateType = domain.CertificateSAN
+	}
+	item, err := domain.NewDomainWithOptions(request.Name, certificateType, sans, autoRenew, acmeEnvironment, request.DNSProvider)
 	if err != nil {
 		return domain.Domain{}, err
 	}

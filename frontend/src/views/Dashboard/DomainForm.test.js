@@ -53,6 +53,31 @@ test("HTTP 验证保存方式且不携带 DNS 服务商", async (t) => {
   assert.equal(JSON.parse(requests[0].body).dns_provider, "");
 });
 
+test("主域名勾选同时申请泛域名时保留完整多级域名并使用 DNS-01", async (t) => {
+  const requests = [];
+  const { state } = await mountForm(t, async (path, options) => {
+    requests.push({ path, ...options });
+    if (path.endsWith("/servers")) return Response.json({ items: [] });
+    return Response.json({
+      ...firstDomain,
+      name: "x.x.x.com",
+      certificate_type: "san",
+      sans: ["x.x.x.com", "*.x.x.x.com"],
+      ...JSON.parse(options.body),
+    });
+  });
+  await state.openCreate();
+  state.form.value.name = "x.x.x.com";
+  state.form.value.include_wildcard = true;
+  state.form.value.challenge_type = "dns-01";
+  await state.saveDomain();
+  const payload = JSON.parse(requests[0].body);
+  assert.equal(payload.name, "x.x.x.com");
+  assert.equal(payload.certificate_type, "single");
+  assert.equal(payload.include_wildcard, true);
+  assert.equal(payload.challenge_type, "dns-01");
+});
+
 test("HTTP 验证拒绝主泛域名和附加泛域名，不提交请求", async (t) => {
   let calls = 0;
   const { state } = await mountForm(t, async () => { calls += 1; return Response.json({}); });

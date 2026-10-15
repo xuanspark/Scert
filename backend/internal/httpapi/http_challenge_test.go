@@ -78,6 +78,38 @@ func TestHTTPDomainCreateAndUpdateBypassDNSOnly(t *testing.T) {
 	}
 }
 
+func TestDomainCreateCanIncludeWildcardForMultiLevelName(t *testing.T) {
+	item, err := newDomainFromRequest(domainRequest{
+		Name:            "x.x.x.com",
+		CertificateType: string(domain.CertificateSingle),
+		IncludeWildcard: true,
+		ChallengeType:   stringPointer(domain.ChallengeDNS01),
+	})
+	if err != nil {
+		t.Fatalf("主域名同时申请泛域名失败：%v", err)
+	}
+	if item.CertificateType != domain.CertificateSAN {
+		t.Fatalf("联合申请应使用 SAN 证书链路：%s", item.CertificateType)
+	}
+	if len(item.SANs) != 2 || item.SANs[0] != "x.x.x.com" || item.SANs[1] != "*.x.x.x.com" {
+		t.Fatalf("联合申请的多级域名标识不正确：%v", item.SANs)
+	}
+
+	_, err = newDomainFromRequest(domainRequest{
+		Name:            "x.x.x.com",
+		CertificateType: string(domain.CertificateSingle),
+		IncludeWildcard: true,
+		ChallengeType:   stringPointer(domain.ChallengeHTTP01),
+	})
+	if err == nil {
+		t.Fatal("主域名同时申请泛域名时不应允许 HTTP-01")
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
 func TestHTTPTaskAuthorizationRetainsProjectPermissions(t *testing.T) {
 	for _, denied := range []domain.ProjectPermission{domain.PermissionDNSCredentialUse, domain.PermissionCertificateManage, domain.PermissionDeploymentExecute} {
 		t.Run(string(denied), func(t *testing.T) {

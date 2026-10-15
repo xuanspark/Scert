@@ -465,6 +465,16 @@ export function useDashboard() {
     return labels[value] || (value ? "未知" : "—");
   }
 
+  function certificateTypeLabel(item) {
+    const name = (item?.name || "").trim().toLowerCase();
+    const names = new Set((item?.sans || []).map((value) => value.trim().toLowerCase()));
+    if (item?.certificate_type === "san" && name && names.size === 2
+      && names.has(name) && names.has(`*.${name}`)) {
+      return "主域名 + 泛域名";
+    }
+    return displayLabel(certificateTypeLabels, item?.certificate_type);
+  }
+
   function formatDate(value) {
     if (!value) return "尚未签发";
     return new Intl.DateTimeFormat("zh-CN", {
@@ -1191,6 +1201,7 @@ export function useDashboard() {
     serverSaving,
     serverFormError,
     certificateTypeLabels,
+    certificateTypeLabel,
     domainStatusLabels,
     taskStatusLabels,
     taskTypeLabels,

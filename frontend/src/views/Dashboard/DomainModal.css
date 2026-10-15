@@ -23,6 +23,7 @@
 .domain-modal .domain-sans-field,
 .domain-modal .form-grid,
 .domain-modal .switch-field,
+.domain-modal .domain-wildcard-hint,
 .domain-modal .server-picker,
 .domain-modal .domain-dns-status,
 .domain-modal .form-error,
@@ -78,6 +79,18 @@
 .domain-modal .switch-field {
   align-items: center;
   margin: 4px 0 10px;
+}
+
+.domain-modal .domain-wildcard-option small {
+  display: block;
+  margin-top: 2px;
+  color: #6d7f98;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.domain-modal .domain-wildcard-hint {
+  margin: -2px 0 8px;
 }
 
 .domain-modal .server-picker {

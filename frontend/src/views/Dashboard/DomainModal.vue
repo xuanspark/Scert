@@ -26,6 +26,8 @@ const {
   webServerLabels,
   formError,
   saving,
+  onCertificateTypeChange = () => {},
+  onIncludeWildcardChange = () => {},
 } = props.state;
 </script>
 
@@ -75,12 +77,34 @@ const {
               name="certificate_type"
               v-model="form.certificate_type"
               :disabled="saving || domainSaveUncertain"
+              @change="onCertificateTypeChange"
             >
               <option value="single">单域名</option>
               <option value="wildcard">泛域名</option>
               <option value="san">SAN 多域名</option>
             </select></label
           >
+          <label
+            v-if="form.certificate_type === 'single' && !form.name.trim().startsWith('*.')"
+            class="switch-field domain-wildcard-option"
+            for="include-wildcard"
+          >
+            <input
+              id="include-wildcard"
+              name="include_wildcard"
+              v-model="form.include_wildcard"
+              :disabled="saving || domainSaveUncertain"
+              type="checkbox"
+              @change="onIncludeWildcardChange"
+            />
+            <span>
+              <strong>同时申请泛域名</strong>
+              <small>将按当前完整主域名同时申请 {{ form.name || "example.com" }} 和 *.{{ form.name || "example.com" }}，多级子域名也只向前增加一级通配符。</small>
+            </span>
+          </label>
+          <p v-if="form.include_wildcard" class="field-hint domain-wildcard-hint">
+            本次将申请：{{ form.name }}、*.{{ form.name }}；泛域名只能使用 DNS-01 验证。
+          </p>
           <label
             v-if="form.certificate_type === 'san'"
             class="field domain-sans-field"
@@ -117,7 +141,7 @@ const {
                 :disabled="saving || domainSaveUncertain || dnsBound || Boolean(dnsAccountID) || !dnsBindingReady"
               >
                 <option value="dns-01">DNS-01（DNS 验证）</option>
-                <option value="http-01">HTTP-01（网站验证）</option>
+                <option value="http-01" :disabled="form.include_wildcard">HTTP-01（网站验证）</option>
               </select>
             </label>
             <label v-if="form.challenge_type !== 'http-01'" class="field" for="domain-dns-account">

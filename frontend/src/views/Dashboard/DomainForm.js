@@ -6,6 +6,7 @@ function emptyForm() {
     project_id: "default",
     name: "",
     certificate_type: "single",
+    include_wildcard: false,
     sans: "",
     auto_renew: true,
     acme_environment: "staging",
@@ -16,10 +17,15 @@ function emptyForm() {
 }
 
 function domainPayload(form) {
+  const name = form.name.trim();
+  const includeWildcard = form.certificate_type === "single"
+    && Boolean(form.include_wildcard)
+    && !name.startsWith("*.");
   return {
     name: form.name,
     certificate_type: form.certificate_type,
     sans: form.sans.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
+    include_wildcard: includeWildcard,
     auto_renew: form.auto_renew,
     acme_environment: form.acme_environment,
     dns_provider: form.challenge_type === "http-01" ? "" : form.dns_provider,
@@ -70,12 +76,18 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     version += 1;
     editingId.value = item.id;
     targetID = item.id;
+    const itemSANs = (item.sans || []).filter((name) => name !== item.name);
+    const normalizedName = (item.name || "").trim().toLowerCase();
+    const combinedWildcard = item.certificate_type === "san"
+      && itemSANs.length === 1
+      && itemSANs[0].trim().toLowerCase() === `*.${normalizedName}`;
     form.value = {
       ...emptyForm(),
       project_id: item.project_id || "",
       name: item.name,
-      certificate_type: item.certificate_type,
-      sans: (item.sans || []).filter((name) => name !== item.name).join("\n"),
+      certificate_type: combinedWildcard ? "single" : item.certificate_type,
+      include_wildcard: combinedWildcard,
+      sans: combinedWildcard ? "" : itemSANs.join("\n"),
       auto_renew: item.auto_renew !== false,
       acme_environment: item.acme_environment || "staging",
       dns_provider: item.dns_provider || "",
@@ -89,6 +101,21 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     domainSaveUncertain.value = false;
     showForm.value = true;
     await Promise.all([reloadDomainBindings(), dnsAccount.open(item)]);
+  }
+
+  function onCertificateTypeChange() {
+    if (form.value.certificate_type !== "single") {
+      form.value.include_wildcard = false;
+    }
+    if (form.value.include_wildcard) {
+      form.value.challenge_type = "dns-01";
+    }
+  }
+
+  function onIncludeWildcardChange() {
+    if (form.value.include_wildcard) {
+      form.value.challenge_type = "dns-01";
+    }
   }
 
   function closeForm() {
@@ -140,6 +167,7 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     const payload = domainPayload(form.value);
     if (payload.challenge_type === "http-01" && (
       payload.certificate_type === "wildcard" ||
+      payload.include_wildcard ||
       [payload.name, ...payload.sans].some((name) => name.trim().startsWith("*."))
     )) {
       formError.value = "HTTP-01 不支持泛域名，请选择 DNS-01";
@@ -291,5 +319,6 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     form, editingId, saving, showForm, formError, isEditing, formTitle,
     domainServerOptions, domainBindingsLoading, domainBindingsReady, domainSaveUncertain,
     openCreate, openEdit, closeForm, saveDomain, reloadDomainBindings,
+    onCertificateTypeChange, onIncludeWildcardChange,
   };
 }

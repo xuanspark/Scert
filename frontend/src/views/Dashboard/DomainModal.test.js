@@ -101,6 +101,24 @@ test("域名表单不会通过背景点击误关闭，并提示泛域名格式",
   assert.match(html, /泛域名必须以 \*\. 开头/);
 });
 
+test("多级主域名可预览对应的一级泛域名", async () => {
+  const html = await renderModal({
+    form: {
+      name: "x.x.x.com",
+      certificate_type: "single",
+      include_wildcard: true,
+      sans: "",
+      auto_renew: true,
+      acme_environment: "staging",
+      dns_provider: "",
+      server_ids: [],
+    },
+  });
+  assert.match(html, /同时申请泛域名/);
+  assert.match(html, /x\.x\.x\.com、\*\.x\.x\.x\.com/);
+  assert.match(html, /泛域名只能使用 DNS-01/);
+});
+
 test("域名账户显示归属与服务商，原绑定不可用不被静默清空", async () => {
   const html = await renderModal({
     dnsAccountID: "old-account", dnsBound: true, dnsUnavailableSelection: true,
