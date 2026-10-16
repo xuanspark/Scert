@@ -120,13 +120,23 @@
 .navigation-account-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 0 4px 10px;
-  padding: 10px 12px;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 10px;
+  padding: 12px;
   border: 1px solid #e2e8f2;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #f8faff;
   color: #1e293b;
+}
+
+.navigation-account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
 }
 
 .navigation-account-label {
@@ -139,7 +149,9 @@
 .navigation-account-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -150,6 +162,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .navigation-role-badge {
