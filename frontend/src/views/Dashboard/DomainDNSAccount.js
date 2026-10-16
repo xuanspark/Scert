@@ -26,7 +26,7 @@ export function useDomainDNSAccount({ fetchAdmin, form, saving }) {
     validID(account.id) && validID(account.provider) &&
     Number.isInteger(account.revision) && account.revision > 0 && account.revision <= 2147483647 &&
     account.status === "active" && account.verification_state === "verified" &&
-    account.credential_state === "available",
+    ["available", "stored"].includes(account.credential_state),
   ));
   const dnsUnavailableSelection = computed(() => Boolean(dnsAccountID.value) &&
     !domainDNSAccountOptions.value.some((account) => account.id === dnsAccountID.value));
