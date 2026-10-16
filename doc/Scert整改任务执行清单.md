@@ -15,8 +15,8 @@
 - [✓] 完成第一台（8.137.23.95）生产主服务状态复核：Scert.service 运行正常，本地监听 127.0.0.1:8080，Nginx 反向代理 https://odacm.cn 访问正常。
 - [✓] 完成第二台（45.136.13.241）主机环境隔离复核：确认无 Scert 安装包、部署包残留或多余后台服务，仅作 SSL 推送测试目标。
 - [✓] 三角色账号（xuans, admin, user）统一初始密码 12345678a 鉴权复核通过。
-- [~] 正在执行阿里云 RAM 专用凭证（LTAI5t5ihQv8vf7jS4CNKThu）录入与 API 权限校验。
-- [ ] 申请 git.pcux.cn 证书并部署至第一台 Nginx 目标路径。
+- [✓] 阿里云 RAM 专用凭证（LTAI5t5ihQv8vf7jS4CNKThu）录入与 API 权限校验完成：托管区域 apmmk.cn 状态 verified。
+- [✓] 申请 git.pcux.cn 证书并部署至第一台 Nginx 目标路径：Nginx 监听 443，Let's Encrypt 证书有效至 2027-01-13，https://git.pcux.cn 访问返回 HTTP 200。
 - [ ] 邮件模板美化与 Smail（web.cdis.cn）发信验证。
 - [ ] 第二台远程 SSL 证书推送、配置重载与故障回滚演练。
 
