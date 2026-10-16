@@ -136,6 +136,7 @@ select:focus-visible,
 
 .dns-row-actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 6px;
 }
