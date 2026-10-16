@@ -1,5 +1,18 @@
 # Scert 整改任务执行清单
 
+## 2026年10月16日 第一台主服务启动、三角色账号就绪与Nginx入口发布
+
+- [✓] 完成第一台（8.137.23.95）主服务 Scert.service 依赖证书与服务环境配置，服务成功启动并保持 ctive (running)，监听在 127.0.0.1:8080。
+- [✓] 完成三角色账号系统创建与密码统一（密码均为 12345678a）：
+  - 超管：xuans（角色 super_admin）
+  - 管理员：dmin（角色 dmin）
+  - 普通用户：user（角色 user）
+  - 全部通过真实 /api/v1/auth/login 鉴权登录验证，Session Cookie 正常签发。
+- [✓] 第一台 Nginx 反向代理已配置上线并测试通过，外部访问 https://odacm.cn 正常提供 Web 静态服务与 API 转发。
+- [!] 按照上线守则要求：当前发信测试处于安全停顿状态，已提供 Web 入口等待用户配置 Smail（web.cdis.cn）发信凭据。
+- [ ] 待用户配置发信凭据后，执行真实 Smail 发信与验证码核验。
+- [ ] 执行第二台（45.136.13.241）SSL 证书推送测试与故障安全回滚演练。
+
 ## 2026年10月16日 前端同一行按钮对齐样式整改与初始化会话核验
 
 - [✓] 完成前端所有按钮样式审查，针对同一行按钮排版（`App.css`、`.dns-row-actions`、`.settings-tabs`、`.modal-actions`）补齐 `display: inline-flex; align-items: center; justify-content: center; vertical-align: middle`，确保水平对齐与垂直居中。

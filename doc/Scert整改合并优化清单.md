@@ -1,5 +1,13 @@
 # Scert 整改、合并与优化清单
 
+## 2026年10月16日 第一台主服务启动、三角色账号就绪与Nginx入口发布
+
+- [✓] 完成第一台（8.137.23.95）主服务 Scert.service 启动，状态稳定为 ctive (running)。
+- [✓] 创建三角色账号（超管 xuans、管理员 dmin、普通用户 user，密码统一为 12345678a），登录接口鉴权全部通过。
+- [✓] 第一台正式 Nginx 反向代理配置生效，https://odacm.cn 外部直接访问正常，HTTP 308 重定向正常。
+- [!] 按照上线守则要求：当前发信测试处于主动安全停顿，等待用户在 Web 页面配置 Smail 发信凭据。
+- [ ] 待发信凭据配置完成后继续 Smail 发信测试与第二台（45.136.13.241）SSL 推送回滚演练。
+
 ## 2026年10月16日 最新状态：按钮对齐优化、临时文件清理与账号初始化推进
 
 - [✓] 全局与局部按钮排版审查整改：`App.css` 声明 `display: inline-flex; align-items: center; justify-content: center; vertical-align: middle`；对同一行按钮容器（`.dns-row-actions`、`.modal-actions`、`.settings-tabs`）统一补充 `align-items: center`，彻底解决同排按钮错位问题。
