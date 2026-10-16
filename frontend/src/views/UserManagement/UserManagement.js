@@ -11,6 +11,54 @@ const statusLabels = {
   disabled: "已禁用",
 };
 
+export function sortAndAssignDisplayIds(userList) {
+  if (!Array.isArray(userList)) return [];
+  // 1. 超管默认ID为 1，其余用户按创建时间升序自增递增（2, 3, 4...）
+  const sortedByCreate = [...userList].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+  let superAdminFound = false;
+  const idMap = new Map();
+  let nextSeq = 2;
+
+  // 先锁定超管为1
+  for (const u of sortedByCreate) {
+    if ((u.id === 'primary-super-admin' || u.role === 'super_admin') && !superAdminFound) {
+      idMap.set(u.id, 1);
+      superAdminFound = true;
+    }
+  }
+
+  // 为其他账号按创建顺序分配自增序号
+  for (const u of sortedByCreate) {
+    if (!idMap.has(u.id)) {
+      idMap.set(u.id, nextSeq++);
+    }
+  }
+
+  // 2. 排序规则：
+  // 超管（super_admin）第一，排在最前
+  // 管理员（admin）第二，排在超管后面，按设置为管理员的时间（updated_at 或 created_at）排序
+  // 普通用户（user）第三，排在管理员后面，按创建时间排序
+  const rolePriority = { super_admin: 0, admin: 1, user: 2 };
+
+  return [...userList].map(u => ({
+    ...u,
+    account_number: idMap.get(u.id) || 1
+  })).sort((a, b) => {
+    const pA = rolePriority[a.role] ?? 99;
+    const pB = rolePriority[b.role] ?? 99;
+    if (pA !== pB) return pA - pB;
+    if (a.role === 'admin') {
+      const timeA = new Date(a.updated_at || a.created_at || 0).getTime();
+      const timeB = new Date(b.updated_at || b.created_at || 0).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+    }
+    const timeA = new Date(a.created_at || 0).getTime();
+    const timeB = new Date(b.created_at || 0).getTime();
+    if (timeA !== timeB) return timeA - timeB;
+    return (a.account_number || 0) - (b.account_number || 0);
+  });
+}
+
 export function groupUsers(users) {
   const groups = new Map();
   const defaults = { name: "默认分组", isDefault: true, users: [] };
@@ -72,7 +120,7 @@ export function useUserManagement() {
       }
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "读取用户列表失败");
-      users.value = result.items || [];
+      users.value = sortAndAssignDisplayIds(result.items || []);
       currentRole.value = result.current_role || "";
       visible.value = true;
     } catch (err) {

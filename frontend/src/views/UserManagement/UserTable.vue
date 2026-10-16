@@ -14,7 +14,8 @@ defineEmits(["edit", "toggle", "delete"]);
     <table class="user-table">
       <thead>
         <tr>
-          <th scope="col">账号</th>
+          <th scope="col" class="col-id">账户 ID</th>
+          <th scope="col" class="col-user">账号</th>
           <th scope="col">邮箱</th>
           <th scope="col">角色</th>
           <th scope="col">状态</th>
@@ -24,6 +25,7 @@ defineEmits(["edit", "toggle", "delete"]);
       </thead>
       <tbody>
         <tr v-for="item in users" :key="item.id">
+          <td class="col-id"><span class="user-seq-id">{{ item.account_number ?? 1 }}</span></td>
           <td>
             <strong>{{ item.username }}</strong>
             <small class="user-account-id" title="可将此账户 ID 提供给项目管理员，用于加入项目">账户 ID：{{ item.id }}</small>

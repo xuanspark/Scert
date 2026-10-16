@@ -139,3 +139,33 @@ test("分组页面结构可编译，默认组不折叠，命名组默认关闭�
   assert.doesNotMatch(dashboard, /@click="openSettings"/);
   assert.match(navigation, /\$emit\('settings'\)/);
 });
+
+test("账户列表自增ID分配及超管管理员排序规则", async () => {
+  const { sortAndAssignDisplayIds } = await import("./UserManagement.js");
+  const users = [
+    { id: "user-2", username: "bob", role: "user", created_at: "2026-01-03T00:00:00Z" },
+    { id: "admin-1", username: "alice", role: "admin", created_at: "2026-01-02T00:00:00Z", updated_at: "2026-02-01T00:00:00Z" },
+    { id: "primary-super-admin", username: "admin", role: "super_admin", created_at: "2026-01-01T00:00:00Z" },
+    { id: "admin-2", username: "charlie", role: "admin", created_at: "2026-01-04T00:00:00Z", updated_at: "2026-01-15T00:00:00Z" },
+  ];
+  const processed = sortAndAssignDisplayIds(users);
+  
+  // 超管排在第一，分配账户 ID 1
+  assert.equal(processed[0].id, "primary-super-admin");
+  assert.equal(processed[0].account_number, 1);
+  
+  // 管理员排在超管后面，按更新/设置时间升序排序：admin-2 (01-15) 在 admin-1 (02-01) 前面
+  assert.equal(processed[1].id, "admin-2");
+  assert.equal(processed[1].role, "admin");
+  assert.equal(processed[2].id, "admin-1");
+  assert.equal(processed[2].role, "admin");
+  
+  // 普通用户排在最后
+  assert.equal(processed[3].id, "user-2");
+  assert.equal(processed[3].role, "user");
+  
+  // 账户ID序号检查：admin-1(created: 01-02 => 2), user-2(created: 01-03 => 3), admin-2(created: 01-04 => 4)
+  assert.equal(processed.find(u => u.id === "admin-1").account_number, 2);
+  assert.equal(processed.find(u => u.id === "user-2").account_number, 3);
+  assert.equal(processed.find(u => u.id === "admin-2").account_number, 4);
+});

@@ -334,3 +334,32 @@ button:focus-visible {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+/* 账户表格对齐与列宽优化 */
+.user-table th.col-id,
+.user-table td.col-id {
+  width: 80px;
+  min-width: 80px;
+  text-align: left;
+}
+
+.user-seq-id {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 6px;
+  background: #f1f4f9;
+  color: #315aaa;
+  font-weight: 700;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.user-table th,
+.user-table td {
+  text-align: left;
+  line-height: 1.5;
+  vertical-align: middle;
+}
