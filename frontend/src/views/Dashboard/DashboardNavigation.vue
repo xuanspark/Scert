@@ -84,27 +84,46 @@ defineEmits(["select", "settings"]);
       <div v-if="currentUser" class="navigation-account-card" aria-label="当前登录账号">
         <div class="navigation-account-label">当前账号</div>
         <div class="navigation-account-row">
-          <strong class="navigation-account-name">{{ currentUser.account || "未命名账号" }}</strong>
+          <strong class="navigation-account-name" :title="currentUser.account">{{ currentUser.account || "未命名账号" }}</strong>
           <span
             class="navigation-role-badge"
             :class="`role-${currentUser.role}`"
           >{{ roleLabels[currentUser.role] || "未知权限" }}</span>
+          <button
+            class="navigation-logout-btn navigation-logout"
+            type="button"
+            :disabled="loggingOut"
+            :aria-busy="loggingOut"
+            title="注销登录"
+            aria-label="注销登录"
+            @click="logout"
+          >
+            <svg class="navigation-power-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10" />
+            </svg>
+            <span class="navigation-logout-text">注销</span>
+            <span class="navigation-logout-sr">{{ loggingOut ? "退出中…" : "退出登录" }}</span>
+          </button>
         </div>
       </div>
+      <div v-else class="navigation-session-anon">
+        <button
+          class="navigation-logout-btn navigation-logout"
+          type="button"
+          :disabled="loggingOut"
+          :aria-busy="loggingOut"
+          title="注销登录"
+          aria-label="注销登录"
+          @click="logout"
+        >
+          <svg class="navigation-power-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10" />
+          </svg>
+          <span class="navigation-logout-text">注销</span>
+          <span class="navigation-logout-sr">{{ loggingOut ? "退出中…" : "退出登录" }}</span>
+        </button>
+      </div>
       <p v-if="error" class="navigation-error" role="alert">{{ error }}</p>
-      <button
-        class="navigation-logout-btn navigation-logout"
-        type="button"
-        :disabled="loggingOut"
-        :aria-busy="loggingOut"
-        title="注销登录"
-        @click="logout"
-      >
-        <svg class="navigation-power-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10" />
-        </svg>
-        <span>{{ loggingOut ? "退出中…" : "退出登录" }}</span>
-      </button>
       <p class="navigation-footer">SSL 证书管理</p>
     </div>
   </nav>

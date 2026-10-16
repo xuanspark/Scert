@@ -183,38 +183,56 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   margin-left: auto;
   padding: 3px 6px;
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #475569;
+  color: #64748b;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .navigation-logout-btn:hover:not(:disabled) {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: #fef2f2;
+  color: #ef4444;
 }
 
 .navigation-logout-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: wait;
 }
 
 .navigation-power-icon {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.navigation-logout-text {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.navigation-logout-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
 .navigation-error {
