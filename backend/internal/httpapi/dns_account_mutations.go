@@ -33,6 +33,8 @@ func (s *Server) writeDNSAccountError(c *gin.Context, err error) {
 		s.writeError(c, http.StatusForbidden, "无权操作此 DNS 账户", nil)
 	case errors.Is(err, repository.ErrDNSAccountConflict):
 		s.writeError(c, http.StatusConflict, "DNS 账户已变更，请刷新后重试", nil)
+	case errors.Is(err, repository.ErrDNSAccountBound):
+		s.writeError(c, http.StatusConflict, err.Error(), nil)
 	case errors.Is(err, repository.ErrDNSAccountBusy):
 		s.writeError(c, http.StatusConflict, "DNS 账户仍有执行租约，请等待任务及挑战清理完成", nil)
 	default:
@@ -123,6 +125,7 @@ func (s *Server) renameManagedDNSAccount(c *gin.Context) {
 	}
 	var request struct {
 		Name        string            `json:"name"`
+		ProjectID   string            `json:"project_id"`
 		Revision    int64             `json:"revision"`
 		Credentials map[string]string `json:"credentials"`
 	}
@@ -139,14 +142,23 @@ func (s *Server) renameManagedDNSAccount(c *gin.Context) {
 	if !s.authorizeProjectPermissions(c, item.ProjectID, domain.PermissionDNSManage) {
 		return
 	}
+	targetProjectID := strings.TrimSpace(request.ProjectID)
+	if targetProjectID == "" {
+		targetProjectID = item.ProjectID
+	} else if targetProjectID != item.ProjectID {
+		if !s.authorizeProjectPermissions(c, targetProjectID, domain.PermissionDNSManage) {
+			return
+		}
+	}
 	if item.Revision != request.Revision {
 		s.writeDNSAccountError(c, repository.ErrDNSAccountConflict)
 		return
 	}
 	item.Name = strings.TrimSpace(request.Name)
+	item.ProjectID = targetProjectID
 	item.CredentialRef = "secret://dns/validation"
 	if err := item.Validate(); err != nil {
-		s.writeError(c, http.StatusBadRequest, "DNS 账户名称无效", nil)
+		s.writeError(c, http.StatusBadRequest, "DNS 账户名称或项目无效", nil)
 		return
 	}
 	reference := ""
@@ -156,7 +168,7 @@ func (s *Server) renameManagedDNSAccount(c *gin.Context) {
 			return
 		}
 	}
-	updated, err := repo.UpdateDNSAccount(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"), request.Revision, item.Name, reference)
+	updated, err := repo.UpdateDNSAccount(c.Request.Context(), c.GetString(authenticatedActorKey), c.Param("id"), request.Revision, item.Name, reference, targetProjectID)
 	if err != nil {
 		s.writeDNSAccountError(c, err)
 		return

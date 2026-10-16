@@ -55,9 +55,16 @@ export function useDNSAccountEditor(projects, providers, loading, refresh) {
     const form = editor.value;
     if (!mounted || !form || saving.value || loading.value) return;
     mutationError.value = "";
-    if (form.action === "create" ? !managedProjects.value.some((item) => item.id === form.project_id) : !canManage(target)) {
-      mutationError.value = "当前项目没有 DNS 管理权限，请刷新列表";
-      return;
+    if (form.action === "create") {
+      if (!managedProjects.value.some((item) => item.id === form.project_id)) {
+        mutationError.value = "当前项目没有 DNS 管理权限，请刷新列表";
+        return;
+      }
+    } else {
+      if (!canManage(target) || (form.action === "edit" && !managedProjects.value.some((item) => item.id === form.project_id))) {
+        mutationError.value = "目标项目没有 DNS 管理权限，请刷新列表";
+        return;
+      }
     }
     const body = form.action === "create" ? {} : { revision: target.revision };
     if (["create", "edit", "rename"].includes(form.action)) {
@@ -67,6 +74,9 @@ export function useDNSAccountEditor(projects, providers, loading, refresh) {
         return;
       }
       body.name = name;
+      if (form.action === "edit" && form.project_id && form.project_id !== target?.project_id) {
+        body.project_id = form.project_id;
+      }
     }
     if (["create", "edit", "rotate"].includes(form.action)) {
       const provider = providers.value.find((item) => item.id === (target?.provider || form.provider));

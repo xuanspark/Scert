@@ -32,13 +32,13 @@ onBeforeUnmount(() => previousFocus?.focus?.());
           账户名称
           <input v-model="editor.name" autofocus required maxlength="128" aria-label="账户名称" />
         </label>
+        <label v-if="['create', 'edit'].includes(editor.action)">
+          归属项目
+          <select v-model="editor.project_id" required aria-label="归属项目">
+            <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option>
+          </select>
+        </label>
         <template v-if="editor.action === 'create'">
-          <label>
-            归属项目
-            <select v-model="editor.project_id" required aria-label="归属项目">
-              <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option>
-            </select>
-          </label>
           <label>
             DNS 服务商
             <select v-model="editor.provider" required aria-label="DNS 服务商" @change="emit('provider-change')">

@@ -13,6 +13,8 @@ import (
 
 var ErrDNSAccountConflict = errors.New("DNS 账户已变更，请刷新后重试")
 
+var ErrDNSAccountBound = errors.New("该 DNS 账户已被当前项目下的域名绑定，请先解除绑定")
+
 var ErrLegacyDNSAccountConflict = errors.New("旧系统 DNS 账户标识已被其他账户占用")
 
 // DNSAccountRepository 的公开读取不返回凭据引用；秘密读取只能使用独立的使用权限入口。
@@ -23,7 +25,7 @@ type DNSAccountRepository interface {
 	GetVisibleDNSAccount(context.Context, string, string) (domain.DNSAccount, error)
 	GetDNSAccountForUse(context.Context, string, string, string) (domain.DNSAccount, error)
 	GetDNSAccountForVerification(context.Context, string, string) (domain.DNSAccount, error)
-	UpdateDNSAccount(context.Context, string, string, int64, string, string) (domain.DNSAccount, error)
+	UpdateDNSAccount(context.Context, string, string, int64, string, string, string) (domain.DNSAccount, error)
 	RenameDNSAccount(context.Context, string, string, int64, string) (domain.DNSAccount, error)
 	SetDNSAccountEnabled(context.Context, string, string, int64, bool) (domain.DNSAccount, error)
 	RotateDNSAccountCredential(context.Context, string, string, int64, string) (domain.DNSAccount, error)
@@ -205,15 +207,74 @@ func (r *SQLProjectMemberRepository) RenameDNSAccount(ctx context.Context, actor
 	})
 }
 
-func (r *SQLProjectMemberRepository) UpdateDNSAccount(ctx context.Context, actorID, id string, revision int64, name, reference string) (domain.DNSAccount, error) {
-	return r.changeDNSAccount(ctx, actorID, id, revision, "dns_account.update", func(item *domain.DNSAccount) error {
-		item.Name = name
-		if reference != "" {
-			item.CredentialRef = reference
-			item.VerificationState = domain.DNSAccountUnverified
+func (r *SQLProjectMemberRepository) UpdateDNSAccount(ctx context.Context, actorID, id string, revision int64, name, reference, projectID string) (domain.DNSAccount, error) {
+	if err := r.ensureDB(); err != nil {
+		return domain.DNSAccount{}, err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.DNSAccount{}, err
+	}
+	defer tx.Rollback()
+	item, err := scanDNSAccount(tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT `+dnsAccountColumns+` FROM dns_accounts WHERE id = ?`+r.resourceWriteLock()), id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.DNSAccount{}, ErrProjectAccessDenied
+	}
+	if err != nil {
+		return domain.DNSAccount{}, err
+	}
+	if err := r.authorizeProjectTransaction(ctx, tx, actorID, item.ProjectID, domain.PermissionDNSManage); err != nil {
+		return domain.DNSAccount{}, err
+	}
+	targetProjectID := strings.TrimSpace(projectID)
+	if targetProjectID != "" && targetProjectID != item.ProjectID {
+		if err := r.authorizeProjectTransaction(ctx, tx, actorID, targetProjectID, domain.PermissionDNSManage); err != nil {
+			return domain.DNSAccount{}, err
 		}
-		return nil
-	})
+		var boundCount int
+		err := tx.QueryRowContext(ctx, Rebind(r.driver, `SELECT COUNT(*) FROM domain_dns_accounts WHERE project_id = ? AND dns_account_id = ?`), item.ProjectID, id).Scan(&boundCount)
+		if err != nil {
+			return domain.DNSAccount{}, err
+		}
+		if boundCount > 0 {
+			return domain.DNSAccount{}, ErrDNSAccountBound
+		}
+		item.ProjectID = targetProjectID
+	}
+	if item.Revision != revision {
+		return domain.DNSAccount{}, ErrDNSAccountConflict
+	}
+	if err := r.rejectActiveDNSLease(ctx, tx, "account_id", id); err != nil {
+		return domain.DNSAccount{}, err
+	}
+	item.Name = name
+	if reference != "" {
+		item.CredentialRef = reference
+		item.VerificationState = domain.DNSAccountUnverified
+	}
+	item.Revision++
+	item.UpdatedAt = time.Now().UTC()
+	if err := item.Validate(); err != nil {
+		return domain.DNSAccount{}, err
+	}
+	result, err := tx.ExecContext(ctx, Rebind(r.driver, `UPDATE dns_accounts SET name = ?, project_id = ?, credential_ref = ?, status = ?, verification_state = ?, revision = ?, updated_at = ? WHERE id = ? AND revision = ?`),
+		item.Name, item.ProjectID, item.CredentialRef, item.Status, item.VerificationState, item.Revision, item.UpdatedAt, item.ID, revision)
+	if err != nil {
+		if r.driver == "sqlite" && isSQLiteWriteConflict(err) {
+			return domain.DNSAccount{}, ErrDNSAccountConflict
+		}
+		return domain.DNSAccount{}, errors.New("更新 DNS 账户失败，请检查凭据引用是否重复")
+	}
+	if count, err := result.RowsAffected(); err != nil || count != 1 {
+		return domain.DNSAccount{}, ErrDNSAccountConflict
+	}
+	if err := writeDNSAccountAudit(ctx, tx, r.driver, actorID, item, "dns_account.update"); err != nil {
+		return domain.DNSAccount{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.DNSAccount{}, err
+	}
+	return publicDNSAccount(item), nil
 }
 
 // 首次验证允许读取尚未验证的账户，但必须实时拥有管理权限，且账户未被禁用。
