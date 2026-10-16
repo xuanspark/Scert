@@ -19,17 +19,29 @@ const requestFields = {
   ],
 };
 
-export function settingsPayload(current, targetSection) {
+
+const tabSectionMap = {
+  service: ["server", "web", "paths"],
+  acme: ["acme"],
+  dns: ["dns"],
+  notification: ["notification"],
+};
+
+export function settingsPayload(current, targetTabOrSection) {
   const payload = {};
+  let targetSections = null;
+  if (targetTabOrSection) {
+    targetSections = tabSectionMap[targetTabOrSection] || [targetTabOrSection];
+  }
   for (const [section, fields] of Object.entries(requestFields)) {
-    if (targetSection && targetSection !== section) continue;
+    if (targetSections && !targetSections.includes(section)) continue;
     const source = current[section] || {};
     payload[section] = Object.fromEntries(
       fields.filter((field) => source[field] !== undefined)
         .map((field) => [field, source[field]]),
     );
   }
-  if (!targetSection || targetSection === "dns") {
+  if (!targetSections || targetSections.includes("dns")) {
     const dns = current.dns || {};
     payload.dns = { provider: dns.provider };
     if (dns.credential_ref && dns.verification_token) {
