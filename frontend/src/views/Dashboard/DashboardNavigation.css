@@ -16,7 +16,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 8px 14px;
+  padding: 4px 12px 14px;
 }
 
 .navigation-heading div {
@@ -37,30 +37,37 @@
 }
 
 .navigation-group {
-  margin: 14px 8px 4px;
+  margin: 14px 12px 4px;
+  padding: 0 4px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .navigation-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 11px;
+  justify-content: flex-start;
+  gap: 12px;
   width: 100%;
-  min-height: 36px;
-  padding: 7px 10px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
   color: #62718a;
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .navigation-item:hover {
-  background: #f5f7fb;
-  color: #315aaa;
+  background: #f1f5f9;
+  color: #1e3a8a;
 }
 
 .navigation-item.active {
@@ -73,8 +80,8 @@
 .navigation-item.active::before {
   content: "";
   position: absolute;
-  top: 9px;
-  bottom: 9px;
+  top: 8px;
+  bottom: 8px;
   left: -13px;
   width: 3px;
   border-radius: 3px;
@@ -113,8 +120,8 @@
 .navigation-account {
   display: grid;
   gap: 5px;
-  margin: 0 8px 10px;
-  padding: 11px 12px;
+  margin: 0 4px 10px;
+  padding: 12px 14px;
   border: 1px solid #e2e8f2;
   border-radius: 12px;
   background: #f8faff;
@@ -135,11 +142,15 @@
 }
 
 .navigation-error {
-  margin: 0 8px 8px;
+  margin: 0 4px 8px;
   color: #b42318;
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.navigation-logout {
+  margin-bottom: 6px;
 }
 
 .navigation-logout:disabled {
@@ -148,7 +159,8 @@
 }
 
 .navigation-footer {
-  margin: 8px 8px 0;
+  margin: 8px 12px 0;
+  padding: 0 4px;
 }
 
 @media (max-width: 760px) {
@@ -172,8 +184,9 @@
 
   .navigation-item {
     width: auto;
+    height: 38px;
     min-height: 38px;
-    padding: 8px 10px;
+    padding: 0 10px;
   }
 
   .navigation-session {
