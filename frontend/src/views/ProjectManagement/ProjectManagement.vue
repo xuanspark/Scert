@@ -101,7 +101,8 @@ const {
                   <option v-for="account in accountChoices" :key="account.id" :value="account.id">{{ account.username }}</option>
                 </datalist>
               </label>
-              <label>项目角色
+              <label>
+                <span class="project-role-field-label">项目角色</span>
                 <select v-model="memberForm.role" :disabled="savingMember || loadingMembers">
                   <option v-for="role in projectRoles" :key="role.value" :value="role.value">{{ role.label }}</option>
                 </select>
@@ -117,28 +118,46 @@ const {
             </div>
             <div class="project-member-table" :aria-busy="loadingMembers">
               <table>
-                <thead><tr><th scope="col">成员</th><th scope="col">状态</th><th scope="col">项目角色</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th scope="col" class="col-member">成员</th>
+                    <th scope="col" class="col-status">状态</th>
+                    <th scope="col" class="col-roles">项目角色</th>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr v-for="member in members" :key="member.user_id">
-                    <td><strong>{{ member.username }}</strong><small>{{ member.user_id }}</small></td>
-                    <td>{{ member.status === "active" ? "正常" : "已停用" }}</td>
-                    <td><div class="project-role-list">
-                      <span v-for="role in member.roles" :key="role" class="project-role">
-                        {{ roleLabel(role) }}
-                        <button type="button" :disabled="savingMember || loadingMembers" :aria-label="`撤销 ${member.username} 的${roleLabel(role)}角色`" @click="requestRevoke(member, role)">撤销</button>
+                    <td class="col-member">
+                      <div class="project-member-info">
+                        <strong class="project-member-name">{{ member.username }}</strong>
+                        <small class="project-member-id" :title="member.user_id">账户 ID：{{ member.user_id }}</small>
+                      </div>
+                    </td>
+                    <td class="col-status">
+                      <span class="project-status-badge" :class="member.status">
+                        {{ member.status === "active" ? "正常" : "已停用" }}
                       </span>
-                    </div></td>
+                    </td>
+                    <td class="col-roles">
+                      <div class="project-role-list">
+                        <span v-for="role in member.roles" :key="role" class="project-role">
+                          {{ roleLabel(role) }}
+                          <button type="button" :disabled="savingMember || loadingMembers" :aria-label="`撤销 ${member.username} 的${roleLabel(role)}角色`" @click="requestRevoke(member, role)">撤销</button>
+                        </span>
+                      </div>
+                    </td>
                   </tr>
                   <tr v-if="!members.length"><td colspan="3" class="project-empty">{{ loadingMembers ? "正在读取成员……" : "本页暂无成员" }}</td></tr>
                 </tbody>
               </table>
             </div>
             <div class="project-pagination project-member-pagination">
-              <label>每页
+              <label class="member-page-size-label">
+                <span>每页</span>
                 <select :value="memberPageSize" :disabled="savingMember || loadingMembers" @change="changeMemberPageSize($event.target.value)">
                   <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
                 </select>
-                位成员
+                <span>位成员</span>
               </label>
               <button type="button" :disabled="savingMember || loadingMembers || memberPage === 0" @click="previousMemberPage">上一页</button>
               <span>第 {{ memberPage + 1 }} 页</span>
