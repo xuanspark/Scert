@@ -1,5 +1,14 @@
 # Scert 整改任务执行清单
 
+## 2026年10月16日 前端同一行按钮对齐样式整改与初始化会话核验
+
+- [✓] 完成前端所有按钮样式审查，针对同一行按钮排版（`App.css`、`.dns-row-actions`、`.settings-tabs`、`.modal-actions`）补齐 `display: inline-flex; align-items: center; justify-content: center; vertical-align: middle`，确保水平对齐与垂直居中。
+- [✓] 前端 355 项测试全量通过（355 pass, 0 fail），生产构建 `vite build` 打包正常。
+- [✓] 清理项目根目录历史无用 `.tmp/.bak/.log` 冗余临时文件（累计清理 162 个），避免空间膨胀。
+- [✓] 远程第一台（`8.137.23.95`）Bootstrap 服务重启取得新令牌并成功换取初始化管理 Session，数据库权限测试通过。
+- [~] 正在执行系统引导初始化：创建超管用户 `xuans`（密码 `12345678a`）、管理员账号、普通用户账号；待进入发信测试时停顿等待用户提供发信凭据。
+- [ ] 待用户发信凭据配置完成后继续 Smail 发信验证、受保护重置闭环、第二台（`45.136.13.241`）SSL 推送演练与整体验收。
+
 ## 2026年10月6日10时47分 第一台 Web 发布与角色验收
 
 - [✓] 候选包仅为 Linux amd64，source_commit=`39cbd833121f81687a744c15ce0dcb7864fc85e9`，source_dirty=false；归档 SHA-256=`3a82fff4ab7aeef62ad5d6d217b56a270e81b5678631ed43af9334df31cec029`。
