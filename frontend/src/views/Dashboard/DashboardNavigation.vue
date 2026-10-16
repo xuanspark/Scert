@@ -81,23 +81,27 @@ defineEmits(["select", "settings"]);
       <span>系统设置</span>
     </button>
     <div class="navigation-session">
-      <div v-if="currentUser" class="navigation-account" aria-label="当前登录账号">
-        <span class="navigation-account-label">当前登录账号</span>
-        <strong>{{ currentUser.account || "未命名账号" }}</strong>
-        <span class="navigation-account-role">
-          权限：{{ roleLabels[currentUser.role] || "未知权限" }}
-        </span>
+      <div v-if="currentUser" class="navigation-account-card" aria-label="当前登录账号">
+        <div class="navigation-account-label">当前账号</div>
+        <div class="navigation-account-row">
+          <strong class="navigation-account-name">{{ currentUser.account || "未命名账号" }}</strong>
+          <span
+            class="navigation-role-badge"
+            :class="`role-${currentUser.role}`"
+          >{{ roleLabels[currentUser.role] || "未知权限" }}</span>
+        </div>
       </div>
       <p v-if="error" class="navigation-error" role="alert">{{ error }}</p>
       <button
-        class="navigation-item navigation-logout"
+        class="navigation-logout-btn navigation-logout"
         type="button"
         :disabled="loggingOut"
         :aria-busy="loggingOut"
+        title="注销登录"
         @click="logout"
       >
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M9 4H4v16h5m6-13 5 5-5 5M9 12h11" />
+        <svg class="navigation-power-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10" />
         </svg>
         <span>{{ loggingOut ? "退出中…" : "退出登录" }}</span>
       </button>
