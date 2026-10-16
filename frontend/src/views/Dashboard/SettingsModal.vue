@@ -148,6 +148,10 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
             </label>
             <HelpTip>修改此开关后需要重启 Scert 服务，新的监听状态才会生效。</HelpTip>
           </div>
+                    <div class="modal-actions">
+            <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
+            <button class="primary-button" type="button" :disabled="settingsSaving" @click="submitSettings">{{ settingsSaving ? "保存中……" : "保存服务监听" }}</button>
+          </div>
           </section>
           <section
             v-show="activeSection === 'acme'"
@@ -221,6 +225,10 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
             记录。以上 300 秒和 5 秒用于实际申请证书时的公网 DNS-01
             传播等待与轮询。
           </HelpTip>
+                    <div class="modal-actions">
+            <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
+            <button class="primary-button" type="button" :disabled="settingsSaving" @click="submitSettings">{{ settingsSaving ? "保存中……" : "保存 ACME 设置" }}</button>
+          </div>
           </section>
           <section
             v-show="activeSection === 'dns'"
@@ -363,6 +371,10 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
           <HelpTip v-if="!dnsReadyToSave">
             DNS 服务商发生变化或尚未配置时，必须先完成 DNS API 在线测试。
           </HelpTip>
+                    <div class="modal-actions">
+            <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
+            <button class="primary-button" type="button" :disabled="settingsSaving || !dnsReadyToSave" @click="submitSettings">{{ settingsSaving ? "保存中……" : "保存 DNS 设置" }}</button>
+          </div>
           </section>
           <section
             v-show="activeSection === 'notification'"
@@ -374,18 +386,12 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
           >
             <h3>邮件通知</h3>
             <MailNotificationSettings :notification="settingsForm.notification" />
-          </section>
-          <p v-if="settingsError" class="form-error">{{ settingsError }}</p>
           <div class="modal-actions">
             <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
-            <button
-              class="primary-button"
-              type="submit"
-              :disabled="settingsSaving || (activeSection === 'dns' && !dnsReadyToSave)"
-            >
-              {{ settingsSaving ? "保存中……" : "保存设置" }}
-            </button>
+            <button class="primary-button" type="button" :disabled="settingsSaving" @click="submitSettings">{{ settingsSaving ? "保存中……" : "保存邮件通知" }}</button>
           </div>
+          </section>
+          <p v-if="settingsError" class="form-error">{{ settingsError }}</p>
           </fieldset>
         </form>
       </section>
