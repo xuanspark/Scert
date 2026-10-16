@@ -19,21 +19,24 @@ const requestFields = {
   ],
 };
 
-export function settingsPayload(current) {
+export function settingsPayload(current, targetSection) {
   const payload = {};
   for (const [section, fields] of Object.entries(requestFields)) {
+    if (targetSection && targetSection !== section) continue;
     const source = current[section] || {};
     payload[section] = Object.fromEntries(
       fields.filter((field) => source[field] !== undefined)
         .map((field) => [field, source[field]]),
     );
   }
-  const dns = current.dns || {};
-  payload.dns = { provider: dns.provider };
-  if (dns.credential_ref && dns.verification_token) {
-    payload.dns.credential_ref = dns.credential_ref;
-    payload.dns.verification_token = dns.verification_token;
-    payload.dns.test_domain = dns.test_domain;
+  if (!targetSection || targetSection === "dns") {
+    const dns = current.dns || {};
+    payload.dns = { provider: dns.provider };
+    if (dns.credential_ref && dns.verification_token) {
+      payload.dns.credential_ref = dns.credential_ref;
+      payload.dns.verification_token = dns.verification_token;
+      payload.dns.test_domain = dns.test_domain;
+    }
   }
   return payload;
 }

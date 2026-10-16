@@ -820,20 +820,21 @@ export function useDashboard() {
     }
   }
 
-  async function saveSettings() {
+  async function saveSettings(section) {
     settingsError.value = "";
     if (!canManageSystemSettings.value) {
       settingsError.value = "只有超级管理员可以保存系统设置";
       return;
     }
     verificationClock.value = Date.now();
-    if (!dnsReadyToSave.value) {
+    // 只有在保存全部或保存 DNS 配置时才强依赖 DNS API 测试
+    if ((!section || section === "dns") && !dnsReadyToSave.value) {
       settingsError.value = "DNS 服务商配置尚未通过在线测试，请先完成测试";
       return;
     }
     settingsSaving.value = true;
     try {
-      const payload = settingsPayload(settingsForm.value);
+      const payload = settingsPayload(settingsForm.value, section);
       const response = await fetchAdmin("/api/v1/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -842,8 +843,7 @@ export function useDashboard() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存系统设置失败");
       settings.value = result.settings;
-      showSettings.value = false;
-      notice.value = result.message || "系统设置已保存";
+      notice.value = result.message || "设置已保存";
       await loadData();
     } catch (err) {
       settingsError.value = err.message || "保存系统设置失败";
