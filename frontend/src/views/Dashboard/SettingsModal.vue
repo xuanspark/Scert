@@ -381,7 +381,7 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
             <button
               class="primary-button"
               type="submit"
-              :disabled="settingsSaving || !dnsReadyToSave"
+              :disabled="settingsSaving || (activeSection === 'dns' && !dnsReadyToSave)"
             >
               {{ settingsSaving ? "保存中……" : "保存设置" }}
             </button>

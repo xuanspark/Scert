@@ -6,18 +6,26 @@ export function useSettingsModal(saveSettings) {
   const activeSection = ref(sections[0]);
 
   async function submitSettings(event) {
-    const invalid = event.currentTarget.querySelector(
-      "input:invalid, select:invalid, textarea:invalid",
-    );
+    const form = event && event.currentTarget ? event.currentTarget : null;
+    let invalid = null;
+    const currentPanel = form && form.querySelector ? form.querySelector(`[data-settings-section="${activeSection.value}"]`) : null;
+    if (currentPanel && typeof currentPanel.querySelector === "function") {
+      invalid = currentPanel.querySelector("input:invalid, select:invalid, textarea:invalid");
+    } else if (form && typeof form.querySelector === "function") {
+      invalid = form.querySelector("input:invalid, select:invalid, textarea:invalid");
+    }
+
     if (invalid) {
-      const section = invalid.closest("[data-settings-section]");
-      if (section) activeSection.value = section.dataset.settingsSection;
+      const section = invalid.closest && invalid.closest("[data-settings-section]");
+      if (section && section.dataset && section.dataset.settingsSection) {
+        activeSection.value = section.dataset.settingsSection;
+      }
       await nextTick();
-      invalid.focus();
-      invalid.reportValidity();
+      if (invalid.focus) invalid.focus();
+      if (invalid.reportValidity) invalid.reportValidity();
       return;
     }
-    await saveSettings();
+    await saveSettings(activeSection.value);
   }
 
   async function navigateTabs(event) {
@@ -32,7 +40,8 @@ export function useSettingsModal(saveSettings) {
     const tablist = event.currentTarget.parentElement;
     activeSection.value = sections[next];
     await nextTick();
-    tablist.querySelector(`#settings-tab-${sections[next]}`)?.focus();
+    const targetTab = tablist && tablist.querySelector ? tablist.querySelector('#settings-tab-' + sections[next]) : null;
+    if (targetTab && targetTab.focus) targetTab.focus();
   }
 
   return { activeSection, submitSettings, navigateTabs };
