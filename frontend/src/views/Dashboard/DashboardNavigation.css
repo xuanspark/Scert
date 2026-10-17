@@ -124,7 +124,7 @@
   width: 100%;
   box-sizing: border-box;
   margin: 0 0 10px;
-  padding: 12px;
+  padding: 10px 10px;
   border: 1px solid #e2e8f2;
   border-radius: 10px;
   background: #f8faff;
@@ -157,13 +157,13 @@
 .navigation-account-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
 }
 
 .navigation-account-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   overflow: hidden;
@@ -177,7 +177,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
@@ -204,9 +204,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   margin-left: auto;
-  padding: 3px 6px;
+  padding: 2px 4px;
   border: none;
   border-radius: 6px;
   background: transparent;
