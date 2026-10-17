@@ -60,6 +60,7 @@ test("系统设置导航仅对当前已确认的超级管理员显示", async ()
     const html = await renderComponent("../Dashboard/DashboardNavigation.vue", {
       activeSection: "overview", sections: [],
       currentUser: role ? { account: "测试", role } : null,
+      version: "0.1.0",
       roleLabels: workspaceRoleLabels,
       loggingOut: false, error: "", logout() {},
     });

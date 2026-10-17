@@ -13,6 +13,7 @@ defineProps({
   activeSection: { type: String, required: true },
   sections: { type: Array, required: true },
   currentUser: { type: Object, default: null },
+  version: { type: String, default: "" },
 });
 
 defineEmits(["select", "settings"]);
@@ -83,7 +84,15 @@ defineEmits(["select", "settings"]);
     <div class="navigation-session">
       <div v-if="currentUser" class="navigation-account-card" aria-label="当前登录账号">
         <div class="navigation-account-header">
-          <div class="navigation-account-label">当前账号</div>
+          <span class="navigation-account-label">当前账号</span>
+          <span class="navigation-version-label">版本 {{ version || "0.1.0" }}</span>
+        </div>
+        <div class="navigation-account-row">
+          <strong class="navigation-account-name" :title="currentUser.account">{{ currentUser.account || "未命名账号" }}</strong>
+          <span
+            class="navigation-role-badge"
+            :class="`role-${currentUser.role}`"
+          >{{ roleLabels[currentUser.role] || "未知权限" }}</span>
           <button
             class="navigation-logout-btn navigation-logout"
             type="button"
@@ -99,13 +108,6 @@ defineEmits(["select", "settings"]);
             <span class="navigation-logout-text">注销</span>
             <span class="navigation-logout-sr">{{ loggingOut ? "退出中…" : "退出登录" }}</span>
           </button>
-        </div>
-        <div class="navigation-account-row">
-          <strong class="navigation-account-name" :title="currentUser.account">{{ currentUser.account || "未命名账号" }}</strong>
-          <span
-            class="navigation-role-badge"
-            :class="`role-${currentUser.role}`"
-          >{{ roleLabels[currentUser.role] || "未知权限" }}</span>
         </div>
       </div>
       <div v-else class="navigation-session-anon">

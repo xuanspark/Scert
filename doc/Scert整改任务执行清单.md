@@ -3591,10 +3591,10 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月17日 侧边栏账号卡片两行布局改造（第一行两列：账号与版本号；第二行三列：角色与注销）
 
-- [ ] 增加侧边栏当前账号卡片两行布局需求清单
-- [ ] 修改 Dashboard.vue 与 DashboardNavigation.vue 传递 status/版本号信息
-- [ ] 改造 DashboardNavigation.vue 布局结构：第一行两列展示当前账号、版本号；第二行三列展示账号名称、角色权限徽标、注销按钮
-- [ ] 调整 DashboardNavigation.css 样式实现网格与对齐
-- [ ] 运行前端自动化单元测试验证
+- [x] 增加侧边栏当前账号卡片两行布局需求清单
+- [x] 修改 Dashboard.vue 与 DashboardNavigation.vue 传递 status/版本号信息
+- [x] 改造 DashboardNavigation.vue 布局结构：第一行两列展示当前账号、版本号；第二行三列展示账号名称、角色权限徽标、注销按钮
+- [x] 调整 DashboardNavigation.css 样式实现网格与对齐
+- [x] 运行前端自动化单元测试验证
 - [ ] 编译并部署至第一台 Linux 服务器
 - [ ] 通过浏览器 MCP 验证页面渲染效果
