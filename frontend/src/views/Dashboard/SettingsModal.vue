@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import HelpTip from "../components/HelpTip/HelpTip.vue";
 import { useSettingsModal } from "./SettingsModal.js";
 import MailNotificationSettings from "./MailNotificationSettings.vue";
@@ -23,6 +23,12 @@ const {
   closeSettings,
   saveSettings,
   dnsVerificationRequired,
+  mailTesting,
+  mailTestError,
+  mailTestSuccess,
+  mailVerified,
+  mailReadyToSave,
+  testMail,
 } = props.state;
 const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSettings);
 </script>
@@ -385,10 +391,17 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
             class="settings-panel"
           >
             <h3>邮件通知</h3>
-            <MailNotificationSettings :notification="settingsForm.notification" />
+            <MailNotificationSettings
+              :notification="settingsForm.notification"
+              :mail-testing="mailTesting"
+              :mail-test-error="mailTestError"
+              :mail-test-success="mailTestSuccess"
+              :mail-verified="mailVerified"
+              @test-mail="testMail"
+            />
           <div class="modal-actions">
             <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
-            <button class="primary-button" type="button" :disabled="settingsSaving" @click="submitSettings">{{ settingsSaving ? "保存中……" : "保存邮件通知" }}</button>
+            <button class="primary-button" type="button" :disabled="settingsSaving || !mailReadyToSave" @click="submitSettings">{{ settingsSaving ? "保存中……" : "保存邮件通知" }}</button>
           </div>
           </section>
           <p v-if="settingsError" class="form-error">{{ settingsError }}</p>
@@ -400,3 +413,5 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
 
 <style scoped src="./Dashboard.css"></style>
 <style scoped src="./SettingsModal.css"></style>
+
+

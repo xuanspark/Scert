@@ -1,4 +1,4 @@
-package httpapi
+﻿package httpapi
 
 import (
 	"context"
@@ -253,6 +253,7 @@ func (s *Server) registerRoutes() {
 	s.router.GET("/api/v1/settings", privateProjectResponse, s.requireSuperAdminSystemConfig, s.getSettings)
 	s.router.PUT("/api/v1/settings", privateProjectResponse, s.requireSuperAdminSystemConfig, s.updateSettings)
 	adminAPI.POST("/dns/test", s.requireSuperAdminSystemConfig, s.dnsOperation, s.testAdminDNS)
+	adminAPI.POST("/notification/test", s.requireSuperAdminSystemConfig, s.testNotification)
 	adminAPI.POST("/dns/aliyun/check", s.requireSuperAdminSystemConfig, s.dnsOperation, s.checkAliyunDNSDomain)
 	adminAPI.POST("/renewal/run", s.requireSuperAdmin, s.runRenewalNow)
 	domainAPI.POST("/domains/:id/certificate/import", s.longOperation(certificateTaskTimeout), s.importCertificateFiles)
@@ -1108,3 +1109,4 @@ func (s *Server) recordServerHostKeyAudit(c *gin.Context, action, serverID strin
 		s.logger.Warn("保存服务器主机指纹审计日志失败", "server_id", serverID, "error", err)
 	}
 }
+

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { parse, compileScript, compileTemplate } from "@vue/compiler-sfc";
@@ -24,7 +24,7 @@ test("邮件通知组件只保留 SMTP 通道和收件人配置", () => {
   }
   assert.doesNotMatch(mailSource, /HTTP 接口|sender_email|notification\.http_enabled/);
   assert.equal(mailSource.split(':value="notification.recipients.join').length - 1, 1);
-  assert.match(source, /<MailNotificationSettings :notification="settingsForm.notification"/);
+  assert.match(source, /<MailNotificationSettings[\s\S]*:notification="settingsForm.notification"/);
   assert.doesNotMatch(mailSource, /role="tab"/);
 });
 
@@ -128,3 +128,4 @@ test("settings.keyboardNavigationWrapsAndFocusesTabs", async () => {
   await state.navigateTabs({ ...event, key: "Home" });
   assert.equal(state.activeSection.value, "service");
 });
+

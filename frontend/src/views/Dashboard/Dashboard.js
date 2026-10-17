@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+﻿import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { settingsPayload } from "./SettingsPayload.js";
 import { deploymentSummary, serverAuthLabel } from "./DeploymentFeedback.js";
 import { useDomainForm } from "./DomainForm.js";
@@ -53,6 +53,10 @@ export function useDashboard() {
   const settingsError = ref("");
   const dnsTesting = ref(false);
   const dnsTestError = ref("");
+  const mailTesting = ref(false);
+  const mailTestError = ref("");
+  const mailTestSuccess = ref("");
+  const mailVerified = ref(false);
   const dnsVerificationElapsedSeconds = ref(0);
   const dnsVerificationTimeoutSeconds = ref(defaultDNSVerificationTimeoutSeconds);
   const verificationClock = ref(Date.now());
@@ -126,6 +130,29 @@ export function useDashboard() {
     if (domainPage.value > domainPageCount.value) {
       domainPage.value = domainPageCount.value;
     }
+  });
+
+  watch(
+    () => [
+      settingsForm.value.notification.smtp_enabled,
+      settingsForm.value.notification.smtp_host,
+      settingsForm.value.notification.smtp_port,
+      settingsForm.value.notification.smtp_username,
+      settingsForm.value.notification.smtp_password,
+      settingsForm.value.notification.smtp_mode,
+      settingsForm.value.notification.smtp_allow_plaintext_auth,
+      (settingsForm.value.notification.recipients || []).join(","),
+    ],
+    () => {
+      mailVerified.value = false;
+      mailTestSuccess.value = "";
+    },
+  );
+
+  const mailReadyToSave = computed(() => {
+    if (mailTesting.value) return false;
+    if (!settingsForm.value.notification.smtp_enabled) return true;
+    return mailVerified.value;
   });
 
   watch(hasOpenModal, (isOpen) => {
@@ -800,9 +827,72 @@ export function useDashboard() {
     }
   }
 
+  async function testMail() {
+    if (!canManageSystemSettings.value) {
+      mailTestError.value = "只有超级管理员可以进行邮件发信测试";
+      return;
+    }
+    const notif = settingsForm.value.notification;
+    mailTestError.value = "";
+    mailTestSuccess.value = "";
+    if (notif.smtp_enabled) {
+      if (!notif.smtp_host || !notif.smtp_host.trim()) {
+        mailTestError.value = "请填写 SMTP 主机";
+        return;
+      }
+      if (!notif.smtp_username || !notif.smtp_username.trim()) {
+        mailTestError.value = "请填写 SMTP 用户名";
+        return;
+      }
+      if (!notif.smtp_credential_configured && (!notif.smtp_password || !notif.smtp_password.trim())) {
+        mailTestError.value = "请填写 SMTP 密码";
+        return;
+      }
+    }
+    const recipients = (notif.recipients || []).filter(Boolean);
+    const targetRecipient = recipients[0] || (currentUser.value?.email || "").trim();
+    if (!targetRecipient) {
+      mailTestError.value = "请在收件人中至少填写一个有效的测试接收邮箱";
+      return;
+    }
+
+    mailTesting.value = true;
+    try {
+      const response = await fetchAdmin("/api/v1/notification/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          smtp_enabled: Boolean(notif.smtp_enabled),
+          smtp_host: (notif.smtp_host || "").trim(),
+          smtp_port: Number(notif.smtp_port) || 0,
+          smtp_username: (notif.smtp_username || "").trim(),
+          smtp_password: notif.smtp_password || "",
+          smtp_mode: notif.smtp_mode || "starttls",
+          smtp_allow_plaintext_auth: Boolean(notif.smtp_allow_plaintext_auth),
+          recipient: targetRecipient,
+          http_enabled: Boolean(notif.http_enabled),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || "邮件发信测试失败");
+      }
+      mailVerified.value = true;
+      mailTestSuccess.value = result.message || "测试邮件已发送成功，请查收！";
+    } catch (err) {
+      mailVerified.value = false;
+      mailTestError.value = err.message || "邮件发信测试失败";
+    } finally {
+      mailTesting.value = false;
+    }
+  }
+
   function openSettings() {
     settingsError.value = "";
     dnsTestError.value = "";
+    mailTestError.value = "";
+    mailTestSuccess.value = "";
+    mailVerified.value = false;
     if (!canManageSystemSettings.value) {
       settingsForm.value = normalizeSettings(null);
       showSettings.value = false;
@@ -830,6 +920,11 @@ export function useDashboard() {
     // 只有在保存全部或保存 DNS 配置时才强依赖 DNS API 测试
     if ((!section || section === "dns") && !dnsReadyToSave.value) {
       settingsError.value = "DNS 服务商配置尚未通过在线测试，请先完成测试";
+      return;
+    }
+    // 邮件通知在启用时必须先测试通过
+    if ((!section || section === "notification") && !mailReadyToSave.value) {
+      settingsError.value = "邮件通知配置尚未通过在线测试，请先完成测试";
       return;
     }
     settingsSaving.value = true;
@@ -1175,6 +1270,12 @@ export function useDashboard() {
     dnsVerificationTimeoutSeconds,
     dnsReadyToSave,
     dnsVerificationRequired,
+    mailTesting,
+    mailTestError,
+    mailTestSuccess,
+    mailVerified,
+    mailReadyToSave,
+    testMail,
     handleDNSProviderChange,
     clearDNSCredentials,
     testDNS,

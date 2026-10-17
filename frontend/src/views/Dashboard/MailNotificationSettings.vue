@@ -1,7 +1,19 @@
-<script setup>
+﻿<script setup>
 import HelpTip from "../components/HelpTip/HelpTip.vue";
 
-defineProps({ notification: { type: Object, required: true } });
+const props = defineProps({
+  notification: { type: Object, required: true },
+  mailTesting: { type: Boolean, default: false },
+  mailTestError: { type: String, default: "" },
+  mailTestSuccess: { type: String, default: "" },
+  mailVerified: { type: Boolean, default: false },
+});
+
+const emit = defineEmits(["test-mail"]);
+
+function handleTest() {
+  emit("test-mail");
+}
 </script>
 
 <template>
@@ -54,6 +66,29 @@ defineProps({ notification: { type: Object, required: true } });
           placeholder="多个地址用逗号分隔"
         />
       </label>
+
+      <div v-if="notification.smtp_enabled" class="mail-test-actions">
+        <button
+          class="secondary-button"
+          type="button"
+          :disabled="mailTesting"
+          @click="handleTest"
+        >
+          {{ mailTesting ? "正在测试发信……" : "测试邮件发送" }}
+        </button>
+        <span
+          class="mail-verification-status"
+          :class="mailVerified ? 'verified' : 'pending'"
+        >
+          {{ mailVerified ? "已通过测试" : "待在线测试" }}
+        </span>
+      </div>
+
+      <p v-if="mailTestError" class="form-error mail-form-error">{{ mailTestError }}</p>
+      <p v-if="mailTestSuccess" class="form-success mail-form-success">{{ mailTestSuccess }}</p>
+      <HelpTip v-if="notification.smtp_enabled && !mailVerified">
+        保存邮件通知设置前，必须先点击“测试邮件发送”并通过在线测试验证。
+      </HelpTip>
     </fieldset>
   </div>
 </template>
