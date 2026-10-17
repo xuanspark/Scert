@@ -167,7 +167,7 @@ test("部分成功后修改资料使用已有标识更新，取消也保留已�
   assert.equal(deps.domains.value[0].auto_renew, false);
   state.openCreate();
   assert.equal(state.editingId.value, "");
-  assert.deepEqual(state.form.value.server_ids, []);
+  assert.deepEqual(state.form.value.server_ids, [firstServer.id]);
 });
 
 test("编辑先读取真实关联，明确清空只提交当前域名", async (t) => {
@@ -238,7 +238,7 @@ test("切换表单时旧关联读取结果不能污染新域名", async (t) => {
   pending.resolve(Response.json({ items: [firstServer] }));
   await reading;
   assert.equal(state.editingId.value, "");
-  assert.deepEqual(state.form.value.server_ids, []);
+  assert.deepEqual(state.form.value.server_ids, [firstServer.id]);
   assert.equal(state.domainBindingsLoading.value, false);
   assert.equal(deps.domainServers.value[firstDomain.id], undefined);
 });

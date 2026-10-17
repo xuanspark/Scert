@@ -75,6 +75,9 @@ export function useDomainForm({ fetchAdmin, domains, servers, domainServers, not
     editingId.value = "";
     targetID = "";
     form.value = emptyForm();
+    if (servers.value && servers.value.length > 0) {
+      form.value.server_ids = [servers.value[0].id];
+    }
     formError.value = "";
     savedPayload = "";
     createdInForm = false;
