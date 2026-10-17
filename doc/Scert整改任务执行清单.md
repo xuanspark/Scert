@@ -3591,23 +3591,23 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月17日 侧边栏账号卡片两行布局改造（第一行两列：账号与版本号；第二行三列：角色与注销）
 
-- [x] 增加侧边栏当前账号卡片两行布局需求清单
-- [x] 修改 Dashboard.vue 与 DashboardNavigation.vue 传递 status/版本号信息
-- [x] 改造 DashboardNavigation.vue 布局结构：第一行两列展示当前账号、版本号；第二行三列展示账号名称、角色权限徽标、注销按钮
-- [x] 调整 DashboardNavigation.css 样式实现网格与对齐
-- [x] 运行前端自动化单元测试验证
-- [ ] 编译并部署至第一台 Linux 服务器
-- [ ] 通过浏览器 MCP 验证页面渲染效果
+- [✓] 增加侧边栏当前账号卡片两行布局需求清单
+- [✓] 修改 Dashboard.vue 与 DashboardNavigation.vue 传递 status/版本号信息
+- [✓] 改造 DashboardNavigation.vue 布局结构：第一行两列展示当前账号、版本号；第二行三列展示账号名称、角色权限徽标、注销按钮
+- [✓] 调整 DashboardNavigation.css 样式实现网格与对齐
+- [✓] 运行前端自动化单元测试验证
+- [✓] 编译并部署至第一台 Linux 服务器
+- [✓] 通过浏览器 MCP 验证页面渲染效果
 
 
 ## 2026年10月17日 侧边栏账号防截断优化与依据Git历史规则确定系统版本号
 
-- [x] 任务启动：梳理 Git 提交历史计算版本号、调整账号卡片空间防截断
-- [x] 调整 DashboardLayout.css 侧边栏宽度与 DashboardNavigation.css 账号卡片紧凑排版
-- [x] 同步更新 buildinfo.Version 与前端默认版本号
-- [x] 运行前端单元测试全量验证
-- [x] 编译并部署至第一台 Linux 服务器实机复核
-- [x] 双重推送远程仓库
+- [✓] 任务启动：梳理 Git 提交历史计算版本号、调整账号卡片空间防截断
+- [✓] 调整 DashboardLayout.css 侧边栏宽度与 DashboardNavigation.css 账号卡片紧凑排版
+- [✓] 同步更新 buildinfo.Version 与前端默认版本号
+- [✓] 运行前端单元测试全量验证
+- [✓] 编译并部署至第一台 Linux 服务器实机复核
+- [✓] 双重推送远程仓库
 
 ## 2026年10月18日 新建托管域名默认勾选第一台生产测试服务器
 
