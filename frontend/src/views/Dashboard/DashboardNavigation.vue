@@ -85,7 +85,7 @@ defineEmits(["select", "settings"]);
       <div v-if="currentUser" class="navigation-account-card" aria-label="当前登录账号">
         <div class="navigation-account-header">
           <span class="navigation-account-label">当前账号</span>
-          <span class="navigation-version-label">版本 {{ version || "1.52.1" }}</span>
+          <span class="navigation-version-label">版本 {{ version ? (version.startsWith("v") || version.startsWith("V") ? version : "V" + version) : "V1.52.1" }}</span>
         </div>
         <div class="navigation-account-row">
           <strong class="navigation-account-name" :title="currentUser.account">{{ currentUser.account || "未命名账号" }}</strong>
@@ -128,7 +128,6 @@ defineEmits(["select", "settings"]);
         </button>
       </div>
       <p v-if="error" class="navigation-error" role="alert">{{ error }}</p>
-      <p class="navigation-footer">SSL 证书管理</p>
     </div>
   </nav>
 </template>
