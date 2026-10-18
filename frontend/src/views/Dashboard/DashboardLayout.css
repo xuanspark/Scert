@@ -1,6 +1,6 @@
 .page-shell {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
   width: 100%;
   max-width: 1600px;
@@ -11,6 +11,9 @@
 
 .topbar {
   gap: 16px;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid #f0f4f9;
+  background: #ffffff;
 }
 
 .topbar h1 {
@@ -36,7 +39,7 @@
 }
 
 .page-shell:not(:has(.dashboard-messages > p)) {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .dashboard-messages p {

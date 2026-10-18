@@ -138,7 +138,23 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
 
 <template>
   <main class="page-shell">
-    <header class="topbar">
+    
+
+    <div class="dashboard-messages" aria-live="polite">
+      <p v-if="error" class="error-banner">{{ error }}</p>
+      <p v-if="notice" class="notice-banner">{{ notice }}</p>
+      <p v-if="taskQueryError" class="error-banner" role="alert">{{ taskQueryError }}</p>
+    </div>
+
+    <div class="dashboard-workspace">
+      <div
+        :key="activeSection"
+        class="dashboard-content"
+        role="region"
+        :aria-label="activeLabel"
+        tabindex="0"
+      >
+      <header class="topbar">
       <div>
         <p class="eyebrow">SCERT / SSL 证书管理</p>
         <h1>证书管理总览</h1>
@@ -169,21 +185,6 @@ const { activeSection, activeLabel, sections, selectSection } = useDashboardNavi
         </button>
       </div>
     </header>
-
-    <div class="dashboard-messages" aria-live="polite">
-      <p v-if="error" class="error-banner">{{ error }}</p>
-      <p v-if="notice" class="notice-banner">{{ notice }}</p>
-      <p v-if="taskQueryError" class="error-banner" role="alert">{{ taskQueryError }}</p>
-    </div>
-
-    <div class="dashboard-workspace">
-      <div
-        :key="activeSection"
-        class="dashboard-content"
-        role="region"
-        :aria-label="activeLabel"
-        tabindex="0"
-      >
     <div v-if="activeSection === 'overview'" class="overview-section">
 
     <section class="panel overview-panel">
