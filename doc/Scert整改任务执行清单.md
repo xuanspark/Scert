@@ -3671,3 +3671,11 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 - [✓] 生产构建与部署：打包生产静态资源（vite build）并通过安全 SFTP 部署至第一台 Linux 生产服务器（8.137.23.95:/scert/web/）。
 - [✓] 浏览器 MCP 实机验收与页面效果复核：通过 CDP 刷新页面并读取实机 DOM，验证顶部标题栏与操作栏已成功内置于主卡片容器中，展示正常。
 - [✓] 规范双重推送 Git 远程仓库。
+
+## 2026年10月18日 双仓库发布工作流与按规范编译包生成
+
+- [~] 需求确认：为 GitHub 与 git.pcux.cn 双仓库创建统一的 CI/CD Release 工作流，实现多架构自动编译打包与发布，产物严格按照“项目名+版本+架构”（如 Scert_v1.52.1_linux_amd64.tar.gz / Scert_v1.52.1_windows_amd64.zip）进行命名。
+- [ ] 编写跨平台打包辅助能力，支持包含可执行程序、Web资源、服务部署模板配置及哈希清单。
+- [ ] 创建 .github/workflows/release.yml 自动化工作流，覆盖 linux/amd64、linux/arm64、windows/amd64 等平台矩阵，支持 tag 触发与 workflow_dispatch 手动触发。
+- [ ] 执行前端单元测试（357项）与构建检查，确保工具链与代码健全。
+- [ ] 提交代码并双重推送到 Gitea (git.pcux.cn) 与 GitHub (github.com)。
