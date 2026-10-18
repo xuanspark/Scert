@@ -1,7 +1,7 @@
 # Scert - SSL 证书全生命周期自动化管理系统
 
 <p align="center">
-  <img src="frontend/public/Scert.png" alt="Scert Logo" width="120" />
+  <img src="frontend/logo/Scert.png" alt="Scert Logo" width="120" />
 </p>
 
 <p align="center">

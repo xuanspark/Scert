@@ -1,3 +1,10 @@
+
+## 2026年10月18日 修复主文档 README.md 中 Logo 图片引用路径
+
+- [✓] 需求确认：用户反馈 README.md 在渲染时 Logo 无法正常显示（出现裂图与图注）。排查确认项目图片资源位于 frontend/logo/Scert.png，而原文档错误指向 frontend/public/Scert.png。
+- [✓] 修改文档：将 README.md 中 Logo 的 img src 路径调整为 frontend/logo/Scert.png。
+- [✓] 执行前端全量单元测试，357 项测试全绿通过。
+- [✓] 提交修改并推送到 git.pcux.cn 与 github.com 远程仓库。
 ## 2026年10月18日 移除主工作区内容滚动条视觉显示
 
 - [✓] 需求确认：用户反馈右侧侧边栏与主工作区内容区域之间的垂直滚动条影响美观，需在保留内容正常滚动的交互前提下，隐藏/移除该滚动条的视觉轨道与滑块（包含标准 scrollbar-width 与 Webkit 滚动条隐藏适配）。
