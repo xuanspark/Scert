@@ -3679,3 +3679,9 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 - [✓] 创建 .github/workflows/release.yml 自动化工作流，构建矩阵覆盖 linux/amd64、linux/arm64、windows/amd64 等平台，支持推送 tag、发布 release 以及 workflow_dispatch 手动触发，并自动上传 Release 资产与 Artifacts。
 - [✓] 执行前端单元测试（357 项测试全绿通过，357 pass, 0 fail）与生产打包构建检查。
 - [✓] 提交代码并双重推送到 Gitea (git.pcux.cn) 与 GitHub (github.com)。
+## 2026年10月18日 根目录完整项目README编写与双仓库同步
+
+- [~] 需求确认：在项目根目录下编写专业、规范、全面的 README.md 中文文档，涵盖项目概述、核心特性、系统架构、目录结构、开发与构建指南、CI/CD 自动化发布与部署运行说明。
+- [ ] 编写根目录 README.md 并确保换行符、编码规范（UTF-8 无 BOM）。
+- [ ] 执行前端单元测试（357 项）以确保仓库工具链与代码健全性不受影响。
+- [ ] 提交代码并双重推送到 Gitea (git.pcux.cn) 与 GitHub (github.com)。
