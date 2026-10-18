@@ -3708,3 +3708,11 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 - [✓] 修改 .github/workflows/release.yml 与 .gitea/workflows/release.yaml：将 node-version 由 24 改为精准匹配的 24.19.0。
 - [✓] 运行本地单元测试（357 pass, 0 fail）验证工具链完整性。
 - [✓] 提交修改并更新 v1.52.1 标签推送到 git.pcux.cn 与 github.com。
+
+## 2026年10月18日 发布包与 Release 自动包含本次版本更新内容说明
+
+- [~] 需求确认：为跨平台发布包（deploy/package.mjs）与 GitHub/Gitea Release 工作流增加更新日志与发布介绍（Release Notes/CHANGELOG），自动提取本次版本修改内容并在打包产物中生成 CHANGELOG.md / 更新说明.md，同时在发布 GitHub Release 时自动填充 Release Description。
+- [ ] 改造 deploy/package.mjs：支持生成/打包更新说明文档（CHANGELOG.md / 更新说明.md）至分发包根目录。
+- [ ] 更新 GitHub 工作流与 Gitea 工作流：提取 Git 提交日志或发布说明，并在 softprops/action-gh-release 中自动作为 body 填充发布介绍。
+- [ ] 运行全量单元测试与工具链检查，验证打包完整性。
+- [ ] 提交代码并双重推送到 git.pcux.cn 与 github.com。
