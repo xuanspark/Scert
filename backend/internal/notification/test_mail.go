@@ -1,4 +1,4 @@
-﻿package notification
+package notification
 
 import (
 	"context"
@@ -8,6 +8,18 @@ import (
 	"strings"
 	"time"
 )
+
+// sendSMTPDirect 单次直接发送测试邮件，避免在交互测试时进入多轮重试退避导致超时掩盖真实错误
+func (s *Service) sendSMTPDirect(ctx context.Context, payload mailPayload) error {
+	if strings.TrimSpace(s.config.SMTPHost) == "" {
+		return errors.New("SMTP 主机不能为空")
+	}
+	credentials, err := s.loadSMTPCredentials(ctx)
+	if err != nil {
+		return err
+	}
+	return s.sendSMTPOnce(ctx, payload, credentials)
+}
 
 // SendTestMail 发送测试邮件，验证发信通道配置与网络连通性。
 func (s *Service) SendTestMail(ctx context.Context, targetRecipient string) error {
@@ -76,7 +88,7 @@ func (s *Service) SendTestMail(ctx context.Context, targetRecipient string) erro
 		if !s.config.SMTPEnabled {
 			return errors.New("Smail 系统通知账号必须启用 SMTP 通道")
 		}
-		if err := s.sendSMTPWithRetry(ctx, payload); err != nil {
+		if err := s.sendSMTPDirect(ctx, payload); err != nil {
 			return fmt.Errorf("SMTP 测试邮件发送失败：%w", err)
 		}
 		return nil
@@ -87,7 +99,7 @@ func (s *Service) SendTestMail(ctx context.Context, targetRecipient string) erro
 		}
 	}
 	if s.config.SMTPEnabled {
-		if err := s.sendSMTPWithRetry(ctx, payload); err != nil {
+		if err := s.sendSMTPDirect(ctx, payload); err != nil {
 			return fmt.Errorf("SMTP 测试邮件发送失败：%w", err)
 		}
 		return nil

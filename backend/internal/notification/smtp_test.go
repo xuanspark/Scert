@@ -309,7 +309,7 @@ func TestSmailSystemSenderUsesSameEnvelopeAndHeader(t *testing.T) {
 				t.Fatal("邮件头没有使用固定系统通知身份，或泄漏旧管理员发件地址")
 			}
 			if security && strings.Contains(message, "receiver@example.com") {
-				t.Fatal("验证码不得发送给普通通知收件人")
+				t.Fatal("验证码不得发送给普通通知收件�?)
 			}
 		})
 	}
@@ -340,7 +340,7 @@ func TestSmailSystemNotificationUsesSMTPOnly(t *testing.T) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if len(server.messages) != 1 {
-		t.Fatalf("SMTP 系统通知数量错误：%d", len(server.messages))
+		t.Fatalf("SMTP 系统通知数量错误�?d", len(server.messages))
 	}
 }
 
@@ -449,7 +449,38 @@ func TestBuildSMTPMessageIncludesStyledHTMLAlternative(t *testing.T) {
 		"<p style=\"color:red\">HTML 通知</p>",
 	} {
 		if !strings.Contains(message, value) {
-			t.Fatalf("SMTP multipart 邮件缺少 %q：%s", value, message)
+			t.Fatalf("SMTP multipart 邮件缺少 %q�?s", value, message)
 		}
+	}
+}
+
+func TestSendTestMailImmediateFailureOnAuthError(t *testing.T) {
+	server := newSMTPTestServer(t, false, true)
+	server.rejectAuth = true
+	host, port := server.address()
+	cfg := smtpTestConfig(host, port, "starttls")
+	cfg.RetryCount = 3
+	cfg.RetryIntervalsSecs = []int{30, 120, 600}
+	service := New(cfg, credentialReaderStub{values: map[string]string{
+		"username": "user",
+		"password": "wrong-password",
+	}})
+	service.smtpTLSConfig = server.clientTLSConfig
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := service.SendTestMail(ctx, "target@example.com")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected error on rejected auth, got nil")
+	}
+	if !strings.Contains(err.Error(), "认证失败") && !strings.Contains(err.Error(), "Authentication credentials invalid") {
+		t.Fatalf("expected auth failure error, got: %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("SendTestMail took %v, expected immediate return without retry backoff sleep", elapsed)
 	}
 }
