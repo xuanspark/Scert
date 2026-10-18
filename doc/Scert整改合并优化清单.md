@@ -1,3 +1,16 @@
+## 2026年10月18日 发布包目录架构重构与deploy部署运维套件标准化
+
+- [✓] 需求确认：统一所有版本的发布包打包架构与包内目录结构，参考标准规范结构（根目录为 scert/，包含 config/、data/、log/、ssl/、web/、scert、scert-admin、scert-nginx、scert-storage、部署说明.md、更新说明.md、CHANGELOG.md 以及完整的 deploy/ 部署与运维套件）。
+- [✓] 编写标准部署套件：
+  - 新增 deploy/install-systemd.sh：实现全新一键交互式安装部署、前置环境与端口检查、用户创建、systemd 服务单元安装与防火墙放行。
+  - 新增 deploy/update-systemd.sh：实现平滑更新，仅更新二进制程序与前端静态资源，严格保护现有 config、data、ssl 及 log 目录。
+- [✓] 改造发布打包脚本 deploy/package.mjs：生成标准 scert/ 根目录层级、归档 deploy/ 部署套件与发布说明，并生成 SHA256SUMS 校验文件。
+- [✓] 实机解包与结构核验：通过 node deploy/package.mjs --target=linux_amd64 测试，验证解包产物目录结构 100% 契合规范要求。
+- [✓] 服务器状态巡检：
+  - 第一台 (8.137.23.95)：Scert.service 正常运行 (active)，HTTP 200 响应正常，证书有效。
+  - 第二台 (47.108.78.12)：磁盘剩余 23GB，经排查无任何本项目部署包残留，保持纯净。
+- [✓] 提交代码并同步打标 Tag v1.52.1 推送至 git.pcux.cn 与 github.com。
+
 
 ## 2026年10月18日 修复主文档 README.md 中 Logo 图片引用路径
 
