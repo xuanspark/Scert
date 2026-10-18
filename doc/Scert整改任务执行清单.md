@@ -3674,8 +3674,8 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月18日 双仓库发布工作流与按规范编译包生成
 
-- [~] 需求确认：为 GitHub 与 git.pcux.cn 双仓库创建统一的 CI/CD Release 工作流，实现多架构自动编译打包与发布，产物严格按照“项目名+版本+架构”（如 Scert_v1.52.1_linux_amd64.tar.gz / Scert_v1.52.1_windows_amd64.zip）进行命名。
-- [ ] 编写跨平台打包辅助能力，支持包含可执行程序、Web资源、服务部署模板配置及哈希清单。
-- [ ] 创建 .github/workflows/release.yml 自动化工作流，覆盖 linux/amd64、linux/arm64、windows/amd64 等平台矩阵，支持 tag 触发与 workflow_dispatch 手动触发。
-- [ ] 执行前端单元测试（357项）与构建检查，确保工具链与代码健全。
-- [ ] 提交代码并双重推送到 Gitea (git.pcux.cn) 与 GitHub (github.com)。
+- [✓] 需求确认：为 GitHub 与 git.pcux.cn 双仓库创建统一的 CI/CD Release 工作流，实现多架构自动编译打包与发布，产物严格按照“项目名+版本+架构”（如 Scert_v1.52.1_linux_amd64.tar.gz / Scert_v1.52.1_windows_amd64.zip）进行命名。
+- [✓] 编写跨平台打包辅助脚本（deploy/package.mjs），支持针对特定平台及架构进行编译，并整合前端构建产物（web/）、部署脚本与配置文件，自动计算 SHA256SUMS，生成对应的 tar.gz / zip 压缩包及校验文件。
+- [✓] 创建 .github/workflows/release.yml 自动化工作流，构建矩阵覆盖 linux/amd64、linux/arm64、windows/amd64 等平台，支持推送 tag、发布 release 以及 workflow_dispatch 手动触发，并自动上传 Release 资产与 Artifacts。
+- [✓] 执行前端单元测试（357 项测试全绿通过，357 pass, 0 fail）与生产打包构建检查。
+- [✓] 提交代码并双重推送到 Gitea (git.pcux.cn) 与 GitHub (github.com)。
