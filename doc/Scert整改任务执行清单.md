@@ -3719,7 +3719,7 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月18日 发布包目录架构重构与deploy部署运维套件标准化
 
-- [~] 需求梳理：统一所有版本的发布包打包架构与包内目录结构，参考标准规范结构（与 Smail 部署体系规范对齐）：
+- [✓] 需求梳理：统一所有版本的发布包打包架构与包内目录结构，参考标准规范结构（与 Smail 部署体系规范对齐）：
   scert/
   ├── config/              # 运行时配置目录
   ├── data/                # 业务数据/数据库目录
@@ -3740,9 +3740,9 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
           ├── scert-nginx.socket
           ├── Scert-storage.service
           └── Scert-storage.socket
-- [ ] 编写 deploy/install-systemd.sh：实现交互式全新安装部署、前置环境与端口检查、systemd 服务单元安装与平滑启用。
-- [ ] 编写 deploy/update-systemd.sh：实现生产环境版本平滑升级，严密保护现有数据库、证书与配置不被覆盖破坏。
-- [ ] 改造 deploy/package.mjs：支持生成上述标准规范层级目录，并在 Linux 环境下保留可执行脚本 755 权限。
-- [ ] 适配 .github/workflows/release.yml 与 .gitea/workflows/release.yaml 工作流，确保 CI/CD 自动发布一致。
-- [ ] 运行全量单元测试与打包验证，检查生成包目录结构与 SHA256SUMS。
-- [ ] 提交 Git 代码并双重推送到 git.pcux.cn 与 github.com。
+- [✓] 编写 deploy/install-systemd.sh：实现交互式全新安装部署、前置环境与端口检查、systemd 服务单元安装与平滑启用。
+- [✓] 编写 deploy/update-systemd.sh：实现生产环境版本平滑升级，严密保护现有数据库、证书与配置不被覆盖破坏。
+- [✓] 改造 deploy/package.mjs：支持生成上述标准规范层级目录，并在 Linux 环境下保留可执行脚本 755 权限。
+- [✓] 适配 .github/workflows/release.yml 与 .gitea/workflows/release.yaml 工作流，确保 CI/CD 自动发布一致。
+- [✓] 运行全量单元测试与打包验证，检查生成包目录结构与 SHA256SUMS。
+- [✓] 提交 Git 代码并双重推送到 git.pcux.cn 与 github.com。

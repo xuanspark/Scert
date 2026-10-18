@@ -1,4 +1,4 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -35,6 +35,17 @@ for (const target of targets) {
   fs.rmSync(stageDir, { recursive: true, force: true });
   fs.mkdirSync(stageDir, { recursive: true });
 
+  // 顶层包含标准根目录 scert/
+  const appDir = path.join(stageDir, "scert");
+  fs.mkdirSync(appDir, { recursive: true });
+
+  // 预创建标准运行目录
+  for (const dir of ["config", "data", "log", "ssl"]) {
+    fs.mkdirSync(path.join(appDir, dir), { recursive: true });
+    // 添加 .gitkeep 保持目录结构完整
+    fs.writeFileSync(path.join(appDir, dir, ".gitkeep"), "", "utf8");
+  }
+
   const ext = goos === "windows" ? ".exe" : "";
   const binaries = [
     { name: `scert${ext}`, pkg: "./cmd/scert" },
@@ -48,9 +59,9 @@ for (const target of targets) {
 
   console.log(`Building Go binaries for ${goos}/${goarch}...`);
   const ldflags = `-s -w -X 'git.pcux.cn/xuans/Scert/backend/internal/buildinfo.Version=${versionArg.replace(/^v/i, "")}'`;
-  
+
   for (const bin of binaries) {
-    const outBin = path.join(stageDir, bin.name);
+    const outBin = path.join(appDir, bin.name);
     execFileSync("go", ["build", "-trimpath", "-ldflags", ldflags, "-o", outBin, bin.pkg], {
       cwd: backendDir,
       env: {
@@ -64,43 +75,50 @@ for (const target of targets) {
   }
 
   // Copy Web frontend dist
-  const webDir = path.join(stageDir, "web");
+  const webDir = path.join(appDir, "web");
   fs.mkdirSync(webDir, { recursive: true });
   fs.cpSync(frontendDist, webDir, { recursive: true });
 
-  // Generate & Copy Release Notes / 更新说明.md
-  let releaseNotes = '';
+  // Generate & Copy Release Notes / 更新说明.md / CHANGELOG.md
+  let releaseNotes = "";
   try {
-    const logOutput = execFileSync('git', ['log', '-n', '10', '--pretty=format:- %s (%h)'], { encoding: 'utf8' }).trim();
-    releaseNotes = '# Scert ' + versionArg + ' 版本更新说明\n\n发布日期: ' + new Date().toISOString().slice(0, 10) + '\n\n### 本次版本主要修改与优化内容：\n\n' + logOutput + '\n';
+    const logOutput = execFileSync("git", ["log", "-n", "10", "--pretty=format:- %s (%h)"], { encoding: "utf8" }).trim();
+    releaseNotes = `# Scert ${versionArg} 版本更新说明\n\n发布日期: ${new Date().toISOString().slice(0, 10)}\n\n### 本次版本主要修改与优化内容：\n\n${logOutput}\n`;
   } catch {
-    releaseNotes = '# Scert ' + versionArg + ' 版本更新说明\n\n- 自动化打包构建产物，支持全平台服务部署与运维。\n';
+    releaseNotes = `# Scert ${versionArg} 版本更新说明\n\n- 自动化打包构建产物，支持全平台服务部署与运维。\n`;
   }
-  fs.writeFileSync(path.join(stageDir, '更新说明.md'), releaseNotes, 'utf8');
-  fs.writeFileSync(path.join(stageDir, 'CHANGELOG.md'), releaseNotes, 'utf8');
+  fs.writeFileSync(path.join(appDir, "更新说明.md"), releaseNotes, "utf8");
+  fs.writeFileSync(path.join(appDir, "CHANGELOG.md"), releaseNotes, "utf8");
 
-  // Copy Deploy configurations
+  // Copy Deploy configurations into scert/deploy/
+  const appDeployDir = path.join(appDir, "deploy");
+  fs.mkdirSync(appDeployDir, { recursive: true });
+
   if (fs.existsSync(path.join(deployDir, "README.md"))) {
-    fs.copyFileSync(path.join(deployDir, "README.md"), path.join(stageDir, "部署说明.md"));
+    fs.copyFileSync(path.join(deployDir, "README.md"), path.join(appDir, "部署说明.md"));
+    fs.copyFileSync(path.join(deployDir, "README.md"), path.join(appDeployDir, "README.md"));
   }
 
   if (goos === "linux") {
-    if (fs.existsSync(path.join(deployDir, "install-linux.sh"))) {
-      fs.copyFileSync(path.join(deployDir, "install-linux.sh"), path.join(stageDir, "install-linux.sh"));
+    if (fs.existsSync(path.join(deployDir, "install-systemd.sh"))) {
+      fs.copyFileSync(path.join(deployDir, "install-systemd.sh"), path.join(appDeployDir, "install-systemd.sh"));
+    }
+    if (fs.existsSync(path.join(deployDir, "update-systemd.sh"))) {
+      fs.copyFileSync(path.join(deployDir, "update-systemd.sh"), path.join(appDeployDir, "update-systemd.sh"));
     }
     if (fs.existsSync(path.join(deployDir, "systemd"))) {
-      fs.cpSync(path.join(deployDir, "systemd"), path.join(stageDir, "systemd"), { recursive: true });
+      fs.cpSync(path.join(deployDir, "systemd"), path.join(appDeployDir, "systemd"), { recursive: true });
     }
     if (fs.existsSync(path.join(deployDir, "nginx"))) {
-      fs.cpSync(path.join(deployDir, "nginx"), path.join(stageDir, "nginx"), { recursive: true });
+      fs.cpSync(path.join(deployDir, "nginx"), path.join(appDeployDir, "nginx"), { recursive: true });
     }
   } else if (goos === "windows") {
     if (fs.existsSync(path.join(deployDir, "install-windows.ps1"))) {
-      fs.copyFileSync(path.join(deployDir, "install-windows.ps1"), path.join(stageDir, "install-windows.ps1"));
+      fs.copyFileSync(path.join(deployDir, "install-windows.ps1"), path.join(appDeployDir, "install-windows.ps1"));
     }
   }
 
-  // Generate SHA256SUMS
+  // Generate SHA256SUMS for the package contents
   const allFiles = [];
   function collect(dir, base) {
     for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -126,13 +144,12 @@ for (const target of targets) {
 
   console.log(`Packaging ${archiveName}...`);
   if (archiveExt === "tar.gz") {
-    execFileSync("tar", ["-czf", archivePath, "-C", outDir, pkgName], { stdio: "inherit" });
+    execFileSync("tar", ["-czf", archivePath, "-C", stageDir, "scert", "SHA256SUMS"], { stdio: "inherit" });
   } else {
-    // PowerShell Compress-Archive or tar
     try {
-      execFileSync("tar", ["-a", "-c", "-f", archivePath, "-C", outDir, pkgName], { stdio: "inherit" });
+      execFileSync("tar", ["-a", "-c", "-f", archivePath, "-C", stageDir, "scert", "SHA256SUMS"], { stdio: "inherit" });
     } catch {
-      execFileSync("powershell", ["-Command", `Compress-Archive -Path '${stageDir}' -DestinationPath '${archivePath}' -Force`], { stdio: "inherit" });
+      execFileSync("powershell", ["-Command", `Compress-Archive -Path '${path.join(stageDir, "*")}' -DestinationPath '${archivePath}' -Force`], { stdio: "inherit" });
     }
   }
 
