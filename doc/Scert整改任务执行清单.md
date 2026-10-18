@@ -3696,8 +3696,8 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月18日 配置双仓库自动化构建工作流与自动发布
 
-- [~] 需求确认：为 GitHub 与 Gitea 双仓库完善 CI/CD 自动化构建与发布工作流，支持 main 分支推送自动编译全平台安装包、Tag 标签发布正式 Release，并同时适配 .github/workflows 与 .gitea/workflows 目录规范。
-- [ ] 优化 GitHub 工作流：更新 .github/workflows/release.yml，增加 branches: [main] 触发，支持构建 Linux (amd64/arm64) 与 Windows (amd64) 产物，上传 Artifact 并支持发布到 Release。
-- [ ] 创建 Gitea 工作流：创建 .gitea/workflows/release.yaml，兼容 Gitea Actions 语法与 runner 标签体系。
-- [ ] 执行单元测试与构建复核，验证工具链完整性。
-- [ ] 打上版本标签并双重推送到 git.pcux.cn 与 github.com。
+- [✓] 需求确认：为 GitHub 与 Gitea 双仓库完善 CI/CD 自动化构建与发布工作流，支持 main 分支推送自动编译全平台安装包、Tag 标签发布正式 Release，并同时适配 .github/workflows 与 .gitea/workflows 目录规范。
+- [✓] 优化 GitHub 工作流：更新 .github/workflows/release.yml，增加 branches: [main] 触发，支持构建 Linux (amd64/arm64) 与 Windows (amd64) 产物，上传 Artifact 并支持发布到 Release。
+- [✓] 创建 Gitea 工作流：创建 .gitea/workflows/release.yaml，兼容 Gitea Actions 语法与 runner 规范。
+- [✓] 执行单元测试与构建复核，全量 357 项测试全绿通过，工具链与跨平台打包脚本无误。
+- [✓] 打上版本标签 v1.52.1 并双重推送到 git.pcux.cn 与 github.com。
