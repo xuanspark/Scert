@@ -3704,7 +3704,7 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月18日 修复 GitHub/Gitea CI 构建中 Node.js 版本漂移导致 EBADDEVENGINES
 
-- [~] 需求确认：GitHub/Gitea Actions CI 运行 node-version: 24 时默认解析安装了最新版 Node.js v24.21.0，与 package.json 中 devEngines 严格锁定的 24.19.0 不匹配，触发 npm EBADDEVENGINES 致命错误中断构建。需将工作流中 Node.js 版本精准固定为 24.19.0。
-- [ ] 修改 .github/workflows/release.yml 与 .gitea/workflows/release.yaml：将 node-version 由 24 改为精准匹配的 24.19.0。
-- [ ] 运行本地单元测试（357 pass, 0 fail）验证工具链完整性。
-- [ ] 提交修改并打标签更新推送到 git.pcux.cn 与 github.com。
+- [✓] 需求确认：GitHub/Gitea Actions CI 运行 node-version: 24 时默认解析安装了最新版 Node.js v24.21.0，与 package.json 中 devEngines 严格锁定的 24.19.0 不匹配，触发 npm EBADDEVENGINES 致命错误中断构建。需将工作流中 Node.js 版本精准固定为 24.19.0。
+- [✓] 修改 .github/workflows/release.yml 与 .gitea/workflows/release.yaml：将 node-version 由 24 改为精准匹配的 24.19.0。
+- [✓] 运行本地单元测试（357 pass, 0 fail）验证工具链完整性。
+- [✓] 提交修改并更新 v1.52.1 标签推送到 git.pcux.cn 与 github.com。
