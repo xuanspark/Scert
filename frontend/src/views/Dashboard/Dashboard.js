@@ -64,6 +64,8 @@ export function useDashboard() {
   let dnsVerificationTimer;
   let dnsRequestVersion = 0;
   const settingsForm = ref(createEmptySettingsForm());
+  const settingsDraftDirty = ref(false);
+  const settingsDraftBaseline = ref(null);
   const showCertificateImport = ref(false);
   const importDomain = ref(null);
   const importSaving = ref(false);
@@ -899,12 +901,18 @@ export function useDashboard() {
       settingsError.value = "只有超级管理员可以配置邮件通知和系统设置";
       return;
     }
-    settingsForm.value = normalizeSettings(settings.value);
+    if (!settingsDraftDirty.value) {
+      settingsForm.value = normalizeSettings(settings.value);
+      settingsDraftBaseline.value = JSON.stringify(settingsForm.value);
+    }
     showSettings.value = true;
   }
 
   function closeSettings() {
     if (!settingsSaving.value) {
+      if (settingsDraftBaseline.value && JSON.stringify(settingsForm.value) !== settingsDraftBaseline.value) {
+        settingsDraftDirty.value = true;
+      }
       handleDNSProviderChange();
       showSettings.value = false;
     }
@@ -938,6 +946,9 @@ export function useDashboard() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "保存系统设置失败");
       settings.value = result.settings;
+      settingsDraftDirty.value = false;
+      settingsDraftBaseline.value = null;
+      showSettings.value = false;
       notice.value = result.message || "设置已保存";
       await loadData();
     } catch (err) {
@@ -1142,6 +1153,8 @@ export function useDashboard() {
     error.value = "";
     currentUser.value = null;
     settings.value = null;
+    settingsDraftDirty.value = false;
+    settingsDraftBaseline.value = null;
     settingsForm.value = normalizeSettings(null);
     showSettings.value = false;
     try {
@@ -1211,7 +1224,10 @@ export function useDashboard() {
         value: item.id,
         label: item.name,
       }));
-      settingsForm.value = normalizeSettings(settings.value);
+      if (!settingsDraftDirty.value) {
+        settingsForm.value = normalizeSettings(settings.value);
+        settingsDraftBaseline.value = JSON.stringify(settingsForm.value);
+      }
       const associations = await Promise.all(
         domains.value.map(async (item) => {
           const response = await fetchAdmin(
@@ -1228,6 +1244,8 @@ export function useDashboard() {
       if (version !== loadDataVersion) return;
       currentUser.value = null;
       settings.value = null;
+      settingsDraftDirty.value = false;
+      settingsDraftBaseline.value = null;
       settingsForm.value = normalizeSettings(null);
       error.value = err.message || "无法连接核心服务，请先启动 scert serve";
     } finally {
@@ -1262,6 +1280,7 @@ export function useDashboard() {
     auditLogs,
     settings,
     settingsForm,
+    settingsDraftDirty,
     dnsProviderCatalog,
     selectedDNSProvider,
     dnsTesting,

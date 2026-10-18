@@ -1217,3 +1217,25 @@ test("workflowTasks.renderOnlySupportedActions", async () => {
     }
   }
 });
+
+
+
+test("系统设置未保存前在前端内存中暂存，关闭后再次打开保留编辑内容", async (t) => {
+  const { state } = await setup(t, () => verifiedResponse());
+  assert.equal(state.showSettings.value, true);
+  state.settingsForm.value.acme.renewal_threshold_days = 88;
+  state.settingsForm.value.notification.smtp_host = "smtp.draft-test.com";
+  state.settingsForm.value.notification.smtp_port = 465;
+  state.settingsForm.value.notification.smtp_username = "draft_user@test.com";
+
+  state.closeSettings();
+  assert.equal(state.showSettings.value, false);
+  assert.equal(state.settingsDraftDirty.value, true);
+
+  state.openSettings();
+  assert.equal(state.showSettings.value, true);
+  assert.equal(state.settingsForm.value.acme.renewal_threshold_days, 88);
+  assert.equal(state.settingsForm.value.notification.smtp_host, "smtp.draft-test.com");
+  assert.equal(state.settingsForm.value.notification.smtp_port, 465);
+  assert.equal(state.settingsForm.value.notification.smtp_username, "draft_user@test.com");
+});
