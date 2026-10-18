@@ -1,11 +1,43 @@
+## 2026年10月18日 移除主工作区内容滚动条视觉显示
+
+- [✓] 需求确认：用户反馈右侧侧边栏与主工作区内容区域之间的垂直滚动条影响美观，需在保留内容正常滚动的交互前提下，隐藏/移除该滚动条的视觉轨道与滑块（包含标准 scrollbar-width 与 Webkit 滚动条隐藏适配）。
+- [✓] 调整样式：在 frontend/src/views/Dashboard/DashboardLayout.css 与 DashboardNavigation.css 中，对 .dashboard-content 与 .dashboard-navigation 移除 scrollbar-gutter 留白占位，增加 scrollbar-width: none 及 ::-webkit-scrollbar 隐藏样式。
+- [✓] 执行前端单元测试（确保 357 项测试全部全绿通过，357 pass, 0 fail）。
+- [✓] 编译构建前端静态资源（vite build）并部署至第一台 Linux 生产服务器（8.137.23.95:/scert/web/）。
+- [✓] 通过 Chrome CDP 刷新页面复核实机 DOM 与渲染效果，验证 scrollbarWidth 为 none 且 clientWidth 等于 offsetWidth，滚动条已完全隐藏且页面展示整洁。
+- [✓] 规范双重推送 Git 远程仓库。
+
+## 2026年10月18日 配置双仓库自动化构建工作流与自动发布
+
+- [✓] 需求确认：为 GitHub 与 Gitea 双仓库完善 CI/CD 自动化构建与发布工作流，支持 main 分支推送自动编译全平台安装包、Tag 标签发布正式 Release，并同时适配 .github/workflows 与 .gitea/workflows 目录规范。
+- [✓] 优化 GitHub 工作流：更新 .github/workflows/release.yml，增加 branches: [main] 触发，支持构建 Linux (amd64/arm64) 与 Windows (amd64) 产物，上传 Artifact 并支持发布到 Release。
+- [✓] 创建 Gitea 工作流：创建 .gitea/workflows/release.yaml，兼容 Gitea Actions 语法与 runner 规范。
+- [✓] 执行单元测试与构建复核，全量 357 项测试全绿通过，工具链与跨平台打包脚本无误。
+- [✓] 打上版本标签 v1.52.1 并双重推送到 git.pcux.cn 与 github.com。
+
+## 2026年10月18日 修复 GitHub/Gitea CI 构建中 Node.js 版本漂移导致 EBADDEVENGINES
+
+- [✓] 需求确认：GitHub/Gitea Actions CI 运行 node-version: 24 时默认解析安装了最新版 Node.js v24.21.0，与 package.json 中 devEngines 严格锁定的 24.19.0 不匹配，触发 npm EBADDEVENGINES 致命错误中断构建。需将工作流中 Node.js 版本精准固定为 24.19.0。
+- [✓] 修改 .github/workflows/release.yml 与 .gitea/workflows/release.yaml：将 node-version 由 24 改为精准匹配的 24.19.0。
+- [✓] 运行本地单元测试（357 pass, 0 fail）验证工具链完整性。
+- [✓] 提交修改并更新 v1.52.1 标签推送到 git.pcux.cn 与 github.com。
+
+## 2026年10月18日 发布包与 Release 自动包含本次版本更新内容说明
+
+- [✓] 需求确认：为跨平台发布包（deploy/package.mjs）与 GitHub/Gitea Release 工作流增加更新日志与发布介绍（Release Notes/CHANGELOG），自动提取本次版本修改内容并在打包产物中生成 CHANGELOG.md / 更新说明.md，同时在发布 GitHub Release 时自动填充 Release Description。
+- [✓] 改造 deploy/package.mjs：支持自动提取最新提交日志并在安装包根目录生成《更新说明.md》与《CHANGELOG.md》。
+- [✓] 更新 GitHub 工作流与 Gitea 工作流：构建步骤增加 Generate Release Notes，并在 softprops/action-gh-release 中自动绑定 body_path，作为 Release 发布介绍完整展示。
+- [✓] 运行全量单元测试与工具链检查，357 项测试全绿通过，文件换行与编码规范合规。
+- [✓] 提交代码并双重推送到 git.pcux.cn 与 github.com，并同步更新 v1.52.1 标签。
+
 ## 2026年10月18日 系统设置未保存前内存暂存与会话保留
 
-- [~] 系统设置未保存前内存暂存：关闭或重新打开弹窗时保留用户未保存的内存输入数据，避免输入内容丢失
-- [ ] 提交保存成功后更新基线并清理脏状态
-- [ ] 前端自动化单元测试验证
-- [ ] 编译并部署至第一台 Linux 生产服务器（8.137.23.95）
-- [ ] Chrome MCP 实机验证
-- [ ] 双重推送至 Git 仓库
+- [✓] 系统设置未保存前内存暂存：关闭或重新打开弹窗时保留用户未保存的内存输入数据，避免输入内容丢失
+- [✓] 提交保存成功后更新基线并清理脏状态
+- [✓] 前端自动化单元测试验证（全量通过）
+- [✓] 编译并部署至第一台 Linux 生产服务器（8.137.23.95）
+- [✓] Chrome MCP 实机验证
+- [✓] 双重推送至 Git 仓库
 
 ## 2026年10月18日 邮件发送测试按钮与底部操作栏融合重构
 
