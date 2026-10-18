@@ -3711,8 +3711,8 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月18日 发布包与 Release 自动包含本次版本更新内容说明
 
-- [~] 需求确认：为跨平台发布包（deploy/package.mjs）与 GitHub/Gitea Release 工作流增加更新日志与发布介绍（Release Notes/CHANGELOG），自动提取本次版本修改内容并在打包产物中生成 CHANGELOG.md / 更新说明.md，同时在发布 GitHub Release 时自动填充 Release Description。
-- [ ] 改造 deploy/package.mjs：支持生成/打包更新说明文档（CHANGELOG.md / 更新说明.md）至分发包根目录。
-- [ ] 更新 GitHub 工作流与 Gitea 工作流：提取 Git 提交日志或发布说明，并在 softprops/action-gh-release 中自动作为 body 填充发布介绍。
-- [ ] 运行全量单元测试与工具链检查，验证打包完整性。
-- [ ] 提交代码并双重推送到 git.pcux.cn 与 github.com。
+- [✓] 需求确认：为跨平台发布包（deploy/package.mjs）与 GitHub/Gitea Release 工作流增加更新日志与发布介绍（Release Notes/CHANGELOG），自动提取本次版本修改内容并在打包产物中生成 CHANGELOG.md / 更新说明.md，同时在发布 GitHub Release 时自动填充 Release Description。
+- [✓] 改造 deploy/package.mjs：支持自动提取最新提交日志并在安装包根目录生成《更新说明.md》与《CHANGELOG.md》。
+- [✓] 更新 GitHub 工作流与 Gitea 工作流：构建步骤增加 Generate Release Notes，并在 softprops/action-gh-release 中自动绑定 body_path，作为 Release 发布介绍完整展示。
+- [✓] 运行全量单元测试与工具链检查，357 项测试全绿通过，文件换行与编码规范合规。
+- [✓] 提交代码并双重推送到 git.pcux.cn 与 github.com，并同步更新 v1.52.1 标签。

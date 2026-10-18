@@ -68,6 +68,17 @@ for (const target of targets) {
   fs.mkdirSync(webDir, { recursive: true });
   fs.cpSync(frontendDist, webDir, { recursive: true });
 
+  // Generate & Copy Release Notes / 更新说明.md
+  let releaseNotes = '';
+  try {
+    const logOutput = execFileSync('git', ['log', '-n', '10', '--pretty=format:- %s (%h)'], { encoding: 'utf8' }).trim();
+    releaseNotes = '# Scert ' + versionArg + ' 版本更新说明\n\n发布日期: ' + new Date().toISOString().slice(0, 10) + '\n\n### 本次版本主要修改与优化内容：\n\n' + logOutput + '\n';
+  } catch {
+    releaseNotes = '# Scert ' + versionArg + ' 版本更新说明\n\n- 自动化打包构建产物，支持全平台服务部署与运维。\n';
+  }
+  fs.writeFileSync(path.join(stageDir, '更新说明.md'), releaseNotes, 'utf8');
+  fs.writeFileSync(path.join(stageDir, 'CHANGELOG.md'), releaseNotes, 'utf8');
+
   // Copy Deploy configurations
   if (fs.existsSync(path.join(deployDir, "README.md"))) {
     fs.copyFileSync(path.join(deployDir, "README.md"), path.join(stageDir, "部署说明.md"));

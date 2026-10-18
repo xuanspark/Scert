@@ -65,6 +65,14 @@ jobs:
           node deploy/package.mjs --target=${{ matrix.goos }}_${{ matrix.goarch }} --version=${{ env.VERSION }}
           echo "PACKAGE_FILE=Scert_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.${{ matrix.archive_ext }}" >> $GITHUB_ENV
 
+      - name: Generate Release Notes
+        run: |
+          echo "# Scert Release ${{ env.VERSION }}" > release_notes.md
+          echo "" >> release_notes.md
+          echo "### 本次版本主要修改与优化内容：" >> release_notes.md
+          git log -n 10 --pretty=format:"- %s (%h)" >> release_notes.md
+          echo "" >> release_notes.md
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
