@@ -1,3 +1,14 @@
+## 2026年10月18日 遵循发件人原样配置不篡改发信地址及v1.52.3发布部署
+
+- [✓] 复审通过：移除强制重写发信人邮箱为 notification+system@域名 的逻辑，遵循用户原样配置；用户配置了 SenderEmail 则直接使用用户配置，未配置时使用去除 notify: 前缀的真实账号。
+- [✓] 复审通过：发信人名称优先使用用户配置的 SenderName，未配置时回退至系统名称 Scert。
+- [✓] 复审通过：后端单元测试全量 PASS（internal/config、internal/notification、internal/bootstrap 全部通过）。
+- [✓] 复审通过：前端自动化单元测试 357 项全部全绿通过（357 pass, 0 fail）。
+- [✓] 复审通过：依据 AGENTS.md 规则递增版本号至 v1.52.3，并执行 deploy/package.mjs 编译打包。
+- [✓] 复审通过：第一台生产测试服务器（8.137.23.95）完成平滑升级至 v1.52.3，验证 scert version 输出为 Scert 1.52.3，Scert.service 运行正常 (active running)，健康检查 /readyz 返回 HTTP 200。
+- [✓] 复审通过：第一台服务器部署完成后清理 /tmp 升级临时目录与安装包，第二台服务器（47.108.78.12）复核无本项目残留，磁盘剩余 23GB。
+- [✓] 复审通过：代码已规范双重推送至 git.pcux.cn 与 github.com，并打标推送 v1.52.3。
+
 ## 2026年10月18日 发布包目录架构重构与deploy部署运维套件标准化
 
 - [✓] 需求确认：统一所有版本的发布包打包架构与包内目录结构，参考标准规范结构（根目录为 scert/，包含 config/、data/、log/、ssl/、web/、scert、scert-admin、scert-nginx、scert-storage、部署说明.md、更新说明.md、CHANGELOG.md 以及完整的 deploy/ 部署与运维套件）。
