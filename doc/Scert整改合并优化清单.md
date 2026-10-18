@@ -1,3 +1,13 @@
+## 2026年10月19日 测试根证书注入支持HTTPS回环校验与v1.52.5升级发布
+
+- [✓] 复审通过：在 certificate.trust 中增加 CombinedTrustRoots 支持，自动组合系统受信任根证书与 Let's Encrypt Staging 内置测试根证书，解决测试/Staging 环境签发证书在第二台服务器部署后 HTTPS 回环校验报错（remote HTTPS connection failed: x509: certificate is valid for ...）及遗留部署锁问题。
+- [✓] 复审通过：在 app.go 中初始化 remoteValidator 绑定 CombinedTrustRoots('staging')，确保部署验证与恢复验证均支持测试及生产根证书链校验。
+- [✓] 复审通过：恢复 backend/internal/dnsprovider/aliyun_scope.go 中受保护域名 pcux.cn 配置。
+- [✓] 复审通过：依据 AGENTS.md 规则递增版本号至 v1.52.5（同步更新 version.go、package.json、package-lock.json、DashboardNavigation.vue、UserWorkspace.test.js、README.md）。
+- [✓] 复审通过：运行 Go 后端全量测试与前端 357 项单元测试全部全绿通过（357 pass, 0 fail）。
+- [✓] 复审通过：打包生成 out/Scert_v1.52.5_linux_amd64.tar.gz 并平滑升级至第一台生产服务器（8.137.23.95），验证 /readyz 返回 HTTP 200，scert version 输出为 Scert 1.52.5。
+- [✓] 复审通过：复核第二台服务器（47.108.78.12）目标目录纯净无锁，确认无本项目部署包或临时文件残留，磁盘剩余 23GB。
+
 ## 2026年10月19日 邮件通知域名解析优化与生产巡检及会话复核（v1.52.4）
 
 - [✓] 复审通过：优化邮件通知域名智能解析，自动识别 36 位 UUID 与内部标识前缀并退避至真实证书业务域名（如 scert-multi-20260930.apmmk.cn），杜绝无意义内部标识展示给用户。

@@ -128,7 +128,8 @@ func NewWithConfigPath(ctx context.Context, cfg config.Config, configPath string
 	taskRepo := repository.NewSQLTaskRepository(db.DB, runtimeDatabaseConfig.Driver)
 	transactionRepo := repository.NewSQLDeploymentTransactionRepository(db.DB, runtimeDatabaseConfig.Driver)
 	deploymentService := deployment.NewServiceWithJournal(deployment.SSHFactory{Secrets: secretStore}, transactionRepo)
-	remoteValidator := certificate.RemoteValidator{}
+	trustRoots, _ := certificate.CombinedTrustRoots("staging")
+	remoteValidator := certificate.RemoteValidator{Roots: trustRoots}
 	deploymentService.VerifyRecoveryTarget = func(ctx context.Context, server deployment.Server, baseline deployment.RecoveryBaseline, committed bool) error {
 		expected := baseline.PreviousFingerprint
 		if committed {

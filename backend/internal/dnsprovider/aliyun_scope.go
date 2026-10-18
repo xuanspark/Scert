@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	protectedAliyunDomain       = "disabled-protected.invalid"
+	protectedAliyunDomain       = "pcux.cn"
 	aliyunZoneResolutionTimeout = 2 * time.Second
 )
 

@@ -35,6 +35,31 @@ func acmeTrustRoots(environment string) (*x509.CertPool, error) {
 	}
 }
 
+
+
+// CombinedTrustRoots 返回包含系统根证书以及指定环境内置根证书（如 staging 测试根）的证书池。
+// 用于验证公网生产证书与测试环境签发的证书。
+func CombinedTrustRoots(environment string) (*x509.CertPool, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	env := strings.ToLower(strings.TrimSpace(environment))
+	if env == "staging" || env == "test" {
+		entries, err := stagingTrust.ReadDir("trust")
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			data, err := stagingTrust.ReadFile("trust/" + entry.Name())
+			if err == nil {
+				pool.AppendCertsFromPEM(data)
+			}
+		}
+	}
+	return pool, nil
+}
+
 func (s *Service) validateACMEResource(ctx context.Context, resource Resource, domains []string, environment string) error {
 	roots, err := acmeTrustRoots(environment)
 	if err != nil {

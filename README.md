@@ -143,11 +143,11 @@ go build -trimpath -o ../bin/scert-admin ./cmd/scert-admin
 项目配备统一的打包脚本 `deploy/package.mjs`，产物严格遵循 **`项目名+版本+架构`** 的命名规范：
 
 ```bash
-# 打包 Linux amd64 归档包 (生成 Scert_v1.52.4_linux_amd64.tar.gz)
-node deploy/package.mjs --target=linux_amd64 --version=v1.52.4
+# 打包 Linux amd64 归档包 (生成 Scert_v1.52.5_linux_amd64.tar.gz)
+node deploy/package.mjs --target=linux_amd64 --version=v1.52.5
 
-# 打包 Windows amd64 压缩包 (生成 Scert_v1.52.4_windows_amd64.zip)
-node deploy/package.mjs --target=windows_amd64 --version=v1.52.4
+# 打包 Windows amd64 压缩包 (生成 Scert_v1.52.5_windows_amd64.zip)
+node deploy/package.mjs --target=windows_amd64 --version=v1.52.5
 ```
 
 发布包内包含：
@@ -157,7 +157,7 @@ node deploy/package.mjs --target=windows_amd64 --version=v1.52.4
 - `systemd/` 与 `nginx/` 配置示例模板
 - `SHA256SUMS` 完整性校验文件
 
-推送版本标签（例如 `git tag v1.52.4 && git push Scert v1.52.4`）后，GitHub 与 Gitea 会自动触发 Actions 矩阵编译，生成各架构的发布包并自动挂载至 Release 资产清单中。
+推送版本标签（例如 `git tag v1.52.5 && git push Scert v1.52.5`）后，GitHub 与 Gitea 会自动触发 Actions 矩阵编译，生成各架构的发布包并自动挂载至 Release 资产清单中。
 
 ---
 
@@ -167,8 +167,8 @@ node deploy/package.mjs --target=windows_amd64 --version=v1.52.4
 
 1. 从 Release 页面下载对应架构的发布包并解压：
    ```bash
-   tar -zxvf Scert_v1.52.4_linux_amd64.tar.gz
-   cd Scert_v1.52.4_linux_amd64
+   tar -zxvf Scert_v1.52.5_linux_amd64.tar.gz
+   cd Scert_v1.52.5_linux_amd64
    ```
 
 2. 执行安装脚本：
@@ -188,7 +188,7 @@ node deploy/package.mjs --target=windows_amd64 --version=v1.52.4
 
 ### Windows
 
-1. 解压 `Scert_v1.52.4_windows_amd64.zip`。
+1. 解压 `Scert_v1.52.5_windows_amd64.zip`。
 2. 以管理员权限启动 PowerShell 并执行：
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -SourceDirectory .
