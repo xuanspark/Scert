@@ -7,10 +7,18 @@
   gap: 2px;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding: 2px 5px;
   border-left: 1px solid #e2e8f2;
   box-sizing: border-box;
   background: #fbfcfe;
+}
+
+.dashboard-navigation::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .navigation-heading {

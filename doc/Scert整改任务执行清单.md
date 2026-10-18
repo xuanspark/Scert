@@ -3687,9 +3687,9 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 - [✓] 提交代码并双重推送到 Gitea (git.pcux.cn) 与 GitHub (github.com)。
 ## 2026年10月18日 移除主工作区内容滚动条视觉显示
 
-- [~] 需求确认：用户反馈右侧侧边栏与主工作区内容区域之间的垂直滚动条影响美观，需在保留内容正常滚动的交互前提下，隐藏/移除该滚动条的视觉轨道与滑块（包含标准 scrollbar-width 与 Webkit 滚动条隐藏适配）。
-- [ ] 调整样式：在 frontend/src/views/Dashboard/DashboardLayout.css 与 DashboardNavigation.css 中，对 .dashboard-content 与 .dashboard-navigation 移除 scrollbar-gutter 留白占位，增加 scrollbar-width: none 及 ::-webkit-scrollbar 隐藏样式。
-- [ ] 执行前端单元测试（确保 357 项测试全部全绿通过）。
-- [ ] 编译构建前端静态资源（vite build）并部署至第一台 Linux 生产服务器（8.137.23.95:/scert/web/）。
-- [ ] 通过 Chrome CDP 刷新页面复核实机 DOM 与渲染效果，验证滚动条已完全隐藏且页面展示规整。
-- [ ] 规范双重推送 Git 远程仓库。
+- [✓] 需求确认：用户反馈右侧侧边栏与主工作区内容区域之间的垂直滚动条影响美观，需在保留内容正常滚动的交互前提下，隐藏/移除该滚动条的视觉轨道与滑块（包含标准 scrollbar-width 与 Webkit 滚动条隐藏适配）。
+- [✓] 调整样式：在 frontend/src/views/Dashboard/DashboardLayout.css 与 DashboardNavigation.css 中，对 .dashboard-content 与 .dashboard-navigation 移除 scrollbar-gutter 留白占位，增加 scrollbar-width: none 及 ::-webkit-scrollbar 隐藏样式。
+- [✓] 执行前端单元测试（确保 357 项测试全部全绿通过，357 pass, 0 fail）。
+- [✓] 编译构建前端静态资源（vite build）并部署至第一台 Linux 生产服务器（8.137.23.95:/scert/web/）。
+- [✓] 通过 Chrome CDP 刷新页面复核实机 DOM 与渲染效果，验证 scrollbarWidth 为 none 且 clientWidth 等于 offsetWidth，滚动条已完全隐藏且页面展示整洁。
+- [✓] 规范双重推送 Git 远程仓库。
