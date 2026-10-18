@@ -400,7 +400,8 @@ const { activeSection, submitSettings, navigateTabs } = useSettingsModal(saveSet
               @test-mail="testMail"
             />
           <div class="modal-actions">
-            <button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
+                        <button v-if="settingsForm.notification.smtp_enabled" class="secondary-button" type="button" :disabled="mailTesting || settingsSaving" @click="testMail">{{ mailTesting ? "正在测试发信……" : "测试邮件发送" }}</button>
+<button class="secondary-button" type="button" :disabled="settingsSaving" @click="closeSettings">取消</button>
             <button class="primary-button" type="button" :disabled="settingsSaving || !mailReadyToSave" @click="submitSettings">{{ settingsSaving ? "保存中……" : "保存邮件通知" }}</button>
           </div>
           </section>
