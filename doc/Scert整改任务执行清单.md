@@ -3655,9 +3655,9 @@ P0-05 从 `[!]` 调整为 `[~]`，并未标记完成；P0-04 剩余门禁和全�
 
 ## 2026年10月18日 主工作区大容器背景框视觉优化
 
-- [~] 需求确认：为整个主工作区（.dashboard-workspace，包含左侧主内容区与右侧200px侧边栏）添加统一的大容器背景框（白底、圆角、边框与柔和外阴影），使整体页面层次分明、视觉规整。
-- [ ] 调整样式：在 frontend/src/views/Dashboard/DashboardLayout.css 中为 .dashboard-workspace 增加背景框样式，并协调 .dashboard-navigation 与 .dashboard-content 边距和圆角。
-- [ ] 执行前端单元测试（357 项），确保测试全绿通过。
-- [ ] 构建并部署至第一台 Linux 生产服务器（8.137.23.95）。
-- [ ] 刷新页面并验证视觉效果。
-- [ ] 规范双重推送 Git 远程仓库。
+- [x] 需求确认：为整个主工作区（.dashboard-workspace，包含左侧主内容区与右侧200px侧边栏）添加统一的大容器背景框（白底、圆角、边框与柔和外阴影），使整体页面层次分明、视觉规整。
+- [x] 调整样式：在 frontend/src/views/Dashboard/DashboardLayout.css 中为 .dashboard-workspace 增加背景框样式（gap: 0; border: 1px solid #e2e8f2; border-radius: 20px; background: #ffffff; box-shadow: 0 10px 30px rgba(31, 50, 87, 0.04); overflow: hidden;），并将右侧导航栏背景与左侧边框无缝融合。
+- [x] 执行前端单元测试（357 项全部通过，357 pass, 0 fail）。
+- [x] 构建最新 Vite 产物并成功部署至第一台 Linux 生产服务器（8.137.23.95:/scert/web/）。
+- [x] 刷新浏览器页面实机复核，主工作区整体大背景卡片呈现清晰规整效果。
+- [x] 规范双重推送 Git 远程仓库。
