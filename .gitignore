@@ -83,3 +83,5 @@ id_ed25519
 # 本地 Linux 构建输出，避免发布清单被未跟踪二进制标记为脏。
 /backend/scert
 /backend/scert-admin
+
+/out/
