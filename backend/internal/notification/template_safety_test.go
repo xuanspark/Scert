@@ -97,20 +97,25 @@ func TestVerifiedRecoveryDoesNotRequireManualUnlock(t *testing.T) {
 }
 
 func TestMailUsesCertificateDomainInsteadOfInternalID(t *testing.T) {
-	for _, domains := range [][]string{{" ", "example.test"}, nil} {
+	for _, tc := range []struct {
+		domain   string
+		domainID string
+		domains  []string
+		expected string
+	}{
+		{domain: "", domainID: "internal-domain-id", domains: []string{" ", "example.test"}, expected: "example.test"},
+		{domain: "", domainID: "internal-domain-id", domains: nil, expected: "未指定域名"},
+		{domain: "b6824906-fea9-4f2a-a682-3c2b1ade1ee3", domains: []string{"scert-multi-20260930.apmmk.cn"}, expected: "scert-multi-20260930.apmmk.cn"},
+	} {
 		payload, err := New(newTestConfig("http://mail.example.test"), nil).buildPayload(Event{
-			Status: "success", DomainID: "internal-domain-id", Domains: domains,
+			Status: "success", Domain: tc.domain, DomainID: tc.domainID, Domains: tc.domains,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		expected := "未指定域名"
-		if len(domains) > 0 {
-			expected = "example.test"
-		}
 		for _, body := range []string{payload.Subject, payload.Text, payload.HTML} {
-			if strings.Contains(body, "internal-domain-id") || !strings.Contains(body, expected) {
-				t.Fatal("用户邮件应显示证书域名而非内部记录编号")
+			if (tc.domainID != "" && strings.Contains(body, tc.domainID)) || strings.Contains(body, "b6824906-fea9-4f2a-a682-3c2b1ade1ee3") || !strings.Contains(body, tc.expected) {
+				t.Fatalf("用户邮件应显示证书域名而非内部记录编号或UUID: %s", body)
 			}
 		}
 	}

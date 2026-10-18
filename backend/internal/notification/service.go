@@ -401,9 +401,11 @@ func (s *Service) buildPayload(event Event) (mailPayload, error) {
 	}
 	status := eventStatus(event.Status)
 	domainName := strings.TrimSpace(event.Domain)
-	if domainName == "" {
+	if domainName == "" || isLikelyInternalIdentifier(domainName) {
 		for _, domain := range event.Domains {
-			if domainName = strings.TrimSpace(domain); domainName != "" {
+			candidate := strings.TrimSpace(domain)
+			if candidate != "" && !isLikelyInternalIdentifier(candidate) {
+				domainName = candidate
 				break
 			}
 		}
@@ -518,4 +520,29 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+
+func isLikelyInternalIdentifier(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "internal-") || strings.HasPrefix(value, "domain-") || strings.HasPrefix(value, "task-") || strings.HasPrefix(value, "cert-") {
+		return true
+	}
+	if len(value) == 36 && strings.Count(value, "-") == 4 {
+		isHexUUID := true
+		for _, r := range value {
+			if r == '-' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+				continue
+			}
+			isHexUUID = false
+			break
+		}
+		if isHexUUID {
+			return true
+		}
+	}
+	return false
 }
