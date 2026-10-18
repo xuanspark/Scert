@@ -59,7 +59,7 @@ func TestCompleterStoresNotificationCredentialsWithoutPlaintext(t *testing.T) {
 		t.Fatalf("通知选项未完整保存：%+v", stored.Notification)
 	}
 	httpCredentials, err := fixture.store.Get(t.Context(), stored.Notification.HTTPCredentialRef)
-	if stored.Notification.SenderEmail != "notification+system@example.test" || stored.Notification.SenderName != "系统通知" {
+	if stored.Notification.SenderEmail != "smtp-owner@example.test" || stored.Notification.SenderName != "Scert" {
 		t.Fatal("初始化没有保存 Smail 系统通知发件人")
 	}
 	if err != nil || httpCredentials["password"] != "private-http-password" {

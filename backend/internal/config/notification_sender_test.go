@@ -4,16 +4,17 @@ import "testing"
 
 func TestNotificationSenderIdentity(t *testing.T) {
 	for _, item := range []struct {
-		name, username, sender, wantName, wantEmail string
+		name, username, senderName, senderEmail, wantName, wantEmail string
 	}{
-		{"system", "notify:scert@example.test", "", "系统通知", "notification+system@example.test"},
-		{"stale_admin", "notify:scert@example.test", "admin@other.test", "系统通知", "notification+system@example.test"},
-		{"normalized", " NOTIFY:SCERT@EXAMPLE.TEST ", "", "系统通知", "notification+system@example.test"},
-		{"smtp_compatibility", "sender@example.test", "", "Scert", "sender@example.test"},
-		{"explicit_legacy", "smtp-login", "sender@example.test", "Scert", "sender@example.test"},
+		{"system_default_name", "notify:scert@example.test", "", "", "系统通知", "scert@example.test"},
+		{"system_custom_name", "notify:scert@example.test", "Scert通知", "", "Scert通知", "scert@example.test"},
+		{"system_explicit_sender", "notify:scert@example.test", "Scert", "custom@example.test", "Scert", "custom@example.test"},
+		{"normalized", " NOTIFY:SCERT@EXAMPLE.TEST ", "", "", "系统通知", "scert@example.test"},
+		{"smtp_compatibility", "sender@example.test", "Scert", "", "Scert", "sender@example.test"},
+		{"explicit_legacy", "smtp-login", "Scert", "sender@example.test", "Scert", "sender@example.test"},
 	} {
 		t.Run(item.name, func(t *testing.T) {
-			cfg := NotificationConfig{SMTPEnabled: true, SMTPUsername: item.username, SenderName: "Scert", SenderEmail: item.sender}
+			cfg := NotificationConfig{SMTPEnabled: true, SMTPUsername: item.username, SenderName: item.senderName, SenderEmail: item.senderEmail}
 			name, email, err := cfg.SenderIdentity()
 			if err != nil || name != item.wantName || email != item.wantEmail {
 				t.Fatalf("发件身份不匹配：name=%q email=%q err=%v", name, email, err)

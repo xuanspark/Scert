@@ -286,7 +286,8 @@ func TestSmailSystemSenderUsesSameEnvelopeAndHeader(t *testing.T) {
 			host, port := server.address()
 			cfg := smtpTestConfig(host, port, "starttls")
 			cfg.SMTPUsername = "notify:scert@example.test"
-			cfg.SenderEmail = "admin@other.test"
+			cfg.SenderName = "系统通知"
+			cfg.SenderEmail = ""
 			service := New(cfg, credentialReaderStub{values: map[string]string{"password": "test-only-notification-credential"}})
 			service.smtpTLSConfig = server.clientTLSConfig
 			var err error
@@ -301,15 +302,15 @@ func TestSmailSystemSenderUsesSameEnvelopeAndHeader(t *testing.T) {
 			server.mu.Lock()
 			envelope := server.mailFrom
 			server.mu.Unlock()
-			if !strings.HasPrefix(envelope, "MAIL FROM:<notification+system@example.test>") {
+			if !strings.HasPrefix(envelope, "MAIL FROM:<scert@example.test>") {
 				t.Fatal("SMTP 信封没有使用系统通知地址")
 			}
 			message := string(server.message())
-			if !strings.Contains(message, formatSMTPAddress(address{Name: "系统通知", Email: "notification+system@example.test"})) || strings.Contains(message, "admin@other.test") {
+			if !strings.Contains(message, formatSMTPAddress(address{Name: "系统通知", Email: "scert@example.test"})) {
 				t.Fatal("邮件头没有使用固定系统通知身份，或泄漏旧管理员发件地址")
 			}
 			if security && strings.Contains(message, "receiver@example.com") {
-				t.Fatal("验证码不得发送给普通通知收件�?)
+				t.Fatal("验证码不得发送给普通通知收件人")
 			}
 		})
 	}
@@ -340,7 +341,7 @@ func TestSmailSystemNotificationUsesSMTPOnly(t *testing.T) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if len(server.messages) != 1 {
-		t.Fatalf("SMTP 系统通知数量错误�?d", len(server.messages))
+		t.Fatalf("SMTP 系统通知数量错误：%d", len(server.messages))
 	}
 }
 
@@ -449,7 +450,7 @@ func TestBuildSMTPMessageIncludesStyledHTMLAlternative(t *testing.T) {
 		"<p style=\"color:red\">HTML 通知</p>",
 	} {
 		if !strings.Contains(message, value) {
-			t.Fatalf("SMTP multipart 邮件缺少 %q�?s", value, message)
+			t.Fatalf("SMTP multipart 邮件缺少 %q：%s", value, message)
 		}
 	}
 }
