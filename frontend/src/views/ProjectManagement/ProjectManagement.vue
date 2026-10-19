@@ -27,19 +27,31 @@ const {
     <p v-if="projectError" class="project-error" role="alert">{{ projectError }}</p>
     <p v-if="lifecycleError" class="project-error" role="alert">{{ lifecycleError }}</p>
     <p v-if="lifecycleNotice" class="project-notice" role="status">{{ lifecycleNotice }}</p>
-    <form v-if="projectEditor" class="project-editor" aria-label="项目资料" @submit.prevent="saveProject">
-      <h3>{{ projectEditor.create ? "创建项目" : "编辑项目" }}</h3>
-      <label>项目名称
-        <input v-model="projectEditor.name" required maxlength="128" autocomplete="off" :disabled="savingProject" />
-      </label>
-      <label>项目说明
-        <textarea v-model="projectEditor.description" maxlength="4096" rows="2" :disabled="savingProject"></textarea>
-      </label>
-      <div class="project-actions">
-        <button class="project-primary" type="submit" :disabled="savingProject || loadingProjects || savingMember">{{ savingProject ? "正在保存……" : "保存项目" }}</button>
-        <button type="button" :disabled="savingProject" @click="cancelProjectAction">取消</button>
-      </div>
-    </form>
+    <div v-if="projectEditor" class="modal-backdrop project-modal-backdrop" @click.self="cancelProjectAction">
+      <section class="modal-card project-modal" role="dialog" aria-modal="true" :aria-label="projectEditor.create ? '创建项目' : '编辑项目'">
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">项目管理</p>
+            <h2>{{ projectEditor.create ? "创建项目" : "编辑项目" }}</h2>
+          </div>
+          <button class="close-button" type="button" aria-label="关闭" :disabled="savingProject" @click="cancelProjectAction">×</button>
+        </div>
+        <form class="project-editor" aria-label="项目资料" @submit.prevent="saveProject">
+          <label class="field">
+            <span>项目名称</span>
+            <input v-model="projectEditor.name" required maxlength="128" autocomplete="off" :disabled="savingProject" />
+          </label>
+          <label class="field">
+            <span>项目说明</span>
+            <textarea v-model="projectEditor.description" maxlength="4096" rows="3" :disabled="savingProject"></textarea>
+          </label>
+          <div class="modal-actions project-actions">
+            <button class="secondary-button" type="button" :disabled="savingProject" @click="cancelProjectAction">取消</button>
+            <button class="project-primary primary-button" type="submit" :disabled="savingProject || loadingProjects || savingMember">{{ savingProject ? "正在保存……" : "保存项目" }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
     <div v-if="pendingDeleteProject" class="project-confirm" role="alert">
       <span>确认删除项目“{{ pendingDeleteProject.name }}”（{{ pendingDeleteProject.id }}）？</span>
       <span class="project-help" tabindex="0" title="默认项目不能删除；存在域名、服务器、绑定或成员时会拒绝删除，不会自动删除关联资源。">ⓘ</span>
