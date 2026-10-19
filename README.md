@@ -97,6 +97,40 @@ Scert/
 
 ---
 
+---
+
+## 📖 核心 API 规范与接口说明
+
+Scert 遵循 RESTful 设计标准，前后端交互采用 JSON 格式，凭据与敏感字段全量脱敏入库，写操作经过严格的同源保护（Same-Origin Check）。
+
+详细接口契约、参数定义、权限约束及返回示例参见文档：[《Scert 后端接口说明文档》(doc/后端接口说明文档.md)](doc/后端接口说明文档.md)。
+
+### 主要 API 模块概览
+
+1. **系统初始化与状态就绪 (Bootstrap API)**：
+   - GET /readyz / GET /healthz：系统运行探针与服务健康度检查。
+   - GET /api/v1/setup/status：获取当前向导初始化进度及配置项状态。
+   - POST /api/v1/setup：提交并初始化超级管理员账号、数据库连接及系统配置。
+2. **认证与当前会话 (Auth & Session API)**：
+   - POST /api/v1/auth/login / POST /api/v1/auth/logout：用户登录与安全登出。
+   - GET /api/v1/user/info：获取当前登录用户基本信息、所属项目与角色权限。
+3. **用户与权限控制 (User Management API)**：
+   - 支持超级管理员对平台成员进行增删改查、状态启停（启用/禁用）及角色授权。
+4. **项目与多租户协作 (Project Management API)**：
+   - 支持项目资源隔离（项目资产独享）、成员角色（项目管理员、成员）细粒度分配。
+5. **托管域名与证书生命周期 (Domains & Certificates API)**：
+   - 域名的添加、修改、删除、泛域名/多级子域名支持。
+   - 证书自动化申请 (issue)、在线校验 (alidate)、手动导入 (import)、历史版本查看与回滚 (history/rollback)。
+6. **远程部署与目标服务器 (Servers & Deployments API)**：
+   - SSH/SFTP 目标服务器纳管、主机指纹核验与免密连接。
+   - 证书远程下发、Nginx 重载与原子回滚保护。
+7. **DNS 账户与凭据配置 (DNS Accounts API)**：
+   - 多云厂商（阿里云、腾讯云等）DNS AccessKey 统一安全存储与项目归属绑定。
+8. **异步任务与审计日志 (Tasks & Audit Logs API)**：
+   - 全局异步任务轮询、日志查看、执行明细报告与终止操作。
+9. **系统全局设置 (System Settings API)**：
+   - 全局 SMTP 邮件通知配置、邮件模板测试及证书续期轮询周期策略配置。
+
 ## 🛠️ 本地开发与构建
 
 ### 1. 环境准备
