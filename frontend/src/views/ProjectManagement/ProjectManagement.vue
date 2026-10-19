@@ -62,7 +62,8 @@ const {
       <aside class="project-directory" aria-label="可见项目">
         <div class="project-toolbar">
           <h3>我的项目</h3>
-          <label>每页
+          <label class="project-page-size-label">
+            <span>每页</span>
             <select :value="projectPageSize" :disabled="loadingProjects || savingMember" @change="changeProjectPageSize($event.target.value)">
               <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
             </select>

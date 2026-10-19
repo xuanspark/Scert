@@ -78,6 +78,9 @@
   margin-bottom: 10px;
   padding-bottom: 10px;
   border-bottom: 1px solid #edf2f7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .project-directory .project-toolbar h3 {
@@ -85,6 +88,31 @@
   font-size: 15px;
   font-weight: 700;
   color: #1e293b;
+}
+
+.project-page-size-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.project-page-size-label select {
+  box-sizing: border-box;
+  width: auto;
+  min-width: 60px;
+  height: 28px;
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #1e293b;
+  background: #ffffff;
+  cursor: pointer;
 }
 
 .project-title {
@@ -123,14 +151,16 @@
   padding-right: 2px;
 }
 
-.project-list button {
+.project-management .project-list button {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  padding: 12px 14px;
+  height: auto;
+  min-height: 44px;
+  padding: 10px 14px 10px 18px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #ffffff;
