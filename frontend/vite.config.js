@@ -9,10 +9,15 @@ export default defineConfig({
   },
   server: (() => {
     const apiTarget = process.env.SCERT_API_TARGET || 'https://127.0.0.1:5200';
+    const targetUrl = new URL(apiTarget);
     const apiProxy = {
       target: apiTarget,
-      changeOrigin: false,
+      changeOrigin: true,
       secure: false,
+      headers: {
+        Origin: targetUrl.origin,
+        'Sec-Fetch-Site': 'same-origin',
+      },
     };
 
     return {
