@@ -8,7 +8,7 @@ export default defineConfig({
     sourcemap: false,
   },
   server: (() => {
-    const apiTarget = process.env.SCERT_API_TARGET || 'http://127.0.0.1:5200';
+    const apiTarget = process.env.SCERT_API_TARGET || 'https://127.0.0.1:5200';
     const apiProxy = {
       target: apiTarget,
       changeOrigin: false,
