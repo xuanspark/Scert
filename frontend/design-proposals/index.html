@@ -1,1 +1,393 @@
-<!DOCTYPE html><html><body><h1>Scert Proposals</h1></body></html>
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Scert 首次初始化向导 - UI 设计方案选型</title>
+  <link rel="icon" type="image/png" href="/Scert.png" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+    body { background: #0b1120; color: #f1f5f9; min-height: 100vh; display: flex; flex-direction: column; }
+    header.top-nav { height: 60px; background: #0f172a; border-bottom: 1px solid #1e293b; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; position: sticky; top: 0; z-index: 100; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 16px; color: #38bdf8; }
+    .brand img { width: 32px; height: 32px; object-fit: contain; }
+    .nav-tabs { display: flex; gap: 8px; background: #1e293b; padding: 4px; border-radius: 8px; }
+    .nav-tab { padding: 6px 16px; border-radius: 6px; border: none; background: transparent; color: #94a3b8; font-size: 13px; font-weight: 500; cursor: pointer; transition: all .2s; }
+    .nav-tab.active { background: #0284c7; color: #fff; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4); }
+    .meta-badge { font-size: 12px; color: #64748b; background: #1e293b; padding: 4px 10px; border-radius: 20px; border: 1px solid #334155; }
+    
+    main.viewport { flex: 1; padding: 24px; display: flex; justify-content: center; align-items: center; }
+    .preview-frame { width: 100%; max-width: 1480px; height: 860px; background: #fff; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); overflow: hidden; display: flex; color: #0f172a; }
+    
+    /* 共享侧边栏 */
+    .access-brand { width: 280px; background: linear-gradient(175deg, #1e3a8a 0%, #1e40af 40%, #0f172a 100%); color: #fff; padding: 28px 24px; display: flex; flex-direction: column; justify-content: space-between; position: relative; }
+    .brand-top .logo { width: 72px; height: 72px; margin-bottom: 20px; filter: drop-shadow(0 8px 16px rgba(0,0,0,0.25)); }
+    .brand-top .tag { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #93c5fd; font-weight: 700; margin-bottom: 6px; }
+    .brand-top h1 { font-size: 22px; font-weight: 700; line-height: 1.35; margin-bottom: 12px; }
+    .brand-top p { font-size: 13px; color: #bfdbfe; line-height: 1.55; }
+    .brand-notice { background: rgba(255,255,255,0.08); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 14px; font-size: 12px; line-height: 1.5; color: #dbeafe; }
+    .brand-notice strong { display: block; color: #fff; margin-bottom: 4px; font-size: 12px; }
+
+    .content-area { flex: 1; display: flex; flex-direction: column; background: #f8fafc; }
+    .wizard-header { padding: 18px 28px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+    .wizard-header .title-group h2 { font-size: 20px; font-weight: 700; color: #0f172a; }
+    .wizard-header .title-group span { font-size: 12px; color: #64748b; }
+    .badge-secure { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 6px; display: flex; align-items: center; gap: 6px; }
+
+    /* 顶部进度条通用 */
+    .step-stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 12px 28px; background: #fff; border-bottom: 1px solid #f1f5f9; }
+    .step-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0; background: #f8fafc; transition: all .2s; }
+    .step-item.active { background: #f0fdf4; border-color: #86efac; }
+    .step-item.current { background: #f0f9ff; border-color: #7dd3fc; }
+    .step-circle { width: 28px; height: 28px; border-radius: 50%; background: #e2e8f0; color: #64748b; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+    .step-item.current .step-circle { background: #0284c7; color: #fff; }
+    .step-info { display: flex; flex-direction: column; }
+    .step-info strong { font-size: 12px; color: #1e293b; }
+    .step-info small { font-size: 11px; color: #64748b; }
+
+    .wizard-body { flex: 1; padding: 20px 28px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+
+    /* 方案 A: 卡片式三段层级 */
+    .deck-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+    .deck-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px dashed #f1f5f9; }
+    .deck-header .tag { width: 22px; height: 22px; border-radius: 6px; background: #e0f2fe; color: #0369a1; font-weight: 700; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+    .deck-header h3 { font-size: 14px; font-weight: 600; color: #1e293b; }
+
+    .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1.2fr 1.2fr 0.8fr; gap: 12px 18px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 4px; }
+    .form-group input, .form-group select { height: 36px; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; color: #0f172a; outline: none; transition: border-color .2s; background: #fff; }
+    .form-group input:focus, .form-group select:focus { border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12); }
+    
+    .email-combine { display: flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff; }
+    .email-combine input { border: none; border-radius: 0; flex: 1; }
+    .email-combine select { border: none; border-left: 1px solid #e2e8f0; border-radius: 0; background: #f8fafc; color: #475569; width: 120px; font-size: 12px; }
+
+    .switch-pills { display: flex; background: #f1f5f9; border-radius: 8px; padding: 2px; }
+    .switch-pill { flex: 1; height: 32px; border: none; background: transparent; font-size: 12px; font-weight: 600; color: #64748b; border-radius: 6px; cursor: pointer; }
+    .switch-pill.active { background: #fff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+
+    .db-verify-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 4px; }
+    .db-verify-left { display: flex; align-items: center; gap: 12px; flex: 1; }
+    .db-badge-verified { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; display: flex; align-items: center; gap: 6px; }
+    .btn-verify { height: 34px; padding: 0 16px; background: #0284c7; color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .2s; }
+    .btn-verify:hover { background: #0369a1; }
+
+    .reset-banner { background: #f8fafc; border-left: 3px solid #64748b; padding: 8px 12px; border-radius: 4px; font-size: 11px; color: #475569; display: flex; align-items: center; gap: 8px; }
+    .reset-banner code { font-family: monospace; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; color: #0f172a; font-weight: 600; }
+
+    .wizard-footer { padding: 14px 28px; background: #fff; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+    .wizard-footer .hint { font-size: 12px; color: #64748b; }
+    .btn-next { height: 38px; padding: 0 28px; background: #1d4ed8; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(29, 78, 216, 0.3); }
+
+    /* 方案 B: 拓扑态 */
+    .ops-split { display: grid; grid-template-columns: 1fr 340px; gap: 18px; flex: 1; }
+    .topo-panel { background: #0f172a; border-radius: 12px; padding: 18px; color: #e2e8f0; display: flex; flex-direction: column; gap: 16px; }
+    .topo-title { font-size: 13px; font-weight: 700; color: #38bdf8; letter-spacing: 0.5px; border-bottom: 1px solid #1e293b; padding-bottom: 8px; display: flex; justify-content: space-between; }
+    .topo-node { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; }
+    .topo-node-name { font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+    .topo-node-val { font-size: 13px; font-family: monospace; color: #f8fafc; font-weight: 600; }
+    .topo-arrow { text-align: center; color: #0284c7; font-size: 14px; line-height: 1; }
+    .topo-check-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #94a3b8; padding: 6px 0; border-bottom: 1px dashed #334155; }
+    .topo-check-item .status-ok { color: #34d399; font-weight: 600; }
+    .topo-check-item .status-wait { color: #f59e0b; font-weight: 600; }
+
+    /* 方案 C: 极简纯白单焦点 */
+    .minimal-container { max-width: 780px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+    .minimal-section-title { font-size: 13px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: -6px; }
+  </style>
+</head>
+<body>
+  <header class="top-nav">
+    <div class="brand">
+      <img src="/Scert.png" alt="Logo">
+      <span>Scert 首次初始化向导 - 交互与布局方案评审</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" onclick="switchTheme('deck')">方案 A：卡片分体与状态联运流 (Card-Deck Flow)</button>
+      <button class="nav-tab" onclick="switchTheme('ops')">方案 B：沉浸式专业运维仪表板 (Ops-Console Split)</button>
+      <button class="nav-tab" onclick="switchTheme('minimal')">方案 C：极简轻奢分步引导台 (Minimalist Focus)</button>
+    </div>
+    <div class="meta-badge">真实数据契约对齐：SQLite / 5200 / Aliyun DNS</div>
+  </header>
+
+  <main class="viewport">
+    <div class="preview-frame">
+      <!-- 品牌侧边栏 -->
+      <aside class="access-brand">
+        <div class="brand-top">
+          <img class="logo" src="/Scert.png" alt="Scert">
+          <div class="tag">SCERT 首次运行</div>
+          <h1>配置证书管理服务</h1>
+          <p>Scert 与 Scert-admin 共享本次配置。完成初始化后，即可通过管理页面统一管理全生命周期自动化证书。</p>
+        </div>
+        <div class="brand-notice">
+          <strong>初始化安全屏障</strong>
+          请先完成 DNS API 在线验证。提交初始化时将自动申请并校验管理页面证书。Linux 外部访问请提前放行端口。
+        </div>
+      </aside>
+
+      <!-- 右侧主体内容容器 -->
+      <section class="content-area">
+        <header class="wizard-header">
+          <div class="title-group">
+            <span id="wizard-sub">初始化向导 • 第 1 步 / 共 4 步</span>
+            <h2 id="wizard-main">超级管理员与基础配置</h2>
+          </div>
+          <div class="badge-secure">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            受保护的 HTTPS 初始化 (Strict-Same-Origin)
+          </div>
+        </header>
+
+        <!-- 步骤导航 -->
+        <nav class="step-stepper">
+          <div class="step-item current">
+            <div class="step-circle">1</div>
+            <div class="step-info">
+              <strong>超级管理员</strong>
+              <small>账号与数据库</small>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-circle">2</div>
+            <div class="step-info">
+              <strong>服务与通知</strong>
+              <small>SMTP 邮件告警</small>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-circle">3</div>
+            <div class="step-info">
+              <strong>DNS 验证</strong>
+              <small>阿里云 API 权限</small>
+            </div>
+          </div>
+          <div class="step-item">
+            <div class="step-circle">4</div>
+            <div class="step-info">
+              <strong>管理页证书</strong>
+              <small>HTTPS 访问方式</small>
+            </div>
+          </div>
+        </nav>
+
+        <!-- 方案展示容器 -->
+        <div class="wizard-body" id="theme-content">
+          <!-- 默认注入方案 A -->
+        </div>
+
+        <footer class="wizard-footer">
+          <span class="hint">请放行初始化及正式服务端口。验证凭据加密保存；完成后关闭临时入口并切换正式管理地址。</span>
+          <button class="btn-next">下一步</button>
+        </footer>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const schemeA = `
+      <div class="deck-card">
+        <div class="deck-header">
+          <div class="tag">01</div>
+          <h3>超级管理员信息（用于首次登入后台管理系统）</h3>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label>管理员用户名</label>
+            <input type="text" value="xuans" placeholder="例如 scert-admin">
+          </div>
+          <div class="form-group">
+            <label>绑定通知邮箱</label>
+            <div class="email-combine">
+              <input type="text" value="likb_blue" placeholder="邮箱名称">
+              <select>
+                <option selected>@163.com</option>
+                <option>@qq.com</option>
+                <option>@gmail.com</option>
+                <option>自定义后缀</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>超级管理员密码 (8-12位字符)</label>
+            <input type="password" value="12345678" placeholder="8-12 位字符">
+          </div>
+          <div class="form-group">
+            <label>确认管理员密码</label>
+            <input type="password" value="12345678" placeholder="再次输入密码">
+          </div>
+        </div>
+      </div>
+
+      <div class="deck-card">
+        <div class="deck-header">
+          <div class="tag">02</div>
+          <h3>管理端网络访问端点</h3>
+        </div>
+        <div class="form-grid-3">
+          <div class="form-group">
+            <label>访问定位方式</label>
+            <div class="switch-pills">
+              <button class="switch-pill">使用域名</button>
+              <button class="switch-pill active">使用公网 IP</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>公网 IP 地址 / 域名</label>
+            <input type="text" value="127.0.0.1" placeholder="例如 127.0.0.1 或 scert.domain.com">
+          </div>
+          <div class="form-group">
+            <label>Scert 主服务端口</label>
+            <input type="number" value="80" placeholder="1-65535">
+          </div>
+        </div>
+      </div>
+
+      <div class="deck-card">
+        <div class="deck-header">
+          <div class="tag">03</div>
+          <h3>数据库存储持久化配置</h3>
+        </div>
+        <div class="db-verify-box">
+          <div class="db-verify-left">
+            <div class="form-group" style="width: 280px;">
+              <label>数据库引擎类型</label>
+              <select id="db-select" onchange="handleDBChange(this.value)">
+                <option value="sqlite" selected>SQLite（本机文件嵌入，免运维推荐）</option>
+                <option value="mysql">MySQL 8.0+ (需 TLS 验证)</option>
+                <option value="postgres">PostgreSQL 14+ (需 SSL/TLS)</option>
+              </select>
+            </div>
+            <div class="db-badge-verified">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>SQLite 读写权限已在线校验通过</span>
+            </div>
+          </div>
+          <button class="btn-verify" onclick="alert('触发 POST /api/v1/bootstrap/database/test 校验通过')">重新验证数据库</button>
+        </div>
+      </div>
+
+      <div class="reset-banner">
+        <span>应急运维：</span>
+        <span>密码重置安全地址预览</span>
+        <code>https://127.0.0.1:80/reset</code>
+        <span>（仅在物理宿主机通过 CLI 临时启动 Scert-admin 时局部开启）</span>
+      </div>
+    `;
+
+    const schemeB = `
+      <div class="ops-split">
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div class="deck-card" style="padding: 16px;">
+            <div class="deck-header" style="margin-bottom: 10px;">
+              <div class="tag">SEC</div>
+              <h3>管理员凭据录入</h3>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-group"><label>管理员用户名</label><input type="text" value="xuans"></div>
+              <div class="form-group"><label>绑定邮箱</label><input type="text" value="likb_blue@163.com"></div>
+              <div class="form-group"><label>密码</label><input type="password" value="12345678"></div>
+              <div class="form-group"><label>确认密码</label><input type="password" value="12345678"></div>
+            </div>
+          </div>
+
+          <div class="deck-card" style="padding: 16px;">
+            <div class="deck-header" style="margin-bottom: 10px;">
+              <div class="tag">NET</div>
+              <h3>服务网络拓扑配置</h3>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-group"><label>定位方式</label><select><option>公网 IP (127.0.0.1)</option><option>域名解析</option></select></div>
+              <div class="form-group"><label>监听端口</label><input type="number" value="80"></div>
+            </div>
+          </div>
+
+          <div class="deck-card" style="padding: 16px;">
+            <div class="deck-header" style="margin-bottom: 10px;">
+              <div class="tag">DB</div>
+              <h3>存储引擎</h3>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: flex-end;">
+              <div class="form-group" style="flex: 1;"><label>引擎</label><select><option>SQLite (本地独立锁文件)</option><option>MySQL</option><option>PostgreSQL</option></select></div>
+              <button class="btn-verify" style="height: 36px;">执行读写打标</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 拓扑实时仪表区 -->
+        <div class="topo-panel">
+          <div class="topo-title">
+            <span>实时链路状态 (拓扑演算)</span>
+            <span style="color: #34d399;">● READY</span>
+          </div>
+          <div class="topo-node">
+            <div class="topo-node-name">INBOUND TRAFFIC</div>
+            <div class="topo-node-val">HTTP/HTTPS :80 (127.0.0.1)</div>
+          </div>
+          <div class="topo-arrow">▼ 协议隔离与拦截</div>
+          <div class="topo-node">
+            <div class="topo-node-name">SCERT CORE ENGINE</div>
+            <div class="topo-node-val">Direct TLS Termination</div>
+          </div>
+          <div class="topo-arrow">▼ 本地事务锁</div>
+          <div class="topo-node">
+            <div class="topo-node-name">STORAGE BACKEND</div>
+            <div class="topo-node-val">scert.db (WAL 模式)</div>
+          </div>
+          <div style="margin-top: auto;">
+            <div class="topo-check-item"><span>Same-Origin Header</span><span class="status-ok">PASS</span></div>
+            <div class="topo-check-item"><span>Database Token</span><span class="status-ok">VERIFIED</span></div>
+            <div class="topo-check-item"><span>DNS API Probe</span><span class="status-wait">STEP 3 PENDING</span></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const schemeC = `
+      <div class="minimal-container">
+        <div class="minimal-section-title">01 / ADMIN IDENTITY</div>
+        <div class="form-grid-2">
+          <div class="form-group"><label>用户名</label><input type="text" value="xuans"></div>
+          <div class="form-group"><label>绑定电子邮箱</label><input type="text" value="likb_blue@163.com"></div>
+          <div class="form-group"><label>设置密码</label><input type="password" value="12345678"></div>
+          <div class="form-group"><label>重复密码</label><input type="password" value="12345678"></div>
+        </div>
+
+        <div class="minimal-section-title" style="margin-top: 10px;">02 / ACCESS ENDPOINT & DATABASE</div>
+        <div class="form-grid-3">
+          <div class="form-group"><label>访问方式</label><input type="text" value="公网 IP (127.0.0.1)" readonly style="background: #f1f5f9;"></div>
+          <div class="form-group"><label>服务端口</label><input type="number" value="80"></div>
+          <div class="form-group"><label>数据库</label><select><option>SQLite 本机存储</option></select></div>
+        </div>
+
+        <div style="padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 600; font-size: 13px; color: #0f172a;">数据库就绪状态：已验证</div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 2px;">SQLite 读写测试通过，生成的初始化事务签名保持有效</div>
+          </div>
+          <button class="btn-verify" style="background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1;">重新校验</button>
+        </div>
+      </div>
+    `;
+
+    function switchTheme(theme) {
+      document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+      const container = document.getElementById('theme-content');
+      if (theme === 'deck') {
+        event.target.classList.add('active');
+        container.innerHTML = schemeA;
+      } else if (theme === 'ops') {
+        event.target.classList.add('active');
+        container.innerHTML = schemeB;
+      } else if (theme === 'minimal') {
+        event.target.classList.add('active');
+        container.innerHTML = schemeC;
+      }
+    }
+
+    // 默认展示方案 A
+    document.getElementById('theme-content').innerHTML = schemeA;
+  </script>
+</body>
+</html>
