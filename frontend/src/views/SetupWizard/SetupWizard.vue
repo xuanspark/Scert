@@ -93,28 +93,35 @@ const {
         <span class="local-badge">{{ isBootstrap ? "受保护的 HTTPS 初始化" : "仅限本机" }}</span>
       </header>
 
-      <nav class="setup-progress" aria-label="初始化步骤">
-        <span
-          class="progress-step"
-          :class="{ active: currentStep === 1, complete: currentStep > 1 }"
-          ><b>1</b><strong>管理员</strong><small>账号安全</small></span
-        >
-        <i aria-hidden="true"></i>
-        <span
-          class="progress-step"
-          :class="{ active: currentStep === 2, complete: currentStep > 2 }"
-          ><b>2</b><strong>服务通知</strong><small>邮件通知</small></span
-        >
-        <i aria-hidden="true"></i>
-        <span
-          class="progress-step"
-          :class="{ active: currentStep === 3, complete: currentStep > 3 }"
-          ><b>3</b><strong>DNS 验证</strong><small>权限测试</small></span
-        >
-        <i aria-hidden="true"></i>
-        <span class="progress-step" :class="{ active: currentStep === 4 }"
-          ><b>4</b><strong>管理页面证书</strong><small>访问方式</small></span
-        >
+      <nav class="step-stepper" aria-label="初始化步骤">
+        <div class="step-item" :class="{ current: currentStep === 1, complete: currentStep > 1 }">
+          <div class="step-circle">{{ currentStep > 1 ? '✓' : '01' }}</div>
+          <div class="step-info">
+            <strong>超级管理员</strong>
+            <small>账号 / 网络 / 存储</small>
+          </div>
+        </div>
+        <div class="step-item" :class="{ current: currentStep === 2, complete: currentStep > 2 }">
+          <div class="step-circle">{{ currentStep > 2 ? '✓' : '02' }}</div>
+          <div class="step-info">
+            <strong>服务与通知</strong>
+            <small>SMTP 告警出站通道</small>
+          </div>
+        </div>
+        <div class="step-item" :class="{ current: currentStep === 3, complete: currentStep > 3 }">
+          <div class="step-circle">{{ currentStep > 3 ? '✓' : '03' }}</div>
+          <div class="step-info">
+            <strong>DNS 验证</strong>
+            <small>DNS-01 API 授权</small>
+          </div>
+        </div>
+        <div class="step-item" :class="{ current: currentStep === 4 }">
+          <div class="step-circle">04</div>
+          <div class="step-info">
+            <strong>证书与生效</strong>
+            <small>证书目录 / 签发环境</small>
+          </div>
+        </div>
       </nav>
 
       <form
