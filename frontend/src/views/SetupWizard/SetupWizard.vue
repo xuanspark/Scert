@@ -48,7 +48,6 @@ const {
   emailAutofillElement,
   handleEmailAutofill,
   targetLabel,
-  resetURLPreview,
   selectedDNSProvider,
   dnsVerificationValid,
   formatVerificationExpiry,
@@ -296,10 +295,9 @@ const {
               :error="databaseError"
               @test="testDatabase"
             />
-            <div class="provider-description reset-preview">
-              <strong>密码重置地址预览</strong>
-              <span>{{ resetURLPreview }}</span>
-              <span>只有手动启动 Scert-admin 后，此地址才会临时可用。</span>
+            <div class="provider-description admin-reset-tip">
+              <strong>安全运维提示</strong>
+              <span>生产环境已禁用公网 /reset 地址。超级管理员密码重置仅支持在物理宿主机通过系统管理员终端运行 <code>scert.exe admin localreset</code>，在受保护的本地 IPC 域内安全重置。</span>
             </div>
           </fieldset>
 

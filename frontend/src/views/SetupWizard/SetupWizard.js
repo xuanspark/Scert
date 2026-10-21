@@ -104,18 +104,7 @@ export function useSetupWizard(props, emit) {
   const targetLabel = computed(() =>
     targetType.value === "hostname" ? "管理页面域名" : "公网 IP 地址",
   );
-  const resetURLPreview = computed(() => {
-    const rawHost =
-      targetType.value === "hostname"
-        ? form.value.web_hostname
-        : form.value.web_public_ip;
-    const host = String(rawHost || "")
-      .trim()
-      .replace(/^\[|\]$/g, "");
-    if (!host) return "完成域名或公网 IP 配置后自动生成";
-    const displayHost = host.includes(":") ? `[${host}]` : host;
-    return `https://${displayHost}/reset`;
-  });
+
   const selectedDNSProvider = computed(
     () =>
       dnsProviders.value.find(
@@ -807,7 +796,6 @@ export function useSetupWizard(props, emit) {
     emailAutofillElement,
     handleEmailAutofill,
     targetLabel,
-    resetURLPreview,
     selectedDNSProvider,
     dnsVerificationValid,
     formatVerificationExpiry,
